@@ -109,13 +109,15 @@ fn resolve_prompt(arg: Option<String>, stdin: Option<String>) -> Result<String> 
 
 /// Returns (model_id, provider) from the catalog, falling back to the first catalog model.
 fn resolve_model(model_arg: Option<String>) -> (String, Option<String>) {
-    let model_id = model_arg.unwrap_or_else(|| {
+    let raw = model_arg.unwrap_or_else(|| {
         catalog::list_models(None)
             .first()
             .map_or_else(|| "claude-sonnet-4-5".to_string(), |m| m.id.clone())
     });
-    let provider = catalog::get_model_info(&model_id).map(|info| info.provider);
-    (model_id, provider)
+    match catalog::get_model_info(&raw) {
+        Some(info) => (info.id, Some(info.provider)),
+        None => (raw, None),
+    }
 }
 
 fn apply_options(
