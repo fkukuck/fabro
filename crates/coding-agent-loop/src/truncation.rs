@@ -7,13 +7,6 @@ pub enum TruncationMode {
     Tail,
 }
 
-const TRUNCATION_WARNING_HEAD_TAIL: &str =
-    "\n\n[WARNING: Output truncated. Showing first and last portions.]";
-const TRUNCATION_WARNING_TAIL: &str =
-    "\n\n[WARNING: Output truncated. Showing last portion only.]";
-const LINE_TRUNCATION_WARNING: &str =
-    "\n\n[WARNING: Output truncated by line count. Showing first and last lines.]";
-
 fn default_char_limits() -> HashMap<&'static str, usize> {
     let mut m = HashMap::new();
     m.insert("read_file", 50_000);
@@ -22,6 +15,8 @@ fn default_char_limits() -> HashMap<&'static str, usize> {
     m.insert("glob", 20_000);
     m.insert("edit_file", 10_000);
     m.insert("write_file", 1_000);
+    m.insert("apply_patch", 10_000);
+    m.insert("spawn_agent", 30_000);
     m
 }
 
@@ -33,21 +28,40 @@ fn default_line_limits() -> HashMap<&'static str, usize> {
     m
 }
 
+fn default_truncation_modes() -> HashMap<&'static str, TruncationMode> {
+    let mut m = HashMap::new();
+    m.insert("grep", TruncationMode::Tail);
+    m.insert("glob", TruncationMode::Tail);
+    m.insert("edit_file", TruncationMode::Tail);
+    m.insert("apply_patch", TruncationMode::Tail);
+    m.insert("write_file", TruncationMode::Tail);
+    m
+}
+
 pub fn truncate_output(output: &str, max_chars: usize, mode: TruncationMode) -> String {
     if output.len() <= max_chars {
         return output.to_string();
     }
+
+    let removed = output.len() - max_chars;
 
     match mode {
         TruncationMode::HeadTail => {
             let half = max_chars / 2;
             let head = &output[..half];
             let tail = &output[output.len() - half..];
-            format!("{head}{TRUNCATION_WARNING_HEAD_TAIL}\n\n{tail}")
+            format!(
+                "{head}\n\n[WARNING: Output truncated. {removed} characters removed. \
+                 Full output available in event stream. Retry with smaller scope if needed.]\n\n{tail}"
+            )
         }
         TruncationMode::Tail => {
             let tail = &output[output.len() - max_chars..];
-            format!("{TRUNCATION_WARNING_TAIL}\n\n{tail}")
+            format!(
+                "\n\n[WARNING: Output truncated. {removed} characters removed. \
+                 Showing last portion only. Full output available in event stream. \
+                 Retry with smaller scope if needed.]\n\n{tail}"
+            )
         }
     }
 }
@@ -61,9 +75,11 @@ pub fn truncate_lines(output: &str, max_lines: usize) -> String {
     let half = max_lines / 2;
     let head: Vec<&str> = lines[..half].to_vec();
     let tail: Vec<&str> = lines[lines.len() - half..].to_vec();
+    let omitted = lines.len() - max_lines;
 
     format!(
-        "{}{LINE_TRUNCATION_WARNING}\n\n{}",
+        "{}\n\n[WARNING: Output truncated by line count. {omitted} lines omitted. \
+         Showing first and last lines.]\n\n{}",
         head.join("\n"),
         tail.join("\n")
     )
@@ -72,6 +88,13 @@ pub fn truncate_lines(output: &str, max_lines: usize) -> String {
 pub fn truncate_tool_output(output: &str, tool_name: &str, config: &SessionConfig) -> String {
     let builtin_char_limits = default_char_limits();
     let builtin_line_limits = default_line_limits();
+    let builtin_modes = default_truncation_modes();
+
+    // Determine truncation mode for this tool (default HeadTail)
+    let mode = builtin_modes
+        .get(tool_name)
+        .copied()
+        .unwrap_or(TruncationMode::HeadTail);
 
     // Char truncation first
     let char_limit = config
@@ -81,7 +104,7 @@ pub fn truncate_tool_output(output: &str, tool_name: &str, config: &SessionConfi
         .or_else(|| builtin_char_limits.get(tool_name).copied());
 
     let after_chars = match char_limit {
-        Some(limit) => truncate_output(output, limit, TruncationMode::HeadTail),
+        Some(limit) => truncate_output(output, limit, mode),
         None => output.to_string(),
     };
 
@@ -121,14 +144,16 @@ mod tests {
         let output = "a".repeat(100);
         let result = truncate_output(&output, 40, TruncationMode::HeadTail);
         assert!(result.contains(&"a".repeat(20)));
-        assert!(result.contains(TRUNCATION_WARNING_HEAD_TAIL));
+        assert!(result.contains("Output truncated"));
+        assert!(result.contains("60 characters removed"));
     }
 
     #[test]
     fn tail_mode() {
         let output = format!("{}BBB", "A".repeat(100));
         let result = truncate_output(&output, 10, TruncationMode::Tail);
-        assert!(result.contains(TRUNCATION_WARNING_TAIL));
+        assert!(result.contains("Output truncated"));
+        assert!(result.contains("Showing last portion only"));
         assert!(result.ends_with("AAAAAAABBB"));
     }
 
@@ -141,7 +166,7 @@ mod tests {
         assert!(result.contains("line 3"));
         assert!(result.contains("line 18"));
         assert!(result.contains("line 20"));
-        assert!(result.contains(LINE_TRUNCATION_WARNING));
+        assert!(result.contains("14 lines omitted"));
     }
 
     #[test]
@@ -164,7 +189,7 @@ mod tests {
             .insert("my_tool".into(), 50);
         let result = truncate_tool_output(&output, "my_tool", &config);
         assert!(result.len() < output.len());
-        assert!(result.contains(TRUNCATION_WARNING_HEAD_TAIL));
+        assert!(result.contains("Output truncated"));
     }
 
     #[test]
@@ -174,7 +199,7 @@ mod tests {
         let mut config = SessionConfig::default();
         config.tool_line_limits.insert("my_tool".into(), 10);
         let result = truncate_tool_output(&output, "my_tool", &config);
-        assert!(result.contains(LINE_TRUNCATION_WARNING));
+        assert!(result.contains("lines omitted"));
     }
 
     #[test]

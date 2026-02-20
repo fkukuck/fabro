@@ -12,7 +12,7 @@ pub async fn discover_project_docs(
 
     let candidate_filenames: Vec<&str> = match provider_id {
         "anthropic" => vec!["AGENTS.md", "CLAUDE.md"],
-        "openai" => vec!["AGENTS.md", ".github/copilot-instructions.md"],
+        "openai" => vec!["AGENTS.md", ".codex/instructions.md"],
         "gemini" => vec!["AGENTS.md", "GEMINI.md"],
         _ => vec!["AGENTS.md"],
     };
@@ -70,7 +70,7 @@ fn build_directory_walk(git_root: &str, working_dir: &str) -> Vec<String> {
 }
 
 fn truncate_to_budget(content: &str, budget: usize) -> String {
-    const MARKER: &str = "... [truncated]";
+    const MARKER: &str = "[Project instructions truncated at 32KB]";
     if budget <= MARKER.len() {
         return MARKER[..budget].to_string();
     }
@@ -112,7 +112,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -160,7 +160,7 @@ mod tests {
         files.insert("/repo/AGENTS.md".into(), "agents".into());
         files.insert("/repo/CLAUDE.md".into(), "claude".into());
         files.insert(
-            "/repo/.github/copilot-instructions.md".into(),
+            "/repo/.codex/instructions.md".into(),
             "copilot".into(),
         );
         files.insert("/repo/GEMINI.md".into(), "gemini".into());
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(docs.len(), 2);
         assert_eq!(docs[0], large_content);
         // Second doc should be truncated to fit remaining budget
-        assert!(docs[1].ends_with("... [truncated]"));
+        assert!(docs[1].ends_with("[Project instructions truncated at 32KB]"));
         assert!(docs[0].len() + docs[1].len() <= BUDGET_BYTES);
     }
 

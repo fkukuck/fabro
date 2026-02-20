@@ -71,11 +71,23 @@ fn is_repeating_pattern(signatures: &[u64], pattern_len: usize) -> bool {
 
     let pattern = &signatures[signatures.len() - pattern_len..];
 
-    // Check that the preceding chunk matches
-    let preceding_start = signatures.len() - pattern_len * 2;
-    let preceding = &signatures[preceding_start..preceding_start + pattern_len];
+    // Check ALL preceding groups in window match, not just the last 2
+    let num_groups = signatures.len() / pattern_len;
+    if num_groups < 2 {
+        return false;
+    }
 
-    pattern == preceding
+    // Walk backwards through all complete groups
+    let groups_start = signatures.len() - (num_groups * pattern_len);
+    for group_idx in 0..num_groups - 1 {
+        let start = groups_start + group_idx * pattern_len;
+        let group = &signatures[start..start + pattern_len];
+        if group != pattern {
+            return false;
+        }
+    }
+
+    true
 }
 
 #[cfg(test)]

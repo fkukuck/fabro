@@ -1,3 +1,4 @@
+use crate::config::SessionConfig;
 use crate::execution_env::GrepOptions;
 use crate::tool_registry::RegisteredTool;
 use std::fmt::Write;
@@ -15,7 +16,7 @@ pub fn make_read_file_tool() -> RegisteredTool {
                 "properties": {
                     "file_path": {"type": "string", "description": "Absolute path to the file"},
                     "offset": {"type": "integer", "description": "1-based line number to start reading from"},
-                    "limit": {"type": "integer", "description": "Number of lines to read"}
+                    "limit": {"type": "integer", "description": "Number of lines to read (default 2000)"}
                 },
                 "required": ["file_path"]
             }),
@@ -30,19 +31,19 @@ pub fn make_read_file_tool() -> RegisteredTool {
 
                 let content = env.read_file(file_path).await?;
 
-                if offset.is_none() && limit.is_none() {
-                    return Ok(content);
-                }
+                // Default limit of 2000 lines when no limit param provided
+                let effective_limit = limit.unwrap_or(2000);
 
                 #[allow(clippy::cast_possible_truncation)]
-                let offset = offset.unwrap_or(1) as usize;
+                let offset_val = offset.unwrap_or(1) as usize;
                 let lines: Vec<&str> = content.lines().collect();
-                let start = if offset > 0 { offset - 1 } else { 0 };
+                let start = if offset_val > 0 { offset_val - 1 } else { 0 };
                 #[allow(clippy::cast_possible_truncation)]
-                let selected: Vec<&str> = match limit {
-                    Some(lim) => lines.into_iter().skip(start).take(lim as usize).collect(),
-                    None => lines.into_iter().skip(start).collect(),
-                };
+                let selected: Vec<&str> = lines
+                    .into_iter()
+                    .skip(start)
+                    .take(effective_limit as usize)
+                    .collect();
                 Ok(selected.join("\n"))
             })
         }),
@@ -150,6 +151,13 @@ pub fn make_edit_file_tool() -> RegisteredTool {
 
 #[must_use]
 pub fn make_shell_tool() -> RegisteredTool {
+    make_shell_tool_with_config(&SessionConfig::default())
+}
+
+#[must_use]
+pub fn make_shell_tool_with_config(config: &SessionConfig) -> RegisteredTool {
+    let default_timeout = config.default_command_timeout_ms;
+    let max_timeout = config.max_command_timeout_ms;
     RegisteredTool {
         definition: ToolDefinition {
             name: "shell".into(),
@@ -158,12 +166,13 @@ pub fn make_shell_tool() -> RegisteredTool {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "The shell command to execute"},
-                    "timeout_ms": {"type": "integer", "description": "Timeout in milliseconds (default 10000)"}
+                    "timeout_ms": {"type": "integer", "description": "Timeout in milliseconds"},
+                    "description": {"type": "string", "description": "Description of what this command does"}
                 },
                 "required": ["command"]
             }),
         },
-        executor: Arc::new(|args, env| {
+        executor: Arc::new(move |args, env| {
             Box::pin(async move {
                 let command = args["command"]
                     .as_str()
@@ -171,13 +180,16 @@ pub fn make_shell_tool() -> RegisteredTool {
                 let timeout_ms = args
                     .get("timeout_ms")
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(10000);
+                    .unwrap_or(default_timeout)
+                    .min(max_timeout);
 
                 let result = env
                     .exec_command(
                         "/bin/bash",
                         &["-c".into(), command.into()],
                         timeout_ms,
+                        None,
+                        None,
                     )
                     .await?;
 
@@ -256,7 +268,8 @@ pub fn make_glob_tool() -> RegisteredTool {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "pattern": {"type": "string", "description": "Glob pattern to match files"}
+                    "pattern": {"type": "string", "description": "Glob pattern to match files"},
+                    "path": {"type": "string", "description": "Directory to search in (default: working directory)"}
                 },
                 "required": ["pattern"]
             }),
@@ -266,8 +279,16 @@ pub fn make_glob_tool() -> RegisteredTool {
                 let pattern = args["pattern"]
                     .as_str()
                     .ok_or_else(|| "pattern is required".to_string())?;
+                let path = args
+                    .get("path")
+                    .and_then(serde_json::Value::as_str);
 
-                let results = env.glob(pattern).await?;
+                let full_pattern = match path {
+                    Some(dir) => format!("{dir}/{pattern}"),
+                    None => pattern.to_string(),
+                };
+
+                let results = env.glob(&full_pattern).await?;
                 Ok(results.join("\n"))
             })
         }),
@@ -299,7 +320,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -350,7 +371,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -402,7 +423,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -452,7 +473,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(self.result.clone())
         }
         async fn grep(&self, _: &str, _: &str, _: &GrepOptions) -> Result<Vec<String>, String> {
@@ -501,6 +522,8 @@ mod tests {
             _: &str,
             _: &[String],
             timeout_ms: u64,
+            _: Option<&str>,
+            _: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             *self.captured_timeout.lock().unwrap() = Some(timeout_ms);
             Ok(ExecResult {
@@ -552,7 +575,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -602,7 +625,7 @@ mod tests {
         async fn list_directory(&self, _: &str) -> Result<Vec<DirEntry>, String> {
             Ok(vec![])
         }
-        async fn exec_command(&self, _: &str, _: &[String], _: u64) -> Result<ExecResult, String> {
+        async fn exec_command(&self, _: &str, _: &[String], _: u64, _: Option<&str>, _: Option<&std::collections::HashMap<String, String>>) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),

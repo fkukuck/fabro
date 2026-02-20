@@ -3,6 +3,7 @@ use crate::error::AgentError;
 use crate::event::EventEmitter;
 use crate::history::History;
 use crate::loop_detection::detect_loop;
+use crate::project_docs::discover_project_docs;
 use crate::provider_profile::ProviderProfile;
 use crate::truncation::truncate_tool_output;
 use crate::types::{EventKind, SessionEvent, SessionState, Turn};
@@ -28,6 +29,7 @@ pub struct Session {
     steering_queue: Arc<Mutex<VecDeque<String>>>,
     followup_queue: Arc<Mutex<VecDeque<String>>>,
     abort_flag: Arc<AtomicBool>,
+    project_docs: Vec<String>,
 }
 
 impl Session {
@@ -50,6 +52,20 @@ impl Session {
             steering_queue: Arc::new(Mutex::new(VecDeque::new())),
             followup_queue: Arc::new(Mutex::new(VecDeque::new())),
             abort_flag: Arc::new(AtomicBool::new(false)),
+            project_docs: Vec::new(),
+        }
+    }
+
+    /// Initialize session by discovering project docs. Call before `process_input`.
+    pub async fn initialize(&mut self) {
+        if let Some(ref git_root) = self.config.git_root {
+            self.project_docs = discover_project_docs(
+                self.execution_env.as_ref(),
+                git_root,
+                self.execution_env.working_directory(),
+                &self.provider_profile.id(),
+            )
+            .await;
         }
     }
 
@@ -96,6 +112,12 @@ impl Session {
     }
 
     pub async fn process_input(&mut self, input: &str) -> Result<(), AgentError> {
+        self.event_emitter.emit(
+            EventKind::SessionStart,
+            self.id.clone(),
+            HashMap::new(),
+        );
+
         // Use a queue to avoid recursive async calls for followups
         let mut current_input = input.to_string();
 
@@ -182,6 +204,16 @@ impl Session {
             let response = match self.llm_client.complete(&request).await {
                 Ok(resp) => resp,
                 Err(err) => {
+                    let mut error_data = HashMap::new();
+                    error_data.insert(
+                        "error".to_string(),
+                        serde_json::json!(err.to_string()),
+                    );
+                    self.event_emitter.emit(
+                        EventKind::Error,
+                        self.id.clone(),
+                        error_data,
+                    );
                     if is_auth_error(&err) {
                         self.state = SessionState::Closed;
                     }
@@ -264,13 +296,18 @@ impl Session {
                 content: msg,
                 timestamp: SystemTime::now(),
             });
+            self.event_emitter.emit(
+                EventKind::SteeringInjected,
+                self.id.clone(),
+                HashMap::new(),
+            );
         }
     }
 
     fn build_request(&self) -> Request {
         let system_prompt = self
             .provider_profile
-            .build_system_prompt(self.execution_env.as_ref(), &[]);
+            .build_system_prompt(self.execution_env.as_ref(), &self.project_docs);
         let mut messages = vec![Message::system(system_prompt)];
         messages.extend(self.history.convert_to_messages());
 
@@ -518,7 +555,7 @@ impl Session {
     fn estimate_token_count(&self) -> usize {
         let system_prompt = self
             .provider_profile
-            .build_system_prompt(self.execution_env.as_ref(), &[]);
+            .build_system_prompt(self.execution_env.as_ref(), &self.project_docs);
         let mut total_chars = system_prompt.len();
 
         for turn in self.history.turns() {
@@ -710,6 +747,8 @@ mod tests {
             _command: &str,
             _args: &[String],
             _timeout_ms: u64,
+            _working_dir: Option<&str>,
+            _env_vars: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: "mock output".into(),
@@ -783,6 +822,10 @@ mod tests {
 
         fn tool_registry(&self) -> &ToolRegistry {
             &self.registry
+        }
+
+        fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+            &mut self.registry
         }
 
         fn build_system_prompt(
@@ -1338,6 +1381,10 @@ mod tests {
 
         fn tool_registry(&self) -> &ToolRegistry {
             &self.registry
+        }
+
+        fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+            &mut self.registry
         }
 
         fn build_system_prompt(

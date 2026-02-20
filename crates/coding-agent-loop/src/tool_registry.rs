@@ -187,6 +187,8 @@ mod tests {
                 _: &str,
                 _: &[String],
                 _: u64,
+                _: Option<&str>,
+                _: Option<&std::collections::HashMap<String, String>>,
             ) -> Result<ExecResult, String> {
                 Ok(ExecResult {
                     stdout: String::new(),

@@ -73,7 +73,7 @@ impl History {
                 }
                 Turn::System { content, .. } => Message::system(content),
                 Turn::Steering { content, .. } => Message {
-                    role: Role::Developer,
+                    role: Role::User,
                     content: vec![ContentPart::text(content)],
                     name: None,
                     tool_call_id: None,
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn steering_turn_maps_to_developer_message() {
+    fn steering_turn_maps_to_user_message() {
         let mut history = History::new();
         history.push(Turn::Steering {
             content: "Focus on the main task".into(),
@@ -210,7 +210,7 @@ mod tests {
         });
         let messages = history.convert_to_messages();
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].role, Role::Developer);
+        assert_eq!(messages[0].role, Role::User);
         assert_eq!(messages[0].text(), "Focus on the main task");
     }
 

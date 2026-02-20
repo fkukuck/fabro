@@ -9,10 +9,17 @@ use unified_llm::types::ToolDefinition;
 
 pub type SessionFactory = Arc<dyn Fn() -> Session + Send + Sync>;
 
+#[derive(Debug, Clone)]
+pub struct SubAgentResult {
+    pub output: String,
+    pub success: bool,
+    pub turns_used: usize,
+}
+
 pub struct SubAgent {
     id: String,
     depth: usize,
-    task: Option<tokio::task::JoinHandle<Result<String, AgentError>>>,
+    task: Option<tokio::task::JoinHandle<Result<SubAgentResult, AgentError>>>,
     followup_queue: Arc<Mutex<VecDeque<String>>>,
     abort_flag: Arc<AtomicBool>,
 }
@@ -58,8 +65,9 @@ impl SubAgentManager {
         let abort_flag = session.abort_flag_handle();
 
         let task = tokio::spawn(async move {
-            session.process_input(&task_prompt).await?;
+            let result = session.process_input(&task_prompt).await;
             let turns = session.history().turns();
+            let turns_used = turns.len();
             let last_text = turns.iter().rev().find_map(|t| {
                 if let Turn::Assistant { content, .. } = t {
                     Some(content.clone())
@@ -67,7 +75,15 @@ impl SubAgentManager {
                     None
                 }
             });
-            Ok(last_text.unwrap_or_default())
+            let success = result.is_ok();
+            if let Err(e) = result {
+                return Err(e);
+            }
+            Ok(SubAgentResult {
+                output: last_text.unwrap_or_default(),
+                success,
+                turns_used,
+            })
         });
 
         self.agents.insert(
@@ -99,7 +115,7 @@ impl SubAgentManager {
         Ok(())
     }
 
-    pub async fn wait(&mut self, agent_id: &str) -> Result<String, String> {
+    pub async fn wait(&mut self, agent_id: &str) -> Result<SubAgentResult, String> {
         let mut agent = self
             .agents
             .remove(agent_id)
@@ -149,6 +165,18 @@ pub fn make_spawn_agent_tool(
                     "task": {
                         "type": "string",
                         "description": "The task description for the subagent"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Working directory for the subagent"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model to use for the subagent"
+                    },
+                    "max_turns": {
+                        "type": "integer",
+                        "description": "Maximum number of turns for the subagent"
                     }
                 },
                 "required": ["task"]
@@ -240,7 +268,11 @@ pub fn make_wait_tool(
                     .ok_or_else(|| "Missing required parameter: agent_id".to_string())?;
 
                 let mut mgr = manager.lock().await;
-                mgr.wait(agent_id).await
+                let result = mgr.wait(agent_id).await?;
+                Ok(format!(
+                    "Agent completed (success: {}, turns: {})\n\n{}",
+                    result.success, result.turns_used, result.output
+                ))
             })
         }),
     }
@@ -361,6 +393,8 @@ mod tests {
             _command: &str,
             _args: &[String],
             _timeout_ms: u64,
+            _working_dir: Option<&str>,
+            _env_vars: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: "mock output".into(),
@@ -421,6 +455,9 @@ mod tests {
         }
         fn tool_registry(&self) -> &ToolRegistry {
             &self.registry
+        }
+        fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+            &mut self.registry
         }
         fn build_system_prompt(
             &self,
@@ -551,7 +588,10 @@ mod tests {
 
         let result = manager.wait(&agent_id).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "Task completed successfully");
+        let agent_result = result.unwrap();
+        assert_eq!(agent_result.output, "Task completed successfully");
+        assert!(agent_result.success);
+        assert!(agent_result.turns_used > 0);
         assert!(manager.get(&agent_id).is_none());
     }
 

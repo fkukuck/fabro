@@ -109,16 +109,29 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
         command: &str,
         args: &[String],
         timeout_ms: u64,
+        working_dir: Option<&str>,
+        env_vars: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<ExecResult, String> {
         let start = Instant::now();
 
-        let filtered_env: Vec<(String, String)> = std::env::vars()
+        let mut filtered_env: Vec<(String, String)> = std::env::vars()
             .filter(|(key, _)| !Self::should_filter_env_var(key))
             .collect();
 
+        if let Some(extra) = env_vars {
+            for (k, v) in extra {
+                filtered_env.push((k.clone(), v.clone()));
+            }
+        }
+
+        let effective_dir = working_dir.map_or_else(
+            || self.working_directory.clone(),
+            std::path::PathBuf::from,
+        );
+
         let mut cmd = Command::new(command);
         cmd.args(args)
-            .current_dir(&self.working_directory)
+            .current_dir(&effective_dir)
             .env_clear()
             .envs(filtered_env)
             .stdout(std::process::Stdio::piped())
@@ -136,8 +149,33 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
                     status_result.map_err(|e| format!("Failed to wait for process: {e}"))?;
                 (false, status.code().unwrap_or(-1))
             } else {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
+                // SIGTERM first, then SIGKILL after 2 seconds
+                #[cfg(unix)]
+                if let Some(pid) = child.id() {
+                    #[allow(clippy::cast_possible_wrap)]
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGTERM);
+                    }
+                    // Wait 2 seconds for graceful shutdown
+                    if tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        child.wait(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
+                    }
+                } else {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                }
                 (true, -1)
             };
 
@@ -209,7 +247,19 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
             .map_err(|e| format!("Failed to run glob: {e}"))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let results: Vec<String> = stdout.lines().map(String::from).filter(|l| !l.is_empty()).collect();
+        let mut results: Vec<String> = stdout.lines().map(String::from).filter(|l| !l.is_empty()).collect();
+
+        // Sort by mtime (newest first)
+        results.sort_by(|a, b| {
+            let mtime_a = std::fs::metadata(a)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let mtime_b = std::fs::metadata(b)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            mtime_b.cmp(&mtime_a)
+        });
+
         Ok(results)
     }
 
@@ -361,7 +411,7 @@ mod tests {
         let dir = temp_dir();
         let env = LocalExecutionEnvironment::new(dir.clone());
         let result = env
-            .exec_command("echo", &["hello".into()], 5000)
+            .exec_command("echo", &["hello".into()], 5000, None, None)
             .await
             .unwrap();
 
@@ -377,7 +427,7 @@ mod tests {
         let dir = temp_dir();
         let env = LocalExecutionEnvironment::new(dir.clone());
         let result = env
-            .exec_command("sh", &["-c".into(), "exit 42".into()], 5000)
+            .exec_command("sh", &["-c".into(), "exit 42".into()], 5000, None, None)
             .await
             .unwrap();
 
@@ -391,7 +441,7 @@ mod tests {
         let dir = temp_dir();
         let env = LocalExecutionEnvironment::new(dir.clone());
         let result = env
-            .exec_command("sleep", &["10".into()], 200)
+            .exec_command("sleep", &["10".into()], 200, None, None)
             .await
             .unwrap();
 
@@ -405,7 +455,7 @@ mod tests {
         let dir = temp_dir();
         let env = LocalExecutionEnvironment::new(dir.clone());
         let result = env
-            .exec_command("sh", &["-c".into(), "echo err >&2".into()], 5000)
+            .exec_command("sh", &["-c".into(), "echo err >&2".into()], 5000, None, None)
             .await
             .unwrap();
 

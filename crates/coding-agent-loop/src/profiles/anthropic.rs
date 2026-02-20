@@ -1,9 +1,14 @@
+use crate::config::SessionConfig;
 use crate::execution_env::ExecutionEnvironment;
 use crate::provider_profile::ProviderProfile;
 use crate::tool_registry::ToolRegistry;
+use crate::tools::{
+    make_edit_file_tool, make_glob_tool, make_grep_tool, make_read_file_tool,
+    make_shell_tool_with_config, make_write_file_tool,
+};
 use unified_llm::types::ToolDefinition;
 
-use super::{build_env_context_block, stub_tool};
+use super::build_env_context_block;
 
 pub struct AnthropicProfile {
     model: String,
@@ -13,84 +18,18 @@ pub struct AnthropicProfile {
 impl AnthropicProfile {
     #[must_use]
     pub fn new(model: impl Into<String>) -> Self {
+        let config = SessionConfig {
+            default_command_timeout_ms: 120_000,
+            ..SessionConfig::default()
+        };
         let mut registry = ToolRegistry::new();
 
-        registry.register(stub_tool(
-            "read_file",
-            "Read the contents of a file at the given path",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path to the file to read" }
-                },
-                "required": ["path"]
-            }),
-        ));
-
-        registry.register(stub_tool(
-            "write_file",
-            "Write content to a file at the given path",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path to the file to write" },
-                    "content": { "type": "string", "description": "Content to write" }
-                },
-                "required": ["path", "content"]
-            }),
-        ));
-
-        registry.register(stub_tool(
-            "edit_file",
-            "Edit a file by replacing old text with new text",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path to the file to edit" },
-                    "old_text": { "type": "string", "description": "Text to find and replace" },
-                    "new_text": { "type": "string", "description": "Replacement text" }
-                },
-                "required": ["path", "old_text", "new_text"]
-            }),
-        ));
-
-        registry.register(stub_tool(
-            "shell",
-            "Execute a shell command",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "Shell command to execute" },
-                    "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds" }
-                },
-                "required": ["command"]
-            }),
-        ));
-
-        registry.register(stub_tool(
-            "grep",
-            "Search for a pattern in files",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "Regex pattern to search for" },
-                    "path": { "type": "string", "description": "Directory or file to search in" }
-                },
-                "required": ["pattern", "path"]
-            }),
-        ));
-
-        registry.register(stub_tool(
-            "glob",
-            "Find files matching a glob pattern",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "Glob pattern to match files" }
-                },
-                "required": ["pattern"]
-            }),
-        ));
+        registry.register(make_read_file_tool());
+        registry.register(make_write_file_tool());
+        registry.register(make_edit_file_tool());
+        registry.register(make_shell_tool_with_config(&config));
+        registry.register(make_grep_tool());
+        registry.register(make_glob_tool());
 
         Self {
             model: model.into(),
@@ -110,6 +49,10 @@ impl ProviderProfile for AnthropicProfile {
 
     fn tool_registry(&self) -> &ToolRegistry {
         &self.registry
+    }
+
+    fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.registry
     }
 
     fn build_system_prompt(
@@ -185,6 +128,8 @@ mod tests {
             _: &str,
             _: &[String],
             _: u64,
+            _: Option<&str>,
+            _: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),

@@ -34,6 +34,8 @@ pub trait ExecutionEnvironment: Send + Sync {
         command: &str,
         args: &[String],
         timeout_ms: u64,
+        working_dir: Option<&str>,
+        env_vars: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<ExecResult, String>;
     async fn grep(
         &self,
@@ -79,6 +81,8 @@ mod tests {
             _command: &str,
             _args: &[String],
             _timeout_ms: u64,
+            _working_dir: Option<&str>,
+            _env_vars: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: "output".into(),
@@ -126,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn mock_env_exec_command() {
         let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockEnv);
-        let result = env.exec_command("echo", &[], 5000).await.unwrap();
+        let result = env.exec_command("echo", &[], 5000, None, None).await.unwrap();
         assert_eq!(result.exit_code, 0);
         assert!(!result.timed_out);
     }

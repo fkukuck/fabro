@@ -23,14 +23,14 @@ pub use history::History;
 pub use local_env::LocalExecutionEnvironment;
 pub use loop_detection::detect_loop;
 pub use project_docs::discover_project_docs;
-pub use profiles::{AnthropicProfile, GeminiProfile, OpenAiProfile};
+pub use profiles::{AnthropicProfile, EnvContext, GeminiProfile, OpenAiProfile};
 pub use provider_profile::ProviderProfile;
 pub use session::Session;
-pub use subagent::{SubAgent, SubAgentManager};
+pub use subagent::{SubAgent, SubAgentManager, SubAgentResult};
 pub use tool_registry::ToolRegistry;
 pub use tools::{
     make_edit_file_tool, make_glob_tool, make_grep_tool, make_read_file_tool, make_shell_tool,
-    make_write_file_tool,
+    make_shell_tool_with_config, make_write_file_tool,
 };
 pub use truncation::{truncate_lines, truncate_output, truncate_tool_output, TruncationMode};
 pub use types::{EventKind, SessionEvent, SessionState, Turn};

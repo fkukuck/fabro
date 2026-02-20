@@ -6,6 +6,7 @@ pub trait ProviderProfile: Send + Sync {
     fn id(&self) -> String;
     fn model(&self) -> String;
     fn tool_registry(&self) -> &ToolRegistry;
+    fn tool_registry_mut(&mut self) -> &mut ToolRegistry;
     fn build_system_prompt(
         &self,
         env: &dyn ExecutionEnvironment,
@@ -46,6 +47,8 @@ mod tests {
             _: &str,
             _: &[String],
             _: u64,
+            _: Option<&str>,
+            _: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
@@ -104,6 +107,9 @@ mod tests {
         }
         fn tool_registry(&self) -> &ToolRegistry {
             &self.registry
+        }
+        fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+            &mut self.registry
         }
         fn build_system_prompt(
             &self,

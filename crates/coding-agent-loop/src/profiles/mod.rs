@@ -7,32 +7,44 @@ pub use gemini::GeminiProfile;
 pub use openai::OpenAiProfile;
 
 use crate::execution_env::ExecutionEnvironment;
-use crate::tool_registry::RegisteredTool;
-use std::sync::Arc;
-use unified_llm::types::ToolDefinition;
 
-#[must_use]
-pub fn build_env_context_block(env: &dyn ExecutionEnvironment) -> String {
-    format!(
-        "# Environment\n- Working directory: {}\n- Platform: {}\n- OS: {}",
-        env.working_directory(),
-        env.platform(),
-        env.os_version()
-    )
+/// Additional context for building environment blocks
+#[derive(Default)]
+pub struct EnvContext {
+    pub git_branch: Option<String>,
+    pub is_git_repo: bool,
+    pub date: String,
+    pub model_name: String,
 }
 
 #[must_use]
-pub fn stub_tool(name: &str, description: &str, parameters: serde_json::Value) -> RegisteredTool {
-    RegisteredTool {
-        definition: ToolDefinition {
-            name: name.into(),
-            description: description.into(),
-            parameters,
-        },
-        executor: Arc::new(|_args, _env| {
-            Box::pin(async { Err("Tool not yet connected to execution environment".into()) })
-        }),
+pub fn build_env_context_block(env: &dyn ExecutionEnvironment) -> String {
+    build_env_context_block_with(env, &EnvContext::default())
+}
+
+#[must_use]
+pub fn build_env_context_block_with(env: &dyn ExecutionEnvironment, ctx: &EnvContext) -> String {
+    let mut lines = vec![
+        "# Environment".to_string(),
+        format!("- Working directory: {}", env.working_directory()),
+        format!("- Platform: {}", env.platform()),
+        format!("- OS: {}", env.os_version()),
+    ];
+
+    if ctx.is_git_repo {
+        lines.push(format!("- Is a git repository: {}", ctx.is_git_repo));
     }
+    if let Some(ref branch) = ctx.git_branch {
+        lines.push(format!("- Git branch: {branch}"));
+    }
+    if !ctx.date.is_empty() {
+        lines.push(format!("- Date: {}", ctx.date));
+    }
+    if !ctx.model_name.is_empty() {
+        lines.push(format!("- Model: {}", ctx.model_name));
+    }
+
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -62,6 +74,8 @@ mod tests {
             _: &str,
             _: &[String],
             _: u64,
+            _: Option<&str>,
+            _: Option<&std::collections::HashMap<String, String>>,
         ) -> Result<ExecResult, String> {
             Ok(ExecResult {
                 stdout: String::new(),
@@ -107,5 +121,21 @@ mod tests {
         assert!(block.contains("linux"));
         assert!(block.contains("/home/test"));
         assert!(block.contains("Linux 6.1.0"));
+    }
+
+    #[test]
+    fn env_context_block_with_extra_context() {
+        let env = TestEnv;
+        let ctx = EnvContext {
+            git_branch: Some("main".into()),
+            is_git_repo: true,
+            date: "2026-02-20".into(),
+            model_name: "claude-opus-4-6".into(),
+        };
+        let block = build_env_context_block_with(&env, &ctx);
+        assert!(block.contains("Git branch: main"));
+        assert!(block.contains("Is a git repository: true"));
+        assert!(block.contains("Date: 2026-02-20"));
+        assert!(block.contains("Model: claude-opus-4-6"));
     }
 }

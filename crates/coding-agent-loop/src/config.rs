@@ -12,6 +12,7 @@ pub struct SessionConfig {
     pub enable_loop_detection: bool,
     pub loop_detection_window: usize,
     pub max_subagent_depth: usize,
+    pub git_root: Option<String>,
 }
 
 impl Default for SessionConfig {
@@ -27,6 +28,7 @@ impl Default for SessionConfig {
             enable_loop_detection: true,
             loop_detection_window: 10,
             max_subagent_depth: 1,
+            git_root: None,
         }
     }
 }
