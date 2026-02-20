@@ -6,8 +6,8 @@ use crate::providers::common::{
     extract_system_prompt, parse_error_body, parse_rate_limit_headers, send_and_read_response,
 };
 use crate::types::{
-    ContentPart, FinishReason, Message, Request, Response, Role, StreamEvent, ThinkingData,
-    ToolCall, ToolChoice, ToolDefinition, Usage,
+    ContentPart, FinishReason, Message, Request, Response, ResponseFormatType, Role, StreamEvent,
+    ThinkingData, ToolCall, ToolChoice, ToolDefinition, Usage,
 };
 
 /// Provider adapter for the Anthropic Messages API.
@@ -72,6 +72,8 @@ struct ApiRequest {
     /// Passed through from `provider_options.anthropic.thinking`.
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<std::collections::HashMap<String, String>>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
 }
@@ -295,6 +297,139 @@ fn translate_tool_choice(choice: &ToolChoice) -> Option<serde_json::Value> {
         ToolChoice::Named { tool_name } => {
             Some(serde_json::json!({"type": "tool", "name": tool_name}))
         }
+    }
+}
+
+// --- Structured output (response_format) helpers ---
+
+const SYNTHETIC_TOOL_NAME: &str = "json_output";
+
+/// Apply `response_format` to the Anthropic API request by mutating tools, `tool_choice`, and system.
+///
+/// For `JsonSchema`: injects a synthetic tool with the given schema and forces the model to call it.
+/// For `JsonObject`: appends a JSON instruction to the system prompt.
+/// For `Text`: no-op.
+fn apply_response_format(
+    request: &Request,
+    api_tools: &mut Option<Vec<ApiToolDef>>,
+    tool_choice: &mut Option<serde_json::Value>,
+    system: &mut Option<serde_json::Value>,
+) {
+    let Some(format) = &request.response_format else {
+        return;
+    };
+
+    match format.kind {
+        ResponseFormatType::JsonSchema => {
+            let schema = format
+                .json_schema
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({"type": "object"}));
+            let synthetic_tool = ApiToolDef {
+                name: SYNTHETIC_TOOL_NAME.to_string(),
+                description: "Output the requested structured data".to_string(),
+                input_schema: schema,
+                cache_control: None,
+            };
+            match api_tools {
+                Some(tools) => tools.push(synthetic_tool),
+                None => *api_tools = Some(vec![synthetic_tool]),
+            }
+            *tool_choice =
+                Some(serde_json::json!({"type": "tool", "name": SYNTHETIC_TOOL_NAME}));
+        }
+        ResponseFormatType::JsonObject => {
+            let json_instruction = "\n\nYou must respond with valid JSON only, no other text.";
+            match system {
+                Some(serde_json::Value::Array(blocks)) => {
+                    // Append to the last text block's text
+                    if let Some(last) = blocks.last_mut() {
+                        if let Some(text) = last.get("text").and_then(serde_json::Value::as_str) {
+                            let mut new_text = text.to_string();
+                            new_text.push_str(json_instruction);
+                            last["text"] = serde_json::Value::String(new_text);
+                        }
+                    } else {
+                        blocks.push(
+                            serde_json::json!({"type": "text", "text": json_instruction.trim()}),
+                        );
+                    }
+                }
+                Some(serde_json::Value::String(s)) => {
+                    s.push_str(json_instruction);
+                }
+                None => {
+                    *system = Some(serde_json::Value::String(
+                        json_instruction.trim().to_string(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        ResponseFormatType::Text => {}
+    }
+}
+
+/// Convert synthetic `tool_use` content blocks back to text content parts.
+///
+/// When `response_format` uses `JsonSchema` mode, the model responds with a `tool_use` block
+/// for our synthetic tool. We extract its arguments as a JSON text string.
+fn convert_synthetic_tool_to_text(content_parts: Vec<ContentPart>) -> Vec<ContentPart> {
+    content_parts
+        .into_iter()
+        .map(|part| match &part {
+            ContentPart::ToolCall(tc) if tc.name == SYNTHETIC_TOOL_NAME => {
+                ContentPart::text(tc.arguments.to_string())
+            }
+            _ => part,
+        })
+        .collect()
+}
+
+/// Check if the request uses `JsonSchema` `response_format`.
+fn uses_json_schema_format(request: &Request) -> bool {
+    request
+        .response_format
+        .as_ref()
+        .is_some_and(|f| matches!(f.kind, ResponseFormatType::JsonSchema))
+}
+
+/// Convert a streaming event for `JsonSchema` mode: `tool_use` events for the synthetic tool
+/// become text events, and the Finish event gets its content parts and `finish_reason` adjusted.
+fn convert_stream_event_for_json_schema(event: StreamEvent) -> StreamEvent {
+    match event {
+        StreamEvent::ToolCallStart { tool_call } if tool_call.name == SYNTHETIC_TOOL_NAME => {
+            StreamEvent::TextStart { text_id: None }
+        }
+        StreamEvent::ToolCallDelta { tool_call } if tool_call.name == SYNTHETIC_TOOL_NAME => {
+            // The delta's arguments field contains the partial JSON string
+            let delta = match &tool_call.arguments {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            StreamEvent::TextDelta {
+                delta,
+                text_id: None,
+            }
+        }
+        StreamEvent::ToolCallEnd { tool_call } if tool_call.name == SYNTHETIC_TOOL_NAME => {
+            StreamEvent::TextEnd { text_id: None }
+        }
+        StreamEvent::Finish {
+            mut response,
+            usage,
+            ..
+        } => {
+            response.message.content =
+                convert_synthetic_tool_to_text(std::mem::take(&mut response.message.content));
+            response.finish_reason = FinishReason::Stop;
+            StreamEvent::Finish {
+                finish_reason: FinishReason::Stop,
+                usage,
+                response,
+            }
+        }
+        other => other,
     }
 }
 
@@ -712,6 +847,8 @@ struct SseReaderState {
     accumulator: StreamAccumulator,
     pending_events: std::collections::VecDeque<StreamEvent>,
     done: bool,
+    /// When true, `tool_use` events for the synthetic tool are converted to text events.
+    json_schema_mode: bool,
 }
 
 impl SseReaderState {
@@ -720,6 +857,7 @@ impl SseReaderState {
             + Send
             + 'static,
         rate_limit: Option<crate::types::RateLimitInfo>,
+        json_schema_mode: bool,
     ) -> Self {
         use futures::StreamExt;
         Self {
@@ -728,6 +866,7 @@ impl SseReaderState {
             accumulator: StreamAccumulator::new(rate_limit),
             pending_events: std::collections::VecDeque::new(),
             done: false,
+            json_schema_mode,
         }
     }
 
@@ -802,11 +941,11 @@ impl SseReaderState {
     }
 }
 
-/// Build the streaming request body and headers, mirroring `complete()` logic
-/// but with `stream: true`.
-fn build_stream_request(
+/// Build an Anthropic API request and HTTP request builder for the given unified request.
+fn build_api_request(
     adapter: &Adapter,
     request: &Request,
+    stream: bool,
 ) -> (ApiRequest, reqwest::RequestBuilder) {
     let (system, other_messages) = extract_system_prompt(&request.messages);
     let mut api_messages = translate_messages(&other_messages);
@@ -829,13 +968,17 @@ fn build_stream_request(
 
     let auto_cache = is_auto_cache_enabled(request.provider_options.as_ref());
 
-    let system_value = system.map(|s| {
+    let mut system_value = system.map(|s| {
         if auto_cache {
             system_with_cache_control(&s)
         } else {
             serde_json::Value::String(s)
         }
     });
+
+    // Apply response_format (may inject synthetic tool or system prompt suffix)
+    let mut tool_choice_json = tool_choice_json;
+    apply_response_format(request, &mut api_tools, &mut tool_choice_json, &mut system_value);
 
     if auto_cache {
         if let Some(ref mut tools) = api_tools {
@@ -857,7 +1000,8 @@ fn build_stream_request(
         tools: api_tools,
         tool_choice: tool_choice_json,
         thinking,
-        stream: true,
+        metadata: request.metadata.clone(),
+        stream,
     };
 
     let url = adapter.messages_url();
@@ -883,79 +1027,10 @@ impl ProviderAdapter for Adapter {
     }
 
     async fn complete(&self, request: &Request) -> Result<Response, SdkError> {
-        let (system, other_messages) = extract_system_prompt(&request.messages);
-        let mut api_messages = translate_messages(&other_messages);
-
-        // Handle tools and tool_choice
-        let mut omit_tools = false;
-        let tool_choice_json = request.tool_choice.as_ref().and_then(|tc| {
-            if matches!(tc, ToolChoice::None) {
-                omit_tools = true;
-                None
-            } else {
-                translate_tool_choice(tc)
-            }
-        });
-
-        let mut api_tools = if omit_tools {
-            None
-        } else {
-            request.tools.as_ref().map(|t| translate_tools(t))
-        };
-
-        // Determine if auto-caching is enabled
-        let auto_cache = is_auto_cache_enabled(request.provider_options.as_ref());
-
-        // Build system prompt value, optionally with cache_control
-        let system_value = system.map(|s| {
-            if auto_cache {
-                system_with_cache_control(&s)
-            } else {
-                serde_json::Value::String(s)
-            }
-        });
-
-        // Apply cache_control breakpoints when auto-caching is enabled
-        if auto_cache {
-            if let Some(ref mut tools) = api_tools {
-                apply_cache_control_to_last_tool(tools);
-            }
-            apply_cache_control_to_conversation_prefix(&mut api_messages);
-        }
-
-        let thinking = extract_thinking_config(request.provider_options.as_ref());
-
-        let api_request = ApiRequest {
-            model: request.model.clone(),
-            messages: api_messages,
-            max_tokens: request.max_tokens.unwrap_or(4096),
-            system: system_value,
-            temperature: request.temperature,
-            top_p: request.top_p,
-            stop_sequences: request.stop_sequences.clone(),
-            tools: api_tools,
-            tool_choice: tool_choice_json,
-            thinking,
-            stream: false,
-        };
-
-        // Build headers
-        let url = self.messages_url();
-        let mut req_builder = self
-            .client
-            .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01");
-
-        // Build beta header: merge user-provided headers with cache header when active
-        if let Some(beta_str) =
-            build_beta_header(request.provider_options.as_ref(), auto_cache)
-        {
-            req_builder = req_builder.header("anthropic-beta", beta_str);
-        }
+        let (_api_request, req_builder) = build_api_request(self, request, false);
 
         let (body, headers) =
-            send_and_read_response(req_builder.json(&api_request).timeout(self.request_timeout), "anthropic", "type").await?;
+            send_and_read_response(req_builder.timeout(self.request_timeout), "anthropic", "type").await?;
 
         let api_resp: ApiResponse =
             serde_json::from_str(&body).map_err(|e| SdkError::Network {
@@ -968,7 +1043,20 @@ impl ProviderAdapter for Adapter {
             .filter_map(parse_content_block)
             .collect();
 
-        let finish_reason = map_finish_reason(api_resp.stop_reason.as_deref());
+        // If we used JsonSchema mode, convert the synthetic tool call back to text
+        let content_parts = if uses_json_schema_format(request) {
+            convert_synthetic_tool_to_text(content_parts)
+        } else {
+            content_parts
+        };
+
+        let finish_reason = if uses_json_schema_format(request) {
+            // The model was forced to call a tool, so stop_reason is "tool_use",
+            // but from the caller's perspective, the request completed normally.
+            FinishReason::Stop
+        } else {
+            map_finish_reason(api_resp.stop_reason.as_deref())
+        };
         let total = api_resp.usage.input_tokens + api_resp.usage.output_tokens;
 
         Ok(Response {
@@ -997,7 +1085,7 @@ impl ProviderAdapter for Adapter {
     }
 
     async fn stream(&self, request: &Request) -> Result<StreamEventStream, SdkError> {
-        let (_api_request, req_builder) = build_stream_request(self, request);
+        let (_api_request, req_builder) = build_api_request(self, request, true);
 
         let http_resp = req_builder.send().await.map_err(|e| SdkError::Network {
             message: e.to_string(),
@@ -1021,13 +1109,19 @@ impl ProviderAdapter for Adapter {
 
         let rate_limit = parse_rate_limit_headers(http_resp.headers());
         let byte_stream = http_resp.bytes_stream();
+        let json_schema_mode = uses_json_schema_format(request);
 
         let stream = futures::stream::unfold(
-            SseReaderState::new(byte_stream, rate_limit),
+            SseReaderState::new(byte_stream, rate_limit, json_schema_mode),
             |mut state| async move {
                 loop {
                     // Drain any buffered events first.
                     if let Some(event) = state.pending_events.pop_front() {
+                        let event = if state.json_schema_mode {
+                            convert_stream_event_for_json_schema(event)
+                        } else {
+                            event
+                        };
                         return Some((Ok(event), state));
                     }
 
@@ -1367,6 +1461,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             thinking: None,
+            metadata: None,
             stream: false,
         };
 
@@ -1375,5 +1470,288 @@ mod tests {
         let arr = system.as_array().expect("system should be an array");
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    fn make_request_with_format(
+        format: crate::types::ResponseFormat,
+    ) -> Request {
+        Request {
+            model: "claude-sonnet-4-20250514".to_string(),
+            messages: vec![Message::user("Hello")],
+            provider: None,
+            tools: None,
+            tool_choice: None,
+            response_format: Some(format),
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            reasoning_effort: None,
+            metadata: None,
+            provider_options: None,
+        }
+    }
+
+    #[test]
+    fn response_format_json_schema_injects_synthetic_tool() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        });
+        let request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::JsonSchema,
+            json_schema: Some(schema.clone()),
+            strict: false,
+        });
+
+        let mut tools: Option<Vec<ApiToolDef>> = None;
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system: Option<serde_json::Value> = None;
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        let tools = tools.expect("tools should be set");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, SYNTHETIC_TOOL_NAME);
+        assert_eq!(tools[0].input_schema, schema);
+
+        let tc = tool_choice.expect("tool_choice should be set");
+        assert_eq!(tc["type"], "tool");
+        assert_eq!(tc["name"], SYNTHETIC_TOOL_NAME);
+
+        // System should not be modified
+        assert!(system.is_none());
+    }
+
+    #[test]
+    fn response_format_json_schema_appends_to_existing_tools() {
+        let schema = serde_json::json!({"type": "object"});
+        let mut request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::JsonSchema,
+            json_schema: Some(schema),
+            strict: false,
+        });
+        request.tools = Some(vec![ToolDefinition {
+            name: "existing_tool".to_string(),
+            description: "An existing tool".to_string(),
+            parameters: serde_json::json!({}),
+        }]);
+
+        let mut tools: Option<Vec<ApiToolDef>> =
+            Some(translate_tools(request.tools.as_ref().unwrap()));
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system: Option<serde_json::Value> = None;
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        let tools = tools.expect("tools should be set");
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "existing_tool");
+        assert_eq!(tools[1].name, SYNTHETIC_TOOL_NAME);
+    }
+
+    #[test]
+    fn response_format_json_object_appends_to_string_system() {
+        let request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::JsonObject,
+            json_schema: None,
+            strict: false,
+        });
+
+        let mut tools: Option<Vec<ApiToolDef>> = None;
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system = Some(serde_json::Value::String("You are helpful.".to_string()));
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        let sys = system.expect("system should be set");
+        let text = sys.as_str().expect("should be a string");
+        assert!(text.contains("You are helpful."));
+        assert!(text.contains("valid JSON"));
+
+        // Tools should not be modified
+        assert!(tools.is_none());
+        assert!(tool_choice.is_none());
+    }
+
+    #[test]
+    fn response_format_json_object_sets_system_when_none() {
+        let request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::JsonObject,
+            json_schema: None,
+            strict: false,
+        });
+
+        let mut tools: Option<Vec<ApiToolDef>> = None;
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system: Option<serde_json::Value> = None;
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        let sys = system.expect("system should be set");
+        let text = sys.as_str().expect("should be a string");
+        assert!(text.contains("valid JSON"));
+    }
+
+    #[test]
+    fn response_format_json_object_appends_to_array_system() {
+        let request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::JsonObject,
+            json_schema: None,
+            strict: false,
+        });
+
+        let mut tools: Option<Vec<ApiToolDef>> = None;
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system = Some(system_with_cache_control("You are helpful."));
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        let sys = system.expect("system should be set");
+        let arr = sys.as_array().expect("should be an array");
+        let text = arr[0]["text"].as_str().expect("should have text");
+        assert!(text.contains("You are helpful."));
+        assert!(text.contains("valid JSON"));
+    }
+
+    #[test]
+    fn response_format_text_is_noop() {
+        let request = make_request_with_format(crate::types::ResponseFormat {
+            kind: ResponseFormatType::Text,
+            json_schema: None,
+            strict: false,
+        });
+
+        let mut tools: Option<Vec<ApiToolDef>> = None;
+        let mut tool_choice: Option<serde_json::Value> = None;
+        let mut system: Option<serde_json::Value> = None;
+
+        apply_response_format(&request, &mut tools, &mut tool_choice, &mut system);
+
+        assert!(tools.is_none());
+        assert!(tool_choice.is_none());
+        assert!(system.is_none());
+    }
+
+    #[test]
+    fn convert_synthetic_tool_to_text_replaces_synthetic_tool() {
+        let parts = vec![
+            ContentPart::ToolCall(ToolCall::new(
+                "id1",
+                SYNTHETIC_TOOL_NAME,
+                serde_json::json!({"name": "Alice"}),
+            )),
+        ];
+        let result = convert_synthetic_tool_to_text(parts);
+        assert_eq!(result.len(), 1);
+        match &result[0] {
+            ContentPart::Text(text) => {
+                assert!(text.contains("Alice"));
+            }
+            _ => panic!("expected Text, got {:?}", result[0]),
+        }
+    }
+
+    #[test]
+    fn convert_synthetic_tool_to_text_preserves_other_tool_calls() {
+        let parts = vec![
+            ContentPart::ToolCall(ToolCall::new(
+                "id1",
+                "real_tool",
+                serde_json::json!({"key": "value"}),
+            )),
+        ];
+        let result = convert_synthetic_tool_to_text(parts);
+        assert_eq!(result.len(), 1);
+        match &result[0] {
+            ContentPart::ToolCall(tc) => {
+                assert_eq!(tc.name, "real_tool");
+            }
+            _ => panic!("expected ToolCall"),
+        }
+    }
+
+    #[test]
+    fn convert_stream_event_converts_tool_start_for_synthetic() {
+        let event = StreamEvent::ToolCallStart {
+            tool_call: ToolCall::new(
+                "id1",
+                SYNTHETIC_TOOL_NAME,
+                serde_json::json!({}),
+            ),
+        };
+        let result = convert_stream_event_for_json_schema(event);
+        assert!(matches!(result, StreamEvent::TextStart { .. }));
+    }
+
+    #[test]
+    fn convert_stream_event_preserves_real_tool_start() {
+        let event = StreamEvent::ToolCallStart {
+            tool_call: ToolCall::new("id1", "real_tool", serde_json::json!({})),
+        };
+        let result = convert_stream_event_for_json_schema(event);
+        assert!(matches!(result, StreamEvent::ToolCallStart { .. }));
+    }
+
+    #[test]
+    fn convert_stream_event_converts_tool_delta_for_synthetic() {
+        let event = StreamEvent::ToolCallDelta {
+            tool_call: ToolCall::new(
+                "id1",
+                SYNTHETIC_TOOL_NAME,
+                serde_json::json!("{\"name\""),
+            ),
+        };
+        let result = convert_stream_event_for_json_schema(event);
+        match result {
+            StreamEvent::TextDelta { delta, .. } => {
+                assert_eq!(delta, "{\"name\"");
+            }
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn convert_stream_event_converts_finish_reason() {
+        let response = Box::new(Response {
+            id: "test".to_string(),
+            model: "claude".to_string(),
+            provider: "anthropic".to_string(),
+            message: Message {
+                role: Role::Assistant,
+                content: vec![ContentPart::ToolCall(ToolCall::new(
+                    "id1",
+                    SYNTHETIC_TOOL_NAME,
+                    serde_json::json!({"data": "value"}),
+                ))],
+                name: None,
+                tool_call_id: None,
+            },
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            raw: None,
+            warnings: vec![],
+            rate_limit: None,
+        });
+        let event = StreamEvent::Finish {
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            response,
+        };
+        let result = convert_stream_event_for_json_schema(event);
+        match result {
+            StreamEvent::Finish {
+                finish_reason,
+                response,
+                ..
+            } => {
+                assert_eq!(finish_reason, FinishReason::Stop);
+                assert_eq!(response.finish_reason, FinishReason::Stop);
+                // Content should be converted from tool call to text
+                assert!(matches!(&response.message.content[0], ContentPart::Text(_)));
+            }
+            _ => panic!("expected Finish"),
+        }
     }
 }

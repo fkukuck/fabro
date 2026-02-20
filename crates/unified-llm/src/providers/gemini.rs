@@ -4,7 +4,8 @@ use futures::stream;
 use crate::error::{error_from_status_code, ProviderErrorDetail, ProviderErrorKind, SdkError};
 use crate::provider::{ProviderAdapter, StreamEventStream};
 use crate::providers::common::{
-    extract_system_prompt, parse_error_body, parse_retry_after, send_and_read_body,
+    extract_system_prompt, parse_error_body, parse_rate_limit_headers, parse_retry_after,
+    send_and_read_response,
 };
 use crate::types::{
     ContentPart, FinishReason, Message, Request, Response, ResponseFormat, ResponseFormatType,
@@ -441,9 +442,9 @@ async fn send_streaming_request(
 
 /// Process a stream of SSE chunks from the Gemini `streamGenerateContent` endpoint
 /// and yield `StreamEvent` values.
-fn process_sse_stream(http_resp: reqwest::Response, model: String) -> StreamEventStream {
+fn process_sse_stream(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>) -> StreamEventStream {
     Box::pin(stream::unfold(
-        SseStreamState::new(http_resp, model),
+        SseStreamState::new(http_resp, model, rate_limit),
         |mut state| async move {
             // If we have buffered events, yield them first.
             if let Some(event) = state.pending_events.pop_front() {
@@ -544,10 +545,12 @@ struct SseStreamState {
     finish_reason_str: Option<String>,
     /// Whether we have emitted the `Finish` event.
     finished: bool,
+    /// Rate limit info parsed from HTTP response headers.
+    rate_limit: Option<crate::types::RateLimitInfo>,
 }
 
 impl SseStreamState {
-    fn new(http_resp: reqwest::Response, model: String) -> Self {
+    fn new(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>) -> Self {
         Self {
             http_resp,
             model,
@@ -561,6 +564,7 @@ impl SseStreamState {
             usage: Usage::default(),
             finish_reason_str: None,
             finished: false,
+            rate_limit,
         }
     }
 
@@ -701,7 +705,7 @@ impl SseStreamState {
             usage: self.usage.clone(),
             raw: None,
             warnings: vec![],
-            rate_limit: None,
+            rate_limit: self.rate_limit.clone(),
         };
 
         StreamEvent::finish(finish_reason, self.usage.clone(), response)
@@ -723,7 +727,7 @@ impl ProviderAdapter for Adapter {
             self.base_url, request.model, self.api_key
         );
 
-        let body = send_and_read_body(
+        let (body, headers) = send_and_read_response(
             self.client.post(&url).json(&api_body).timeout(self.request_timeout),
             "gemini",
             "status",
@@ -774,7 +778,7 @@ impl ProviderAdapter for Adapter {
             usage,
             raw: serde_json::from_str(&body).ok(),
             warnings: vec![],
-            rate_limit: None,
+            rate_limit: parse_rate_limit_headers(&headers),
         })
     }
 
@@ -789,7 +793,8 @@ impl ProviderAdapter for Adapter {
         let http_resp =
             send_streaming_request(self.client.post(&url).json(&api_body)).await?;
 
-        Ok(process_sse_stream(http_resp, request.model.clone()))
+        let rate_limit = parse_rate_limit_headers(http_resp.headers());
+        Ok(process_sse_stream(http_resp, request.model.clone(), rate_limit))
     }
 }
 
