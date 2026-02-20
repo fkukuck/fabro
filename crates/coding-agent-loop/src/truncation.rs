@@ -16,7 +16,7 @@ fn default_char_limits() -> HashMap<&'static str, usize> {
     m.insert("edit_file", 10_000);
     m.insert("write_file", 1_000);
     m.insert("apply_patch", 10_000);
-    m.insert("spawn_agent", 30_000);
+    m.insert("spawn_agent", 20_000);
     m
 }
 
@@ -219,6 +219,8 @@ mod tests {
         assert_eq!(limits.get("glob"), Some(&20_000));
         assert_eq!(limits.get("edit_file"), Some(&10_000));
         assert_eq!(limits.get("write_file"), Some(&1_000));
+        assert_eq!(limits.get("apply_patch"), Some(&10_000));
+        assert_eq!(limits.get("spawn_agent"), Some(&20_000));
     }
 
     #[test]

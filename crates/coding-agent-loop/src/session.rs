@@ -107,11 +107,19 @@ impl Session {
         self.state = SessionState::Closed;
     }
 
+    pub fn set_reasoning_effort(&mut self, effort: Option<String>) {
+        self.config.reasoning_effort = effort;
+    }
+
     pub fn history(&self) -> &History {
         &self.history
     }
 
     pub async fn process_input(&mut self, input: &str) -> Result<(), AgentError> {
+        if self.state == SessionState::Closed {
+            return Err(AgentError::SessionClosed);
+        }
+
         self.event_emitter.emit(
             EventKind::SessionStart,
             self.id.clone(),
@@ -194,7 +202,8 @@ impl Session {
 
             // Check abort flag
             if self.abort_flag.load(Ordering::SeqCst) {
-                break;
+                self.state = SessionState::Closed;
+                return Err(AgentError::Aborted);
             }
 
             // Build request
@@ -343,6 +352,19 @@ impl Session {
         let registry = self.provider_profile.tool_registry();
         match registry.get(tool_name) {
             Some(registered_tool) => {
+                // Validate arguments against schema
+                if let Err(validation_error) =
+                    validate_tool_args(&registered_tool.definition.parameters, arguments)
+                {
+                    return ToolResult {
+                        tool_call_id: tool_call_id.to_string(),
+                        content: serde_json::json!(validation_error),
+                        is_error: true,
+                        image_data: None,
+                        image_media_type: None,
+                    };
+                }
+
                 let executor = &registered_tool.executor;
                 match executor(arguments.clone(), self.execution_env.clone()).await {
                     Ok(output) => ToolResult {
@@ -429,21 +451,35 @@ impl Session {
                     let registry = profile.tool_registry();
                     let result = match registry.get(&tc.name) {
                         Some(registered_tool) => {
-                            match (registered_tool.executor)(tc.arguments.clone(), env).await {
-                                Ok(output) => ToolResult {
+                            // Validate arguments against schema
+                            if let Err(validation_error) = validate_tool_args(
+                                &registered_tool.definition.parameters,
+                                &tc.arguments,
+                            ) {
+                                ToolResult {
                                     tool_call_id: tc.id.clone(),
-                                    content: serde_json::json!(output),
-                                    is_error: false,
-                                    image_data: None,
-                                    image_media_type: None,
-                                },
-                                Err(err) => ToolResult {
-                                    tool_call_id: tc.id.clone(),
-                                    content: serde_json::json!(err),
+                                    content: serde_json::json!(validation_error),
                                     is_error: true,
                                     image_data: None,
                                     image_media_type: None,
-                                },
+                                }
+                            } else {
+                                match (registered_tool.executor)(tc.arguments.clone(), env).await {
+                                    Ok(output) => ToolResult {
+                                        tool_call_id: tc.id.clone(),
+                                        content: serde_json::json!(output),
+                                        is_error: false,
+                                        image_data: None,
+                                        image_media_type: None,
+                                    },
+                                    Err(err) => ToolResult {
+                                        tool_call_id: tc.id.clone(),
+                                        content: serde_json::json!(err),
+                                        is_error: true,
+                                        image_data: None,
+                                        image_media_type: None,
+                                    },
+                                }
                             }
                         }
                         None => ToolResult {
@@ -623,6 +659,29 @@ fn is_auth_error(err: &SdkError) -> bool {
         err.provider_kind(),
         Some(ProviderErrorKind::Authentication) | Some(ProviderErrorKind::AccessDenied)
     )
+}
+
+fn validate_tool_args(schema: &serde_json::Value, args: &serde_json::Value) -> Result<(), String> {
+    // Skip validation for empty/trivial schemas
+    if schema.is_null()
+        || (schema.is_object() && schema.as_object().map_or(true, |o| o.is_empty()))
+    {
+        return Ok(());
+    }
+
+    let validator = jsonschema::validator_for(schema)
+        .map_err(|e| format!("Invalid tool schema: {e}"))?;
+
+    let errors: Vec<String> = validator.iter_errors(args).map(|e| e.to_string()).collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Tool argument validation failed: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -1286,12 +1345,73 @@ mod tests {
         let mut session = make_session_with_tools_and_config(responses, registry, config).await;
         // Set abort before processing
         session.abort();
-        session.process_input("Do something").await.unwrap();
+        let result = session.process_input("Do something").await;
+
+        // Should return Aborted error and transition to Closed
+        assert!(matches!(result, Err(AgentError::Aborted)));
+        assert_eq!(session.state(), SessionState::Closed);
 
         // Should have stopped immediately: User turn only, no LLM call
         let turns = session.history().turns();
         assert_eq!(turns.len(), 1);
         assert!(matches!(&turns[0], Turn::User { .. }));
+    }
+
+    #[tokio::test]
+    async fn abort_transitions_to_closed() {
+        let abort_flag = Arc::new(AtomicBool::new(false));
+        let abort_flag_for_tool = abort_flag.clone();
+
+        // Tool that sets the abort flag when executed
+        let abort_tool = RegisteredTool {
+            definition: ToolDefinition {
+                name: "set_abort".into(),
+                description: "Sets abort flag".into(),
+                parameters: serde_json::json!({"type": "object"}),
+            },
+            executor: Arc::new(move |_args, _env| {
+                let flag = abort_flag_for_tool.clone();
+                Box::pin(async move {
+                    flag.store(true, Ordering::SeqCst);
+                    Ok("done".to_string())
+                })
+            }),
+        };
+
+        let mut registry = ToolRegistry::new();
+        registry.register(abort_tool);
+
+        let responses = vec![
+            tool_call_response("set_abort", "call_1", serde_json::json!({})),
+            text_response("Should not reach this"),
+        ];
+
+        let provider = Arc::new(MockLlmProvider::new(responses));
+        let client = make_client(provider).await;
+        let profile = Arc::new(TestProfile::with_tools(registry));
+        let env = Arc::new(MemoryExecutionEnvironment::new());
+        let config = SessionConfig {
+            enable_loop_detection: false,
+            ..Default::default()
+        };
+        let mut session = Session::new(client, profile, env, config);
+
+        // Wire the session's abort_flag to our shared one
+        session.abort_flag = abort_flag;
+
+        let result = session.process_input("Do something").await;
+
+        // Should return Aborted error and transition to Closed
+        assert!(matches!(result, Err(AgentError::Aborted)));
+        assert_eq!(session.state(), SessionState::Closed);
+
+        // Should have processed: User + Assistant(tool_call) + ToolResults = 3 turns
+        // The tool set the abort flag, so the loop breaks before the next LLM call
+        let turns = session.history().turns();
+        assert_eq!(turns.len(), 3);
+        assert!(matches!(&turns[0], Turn::User { .. }));
+        assert!(matches!(&turns[1], Turn::Assistant { tool_calls, .. } if tool_calls.len() == 1));
+        assert!(matches!(&turns[2], Turn::ToolResults { .. }));
     }
 
     #[tokio::test]
@@ -1345,6 +1465,26 @@ mod tests {
         let result = session.process_input("Hello").await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AgentError::SessionClosed));
+    }
+
+    #[tokio::test]
+    async fn closed_session_does_not_emit_session_start() {
+        let mut session = make_session(vec![]).await;
+        session.close();
+
+        let mut rx = session.subscribe();
+        let result = session.process_input("Hello").await;
+        assert!(matches!(result, Err(AgentError::SessionClosed)));
+
+        // No SessionStart event should have been emitted
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event.kind.clone());
+        }
+        assert!(
+            !events.contains(&EventKind::SessionStart),
+            "SessionStart should not be emitted for a closed session"
+        );
     }
 
     // --- Parallel execution support ---
@@ -1545,6 +1685,56 @@ mod tests {
         assert!(found_warning);
     }
 
+    // --- Capturing LLM Provider (captures reasoning_effort from request) ---
+
+    struct CapturingLlmProvider {
+        captured_effort: Arc<Mutex<Option<Option<String>>>>,
+    }
+
+    impl CapturingLlmProvider {
+        fn new(captured_effort: Arc<Mutex<Option<Option<String>>>>) -> Self {
+            Self { captured_effort }
+        }
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for CapturingLlmProvider {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn complete(&self, request: &Request) -> Result<Response, SdkError> {
+            *self.captured_effort.lock().unwrap() = Some(request.reasoning_effort.clone());
+            Ok(text_response("captured"))
+        }
+
+        async fn stream(
+            &self,
+            _request: &Request,
+        ) -> Result<StreamEventStream, SdkError> {
+            Err(SdkError::Configuration {
+                message: "streaming not supported in mock".into(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn set_reasoning_effort_mid_session() {
+        let captured_effort: Arc<Mutex<Option<Option<String>>>> = Arc::new(Mutex::new(None));
+        let provider = Arc::new(CapturingLlmProvider::new(captured_effort.clone()));
+        let client = make_client(provider).await;
+        let profile = Arc::new(TestProfile::new());
+        let env = Arc::new(MemoryExecutionEnvironment::new());
+        let mut session = Session::new(client, profile, env, SessionConfig::default());
+
+        // Default reasoning_effort is None
+        session.set_reasoning_effort(Some("high".to_string()));
+        session.process_input("test").await.unwrap();
+
+        let effort = captured_effort.lock().unwrap().clone();
+        assert_eq!(effort, Some(Some("high".to_string())));
+    }
+
     #[tokio::test]
     async fn context_window_no_warning_under_threshold() {
         let responses = vec![text_response("OK")];
@@ -1569,5 +1759,86 @@ mod tests {
             }
         }
         assert!(!found_warning);
+    }
+
+    #[tokio::test]
+    async fn invalid_tool_args_returns_validation_error() {
+        let mut registry = ToolRegistry::new();
+        registry.register(RegisteredTool {
+            definition: ToolDefinition {
+                name: "strict_tool".into(),
+                description: "Tool with required params".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"}
+                    },
+                    "required": ["text"]
+                }),
+            },
+            executor: Arc::new(|_args, _env| {
+                Box::pin(async move { Ok("should not reach".to_string()) })
+            }),
+        });
+
+        let responses = vec![
+            tool_call_response("strict_tool", "call_1", serde_json::json!({})),
+            text_response("Done"),
+        ];
+
+        let mut session = make_session_with_tools(responses, registry).await;
+        session.process_input("Use strict tool").await.unwrap();
+
+        let turns = session.history().turns();
+        if let Turn::ToolResults { results, .. } = &turns[2] {
+            assert!(results[0].is_error);
+            let content_str = results[0].content.to_string();
+            assert!(
+                content_str.contains("text") && content_str.contains("required"),
+                "Expected validation error mentioning 'text' and 'required', got: {content_str}"
+            );
+        } else {
+            panic!("Expected ToolResults turn at index 2");
+        }
+    }
+
+    #[tokio::test]
+    async fn valid_tool_args_passes_validation() {
+        let mut registry = ToolRegistry::new();
+        registry.register(RegisteredTool {
+            definition: ToolDefinition {
+                name: "strict_tool".into(),
+                description: "Tool with required params".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"}
+                    },
+                    "required": ["text"]
+                }),
+            },
+            executor: Arc::new(|_args, _env| {
+                Box::pin(async move { Ok("tool executed".to_string()) })
+            }),
+        });
+
+        let responses = vec![
+            tool_call_response(
+                "strict_tool",
+                "call_1",
+                serde_json::json!({"text": "hello"}),
+            ),
+            text_response("Done"),
+        ];
+
+        let mut session = make_session_with_tools(responses, registry).await;
+        session.process_input("Use strict tool").await.unwrap();
+
+        let turns = session.history().turns();
+        if let Turn::ToolResults { results, .. } = &turns[2] {
+            assert!(!results[0].is_error);
+        } else {
+            panic!("Expected ToolResults turn at index 2");
+        }
     }
 }
