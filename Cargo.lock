@@ -1681,7 +1681,6 @@ dependencies = [
  "predicates",
  "serde_json",
  "tokio",
- "tokio-stream",
  "unified-llm",
 ]
 

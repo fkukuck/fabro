@@ -90,11 +90,11 @@ fn read_stdin_prompt() -> Option<String> {
     }
     let mut buf = String::new();
     stdin.lock().read_to_string(&mut buf).ok()?;
-    let trimmed = buf.trim().to_string();
+    let trimmed = buf.trim();
     if trimmed.is_empty() {
         None
     } else {
-        Some(trimmed)
+        Some(trimmed.to_string())
     }
 }
 
@@ -157,36 +157,41 @@ fn apply_options(
     Ok(params)
 }
 
-async fn run_prompt(
-    prompt_arg: Option<String>,
+struct PromptArgs {
+    prompt: Option<String>,
     model: Option<String>,
     system: Option<String>,
     no_stream: bool,
-    show_usage: bool,
-    options: Vec<(String, String)>,
-) -> Result<()> {
+    usage: bool,
+    option: Vec<(String, String)>,
+}
+
+fn print_usage(usage: &unified_llm::types::Usage) {
+    eprintln!(
+        "Tokens: {} input, {} output, {} total",
+        usage.input_tokens, usage.output_tokens, usage.total_tokens
+    );
+}
+
+async fn run_prompt(args: PromptArgs) -> Result<()> {
     let stdin_prompt = read_stdin_prompt();
-    let prompt_text = resolve_prompt(prompt_arg, stdin_prompt)?;
-    let (model_id, provider) = resolve_model(model);
+    let prompt_text = resolve_prompt(args.prompt, stdin_prompt)?;
+    let (model_id, provider) = resolve_model(args.model);
 
     let mut params = GenerateParams::new(&model_id).prompt(&prompt_text);
     if let Some(p) = provider {
         params = params.provider(&p);
     }
-    if let Some(sys) = system {
+    if let Some(sys) = args.system {
         params = params.system(&sys);
     }
-    params = apply_options(params, &options)?;
+    params = apply_options(params, &args.option)?;
 
-    if no_stream {
+    if args.no_stream {
         let result = generate::generate(params).await?;
         print!("{}", result.text());
-        if show_usage {
-            let usage = result.usage();
-            eprintln!(
-                "Tokens: {} input, {} output, {} total",
-                usage.input_tokens, usage.output_tokens, usage.total_tokens
-            );
+        if args.usage {
+            print_usage(result.usage());
         }
     } else {
         let mut stream_result = generate::stream(params).await?;
@@ -196,13 +201,9 @@ async fn run_prompt(
             }
         }
         println!();
-        if show_usage {
+        if args.usage {
             if let Some(response) = stream_result.response() {
-                let usage = &response.usage;
-                eprintln!(
-                    "Tokens: {} input, {} output, {} total",
-                    usage.input_tokens, usage.output_tokens, usage.total_tokens
-                );
+                print_usage(&response.usage);
             }
         }
     }
@@ -210,7 +211,8 @@ async fn run_prompt(
     Ok(())
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
@@ -223,32 +225,37 @@ fn main() -> Result<()> {
             usage,
             option,
         } => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(run_prompt(prompt, model, system, no_stream, usage, option))?;
+            run_prompt(PromptArgs {
+                prompt,
+                model,
+                system,
+                no_stream,
+                usage,
+                option,
+            })
+            .await?;
         }
         Command::Models { command } => {
-            let command = command.unwrap_or(ModelsCommand::List {
-                provider: None,
-                query: None,
-            });
-            match command {
-                ModelsCommand::List { provider, query } => {
-                    let mut models = catalog::list_models(provider.as_deref());
+            let ModelsCommand::List { provider, query } =
+                command.unwrap_or(ModelsCommand::List {
+                    provider: None,
+                    query: None,
+                });
 
-                    if let Some(ref q) = query {
-                        let q_lower = q.to_lowercase();
-                        models.retain(|m| {
-                            m.id.to_lowercase().contains(&q_lower)
-                                || m.display_name.to_lowercase().contains(&q_lower)
-                                || m.aliases
-                                    .iter()
-                                    .any(|a| a.to_lowercase().contains(&q_lower))
-                        });
-                    }
+            let mut models = catalog::list_models(provider.as_deref());
 
-                    print_models_table(&models);
-                }
+            if let Some(q) = &query {
+                let q_lower = q.to_lowercase();
+                models.retain(|m| {
+                    m.id.to_lowercase().contains(&q_lower)
+                        || m.display_name.to_lowercase().contains(&q_lower)
+                        || m.aliases
+                            .iter()
+                            .any(|a| a.to_lowercase().contains(&q_lower))
+                });
             }
+
+            print_models_table(&models);
         }
     }
 
@@ -260,7 +267,7 @@ mod tests {
     use assert_cmd::Command;
     use predicates::prelude::*;
 
-    #[allow(deprecated)] // cargo_bin_cmd! macro has known issues
+    #[allow(deprecated)] // assert_cmd deprecated cargo_bin; replacement macro has issues
     fn ullm() -> Command {
         Command::cargo_bin("ullm").unwrap()
     }

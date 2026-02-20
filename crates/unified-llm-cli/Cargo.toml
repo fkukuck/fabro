@@ -16,7 +16,6 @@ path = "src/main.rs"
 unified-llm = { path = "../unified-llm" }
 clap = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
 anyhow = { workspace = true }
 dotenvy = { workspace = true }
 futures = { workspace = true }
