@@ -104,7 +104,7 @@ pub struct SubmitAnswerResponse {
 /// Build the axum Router with all pipeline endpoints.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/pipelines", post(start_pipeline))
+        .route("/pipelines", get(list_pipelines).post(start_pipeline))
         .route("/pipelines/{id}", get(get_pipeline_status))
         .route("/pipelines/{id}/questions", get(get_questions))
         .route(
@@ -130,6 +130,19 @@ pub fn create_app_state(
         pipelines: Mutex::new(HashMap::new()),
         registry_factory: Box::new(registry_factory),
     })
+}
+
+async fn list_pipelines(State(state): State<Arc<AppState>>) -> Response {
+    let pipelines = state.pipelines.lock().expect("pipelines lock poisoned");
+    let items: Vec<PipelineStatusResponse> = pipelines
+        .iter()
+        .map(|(id, pipeline)| PipelineStatusResponse {
+            id: id.clone(),
+            status: pipeline.status.clone(),
+            error: pipeline.error.clone(),
+        })
+        .collect();
+    (StatusCode::OK, Json(items)).into_response()
 }
 
 async fn start_pipeline(
@@ -910,5 +923,52 @@ mod tests {
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn list_pipelines_returns_started_pipeline() {
+        let state = create_app_state(test_registry);
+        let app = build_router(Arc::clone(&state));
+
+        // List should be empty initially
+        let req = Request::builder()
+            .method("GET")
+            .uri("/pipelines")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        assert_eq!(body.as_array().unwrap().len(), 0);
+
+        // Start a pipeline
+        let req = Request::builder()
+            .method("POST")
+            .uri("/pipelines")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_string(&serde_json::json!({"dot_source": MINIMAL_DOT})).unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body = body_json(response.into_body()).await;
+        let pipeline_id = body["id"].as_str().unwrap().to_string();
+
+        // List should now contain one pipeline
+        let req = Request::builder()
+            .method("GET")
+            .uri("/pipelines")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        let items = body.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"].as_str().unwrap(), pipeline_id);
+        assert!(items[0]["status"].as_str().is_some());
     }
 }

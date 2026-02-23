@@ -70,6 +70,12 @@ export type ContextSnapshot = Record<string, unknown>;
 
 const API_BASE = "/api";
 
+export async function listPipelines(): Promise<PipelineStatusResponse[]> {
+  const res = await fetch(`${API_BASE}/pipelines`);
+  if (!res.ok) throw new Error(`List failed: ${res.status}`);
+  return res.json() as Promise<PipelineStatusResponse[]>;
+}
+
 export async function startPipeline(dotSource: string): Promise<StartPipelineResponse> {
   const res = await fetch(`${API_BASE}/pipelines`, {
     method: "POST",
