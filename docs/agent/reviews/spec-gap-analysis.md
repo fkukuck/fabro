@@ -4,7 +4,7 @@ Comparison of the implementation in `crates/attractor/` against `docs/specs/attr
 
 ## Summary
 
-The core pipeline engine, DOT parsing, edge selection, condition evaluation, retry logic, checkpoint/resume, validation, and all 10 handler types are implemented. The HTTP server with SSE is implemented. Context fidelity preamble synthesis, thread ID plumbing to backends, engine cancellation, recording/replay, and preset retry policies are all implemented. The remaining gaps are around **SVG graph rendering** and some smaller optional features.
+The core pipeline engine, DOT parsing, edge selection, condition evaluation, retry logic, checkpoint/resume, validation, and all 10 handler types are implemented. The HTTP server with SSE is implemented. Context fidelity preamble synthesis, thread ID plumbing to backends, engine cancellation, recording/replay, and preset retry policies are all implemented. The remaining gaps are **SVG graph rendering** and **no DOT-level mechanism for custom retry predicates**.
 
 ---
 
@@ -35,7 +35,7 @@ The core pipeline engine, DOT parsing, edge selection, condition evaluation, ret
 | 5.1 | Context (key-value store, thread-safe, snapshot, clone, apply_updates) | Done |
 | 5.2 | Outcome (all StageStatus values, context_updates, preferred_label, suggested_next_ids) | Done |
 | 5.3 | Checkpoint (save/load, resume from checkpoint, node_outcomes, retry counters) | Done |
-| 5.3 | Checkpoint resume fidelity degradation (full → summary:high on first resumed node) | Done |
+| 5.3 | Checkpoint resume fidelity degradation (full -> summary:high on first resumed node) | Done |
 | 5.4 | Fidelity resolution (edge > node > graph > default) | Done |
 | 5.4 | Thread ID resolution (5-level precedence) | Done |
 | 5.4 | Context fidelity preamble synthesis (truncate, compact, summary:low/medium/high) | Done |
@@ -62,47 +62,35 @@ The core pipeline engine, DOT parsing, edge selection, condition evaluation, ret
 
 ---
 
-## Missing or Incomplete Features
+## Gaps
 
 ### 1. GET /pipelines/{id}/graph (SVG Rendering) (Spec 9.5)
 
 **Status: Not implemented**
 
-The spec lists `GET /pipelines/{id}/graph` to return a rendered graph visualization (SVG). The HTTP server does not implement this endpoint. This would require either a Graphviz dependency or a custom SVG renderer.
+The spec lists `GET /pipelines/{id}/graph` to return a rendered graph visualization (SVG). The HTTP server does not implement this endpoint. No graphviz dependency exists, and the original DOT source is not stored in `ManagedPipeline` after parsing.
 
-### 2. Subgraph Class Derivation (Spec 2.10)
-
-**Status: Needs verification**
-
-The spec says subgraph labels should produce derived CSS-like classes: lowercasing, replacing spaces with hyphens, stripping non-alphanumeric. The parser has `derive_class_from_label()` which does this, but end-to-end verification that subgraph labels produce correct classes on contained nodes is not fully covered by tests.
-
----
-
-## Optional / Future Features Mentioned in Spec
-
-### 3. Extended Condition Operators (Spec 10.7)
-
-**Status: Not implemented (explicitly marked "Future")**
-
-The spec lists these as potential extensions: `contains`, `matches`, `OR`, `NOT`, `>`, `<`, `>=`, `<=`. Currently only `=`, `!=`, and `&&` are supported, which matches the current spec requirements.
-
-### 4. `should_retry` Predicate Customization (Spec 3.6)
+### 2. `should_retry` Predicate Customization (Spec 3.6)
 
 **Status: Default predicate only**
 
-The default predicate retries transient errors (Handler, Engine, Io) and rejects terminal errors (Parse, Validation, Stylesheet, Checkpoint). There's no mechanism for DOT authors or custom handlers to provide a custom `should_retry` predicate per node.
+The `RetryPolicy` struct has a `should_retry: ShouldRetryFn` field and the Rust API supports custom predicates. However, all preset policies (`none`, `standard`, `aggressive`, `linear`, `patient`) and `build_retry_policy()` use the same `default_should_retry()` predicate. There's no DOT-level mechanism for per-node retry predicate customization. The spec defines `should_retry` in the `RetryPolicy` struct but only describes a default predicate — it's unclear whether per-node customization is required.
 
-### 5. `rankdir` Graph Attribute (Spec 2.13)
+Note: the spec's default predicate description references HTTP status codes (429, 5xx, 401, 403, 400) but the implementation classifies retryability by `AttractorError` variant (`Handler`/`Engine`/`Io` = retryable). Reasonable for Rust but not a 1:1 mapping.
 
-**Status: Parsed but not used**
+---
 
-The DOT examples show `rankdir=LR` but this is a Graphviz visual hint. It's parsed as a graph attribute but has no execution semantics, which is correct behavior.
+## Spec Contradictions (not implementation gaps)
 
-### 6. Stylesheet Shape Selectors (Spec 8)
+These items have conflicting definitions within the spec itself. The spec needs to be reconciled; no implementation changes are needed.
 
-**Status: Not implemented**
+### Stylesheet Shape Selectors (Spec 8 vs 11.12)
 
-The spec mentions shape selectors for stylesheets, but the implementation only supports `*` (universal), `.class`, and `#id` selectors. Shape-based selectors (e.g., `box { ... }`) are not supported.
+The grammar (section 8.2) defines `Selector ::= '*' | '#' Identifier | '.' ClassName` — no shape selectors. But the DoD checklist (section 11.12) says "Selectors by shape name work (e.g., `box { ... }`)" and lists a 4-level specificity order including shape. The implementation follows the grammar.
+
+### Orphan Node Severity (Spec 7 vs 11.12)
+
+The validation table (section 7) defines `reachability` as **ERROR**. The DoD checklist (section 11.12) says "Validate: orphan node -> **warning**". The implementation uses ERROR, matching section 7.
 
 ---
 
@@ -131,7 +119,4 @@ Based on code review, these items from Spec 11.12 appear covered:
 - [x] Parallel fan-out and fan-in
 - [x] Custom handler registration and execution
 - [x] Pipeline with 10+ nodes (via integration tests)
-
-Not yet verified:
-- [ ] Validate: orphan node -> warning (reachability rule exists, need to verify it's warning not error)
-- [ ] Stylesheet applies by shape name (spec says shape selectors, implementation has `*`, `.class`, `#id`)
+- [x] Validate: orphan node -> error (spec contradiction: section 7 says ERROR, DoD says warning; implementation matches section 7)

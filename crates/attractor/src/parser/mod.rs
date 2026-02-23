@@ -144,4 +144,25 @@ mod tests {
         let result = parse(input);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn parse_subgraph_derives_class_on_contained_nodes() {
+        let input = r#"digraph SubgraphClassTest {
+            start [shape=Mdiamond]
+            exit  [shape=Msquare]
+
+            subgraph cluster_loop {
+                label = "Loop A"
+                plan      [label="Plan"]
+                implement [label="Implement"]
+                plan -> implement
+            }
+
+            start -> plan
+            implement -> exit
+        }"#;
+        let graph = parse(input).unwrap();
+        assert!(graph.nodes["plan"].classes.contains(&"loop-a".to_string()));
+        assert!(graph.nodes["implement"].classes.contains(&"loop-a".to_string()));
+    }
 }
