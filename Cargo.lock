@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "glob",
+ "jsonschema",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "unified-llm",
+ "uuid",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -132,12 +150,12 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "attractor"
 version = "0.1.0"
 dependencies = [
+ "agent",
  "anyhow",
  "async-trait",
  "axum",
  "chrono",
  "clap",
- "coding-agent-loop",
  "dotenvy",
  "futures",
  "http-body-util",
@@ -381,24 +399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
 dependencies = [
  "cc",
-]
-
-[[package]]
-name = "coding-agent-loop"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "glob",
- "jsonschema",
- "libc",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "unified-llm",
- "uuid",
 ]
 
 [[package]]
@@ -2303,12 +2303,15 @@ name = "unified-llm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_cmd",
  "async-trait",
  "base64",
  "bytes",
+ "clap",
  "dotenvy",
  "futures",
  "http",
+ "predicates",
  "rand",
  "reqwest 0.12.28",
  "serde",
@@ -2318,21 +2321,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "uuid",
-]
-
-[[package]]
-name = "unified-llm-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "clap",
- "dotenvy",
- "futures",
- "predicates",
- "serde_json",
- "tokio",
- "unified-llm",
 ]
 
 [[package]]

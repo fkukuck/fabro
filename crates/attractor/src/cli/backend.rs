@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use coding_agent_loop::{
+use agent::{
     AnthropicProfile, GeminiProfile, LocalExecutionEnvironment, OpenAiProfile, ProviderProfile,
     Session, SessionConfig, Turn,
 };
@@ -14,7 +14,7 @@ use crate::error::AttractorError;
 use crate::graph::Node;
 use crate::handler::codergen::{CodergenBackend, CodergenResult};
 
-/// LLM backend that delegates to a `coding-agent-loop` Session per invocation.
+/// LLM backend that delegates to an `agent` Session per invocation.
 pub struct AgentBackend {
     model: String,
     provider: Option<String>,

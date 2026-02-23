@@ -1,4 +1,4 @@
-# coding-agent-loop
+# agent
 
 A programmable agentic loop for building coding agents. This crate provides the core session management, tool execution, and LLM interaction loop used to power interactive coding assistants.
 
@@ -114,7 +114,7 @@ pub struct SessionConfig {
 ## Usage
 
 ```rust
-use coding_agent_loop::{
+use agent::{
     AnthropicProfile, LocalExecutionEnvironment, Session, SessionConfig,
 };
 use std::path::PathBuf;
@@ -183,7 +183,7 @@ abort_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 Register additional tools via the profile's `ToolRegistry`:
 
 ```rust
-use coding_agent_loop::tool_registry::{RegisteredTool, ToolExecutor};
+use agent::tool_registry::{RegisteredTool, ToolExecutor};
 use unified_llm::types::ToolDefinition;
 use std::sync::Arc;
 
@@ -216,7 +216,7 @@ profile.tool_registry_mut().register(custom_tool);
 Spawn child sessions for delegated tasks:
 
 ```rust
-use coding_agent_loop::subagent::SubAgentManager;
+use agent::subagent::SubAgentManager;
 
 let mut profile = AnthropicProfile::new("claude-sonnet-4-20250514");
 let manager = Arc::new(tokio::sync::Mutex::new(SubAgentManager::new(3)));

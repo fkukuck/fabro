@@ -1,6 +1,6 @@
 # Spec Format Reference
 
-Common format shared by `specs/unified-llm-spec.md`, `specs/coding-agent-loop-spec.md`, and `specs/attractor-spec.md`.
+Common format shared by `specs/unified-llm-spec.md`, `specs/coding-agent-loop-spec.md` (agent crate), and `specs/attractor-spec.md`.
 
 ---
 
@@ -38,7 +38,7 @@ An ASCII art box diagram showing the layers/components and how they connect. All
 
 ### 4.5 Relationship to Companion Specs
 
-When the spec depends on another (coding-agent-loop depends on unified-llm; attractor depends on coding-agent-loop), it states this explicitly with the types it imports and how the layering works.
+When the spec depends on another (agent depends on unified-llm; attractor depends on agent), it states this explicitly with the types it imports and how the layering works.
 
 ## 5. Core Technical Sections
 
@@ -79,7 +79,7 @@ When a non-obvious choice is made, it's explained inline with **bold "Why..." qu
 
 ## 6. Out of Scope / Nice-to-Haves (optional)
 
-A section explicitly listing features that are *intentionally excluded*, with an explanation of why each is out of scope and where in the architecture it could be added later. Prevents scope creep and signals extensibility points. (Present in coding-agent-loop-spec; not all specs include this.)
+A section explicitly listing features that are *intentionally excluded*, with an explanation of why each is out of scope and where in the architecture it could be added later. Prevents scope creep and signals extensibility points. (Present in the agent spec; not all specs include this.)
 
 ## 7. Definition of Done
 

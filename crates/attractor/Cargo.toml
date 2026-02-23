@@ -21,7 +21,7 @@ server = ["axum", "tower", "tokio-stream"]
 clap.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true
-coding-agent-loop = { path = "../coding-agent-loop" }
+agent = { path = "../agent" }
 unified-llm = { path = "../unified-llm" }
 thiserror.workspace = true
 serde.workspace = true

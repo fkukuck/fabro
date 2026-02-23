@@ -1,5 +1,5 @@
 [package]
-name = "coding-agent-loop"
+name = "agent"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
