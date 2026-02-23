@@ -145,17 +145,23 @@ fn validate_api_key(provider: &str) -> bool {
     }
 }
 
-fn format_tool_args(args: &serde_json::Value) -> String {
+fn format_tool_args(args: &serde_json::Value, cwd: &str) -> String {
+    let cwd_prefix = if cwd.ends_with('/') {
+        cwd.to_string()
+    } else {
+        format!("{cwd}/")
+    };
     let Some(obj) = args.as_object() else {
         return args.to_string();
     };
     obj.iter()
         .map(|(k, v)| match v {
             serde_json::Value::String(s) => {
+                let s = s.strip_prefix(&cwd_prefix).unwrap_or(s);
                 let display = if s.len() > 80 {
                     format!("{}...", &s[..77])
                 } else {
-                    s.clone()
+                    s.to_string()
                 };
                 format!("{k}={display:?}")
             }
@@ -316,6 +322,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Build execution environment
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd_str = cwd.to_string_lossy().to_string();
     let env = Arc::new(LocalExecutionEnvironment::new(cwd));
 
     // Build tool approval callback
@@ -350,7 +357,7 @@ pub async fn run() -> anyhow::Result<()> {
                         reset = s.reset,
                         bold = s.bold,
                         cyan = s.cyan,
-                        args = format_tool_args(arguments),
+                        args = format_tool_args(arguments, &cwd_str),
                     );
                 }
                 (
