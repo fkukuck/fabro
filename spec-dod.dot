@@ -26,7 +26,7 @@ digraph SpecDoD {
 
 For EACH checkbox in sections 8.1 through 8.10, evaluate whether the current Rust implementation satisfies it. Be strict — a checkbox is only checked if the feature is fully implemented and would work correctly at runtime.
 
-Output a JSON object:
+Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
 {
   \"spec\": \"unified-llm\",
   \"sections\": {
@@ -50,7 +50,7 @@ Be thorough. Check every single checkbox."
 
 For EACH checkbox in sections 9.1 through 9.13, evaluate whether the current Rust implementation satisfies it. Be strict.
 
-Output a JSON object:
+Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
 {
   \"spec\": \"coding-agent-loop\",
   \"sections\": { ... },
@@ -71,7 +71,7 @@ Be thorough. Check every single checkbox."
 
 For EACH checkbox in sections 11.1 through 11.13, evaluate whether the current Rust implementation satisfies it. Be strict.
 
-Output a JSON object:
+Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
 {
   \"spec\": \"attractor\",
   \"sections\": { ... },
@@ -100,7 +100,7 @@ Group failures into:
 
 For each IMPLEMENTABLE item, identify the exact file(s) to modify and briefly describe the fix.
 
-Output a JSON object:
+Respond with JSON (not by writing out a file):
 {
   \"total_failing\": N,
   \"implementable\": [ {\"spec\": \"...\", \"section\": \"...\", \"text\": \"...\", \"files\": [\"...\"], \"fix\": \"...\"} ],
@@ -136,7 +136,7 @@ Constraints:
 - Keep changes minimal and focused — one checkbox per fix
 - Maintain the existing code style
 
-After implementing, output:
+Respond with JSON (not by writing out a file):
 {
   \"fixes_applied\": [ {\"spec\": \"...\", \"section\": \"...\", \"text\": \"...\", \"files_changed\": [\"...\"], \"description\": \"...\"} ],
   \"count\": N,
@@ -192,7 +192,7 @@ And re-read the implementation files that were changed in this iteration.
 
 Check ONLY the items that were previously failing. Have they been fixed?
 
-Output:
+Respond with JSON (not by writing out a file):
 {
   \"verified_fixed\": [ {\"spec\": \"...\", \"section\": \"...\", \"text\": \"...\"} ],
   \"still_failing\": [ {\"spec\": \"...\", \"section\": \"...\", \"text\": \"...\", \"reason\": \"...\"} ],
