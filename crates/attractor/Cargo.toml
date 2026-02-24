@@ -45,7 +45,6 @@ tokio-stream = { workspace = true, optional = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-tokio-util.workspace = true
 tempfile = "3"
 axum = "0.8"
 tower = "0.5"

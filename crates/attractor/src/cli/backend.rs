@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -8,16 +8,14 @@ use agent::{
     ExecutionEnvironment, GeminiProfile, LocalExecutionEnvironment, OpenAiProfile, ProviderProfile,
     Session, SessionConfig, Turn,
 };
-use agent::tool_registry::RegisteredTool;
 use llm::client::Client;
-use llm::types::ToolDefinition;
 use terminal::Styles;
 
 use crate::context::Context;
 use crate::error::AttractorError;
 use crate::graph::Node;
 use crate::handler::codergen::{CodergenBackend, CodergenResult};
-use crate::outcome::{Outcome, StageStatus, StageUsage};
+use crate::outcome::StageUsage;
 
 /// LLM backend that delegates to an `agent` Session per invocation.
 pub struct AgentBackend {
@@ -46,12 +44,12 @@ impl AgentBackend {
         }
     }
 
-    fn build_profile(&self) -> Box<dyn ProviderProfile> {
+    fn build_profile(&self) -> Arc<dyn ProviderProfile> {
         let provider = self.provider.as_deref().unwrap_or("anthropic");
         match provider {
-            "openai" => Box::new(OpenAiProfile::new(&self.model)),
-            "gemini" => Box::new(GeminiProfile::new(&self.model)),
-            _ => Box::new(AnthropicProfile::new(&self.model)),
+            "openai" => Arc::new(OpenAiProfile::new(&self.model)),
+            "gemini" => Arc::new(GeminiProfile::new(&self.model)),
+            _ => Arc::new(AnthropicProfile::new(&self.model)),
         }
     }
 }
@@ -69,11 +67,7 @@ impl CodergenBackend for AgentBackend {
             .await
             .map_err(|e| AttractorError::Handler(format!("Failed to create LLM client: {e}")))?;
 
-        let mut profile = self.build_profile();
-        let (tool, outcome_cell) = make_report_outcome_tool();
-        profile.tool_registry_mut().register(tool);
-        let profile: Arc<dyn ProviderProfile> = Arc::from(profile);
-
+        let profile = self.build_profile();
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         let exec_env: Arc<dyn ExecutionEnvironment> = if self.docker {
@@ -196,13 +190,6 @@ impl CodergenBackend for AgentBackend {
             );
         }
 
-        // If the LLM called report_outcome, return a Full outcome.
-        let tool_outcome = outcome_cell.lock().unwrap().take();
-        if let Some(mut outcome) = tool_outcome {
-            outcome.usage = Some(stage_usage);
-            return Ok(CodergenResult::Full(outcome));
-        }
-
         // Extract last assistant response from the session history.
         let response = session
             .history()
@@ -223,94 +210,6 @@ impl CodergenBackend for AgentBackend {
     }
 }
 
-/// Creates a `report_outcome` tool that the LLM calls to declare routing decisions.
-///
-/// Returns the `RegisteredTool` and a shared cell where the tool stores the latest `Outcome`.
-///
-/// # Panics
-///
-/// The tool executor panics if the internal mutex is poisoned.
-#[must_use]
-pub fn make_report_outcome_tool() -> (RegisteredTool, Arc<Mutex<Option<Outcome>>>) {
-    let outcome_cell: Arc<Mutex<Option<Outcome>>> = Arc::new(Mutex::new(None));
-    let cell = outcome_cell.clone();
-
-    let definition = ToolDefinition {
-        name: "report_outcome".to_string(),
-        description: "Report the outcome of this task, including routing preference and context updates. \
-            Call this tool when you have completed your work to declare the result status \
-            and optionally indicate which next step should be taken."
-            .to_string(),
-        parameters: serde_json::json!({
-            "type": "object",
-            "required": ["status"],
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": ["success", "fail", "partial_success", "retry", "skipped"],
-                    "description": "The result status of this task."
-                },
-                "preferred_next_label": {
-                    "type": "string",
-                    "description": "The label of the preferred next edge to follow."
-                },
-                "context_updates": {
-                    "type": "object",
-                    "description": "Key-value pairs to merge into the pipeline context."
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Optional notes about the outcome."
-                },
-                "failure_reason": {
-                    "type": "string",
-                    "description": "Reason for failure (when status is 'fail')."
-                }
-            }
-        }),
-    };
-
-    let executor: agent::tool_registry::ToolExecutor = Arc::new(move |args, _env, _cancel| {
-        let cell = cell.clone();
-        Box::pin(async move {
-            let status_str = args
-                .get("status")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "missing required field: status".to_string())?;
-
-            let status: StageStatus = status_str
-                .parse()
-                .map_err(|e: String| e)?;
-
-            let mut outcome = Outcome {
-                status,
-                preferred_label: args.get("preferred_next_label").and_then(|v| v.as_str()).map(String::from),
-                suggested_next_ids: Vec::new(),
-                context_updates: std::collections::HashMap::new(),
-                notes: args.get("notes").and_then(|v| v.as_str()).map(String::from),
-                failure_reason: args.get("failure_reason").and_then(|v| v.as_str()).map(String::from),
-                usage: None,
-            };
-
-            if let Some(updates) = args.get("context_updates").and_then(|v| v.as_object()) {
-                for (key, val) in updates {
-                    outcome.context_updates.insert(key.clone(), val.clone());
-                }
-            }
-
-            *cell.lock().unwrap() = Some(outcome);
-            Ok("Outcome recorded.".to_string())
-        })
-    });
-
-    let tool = RegisteredTool {
-        definition,
-        executor,
-    };
-
-    (tool, outcome_cell)
-}
-
 fn format_tool_args(args: &serde_json::Value) -> String {
     let Some(obj) = args.as_object() else {
         return args.to_string();
@@ -329,78 +228,4 @@ fn format_tool_args(args: &serde_json::Value) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio_util::sync::CancellationToken;
-
-    fn dummy_env() -> Arc<dyn ExecutionEnvironment> {
-        Arc::new(LocalExecutionEnvironment::new(std::path::PathBuf::from(".")))
-    }
-
-    #[tokio::test]
-    async fn report_outcome_tool_captures_outcome() {
-        let (tool, cell) = make_report_outcome_tool();
-        let args = serde_json::json!({
-            "status": "success",
-            "preferred_next_label": "Fix"
-        });
-        let result = (tool.executor)(args, dummy_env(), CancellationToken::new()).await;
-        assert!(result.is_ok());
-
-        let outcome = cell.lock().unwrap().clone().unwrap();
-        assert_eq!(outcome.status, StageStatus::Success);
-        assert_eq!(outcome.preferred_label.as_deref(), Some("Fix"));
-    }
-
-    #[tokio::test]
-    async fn report_outcome_tool_last_call_wins() {
-        let (tool, cell) = make_report_outcome_tool();
-
-        let _ = (tool.executor)(
-            serde_json::json!({"status": "success", "notes": "first"}),
-            dummy_env(),
-            CancellationToken::new(),
-        )
-        .await;
-
-        let _ = (tool.executor)(
-            serde_json::json!({"status": "fail", "failure_reason": "oops"}),
-            dummy_env(),
-            CancellationToken::new(),
-        )
-        .await;
-
-        let outcome = cell.lock().unwrap().clone().unwrap();
-        assert_eq!(outcome.status, StageStatus::Fail);
-        assert_eq!(outcome.failure_reason.as_deref(), Some("oops"));
-    }
-
-    #[tokio::test]
-    async fn report_outcome_tool_parses_context_updates() {
-        let (tool, cell) = make_report_outcome_tool();
-        let args = serde_json::json!({
-            "status": "success",
-            "context_updates": {"k": "v"}
-        });
-        let result = (tool.executor)(args, dummy_env(), CancellationToken::new()).await;
-        assert!(result.is_ok());
-
-        let outcome = cell.lock().unwrap().clone().unwrap();
-        assert_eq!(
-            outcome.context_updates.get("k"),
-            Some(&serde_json::json!("v"))
-        );
-    }
-
-    #[tokio::test]
-    async fn report_outcome_tool_invalid_status_errors() {
-        let (tool, _cell) = make_report_outcome_tool();
-        let args = serde_json::json!({"status": "bogus"});
-        let result = (tool.executor)(args, dummy_env(), CancellationToken::new()).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unknown stage status"));
-    }
 }
