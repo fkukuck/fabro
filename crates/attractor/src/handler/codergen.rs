@@ -246,6 +246,10 @@ impl Handler for CodergenHandler {
             "last_response".to_string(),
             serde_json::json!(truncate(&response_text, 200)),
         );
+        outcome.context_updates.insert(
+            format!("response.{}", node.id),
+            serde_json::json!(&response_text),
+        );
 
         // 7b. Parse routing directives from response text
         extract_status_fields(&response_text, &mut outcome);
@@ -375,6 +379,10 @@ mod tests {
             Some(&serde_json::json!("step"))
         );
         assert!(outcome.context_updates.contains_key("last_response"));
+        assert_eq!(
+            outcome.context_updates.get("response.step"),
+            Some(&serde_json::json!("[Simulated] Response for stage: step"))
+        );
     }
 
     #[test]
