@@ -17,8 +17,8 @@ pub struct Adapter {
     base_url: String,
     default_headers: std::collections::HashMap<String, String>,
     client: reqwest::Client,
-    request_timeout: std::time::Duration,
-    stream_read_timeout: std::time::Duration,
+    request_timeout: Option<std::time::Duration>,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 impl Adapter {
@@ -34,8 +34,8 @@ impl Adapter {
             base_url: DEFAULT_BASE_URL.to_string(),
             default_headers: std::collections::HashMap::new(),
             client,
-            request_timeout: std::time::Duration::from_secs_f64(timeout.request),
-            stream_read_timeout: std::time::Duration::from_secs_f64(timeout.stream_read),
+            request_timeout: timeout.request.map(std::time::Duration::from_secs_f64),
+            stream_read_timeout: timeout.stream_read.map(std::time::Duration::from_secs_f64),
         }
     }
 
@@ -57,8 +57,8 @@ impl Adapter {
             .connect_timeout(std::time::Duration::from_secs_f64(timeout.connect))
             .build()
             .unwrap_or_default();
-        self.request_timeout = std::time::Duration::from_secs_f64(timeout.request);
-        self.stream_read_timeout = std::time::Duration::from_secs_f64(timeout.stream_read);
+        self.request_timeout = timeout.request.map(std::time::Duration::from_secs_f64);
+        self.stream_read_timeout = timeout.stream_read.map(std::time::Duration::from_secs_f64);
         self
     }
 
@@ -925,7 +925,7 @@ struct SseReaderState {
     done: bool,
     /// When true, `tool_use` events for the synthetic tool are converted to text events.
     json_schema_mode: bool,
-    stream_read_timeout: std::time::Duration,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 impl SseReaderState {
@@ -935,7 +935,7 @@ impl SseReaderState {
             + 'static,
         rate_limit: Option<crate::types::RateLimitInfo>,
         json_schema_mode: bool,
-        stream_read_timeout: std::time::Duration,
+        stream_read_timeout: Option<std::time::Duration>,
     ) -> Self {
         use futures::StreamExt;
         Self {
@@ -967,7 +967,11 @@ impl SseReaderState {
             }
 
             // Read more bytes from the stream.
-            match tokio::time::timeout(self.stream_read_timeout, self.byte_stream.next()).await {
+            let chunk_result = match self.stream_read_timeout {
+                Some(timeout) => tokio::time::timeout(timeout, self.byte_stream.next()).await,
+                None => Ok(self.byte_stream.next().await),
+            };
+            match chunk_result {
                 Ok(Some(Ok(chunk))) => {
                     let text = String::from_utf8_lossy(&chunk);
                     self.buffer.push_str(&text);
@@ -1142,8 +1146,12 @@ impl ProviderAdapter for Adapter {
         }
         let (_api_request, req_builder) = build_api_request(self, request, false);
 
+        let mut req = req_builder;
+        if let Some(t) = self.request_timeout {
+            req = req.timeout(t);
+        }
         let (body, headers) =
-            send_and_read_response(req_builder.timeout(self.request_timeout), "anthropic", "type").await?;
+            send_and_read_response(req, "anthropic", "type").await?;
 
         let api_resp: ApiResponse =
             serde_json::from_str(&body).map_err(|e| SdkError::Network {

@@ -19,8 +19,8 @@ pub struct Adapter {
     base_url: String,
     default_headers: std::collections::HashMap<String, String>,
     client: reqwest::Client,
-    request_timeout: std::time::Duration,
-    stream_read_timeout: std::time::Duration,
+    request_timeout: Option<std::time::Duration>,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 impl Adapter {
@@ -36,8 +36,8 @@ impl Adapter {
             base_url: DEFAULT_BASE_URL.to_string(),
             default_headers: std::collections::HashMap::new(),
             client,
-            request_timeout: std::time::Duration::from_secs_f64(timeout.request),
-            stream_read_timeout: std::time::Duration::from_secs_f64(timeout.stream_read),
+            request_timeout: timeout.request.map(std::time::Duration::from_secs_f64),
+            stream_read_timeout: timeout.stream_read.map(std::time::Duration::from_secs_f64),
         }
     }
 
@@ -59,8 +59,8 @@ impl Adapter {
             .connect_timeout(std::time::Duration::from_secs_f64(timeout.connect))
             .build()
             .unwrap_or_default();
-        self.request_timeout = std::time::Duration::from_secs_f64(timeout.request);
-        self.stream_read_timeout = std::time::Duration::from_secs_f64(timeout.stream_read);
+        self.request_timeout = timeout.request.map(std::time::Duration::from_secs_f64);
+        self.stream_read_timeout = timeout.stream_read.map(std::time::Duration::from_secs_f64);
         self
     }
 }
@@ -571,7 +571,7 @@ async fn send_streaming_request(
 
 /// Process a stream of SSE chunks from the Gemini `streamGenerateContent` endpoint
 /// and yield `StreamEvent` values.
-fn process_sse_stream(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>, stream_read_timeout: std::time::Duration) -> StreamEventStream {
+fn process_sse_stream(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>, stream_read_timeout: Option<std::time::Duration>) -> StreamEventStream {
     Box::pin(stream::unfold(
         SseStreamState::new(http_resp, model, rate_limit, stream_read_timeout),
         |mut state| async move {
@@ -680,11 +680,11 @@ struct SseStreamState {
     finished: bool,
     /// Rate limit info parsed from HTTP response headers.
     rate_limit: Option<crate::types::RateLimitInfo>,
-    stream_read_timeout: std::time::Duration,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 impl SseStreamState {
-    fn new(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>, stream_read_timeout: std::time::Duration) -> Self {
+    fn new(http_resp: reqwest::Response, model: String, rate_limit: Option<crate::types::RateLimitInfo>, stream_read_timeout: Option<std::time::Duration>) -> Self {
         Self {
             http_resp,
             model,
@@ -720,7 +720,11 @@ impl SseStreamState {
             }
 
             // Read more bytes from the HTTP response.
-            match tokio::time::timeout(self.stream_read_timeout, self.http_resp.chunk()).await {
+            let chunk_result = match self.stream_read_timeout {
+                Some(timeout) => tokio::time::timeout(timeout, self.http_resp.chunk()).await,
+                None => Ok(self.http_resp.chunk().await),
+            };
+            match chunk_result {
                 Ok(Ok(Some(bytes))) => {
                     let text = String::from_utf8_lossy(&bytes);
                     self.line_buffer.push_str(&text);
@@ -918,10 +922,11 @@ impl ProviderAdapter for Adapter {
         for (key, value) in &self.default_headers {
             req = req.header(key, value);
         }
-        let (body, headers) = send_gemini_response(
-            req.json(&api_body).timeout(self.request_timeout),
-        )
-        .await?;
+        let mut gemini_req = req.json(&api_body);
+        if let Some(t) = self.request_timeout {
+            gemini_req = gemini_req.timeout(t);
+        }
+        let (body, headers) = send_gemini_response(gemini_req).await?;
 
         let api_resp: ApiResponse =
             serde_json::from_str(&body).map_err(|e| SdkError::Network {

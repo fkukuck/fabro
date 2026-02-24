@@ -22,8 +22,8 @@ pub struct Adapter {
     project_id: Option<String>,
     default_headers: std::collections::HashMap<String, String>,
     client: reqwest::Client,
-    request_timeout: std::time::Duration,
-    stream_read_timeout: std::time::Duration,
+    request_timeout: Option<std::time::Duration>,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 impl Adapter {
@@ -41,8 +41,8 @@ impl Adapter {
             project_id: None,
             default_headers: std::collections::HashMap::new(),
             client,
-            request_timeout: std::time::Duration::from_secs_f64(timeout.request),
-            stream_read_timeout: std::time::Duration::from_secs_f64(timeout.stream_read),
+            request_timeout: timeout.request.map(std::time::Duration::from_secs_f64),
+            stream_read_timeout: timeout.stream_read.map(std::time::Duration::from_secs_f64),
         }
     }
 
@@ -76,8 +76,8 @@ impl Adapter {
             .connect_timeout(std::time::Duration::from_secs_f64(timeout.connect))
             .build()
             .unwrap_or_default();
-        self.request_timeout = std::time::Duration::from_secs_f64(timeout.request);
-        self.stream_read_timeout = std::time::Duration::from_secs_f64(timeout.stream_read);
+        self.request_timeout = timeout.request.map(std::time::Duration::from_secs_f64);
+        self.stream_read_timeout = timeout.stream_read.map(std::time::Duration::from_secs_f64);
         self
     }
 
@@ -496,7 +496,7 @@ struct SseStreamState {
     emitted_text_start: bool,
     raw_response: Option<serde_json::Value>,
     rate_limit: Option<crate::types::RateLimitInfo>,
-    stream_read_timeout: std::time::Duration,
+    stream_read_timeout: Option<std::time::Duration>,
 }
 
 /// Extract complete SSE messages from the buffer.
@@ -566,7 +566,11 @@ async fn process_next_sse_events(
             continue;
         }
 
-        match tokio::time::timeout(state.stream_read_timeout, state.byte_stream.next()).await {
+        let chunk_result = match state.stream_read_timeout {
+            Some(timeout) => tokio::time::timeout(timeout, state.byte_stream.next()).await,
+            None => Ok(state.byte_stream.next().await),
+        };
+        match chunk_result {
             Ok(Some(Ok(bytes))) => {
                 let text = String::from_utf8_lossy(&bytes);
                 state.buffer.push_str(&text);
@@ -913,14 +917,11 @@ impl ProviderAdapter for Adapter {
         let request_body = build_request_body(request, false);
         let url = format!("{}/responses", self.base_url);
 
-        let (body, headers) = send_and_read_response(
-            self.build_request(&url)
-                .json(&request_body)
-                .timeout(self.request_timeout),
-            "openai",
-            "type",
-        )
-        .await?;
+        let mut req = self.build_request(&url).json(&request_body);
+        if let Some(t) = self.request_timeout {
+            req = req.timeout(t);
+        }
+        let (body, headers) = send_and_read_response(req, "openai", "type").await?;
 
         let api_resp: ApiResponse =
             serde_json::from_str(&body).map_err(|e| SdkError::Network {

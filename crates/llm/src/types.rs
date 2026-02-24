@@ -634,16 +634,16 @@ impl From<f64> for TimeoutConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AdapterTimeout {
     pub connect: f64,
-    pub request: f64,
-    pub stream_read: f64,
+    pub request: Option<f64>,
+    pub stream_read: Option<f64>,
 }
 
 impl Default for AdapterTimeout {
     fn default() -> Self {
         Self {
-            connect: 10.0,
-            request: 120.0,
-            stream_read: 120.0,
+            connect: 30.0,
+            request: None,
+            stream_read: None,
         }
     }
 }
@@ -1128,9 +1128,9 @@ mod tests {
     #[test]
     fn adapter_timeout_defaults() {
         let timeout = AdapterTimeout::default();
-        assert!((timeout.connect - 10.0).abs() < f64::EPSILON);
-        assert!((timeout.request - 120.0).abs() < f64::EPSILON);
-        assert!((timeout.stream_read - 120.0).abs() < f64::EPSILON);
+        assert!((timeout.connect - 30.0).abs() < f64::EPSILON);
+        assert!(timeout.request.is_none());
+        assert!(timeout.stream_read.is_none());
     }
 
     #[test]
