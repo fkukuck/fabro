@@ -39,3 +39,5 @@ http = "1"
 tokio = { workspace = true, features = ["test-util", "macros"] }
 assert_cmd = "2"
 predicates = "3"
+httpmock = "0.8"
+tempfile = "3"

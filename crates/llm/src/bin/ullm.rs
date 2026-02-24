@@ -64,6 +64,17 @@ enum ModelsCommand {
         #[arg(short, long)]
         query: Option<String>,
     },
+
+    /// Download model metadata from OpenRouter
+    Sync {
+        /// URL to fetch models from
+        #[arg(long, default_value = "https://openrouter.ai/api/v1/models")]
+        url: String,
+
+        /// Output file path
+        #[arg(short, long, default_value = "openrouter_models.json")]
+        output: String,
+    },
 }
 
 fn parse_option(s: &str) -> Result<(String, String), String> {
@@ -219,6 +230,27 @@ async fn run_prompt(args: PromptArgs) -> Result<()> {
     Ok(())
 }
 
+async fn sync_models(url: &str, output: &str) -> Result<()> {
+    let body = reqwest::get(url)
+        .await
+        .context("failed to connect to models endpoint")?
+        .error_for_status()
+        .context("models endpoint returned an error")?
+        .text()
+        .await
+        .context("failed to read response body")?;
+
+    let json: serde_json::Value =
+        serde_json::from_str(&body).context("response is not valid JSON")?;
+    let pretty =
+        serde_json::to_string_pretty(&json).context("failed to format JSON")?;
+
+    std::fs::write(output, &pretty).with_context(|| format!("failed to write {output}"))?;
+
+    eprintln!("Saved models to {output}");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -246,26 +278,32 @@ async fn main() -> Result<()> {
             .await?;
         }
         Command::Models { command } => {
-            let ModelsCommand::List { provider, query } =
-                command.unwrap_or(ModelsCommand::List {
-                    provider: None,
-                    query: None,
-                });
+            let command = command.unwrap_or(ModelsCommand::List {
+                provider: None,
+                query: None,
+            });
 
-            let mut models = catalog::list_models(provider.as_deref());
+            match command {
+                ModelsCommand::List { provider, query } => {
+                    let mut models = catalog::list_models(provider.as_deref());
 
-            if let Some(q) = &query {
-                let q_lower = q.to_lowercase();
-                models.retain(|m| {
-                    m.id.to_lowercase().contains(&q_lower)
-                        || m.display_name.to_lowercase().contains(&q_lower)
-                        || m.aliases
-                            .iter()
-                            .any(|a| a.to_lowercase().contains(&q_lower))
-                });
+                    if let Some(q) = &query {
+                        let q_lower = q.to_lowercase();
+                        models.retain(|m| {
+                            m.id.to_lowercase().contains(&q_lower)
+                                || m.display_name.to_lowercase().contains(&q_lower)
+                                || m.aliases
+                                    .iter()
+                                    .any(|a| a.to_lowercase().contains(&q_lower))
+                        });
+                    }
+
+                    print_models_table(&models);
+                }
+                ModelsCommand::Sync { url, output } => {
+                    sync_models(&url, &output).await?;
+                }
             }
-
-            print_models_table(&models);
         }
     }
 
@@ -353,6 +391,98 @@ mod tests {
             .stdout(predicate::str::contains("claude-opus-4-6"))
             .stdout(predicate::str::contains("gpt-5.2"))
             .stdout(predicate::str::contains("gemini-3.1-pro-preview"));
+    }
+
+    // models sync downloads and saves pretty-printed JSON
+    #[test]
+    fn models_sync_downloads_and_saves() {
+        let server = httpmock::MockServer::start();
+        let mock_response = serde_json::json!({
+            "data": [{"id": "test-model", "name": "Test Model"}]
+        });
+        server.mock(|when, then| {
+            when.method("GET").path("/api/v1/models");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(serde_json::to_string(&mock_response).unwrap());
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("models.json");
+
+        ullm()
+            .args([
+                "models",
+                "sync",
+                "--url",
+                &server.url("/api/v1/models"),
+                "--output",
+                output_path.to_str().unwrap(),
+            ])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains("Saved models to"));
+
+        let contents = std::fs::read_to_string(&output_path).unwrap();
+        let expected = serde_json::to_string_pretty(&mock_response).unwrap();
+        assert_eq!(contents, expected);
+    }
+
+    // models sync reports HTTP errors
+    #[test]
+    fn models_sync_reports_http_errors() {
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method("GET").path("/api/v1/models");
+            then.status(500);
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("models.json");
+
+        ullm()
+            .args([
+                "models",
+                "sync",
+                "--url",
+                &server.url("/api/v1/models"),
+                "--output",
+                output_path.to_str().unwrap(),
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("error").or(predicate::str::contains("Error")));
+    }
+
+    // models sync with real OpenRouter (requires network)
+    #[test]
+    #[ignore = "requires network"]
+    fn models_sync_integration_smoke_test() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("models.json");
+
+        ullm()
+            .args([
+                "models",
+                "sync",
+                "--output",
+                output_path.to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+
+        let contents = std::fs::read_to_string(&output_path).unwrap();
+        assert!(contents.contains("\"data\""));
+    }
+
+    // models sync --help succeeds and mentions openrouter
+    #[test]
+    fn models_sync_help_mentions_openrouter() {
+        ullm()
+            .args(["models", "sync", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("openrouter").or(predicate::str::contains("OpenRouter")));
     }
 
     // Step 5: prompt requires prompt text (errors when no prompt and stdin is tty)
