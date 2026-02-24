@@ -21,7 +21,7 @@ pub struct Checkpoint {
     /// Persisted node outcomes for goal gate checks after resume.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub node_outcomes: HashMap<String, Outcome>,
-    /// The node to resume execution at (the next node after the checkpoint's current_node).
+    /// The node to resume execution at (the next node after the checkpoint's `current_node`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_node_id: Option<String>,
 }

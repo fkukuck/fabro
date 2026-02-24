@@ -220,7 +220,7 @@ fn validate_tool_args(args: &serde_json::Value, schema: &serde_json::Value) -> R
     Ok(())
 }
 
-fn args_type_name(value: &serde_json::Value) -> &'static str {
+const fn args_type_name(value: &serde_json::Value) -> &'static str {
     match value {
         serde_json::Value::Null => "null",
         serde_json::Value::Bool(_) => "boolean",
@@ -403,7 +403,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_all_tools_with_known_tools() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "greet",
             "Greet someone",
             serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}}),
@@ -429,7 +429,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_all_tools_with_unknown_tool() {
-        let tools = vec![];
+        let tools = [];
 
         let calls = vec![ToolCall::new(
             "call_1",
@@ -450,7 +450,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_all_tools_handler_error() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "fail",
             "Always fails",
             serde_json::json!({"type": "object", "properties": {}}),
@@ -475,8 +475,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_all_tools_concurrent_multiple() {
-        let tools = vec![
-            Tool::active(
+        let tools = [Tool::active(
                 "tool_a",
                 "Tool A",
                 serde_json::json!({"type": "object", "properties": {}}),
@@ -487,8 +486,7 @@ mod tests {
                 "Tool B",
                 serde_json::json!({"type": "object", "properties": {}}),
                 |_args, _ctx| async { Ok(serde_json::json!("result_b")) },
-            ),
-        ];
+            )];
 
         let calls = vec![
             ToolCall::new("call_1", "tool_a", serde_json::json!({})),
@@ -506,8 +504,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_all_tools_partial_failure() {
-        let tools = vec![
-            Tool::active(
+        let tools = [Tool::active(
                 "succeed",
                 "Succeeds",
                 serde_json::json!({"type": "object", "properties": {}}),
@@ -518,8 +515,7 @@ mod tests {
                 "Fails",
                 serde_json::json!({"type": "object", "properties": {}}),
                 |_args, _ctx| async { Err("boom".to_string()) },
-            ),
-        ];
+            )];
 
         let calls = vec![
             ToolCall::new("call_1", "succeed", serde_json::json!({})),
@@ -592,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_repair_valid_args_no_repair_needed() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "greet",
             "Greet someone",
             serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}}),
@@ -612,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_repair_invalid_args_no_repair_fn() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "greet",
             "Greet someone",
             serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
@@ -632,7 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_repair_invalid_args_repair_succeeds() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "greet",
             "Greet someone",
             serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
@@ -655,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_repair_invalid_args_repair_fails() {
-        let tools = vec![Tool::active(
+        let tools = [Tool::active(
             "greet",
             "Greet someone",
             serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),

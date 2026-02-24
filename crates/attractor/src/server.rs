@@ -19,7 +19,7 @@ use crate::engine::{PipelineEngine, RunConfig};
 use crate::event::{EventEmitter, PipelineEvent};
 use crate::handler::HandlerRegistry;
 use crate::interviewer::web::WebInterviewer;
-use crate::interviewer::{Answer, Interviewer, QuestionOption};
+use crate::interviewer::{Answer, Interviewer};
 
 /// Status of a managed pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,12 +185,12 @@ async fn start_pipeline(
         pipelines.insert(
             pipeline_id.clone(),
             ManagedPipeline {
-                dot_source: req.dot_source.clone(),
+                dot_source: req.dot_source,
                 status: PipelineStatus::Running,
                 error: None,
                 interviewer: Arc::clone(&interviewer),
-                event_tx: Some(event_tx.clone()),
-                context: Some(context.clone()),
+                event_tx: Some(event_tx),
+                context: Some(context),
                 checkpoint: None,
                 cancel_tx: Some(cancel_tx),
                 cancel_token: Arc::clone(&cancel_token),
@@ -318,10 +318,7 @@ async fn submit_answer(
                     match option {
                         Some(opt) => Answer::selected(
                             key.clone(),
-                            QuestionOption {
-                                key: opt.key,
-                                label: opt.label,
-                            },
+                            opt,
                         ),
                         None => {
                             return (

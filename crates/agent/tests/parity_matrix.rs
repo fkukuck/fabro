@@ -26,7 +26,7 @@ async fn make_session(provider: &str, model: &str, cwd: &Path) -> Session {
     let factory_cwd = cwd.to_path_buf();
     let factory: agent::subagent::SessionFactory = {
         let provider = factory_provider.to_string();
-        let model = factory_model.clone();
+        let model = factory_model;
         Arc::new(move || {
             let sub_profile: Arc<dyn ProviderProfile> = match provider.as_str() {
                 "anthropic" => Arc::new(AnthropicProfile::new(&model)),

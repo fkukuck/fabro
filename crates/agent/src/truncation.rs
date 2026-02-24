@@ -36,6 +36,7 @@ fn default_truncation_mode(tool_name: &str) -> TruncationMode {
     }
 }
 
+#[must_use] 
 pub fn truncate_output(output: &str, max_chars: usize, mode: TruncationMode) -> String {
     if output.len() <= max_chars {
         return output.to_string();
@@ -64,6 +65,7 @@ pub fn truncate_output(output: &str, max_chars: usize, mode: TruncationMode) -> 
     }
 }
 
+#[must_use] 
 pub fn truncate_lines(output: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = output.lines().collect();
     if lines.len() <= max_lines {
@@ -82,6 +84,7 @@ pub fn truncate_lines(output: &str, max_lines: usize) -> String {
     )
 }
 
+#[must_use] 
 pub fn truncate_tool_output(output: &str, tool_name: &str, config: &SessionConfig) -> String {
     let mode = default_truncation_mode(tool_name);
 

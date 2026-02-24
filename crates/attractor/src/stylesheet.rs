@@ -281,11 +281,11 @@ mod tests {
 
     #[test]
     fn parse_multiple_rules() {
-        let input = r#"
+        let input = r"
             * { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }
             .code { llm_model: claude-opus-4-6; llm_provider: anthropic; }
             #critical_review { llm_model: gpt-5.2; llm_provider: openai; reasoning_effort: high; }
-        "#;
+        ";
         let ss = parse_stylesheet(input).unwrap();
         assert_eq!(ss.rules.len(), 3);
     }
@@ -393,11 +393,11 @@ mod tests {
 
     #[test]
     fn spec_section_86_example() {
-        let input = r#"
+        let input = r"
             * { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }
             .code { llm_model: claude-opus-4-6; llm_provider: anthropic; }
             #critical_review { llm_model: gpt-5.2; llm_provider: openai; reasoning_effort: high; }
-        "#;
+        ";
         let ss = parse_stylesheet(input).unwrap();
         let mut graph = Graph::new("test");
 

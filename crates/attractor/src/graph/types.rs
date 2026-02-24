@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn attr_value_as_f64() {
-        assert_eq!(AttrValue::Float(3.14).as_f64(), Some(3.14));
+        assert_eq!(AttrValue::Float(3.15).as_f64(), Some(3.15));
         assert_eq!(AttrValue::Integer(1).as_f64(), None);
     }
 

@@ -134,10 +134,12 @@ impl Session {
         }
     }
 
-    pub fn state(&self) -> SessionState {
+    #[must_use] 
+    pub const fn state(&self) -> SessionState {
         self.state
     }
 
+    #[must_use] 
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<crate::types::SessionEvent> {
         self.event_emitter.subscribe()
     }
@@ -160,10 +162,12 @@ impl Session {
         self.cancel_token.cancel();
     }
 
+    #[must_use] 
     pub fn followup_queue_handle(&self) -> Arc<Mutex<VecDeque<String>>> {
         self.followup_queue.clone()
     }
 
+    #[must_use] 
     pub fn cancel_token(&self) -> CancellationToken {
         self.cancel_token.clone()
     }
@@ -180,11 +184,12 @@ impl Session {
         self.config.reasoning_effort = effort;
     }
 
-    pub fn set_max_turns(&mut self, max_turns: usize) {
+    pub const fn set_max_turns(&mut self, max_turns: usize) {
         self.config.max_turns = max_turns;
     }
 
-    pub fn history(&self) -> &History {
+    #[must_use] 
+    pub const fn history(&self) -> &History {
         &self.history
     }
 
@@ -756,10 +761,10 @@ fn truncate_tool_result(
     }
 }
 
-fn is_auth_error(err: &SdkError) -> bool {
+const fn is_auth_error(err: &SdkError) -> bool {
     matches!(
         err.provider_kind(),
-        Some(ProviderErrorKind::Authentication) | Some(ProviderErrorKind::AccessDenied)
+        Some(ProviderErrorKind::Authentication | ProviderErrorKind::AccessDenied)
     )
 }
 

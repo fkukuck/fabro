@@ -55,7 +55,8 @@ pub struct GraphMergeTransform {
 }
 
 impl GraphMergeTransform {
-    pub fn new(secondary_graphs: Vec<Graph>) -> Self {
+    #[must_use] 
+    pub const fn new(secondary_graphs: Vec<Graph>) -> Self {
         Self { secondary_graphs }
     }
 }
@@ -188,7 +189,7 @@ mod tests {
         let transform = VariableExpansionTransform;
         // Should not panic
         transform.apply(&mut graph);
-        assert!(graph.nodes["plan"].attrs.get("prompt").is_none());
+        assert!(!graph.nodes["plan"].attrs.contains_key("prompt"));
     }
 
     #[test]
@@ -285,7 +286,7 @@ mod tests {
 
         PreambleTransform.apply(&mut graph);
 
-        assert!(graph.nodes["work"].attrs.get("prompt").is_none());
+        assert!(!graph.nodes["work"].attrs.contains_key("prompt"));
     }
 
     // -----------------------------------------------------------------------

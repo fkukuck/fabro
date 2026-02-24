@@ -89,16 +89,16 @@ impl SdkError {
     #[must_use]
     pub const fn retryable(&self) -> bool {
         match self {
-            Self::Provider { kind, .. } => match kind {
+            Self::Provider { kind, .. } => !matches!(
+                kind,
                 ProviderErrorKind::Authentication
-                | ProviderErrorKind::AccessDenied
-                | ProviderErrorKind::NotFound
-                | ProviderErrorKind::InvalidRequest
-                | ProviderErrorKind::ContextLength
-                | ProviderErrorKind::QuotaExceeded
-                | ProviderErrorKind::ContentFilter => false,
-                _ => true,
-            },
+                    | ProviderErrorKind::AccessDenied
+                    | ProviderErrorKind::NotFound
+                    | ProviderErrorKind::InvalidRequest
+                    | ProviderErrorKind::ContextLength
+                    | ProviderErrorKind::QuotaExceeded
+                    | ProviderErrorKind::ContentFilter
+            ),
             Self::InvalidToolCall { .. }
             | Self::NoObjectGenerated { .. }
             | Self::Abort { .. }

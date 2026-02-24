@@ -21,6 +21,7 @@ fn extract_signatures_from_assistant(turn: &Turn) -> Vec<u64> {
         .collect()
 }
 
+#[must_use] 
 pub fn detect_loop(history: &History, window_size: usize) -> bool {
     // Extract tool call signatures from the last N assistant turns that have tool calls
     let turns = history.turns();

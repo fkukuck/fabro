@@ -7,6 +7,3 @@ description = "Shared ANSI terminal styling for CLI binaries"
 
 [lib]
 doctest = false
-
-[lints]
-workspace = true

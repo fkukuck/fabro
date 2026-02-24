@@ -2020,7 +2020,7 @@ mod tests {
         let d = rule.apply(&g);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].severity, Severity::Error);
-        assert!(d[0].message.contains("2"));
+        assert!(d[0].message.contains('2'));
     }
 
     // --- prompt_on_llm_nodes: empty prompt string still triggers ---

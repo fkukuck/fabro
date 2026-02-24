@@ -111,7 +111,7 @@ fn resolve_prompt(arg: Option<String>, stdin: Option<String>) -> Result<String> 
     }
 }
 
-/// Returns (model_id, provider) from the catalog, falling back to the first catalog model.
+/// Returns (`model_id`, provider) from the catalog, falling back to the first catalog model.
 fn resolve_model(model_arg: Option<String>) -> (String, Option<String>) {
     let raw = model_arg.unwrap_or_else(|| {
         catalog::list_models(None)
@@ -408,7 +408,7 @@ mod tests {
 
     // Step 6/7/8: Integration tests gated behind API key
     #[test]
-    #[ignore]
+    #[ignore = "requires API key"]
     fn prompt_no_stream_generates_response() {
         ullm()
             .args(["prompt", "--no-stream", "-m", "claude-sonnet-4-5", "Say just the word 'hello'"])
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires API key"]
     fn prompt_stream_generates_response() {
         ullm()
             .args(["prompt", "-m", "claude-sonnet-4-5", "Say just the word 'hello'"])
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires API key"]
     fn prompt_usage_shows_tokens() {
         ullm()
             .args(["prompt", "--no-stream", "-u", "-m", "claude-sonnet-4-5", "Say just the word 'hello'"])

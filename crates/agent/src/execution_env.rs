@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 ///
 /// Applies optional offset (0-based lines to skip) and limit (max lines to return).
 /// Line numbers are 1-based and right-aligned.
+#[must_use] 
 pub fn format_lines_numbered(content: &str, offset: Option<usize>, limit: Option<usize>) -> String {
     let all_lines: Vec<&str> = content.lines().collect();
     let skip = offset.unwrap_or(0);

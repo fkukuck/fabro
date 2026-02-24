@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn callback_receives_question_text() {
-        let interviewer = CallbackInterviewer::new(|q| Answer::text(q.text.clone()));
+        let interviewer = CallbackInterviewer::new(|q| Answer::text(q.text));
         let q = Question::new("hello world", QuestionType::Freeform);
         let answer = interviewer.ask(q).await;
         assert_eq!(answer.text, Some("hello world".to_string()));

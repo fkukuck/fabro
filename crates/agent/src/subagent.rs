@@ -29,6 +29,7 @@ pub struct SubAgent {
 
 #[cfg(test)]
 impl SubAgent {
+    #[must_use] 
     pub fn depth(&self) -> usize {
         self.depth
     }
@@ -40,6 +41,7 @@ pub struct SubAgentManager {
 }
 
 impl SubAgentManager {
+    #[must_use] 
     pub fn new(max_depth: usize) -> Self {
         Self {
             agents: HashMap::new(),
@@ -148,6 +150,7 @@ impl SubAgentManager {
     }
 
     #[cfg(test)]
+    #[must_use] 
     pub fn get(&self, agent_id: &str) -> Option<&SubAgent> {
         self.agents.get(agent_id)
     }
@@ -192,10 +195,9 @@ pub fn make_spawn_agent_tool(
                 let task = required_str(&args, "task")?;
 
                 // Extract optional max_turns parameter
-                #[allow(clippy::cast_possible_truncation)]
                 let max_turns = args
                     .get("max_turns")
-                    .and_then(|v| v.as_u64())
+                    .and_then(serde_json::Value::as_u64)
                     .map(|v| v as usize);
 
                 // Note: working_dir and model require session factory changes to wire through

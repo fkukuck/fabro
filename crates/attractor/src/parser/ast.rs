@@ -68,13 +68,13 @@ mod tests {
     fn ast_value_variants() {
         let s = AstValue::Str("hello".into());
         let i = AstValue::Int(42);
-        let f = AstValue::Float(3.14);
+        let f = AstValue::Float(3.15);
         let b = AstValue::Bool(true);
         let id = AstValue::Ident("LR".into());
 
         assert_eq!(s, AstValue::Str("hello".into()));
         assert_eq!(i, AstValue::Int(42));
-        assert_eq!(f, AstValue::Float(3.14));
+        assert_eq!(f, AstValue::Float(3.15));
         assert_eq!(b, AstValue::Bool(true));
         assert_eq!(id, AstValue::Ident("LR".into()));
     }

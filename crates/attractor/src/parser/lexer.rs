@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 /// Strip `//` line comments and `/* */` block comments from DOT source.
 #[must_use]
 pub fn strip_comments(input: &str) -> String {
@@ -53,11 +51,6 @@ pub fn strip_comments(input: &str) -> String {
 }
 
 /// nom combinators for whitespace and common tokens.
-#[allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::missing_const_for_fn
-)]
 pub mod combinators {
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while, take_while1};
@@ -368,9 +361,9 @@ mod tests {
 
     #[test]
     fn parse_float() {
-        assert_eq!(float_value("3.14 rest"), Ok((" rest", 3.14)));
+        assert_eq!(float_value("3.15 rest"), Ok((" rest", 3.15)));
         assert_eq!(float_value("0.5 rest"), Ok((" rest", 0.5)));
-        assert_eq!(float_value("-3.14 rest"), Ok((" rest", -3.14)));
+        assert_eq!(float_value("-3.15 rest"), Ok((" rest", -3.15)));
         assert_eq!(float_value(".5 rest"), Ok((" rest", 0.5)));
     }
 
@@ -405,7 +398,7 @@ mod tests {
             Ok(("", AstValue::Str("hello".into())))
         );
         assert_eq!(value("250ms"), Ok(("", AstValue::Str("250ms".into()))));
-        assert_eq!(value("3.14"), Ok(("", AstValue::Float(3.14))));
+        assert_eq!(value("3.15"), Ok(("", AstValue::Float(3.15))));
         assert_eq!(value("42"), Ok(("", AstValue::Int(42))));
         assert_eq!(value("true"), Ok(("", AstValue::Bool(true))));
         assert_eq!(value("LR"), Ok(("", AstValue::Ident("LR".into()))));

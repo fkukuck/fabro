@@ -50,7 +50,6 @@ impl Default for BackoffConfig {
 impl BackoffConfig {
     /// Calculate delay for a given attempt (1-indexed).
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
     pub fn delay_for_attempt(&self, attempt: u32) -> std::time::Duration {
         let exponent = attempt.saturating_sub(1);
         let initial = f64::from(u32::try_from(self.initial_delay_ms).unwrap_or(u32::MAX));
@@ -71,9 +70,7 @@ impl BackoffConfig {
         } else if final_ms >= f64::from(u32::MAX) {
             u64::from(u32::MAX)
         } else {
-            // Safe: final_ms is in [0, u32::MAX] so the truncated integer fits in u64
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            { final_ms as u64 }
+            final_ms as u64
         };
         std::time::Duration::from_millis(ms)
     }
@@ -98,7 +95,7 @@ impl RetryPolicy {
 
     /// Standard retry policy: 5 attempts, 200ms initial, 2x factor.
     #[must_use]
-    pub fn standard() -> Self {
+    pub const fn standard() -> Self {
         Self {
             max_attempts: 5,
             backoff: BackoffConfig {
@@ -112,7 +109,7 @@ impl RetryPolicy {
 
     /// Aggressive retry: 5 attempts, 500ms initial, 2x factor.
     #[must_use]
-    pub fn aggressive() -> Self {
+    pub const fn aggressive() -> Self {
         Self {
             max_attempts: 5,
             backoff: BackoffConfig {
@@ -126,7 +123,7 @@ impl RetryPolicy {
 
     /// Linear retry: 3 attempts, 500ms fixed delay.
     #[must_use]
-    pub fn linear() -> Self {
+    pub const fn linear() -> Self {
         Self {
             max_attempts: 3,
             backoff: BackoffConfig {
@@ -140,7 +137,7 @@ impl RetryPolicy {
 
     /// Patient retry: 3 attempts, 2000ms initial, 3x factor.
     #[must_use]
-    pub fn patient() -> Self {
+    pub const fn patient() -> Self {
         Self {
             max_attempts: 3,
             backoff: BackoffConfig {
@@ -260,7 +257,7 @@ fn write_manifest(logs_root: &Path, graph: &Graph) {
     }
 }
 
-/// Write status.json for a completed node into {logs_root}/{node_id}/status.json.
+/// Write status.json for a completed node into {`logs_root}/{node_id}/status.json`.
 fn write_node_status(logs_root: &Path, node_id: &str, outcome: &Outcome) {
     let node_dir = logs_root.join(node_id);
     let _ = std::fs::create_dir_all(&node_dir);
@@ -467,7 +464,7 @@ impl PipelineEngine {
         }
     }
 
-    /// Create a new engine with an interviewer for inform() callbacks.
+    /// Create a new engine with an interviewer for `inform()` callbacks.
     #[must_use]
     pub fn with_interviewer(
         registry: HandlerRegistry,
@@ -633,7 +630,7 @@ impl PipelineEngine {
     }
 
     /// Resume from a checkpoint. Restores context, completed nodes, and continues
-    /// execution from the node after the checkpoint's current_node.
+    /// execution from the node after the checkpoint's `current_node`.
     ///
     /// # Errors
     ///
@@ -647,8 +644,7 @@ impl PipelineEngine {
         self.run_internal(graph, config, Some(checkpoint), None).await
     }
 
-    /// Internal run implementation supporting optional checkpoint resume and start_at override.
-    #[allow(clippy::too_many_lines)]
+    /// Internal run implementation supporting optional checkpoint resume and `start_at` override.
     async fn run_internal(
         &self,
         graph: &Graph,
@@ -776,7 +772,9 @@ impl PipelineEngine {
 
             // Preamble injection at execution time (spec 5.4 / 8.3): synthesize a
             // fidelity-appropriate preamble from runtime data for handlers to read
-            if fidelity != "full" {
+            if fidelity == "full" {
+                context.set("current.preamble", serde_json::json!(""));
+            } else {
                 let preamble = build_preamble(
                     &fidelity,
                     &context,
@@ -785,8 +783,6 @@ impl PipelineEngine {
                     &node_outcomes,
                 );
                 context.set("current.preamble", serde_json::json!(preamble));
-            } else {
-                context.set("current.preamble", serde_json::json!(""));
             }
 
             // Thread context sharing: resolve thread ID and store in context for handlers
@@ -1183,13 +1179,11 @@ mod tests {
 
     #[test]
     fn build_retry_policy_all_presets() {
-        let presets = vec![
-            ("none", 1u32),
+        let presets = [("none", 1u32),
             ("standard", 5),
             ("aggressive", 5),
             ("linear", 3),
-            ("patient", 3),
-        ];
+            ("patient", 3)];
         let graph = Graph::new("test");
         let (name, expected) = presets[0];
         let mut node = Node::new("n");
@@ -2228,7 +2222,7 @@ mod tests {
 
     // --- Gap #15: Interviewer.inform() tests ---
 
-    /// Mock interviewer that records inform() calls.
+    /// Mock interviewer that records `inform()` calls.
     struct RecordingInformer {
         messages: std::sync::Mutex<Vec<(String, String)>>,
     }

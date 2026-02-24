@@ -121,13 +121,13 @@ mod tests {
 
     #[test]
     fn parse_with_comments() {
-        let input = r#"// This is a comment
+        let input = r"// This is a comment
         digraph Test {
             /* block comment */
             start [shape=Mdiamond] // inline comment
             exit [shape=Msquare]
             start -> exit
-        }"#;
+        }";
         let graph = parse(input).unwrap();
         assert_eq!(graph.nodes.len(), 2);
     }

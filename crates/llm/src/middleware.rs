@@ -42,6 +42,10 @@ pub trait Middleware: Send + Sync {
     /// Process an individual stream event. Override to observe or transform
     /// events as they pass through the middleware. The default implementation
     /// passes events through unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SdkError` if the incoming event is an error or if processing fails.
     fn process_stream_event(
         &self,
         event: Result<StreamEvent, SdkError>,

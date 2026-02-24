@@ -55,7 +55,7 @@ pub struct ToolCall {
     pub name: String,
     pub arguments: serde_json::Value,
     pub raw_arguments: Option<String>,
-    /// Opaque provider-specific metadata (e.g. Gemini thought_signature).
+    /// Opaque provider-specific metadata (e.g. Gemini `thought_signature`).
     /// Preserved across round-trips so the provider can include it when
     /// sending conversation history back to the API.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -443,7 +443,7 @@ impl ToolChoice {
 
     /// Return the mode string used by `ProviderAdapter::supports_tool_choice`.
     #[must_use]
-    pub fn mode_str(&self) -> &'static str {
+    pub const fn mode_str(&self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::None => "none",
@@ -591,7 +591,8 @@ impl StreamEvent {
         }
     }
 
-    pub fn error(error: SdkError) -> Self {
+    #[must_use] 
+    pub const fn error(error: SdkError) -> Self {
         Self::Error { error, raw: None }
     }
 }
@@ -630,7 +631,7 @@ impl From<f64> for TimeoutConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AdapterTimeout {
     pub connect: f64,
     pub request: f64,
@@ -692,7 +693,6 @@ impl Default for RetryPolicy {
 impl RetryPolicy {
     #[must_use]
     pub fn delay_for_attempt(&self, attempt: u32) -> f64 {
-        #[allow(clippy::cast_possible_wrap)]
         let delay = self.base_delay * self.backoff_multiplier.powi(attempt as i32);
         let delay = delay.min(self.max_delay);
 

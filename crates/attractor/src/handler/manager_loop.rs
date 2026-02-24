@@ -14,7 +14,7 @@ use super::{EngineServices, Handler};
 /// Trait for observing child pipeline state during the manager loop.
 #[async_trait]
 pub trait ChildObserver: Send + Sync {
-    /// Launch the child pipeline. Called before the observation loop when child_autostart is true.
+    /// Launch the child pipeline. Called before the observation loop when `child_autostart` is true.
     async fn launch_child(
         &self,
         _dotfile: &str,
@@ -78,7 +78,7 @@ impl Handler for ManagerLoopHandler {
         let poll_interval = node
             .attrs
             .get("manager.poll_interval")
-            .and_then(|v| v.as_duration())
+            .and_then(super::super::graph::types::AttrValue::as_duration)
             .unwrap_or_else(|| {
                 let raw = node
                     .attrs
@@ -91,7 +91,7 @@ impl Handler for ManagerLoopHandler {
         let max_cycles = node
             .attrs
             .get("manager.max_cycles")
-            .and_then(|v| v.as_i64())
+            .and_then(super::super::graph::types::AttrValue::as_i64)
             .unwrap_or(1000);
         let max_cycles = u64::try_from(max_cycles).unwrap_or(1000).max(1);
 
@@ -139,8 +139,7 @@ impl Handler for ManagerLoopHandler {
             .attrs
             .get("manager.steer_cooldown")
             .and_then(|v| v.as_str())
-            .map(parse_duration_str)
-            .unwrap_or(Duration::ZERO);
+            .map_or(Duration::ZERO, parse_duration_str);
         let mut last_steer_time: Option<Instant> = None;
 
         // Observation loop

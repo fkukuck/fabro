@@ -120,7 +120,7 @@ fn heuristic_select(results: &serde_json::Value) -> Candidate {
                 .to_string(),
             score: v
                 .get("score")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0),
         })
         .collect();
@@ -210,7 +210,7 @@ async fn llm_evaluate(
                             .to_string();
                         let score = v
                             .get("score")
-                            .and_then(|v| v.as_f64())
+                            .and_then(serde_json::Value::as_f64)
                             .unwrap_or(0.0);
                         return Ok(Candidate {
                             id: id.to_string(),

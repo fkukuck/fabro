@@ -91,9 +91,9 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
         ) -> Result<(), String> {
             let mut dir_entries: Vec<std::fs::DirEntry> = std::fs::read_dir(base)
                 .map_err(|e| format!("Failed to read directory {}: {e}", base.display()))?
-                .filter_map(|e| e.ok())
+                .filter_map(std::result::Result::ok)
                 .collect();
-            dir_entries.sort_by_key(|e| e.file_name());
+            dir_entries.sort_by_key(std::fs::DirEntry::file_name);
 
             for entry in dir_entries {
                 let metadata = entry
@@ -357,7 +357,6 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
 async fn sigterm_then_kill(child: &mut tokio::process::Child) {
     #[cfg(unix)]
     if let Some(pid) = child.id() {
-        #[allow(clippy::cast_possible_wrap)]
         unsafe {
             libc::kill(-(pid as i32), libc::SIGTERM);
         }

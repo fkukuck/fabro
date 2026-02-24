@@ -104,7 +104,7 @@ impl Handler for ParallelHandler {
         let max_parallel = node
             .attrs
             .get("max_parallel")
-            .and_then(|v| v.as_i64())
+            .and_then(super::super::graph::types::AttrValue::as_i64)
             .unwrap_or(4);
         let max_parallel = usize::try_from(max_parallel).unwrap_or(4).max(1);
 
@@ -243,9 +243,7 @@ impl Handler for ParallelHandler {
         // Evaluate join policy
         let status = match join_policy {
             JoinPolicy::WaitAll => {
-                if fail_count == 0 {
-                    StageStatus::Success
-                } else if error_policy == ErrorPolicy::Ignore {
+                if fail_count == 0 || error_policy == ErrorPolicy::Ignore {
                     StageStatus::Success
                 } else {
                     StageStatus::PartialSuccess
@@ -266,11 +264,8 @@ impl Handler for ParallelHandler {
                 }
             }
             JoinPolicy::Quorum(fraction) => {
-                #[allow(clippy::cast_precision_loss)]
                 let total_f64 = total as f64;
                 let threshold_f64 = (fraction * total_f64).ceil();
-                // Safe: threshold_f64 is non-negative and bounded by total
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                 let threshold = threshold_f64 as usize;
                 if success_count >= threshold {
                     StageStatus::Success

@@ -39,6 +39,11 @@ pub trait ProviderAdapter: Send + Sync {
 ///
 /// Returns `Err(SdkError::UnsupportedToolChoice)` if the adapter does not
 /// support the given mode.
+///
+/// # Errors
+///
+/// Returns `SdkError::UnsupportedToolChoice` when the adapter does not
+/// support the requested tool choice mode.
 pub fn validate_tool_choice(
     adapter: &dyn ProviderAdapter,
     tool_choice: &ToolChoice,

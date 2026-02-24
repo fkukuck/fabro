@@ -141,7 +141,6 @@ struct ApiResponse {
 }
 
 #[derive(serde::Deserialize)]
-#[allow(clippy::struct_field_names)]
 struct ApiUsage {
     input_tokens: i64,
     output_tokens: i64,
@@ -174,7 +173,6 @@ fn map_finish_reason(status: Option<&str>, has_tool_calls: bool) -> FinishReason
 }
 
 /// Translate unified messages to Responses API `input` array format.
-#[allow(clippy::too_many_lines)]
 fn translate_input(messages: &[Message]) -> (Option<String>, Vec<serde_json::Value>) {
     let mut instructions_parts: Vec<String> = Vec::new();
     let mut input: Vec<serde_json::Value> = Vec::new();
@@ -902,7 +900,6 @@ fn handle_response_completed(
     ));
 }
 
-#[allow(clippy::unnecessary_literal_bound)]
 #[async_trait::async_trait]
 impl ProviderAdapter for Adapter {
     fn name(&self) -> &str {
@@ -1355,7 +1352,7 @@ mod tests {
             content: vec![
                 ContentPart::Other {
                     kind: "openai_reasoning".to_string(),
-                    data: reasoning.clone(),
+                    data: reasoning,
                 },
                 ContentPart::ToolCall(tc),
             ],

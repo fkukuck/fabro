@@ -144,7 +144,6 @@ struct ApiResponse {
 }
 
 #[derive(serde::Deserialize)]
-#[allow(clippy::struct_field_names)]
 struct ApiUsage {
     input_tokens: i64,
     output_tokens: i64,
@@ -1131,7 +1130,6 @@ fn build_api_request(
     (api_request, req_builder)
 }
 
-#[allow(clippy::unnecessary_literal_bound)]
 #[async_trait::async_trait]
 impl ProviderAdapter for Adapter {
     fn name(&self) -> &str {

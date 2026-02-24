@@ -164,7 +164,6 @@ struct ApiFunction {
 }
 
 #[derive(serde::Deserialize)]
-#[allow(clippy::struct_field_names)]
 struct ApiUsage {
     prompt_tokens: i64,
     completion_tokens: i64,
@@ -400,7 +399,6 @@ fn merge_provider_options(
     }
 }
 
-#[allow(clippy::unnecessary_literal_bound)]
 #[async_trait::async_trait]
 impl ProviderAdapter for Adapter {
     fn name(&self) -> &str {

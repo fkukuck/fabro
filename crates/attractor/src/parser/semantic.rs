@@ -141,7 +141,6 @@ impl SemanticState {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn process_statements(
         &mut self,
         statements: &[Statement],
@@ -299,8 +298,8 @@ mod tests {
     #[test]
     fn convert_ast_float() {
         assert_eq!(
-            convert_value(&AstValue::Float(3.14)),
-            AttrValue::Float(3.14)
+            convert_value(&AstValue::Float(3.15)),
+            AttrValue::Float(3.15)
         );
     }
 

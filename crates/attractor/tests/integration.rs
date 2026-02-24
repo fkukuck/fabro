@@ -695,11 +695,11 @@ fn variable_expansion_replaces_goal_in_prompts() {
 
 #[test]
 fn stylesheet_application_by_specificity() {
-    let stylesheet_text = r#"
+    let stylesheet_text = r"
         * { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }
         .code { llm_model: claude-opus-4-6; llm_provider: anthropic; }
         #critical_review { llm_model: gpt-5.2; llm_provider: openai; reasoning_effort: high; }
-    "#;
+    ";
 
     let mut graph = Graph::new("test");
     graph.attrs.insert(
@@ -1072,7 +1072,7 @@ impl CodergenBackend for MockCodergenBackend {
 // Helpers for parity tests
 // ---------------------------------------------------------------------------
 
-/// A handler backed by a shared AtomicU32 counter.
+/// A handler backed by a shared `AtomicU32` counter.
 /// Returns Fail on call 0, Success on call >= 1.
 struct CounterHandler {
     call_count: Arc<std::sync::atomic::AtomicU32>,
@@ -1099,7 +1099,7 @@ impl Handler for CounterHandler {
     }
 }
 
-/// A handler that sets context_updates = {"my_flag": "set"}.
+/// A handler that sets `context_updates` = {"`my_flag"`: "set"}.
 struct ContextSetterHandler;
 
 #[async_trait::async_trait]
@@ -3154,14 +3154,9 @@ mod sse_events {
         // Collect SSE frames with a timeout
         let mut body = response.into_body();
         let mut sse_data = String::new();
-        loop {
-            match tokio::time::timeout(Duration::from_millis(500), body.frame()).await {
-                Ok(Some(Ok(frame))) => {
-                    if let Some(data) = frame.data_ref() {
-                        sse_data.push_str(&String::from_utf8_lossy(data));
-                    }
-                }
-                _ => break,
+        while let Ok(Some(Ok(frame))) = tokio::time::timeout(Duration::from_millis(500), body.frame()).await {
+            if let Some(data) = frame.data_ref() {
+                sse_data.push_str(&String::from_utf8_lossy(data));
             }
         }
 
@@ -3665,12 +3660,14 @@ async fn graph_merge_e2e_through_engine() {
 // Context fidelity integration tests (spec Section 5.4)
 // ===========================================================================
 
+type SharedVec<T> = Arc<std::sync::Mutex<Vec<T>>>;
+
 /// Shared capture storage for fidelity tests.
 #[derive(Clone)]
 struct FidelityCaptures {
-    fidelities: Arc<std::sync::Mutex<Vec<(String, String)>>>,
-    thread_ids: Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>,
-    preambles: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    fidelities: SharedVec<(String, String)>,
+    thread_ids: SharedVec<(String, Option<String>)>,
+    preambles: SharedVec<(String, String)>,
 }
 
 impl FidelityCaptures {
@@ -3683,7 +3680,7 @@ impl FidelityCaptures {
     }
 }
 
-/// A handler that captures the resolved fidelity and thread_id from the context.
+/// A handler that captures the resolved fidelity and `thread_id` from the context.
 struct FidelityCapturingHandler {
     captures: FidelityCaptures,
 }
@@ -4618,13 +4615,15 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
     let config_low = RunConfig { logs_root: dir_low.path().to_path_buf(), cancel_token: None };
     engine_low.run(&graph_low, &config_low).await.expect("run low");
 
-    let preambles_low = captures_low.preambles.lock().unwrap();
-    let low_preamble = &preambles_low[1].1;
-    // summary:low should not include "Context values:" section
-    assert!(
-        !low_preamble.contains("Context values:"),
-        "summary:low preamble should not include context values section"
-    );
+    {
+        let preambles_low = captures_low.preambles.lock().unwrap();
+        let low_preamble = &preambles_low[1].1;
+        // summary:low should not include "Context values:" section
+        assert!(
+            !low_preamble.contains("Context values:"),
+            "summary:low preamble should not include context values section"
+        );
+    }
 
     // Now run summary:medium and verify it DOES include context values
     let mut graph_med = make_graph_with_start_exit("SummaryMedIncludesContext");
@@ -5137,12 +5136,9 @@ mod real_llm {
     #[tokio::test]
     #[ignore]
     async fn real_llm_linear_pipeline() {
-        let client = match make_llm_client().await {
-            Some(c) => c,
-            None => {
-                eprintln!("Skipping: ANTHROPIC_API_KEY not set");
-                return;
-            }
+        let client = if let Some(c) = make_llm_client().await { c } else {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return;
         };
 
         let mut graph = Graph::new("RealLLMLinear");
@@ -5251,12 +5247,9 @@ mod real_llm {
     #[tokio::test]
     #[ignore]
     async fn real_llm_two_stage_pipeline() {
-        let client = match make_llm_client().await {
-            Some(c) => c,
-            None => {
-                eprintln!("Skipping: ANTHROPIC_API_KEY not set");
-                return;
-            }
+        let client = if let Some(c) = make_llm_client().await { c } else {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return;
         };
 
         let mut graph = Graph::new("RealLLMTwoStage");
@@ -5343,12 +5336,9 @@ mod real_llm {
     #[tokio::test]
     #[ignore]
     async fn real_llm_human_gate_auto_approve() {
-        let client = match make_llm_client().await {
-            Some(c) => c,
-            None => {
-                eprintln!("Skipping: ANTHROPIC_API_KEY not set");
-                return;
-            }
+        let client = if let Some(c) = make_llm_client().await { c } else {
+            eprintln!("Skipping: ANTHROPIC_API_KEY not set");
+            return;
         };
 
         let mut graph = Graph::new("RealLLMGate");
@@ -5803,7 +5793,7 @@ async fn human_gate_freeform_fallback_on_unmatched_text() {
     );
 }
 
-/// Verifies that the Question presented to the interviewer has allow_freeform=true
+/// Verifies that the Question presented to the interviewer has `allow_freeform=true`
 /// when a freeform edge is present on the human gate.
 #[tokio::test]
 async fn human_gate_freeform_sets_allow_freeform_on_question() {
@@ -5892,7 +5882,7 @@ async fn human_gate_freeform_sets_allow_freeform_on_question() {
     );
 }
 
-/// Verifies that the Question presented to the interviewer has allow_freeform=false
+/// Verifies that the Question presented to the interviewer has `allow_freeform=false`
 /// when no freeform edge is present on the human gate (fixed choices only).
 #[tokio::test]
 async fn human_gate_without_freeform_sets_allow_freeform_false() {
@@ -6409,10 +6399,9 @@ async fn tool_hooks_pre_receives_node_id_env_var() {
         graph [goal="Test env vars"]
         start [shape=Mdiamond]
         exit  [shape=Msquare]
-        my_step [shape=box, label="MyStep", prompt="Do work", tool_hooks.pre="{}"]
+        my_step [shape=box, label="MyStep", prompt="Do work", tool_hooks.pre="{hook_cmd}"]
         start -> my_step -> exit
-    }}"#,
-        hook_cmd
+    }}"#
     );
 
     let graph = parse(&input).expect("parse should succeed");

@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 // --- MockExecutionEnvironment ---
 
-pub(crate) struct MockExecutionEnvironment {
+pub struct MockExecutionEnvironment {
     pub files: HashMap<String, String>,
     pub exec_result: ExecResult,
     pub grep_results: Vec<String>,
@@ -24,11 +24,11 @@ pub(crate) struct MockExecutionEnvironment {
     pub working_dir: &'static str,
     pub platform_str: &'static str,
     pub os_version_str: String,
-    /// When true, read_file applies offset/limit by splitting on lines.
+    /// When true, `read_file` applies offset/limit by splitting on lines.
     pub apply_read_offset_limit: bool,
-    /// Captures (path, content) pairs from write_file calls.
+    /// Captures (path, content) pairs from `write_file` calls.
     pub written_files: Mutex<Vec<(String, String)>>,
-    /// Captures the timeout_ms argument from exec_command calls.
+    /// Captures the `timeout_ms` argument from `exec_command` calls.
     pub captured_timeout: Mutex<Option<u64>>,
 }
 
@@ -167,8 +167,8 @@ impl ExecutionEnvironment for MockExecutionEnvironment {
 // --- MutableMockExecutionEnvironment ---
 
 /// A mock execution environment with Mutex-protected files for tests that need
-/// write operations to be visible to subsequent reads (e.g., apply_patch tests).
-pub(crate) struct MutableMockExecutionEnvironment {
+/// write operations to be visible to subsequent reads (e.g., `apply_patch` tests).
+pub struct MutableMockExecutionEnvironment {
     pub files: Mutex<HashMap<String, String>>,
 }
 
@@ -266,11 +266,11 @@ impl ExecutionEnvironment for MutableMockExecutionEnvironment {
         Ok(())
     }
 
-    fn working_directory(&self) -> &str {
+    fn working_directory(&self) -> &'static str {
         "/tmp"
     }
 
-    fn platform(&self) -> &str {
+    fn platform(&self) -> &'static str {
         "linux"
     }
 
@@ -281,7 +281,7 @@ impl ExecutionEnvironment for MutableMockExecutionEnvironment {
 
 // --- TestProfile ---
 
-pub(crate) struct TestProfile {
+pub struct TestProfile {
     pub registry: ToolRegistry,
     pub parallel_tool_calls: bool,
     pub context_window: usize,
@@ -322,11 +322,11 @@ impl TestProfile {
 }
 
 impl ProviderProfile for TestProfile {
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "mock"
     }
 
-    fn model(&self) -> &str {
+    fn model(&self) -> &'static str {
         "mock-model"
     }
 
@@ -360,14 +360,14 @@ impl ProviderProfile for TestProfile {
         }
     }
 
-    fn knowledge_cutoff(&self) -> &str {
+    fn knowledge_cutoff(&self) -> &'static str {
         "May 2025"
     }
 }
 
 // --- MockLlmProvider ---
 
-pub(crate) struct MockLlmProvider {
+pub struct MockLlmProvider {
     pub responses: Vec<Response>,
     pub call_index: AtomicUsize,
 }
@@ -383,7 +383,7 @@ impl MockLlmProvider {
 
 #[async_trait]
 impl ProviderAdapter for MockLlmProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "mock"
     }
 
@@ -438,7 +438,7 @@ fn response_to_stream(response: Response) -> StreamEventStream {
 
 // --- Helper functions ---
 
-pub(crate) fn text_response(text: &str) -> Response {
+pub fn text_response(text: &str) -> Response {
     Response {
         id: format!("resp_{text}"),
         model: "mock-model".into(),
@@ -457,13 +457,13 @@ pub(crate) fn text_response(text: &str) -> Response {
     }
 }
 
-pub(crate) async fn make_client(provider: Arc<dyn ProviderAdapter>) -> Client {
+pub async fn make_client(provider: Arc<dyn ProviderAdapter>) -> Client {
     let mut providers = HashMap::new();
     providers.insert(provider.name().to_string(), provider);
     Client::new(providers, Some("mock".into()), vec![])
 }
 
-pub(crate) async fn make_session(responses: Vec<Response>) -> Session {
+pub async fn make_session(responses: Vec<Response>) -> Session {
     let provider = Arc::new(MockLlmProvider::new(responses));
     let client = make_client(provider).await;
     let profile = Arc::new(TestProfile::new());
@@ -471,7 +471,7 @@ pub(crate) async fn make_session(responses: Vec<Response>) -> Session {
     Session::new(client, profile, env, SessionConfig::default())
 }
 
-pub(crate) async fn make_session_with_tools(
+pub async fn make_session_with_tools(
     responses: Vec<Response>,
     registry: ToolRegistry,
 ) -> Session {
@@ -482,7 +482,7 @@ pub(crate) async fn make_session_with_tools(
     Session::new(client, profile, env, SessionConfig::default())
 }
 
-pub(crate) async fn make_session_with_config(
+pub async fn make_session_with_config(
     responses: Vec<Response>,
     config: SessionConfig,
 ) -> Session {
@@ -493,7 +493,7 @@ pub(crate) async fn make_session_with_config(
     Session::new(client, profile, env, config)
 }
 
-pub(crate) async fn make_session_with_tools_and_config(
+pub async fn make_session_with_tools_and_config(
     responses: Vec<Response>,
     registry: ToolRegistry,
     config: SessionConfig,
@@ -505,7 +505,7 @@ pub(crate) async fn make_session_with_tools_and_config(
     Session::new(client, profile, env, config)
 }
 
-pub(crate) fn tool_call_response(
+pub fn tool_call_response(
     tool_name: &str,
     tool_call_id: &str,
     args: serde_json::Value,
@@ -537,7 +537,7 @@ pub(crate) fn tool_call_response(
     }
 }
 
-pub(crate) fn make_echo_tool() -> crate::tool_registry::RegisteredTool {
+pub fn make_echo_tool() -> crate::tool_registry::RegisteredTool {
     use llm::types::ToolDefinition;
     crate::tool_registry::RegisteredTool {
         definition: ToolDefinition {
@@ -557,7 +557,7 @@ pub(crate) fn make_echo_tool() -> crate::tool_registry::RegisteredTool {
     }
 }
 
-pub(crate) fn make_error_tool() -> crate::tool_registry::RegisteredTool {
+pub fn make_error_tool() -> crate::tool_registry::RegisteredTool {
     use llm::types::ToolDefinition;
     crate::tool_registry::RegisteredTool {
         definition: ToolDefinition {
@@ -573,13 +573,13 @@ pub(crate) fn make_error_tool() -> crate::tool_registry::RegisteredTool {
 
 // --- MockErrorProvider ---
 
-pub(crate) struct MockErrorProvider {
+pub struct MockErrorProvider {
     pub error: SdkError,
 }
 
 #[async_trait]
 impl ProviderAdapter for MockErrorProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "mock"
     }
 
@@ -595,7 +595,7 @@ impl ProviderAdapter for MockErrorProvider {
 // --- CapturingLlmProvider ---
 
 /// A mock LLM provider that captures the full Request for test assertions.
-pub(crate) struct CapturingLlmProvider {
+pub struct CapturingLlmProvider {
     pub captured_request: Mutex<Option<Request>>,
 }
 
@@ -609,7 +609,7 @@ impl CapturingLlmProvider {
 
 #[async_trait]
 impl ProviderAdapter for CapturingLlmProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "mock"
     }
 
@@ -633,14 +633,14 @@ impl ProviderAdapter for CapturingLlmProvider {
 // --- MockMidStreamErrorProvider ---
 
 /// A mock provider that yields some text deltas then an error mid-stream.
-pub(crate) struct MockMidStreamErrorProvider {
+pub struct MockMidStreamErrorProvider {
     pub partial_text: String,
     pub error: SdkError,
 }
 
 #[async_trait]
 impl ProviderAdapter for MockMidStreamErrorProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "mock"
     }
 
@@ -657,7 +657,7 @@ impl ProviderAdapter for MockMidStreamErrorProvider {
     }
 }
 
-pub(crate) fn multi_tool_call_response(
+pub fn multi_tool_call_response(
     calls: Vec<(&str, &str, serde_json::Value)>,
 ) -> Response {
     use llm::types::{ContentPart, Role, ToolCall};

@@ -99,7 +99,6 @@ fn build_generate_result(steps: Vec<StepResult>, total_usage: Usage) -> Generate
 /// # Panics
 ///
 /// Panics if a tool's `execute` handler is `None` when matched during tool execution.
-#[allow(clippy::too_many_lines)]
 pub async fn generate(params: GenerateParams) -> Result<GenerateResult, SdkError> {
     let client = match params.client.clone() {
         Some(c) => c,
@@ -582,7 +581,6 @@ pub async fn stream(params: GenerateParams) -> Result<StreamResult, SdkError> {
 ///
 /// Returns `SdkError::Configuration` if both `prompt` and `messages` are set,
 /// or any provider error encountered during streaming setup.
-#[allow(clippy::too_many_lines)]
 async fn stream_with_tool_loop(params: GenerateParams) -> Result<StreamEventStream, SdkError> {
     let client = match params.client.clone() {
         Some(c) => c,
@@ -934,7 +932,7 @@ impl ObjectStreamResult {
 
     /// Returns the final parsed object after the stream has yielded a `Complete` event.
     #[must_use]
-    pub fn object(&self) -> Option<&serde_json::Value> {
+    pub const fn object(&self) -> Option<&serde_json::Value> {
         self.object.as_ref()
     }
 }
@@ -1066,7 +1064,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for MockProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -1208,7 +1206,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for ToolCallMockProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -1541,7 +1539,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for StreamingJsonMockProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -1725,7 +1723,7 @@ mod tests {
 
         let results: Vec<Result<ObjectStreamEvent, SdkError>> = obj_stream.collect().await;
 
-        let has_error = results.iter().any(|r| r.is_err());
+        let has_error = results.iter().any(std::result::Result::is_err);
         assert!(has_error, "Expected an error for invalid final JSON");
     }
 
@@ -1760,7 +1758,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl ProviderAdapter for AlwaysToolCallProvider {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "mock"
             }
 
@@ -1959,7 +1957,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for StreamingToolCallMockProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -2313,7 +2311,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for FailThenStreamProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -2435,7 +2433,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for SlowStreamProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
 
@@ -2538,7 +2536,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl ProviderAdapter for SlowToolCallStreamProvider {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "mock"
             }
 

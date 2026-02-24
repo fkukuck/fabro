@@ -34,7 +34,6 @@ struct CostAccumulator {
 /// # Errors
 ///
 /// Returns an error if the pipeline cannot be read, parsed, validated, or executed.
-#[allow(clippy::too_many_lines)]
 pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Result<()> {
     // 1. Parse and validate pipeline
     let source = read_dot_file(&args.pipeline)?;
@@ -83,15 +82,13 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     let accumulator = Arc::new(Mutex::new(CostAccumulator::default()));
     let acc_clone = Arc::clone(&accumulator);
     emitter.on_event(move |event| {
-        if let crate::event::PipelineEvent::StageCompleted { usage, .. } = event {
-            if let Some(u) = usage {
-                let mut acc = acc_clone.lock().unwrap();
-                acc.total_input_tokens += u.input_tokens;
-                acc.total_output_tokens += u.output_tokens;
-                if let Some(cost) = compute_stage_cost(u) {
-                    acc.total_cost += cost;
-                    acc.has_pricing = true;
-                }
+        if let crate::event::PipelineEvent::StageCompleted { usage: Some(u), .. } = event {
+            let mut acc = acc_clone.lock().unwrap();
+            acc.total_input_tokens += u.input_tokens;
+            acc.total_output_tokens += u.output_tokens;
+            if let Some(cost) = compute_stage_cost(u) {
+                acc.total_cost += cost;
+                acc.has_pricing = true;
             }
         }
     });

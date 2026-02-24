@@ -171,7 +171,7 @@ in the project. Keep changes minimal and focused on the task.";
         }
     }
 
-    fn knowledge_cutoff(&self) -> &str {
+    fn knowledge_cutoff(&self) -> &'static str {
         "May 2025"
     }
 }

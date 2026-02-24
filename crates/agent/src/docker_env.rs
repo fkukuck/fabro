@@ -165,9 +165,7 @@ impl DockerExecutionEnvironment {
     ) -> Result<ExecResult, String> {
         let start = Instant::now();
 
-        let effective_dir = working_dir
-            .map(ToString::to_string)
-            .unwrap_or_else(|| self.config.container_mount_point.clone());
+        let effective_dir = working_dir.map_or_else(|| self.config.container_mount_point.clone(), ToString::to_string);
 
         let env: Option<Vec<String>> = env_vars.map(|vars| {
             vars.iter()
@@ -441,9 +439,7 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             .map_err(|e| format!("Failed to finalize tar archive: {e}"))?;
 
         let parent_dir = std::path::Path::new(&container_path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| "/".to_string());
+            .parent().map_or_else(|| "/".to_string(), |p| p.to_string_lossy().to_string());
 
         let upload_opts = UploadToContainerOptions {
             path: parent_dir,
@@ -610,9 +606,7 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
     }
 
     async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
-        let base_dir = path
-            .map(|p| self.resolve_container_path(p))
-            .unwrap_or_else(|| self.config.container_mount_point.clone());
+        let base_dir = path.map_or_else(|| self.config.container_mount_point.clone(), |p| self.resolve_container_path(p));
 
         let full_pattern = if pattern.starts_with('/') {
             pattern.to_string()

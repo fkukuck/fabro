@@ -204,7 +204,7 @@ in the project.";
         }))
     }
 
-    fn knowledge_cutoff(&self) -> &str {
+    fn knowledge_cutoff(&self) -> &'static str {
         "January 2025"
     }
 }

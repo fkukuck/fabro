@@ -33,9 +33,7 @@ pub fn make_read_file_tool() -> RegisteredTool {
                 let offset = args.get("offset").and_then(serde_json::Value::as_u64);
                 let limit = args.get("limit").and_then(serde_json::Value::as_u64);
 
-                #[allow(clippy::cast_possible_truncation)]
                 let offset_usize = offset.map(|v| v as usize);
-                #[allow(clippy::cast_possible_truncation)]
                 let limit_usize = limit.map(|v| v as usize);
 
                 let content = env.read_file(file_path, offset_usize, limit_usize).await?;
@@ -211,7 +209,6 @@ pub fn make_grep_tool() -> RegisteredTool {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or(".");
 
-                #[allow(clippy::cast_possible_truncation)]
                 let options = GrepOptions {
                     glob_filter: args
                         .get("glob_filter")
@@ -325,7 +322,6 @@ pub(crate) fn make_list_dir_tool() -> RegisteredTool {
         executor: Arc::new(|args, env, _cancel| {
             Box::pin(async move {
                 let path = required_str(&args, "path")?;
-                #[allow(clippy::cast_possible_truncation)]
                 let depth = args
                     .get("depth")
                     .and_then(serde_json::Value::as_u64)

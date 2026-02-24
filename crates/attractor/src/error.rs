@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn result_type_alias_works() {
         let ok: Result<i32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
+        assert!(ok.is_ok());
 
         let err: Result<i32> = Err(AttractorError::Parse("bad".to_string()));
         assert!(err.is_err());

@@ -151,11 +151,11 @@ mod tests {
         node.attrs.insert(
             "sub_pipeline.dot_source".to_string(),
             AttrValue::String(
-                r#"digraph Sub {
+                r"digraph Sub {
                     start [shape=Mdiamond]
                     exit [shape=Msquare]
                     start -> exit
-                }"#
+                }"
                 .to_string(),
             ),
         );
@@ -179,11 +179,11 @@ mod tests {
         node.attrs.insert(
             "sub_pipeline.dot_source".to_string(),
             AttrValue::String(
-                r#"digraph Sub {
+                r"digraph Sub {
                     start [shape=Mdiamond]
                     exit [shape=Msquare]
                     start -> exit
-                }"#
+                }"
                 .to_string(),
             ),
         );
@@ -232,12 +232,12 @@ mod tests {
         node.attrs.insert(
             "sub_pipeline.dot_source".to_string(),
             AttrValue::String(
-                r#"digraph Sub {
+                r"digraph Sub {
                     start [shape=Mdiamond]
                     work [shape=box]
                     exit [shape=Msquare]
                     start -> work -> exit
-                }"#
+                }"
                 .to_string(),
             ),
         );

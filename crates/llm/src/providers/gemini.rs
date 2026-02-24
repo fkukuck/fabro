@@ -146,7 +146,6 @@ struct CandidateContent {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_field_names)]
 struct UsageMetadata {
     prompt_token_count: Option<i64>,
     candidates_token_count: Option<i64>,
@@ -224,7 +223,6 @@ fn build_tool_call_id_to_name(messages: &[&Message]) -> std::collections::HashMa
 }
 
 /// Translate unified messages to Gemini content format.
-#[allow(clippy::too_many_lines)]
 fn translate_messages(messages: &[&Message]) -> Vec<Content> {
     let id_to_name = build_tool_call_id_to_name(messages);
     let mut contents: Vec<Content> = Vec::new();
@@ -899,7 +897,6 @@ impl SseStreamState {
     }
 }
 
-#[allow(clippy::unnecessary_literal_bound)]
 #[async_trait::async_trait]
 impl ProviderAdapter for Adapter {
     fn name(&self) -> &str {

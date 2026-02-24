@@ -11,10 +11,12 @@ impl History {
         self.turns.push(turn);
     }
 
+    #[must_use] 
     pub fn turns(&self) -> &[Turn] {
         &self.turns
     }
 
+    #[must_use] 
     pub fn convert_to_messages(&self) -> Vec<Message> {
         self.turns
             .iter()
