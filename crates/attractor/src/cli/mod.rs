@@ -2,6 +2,7 @@ pub mod backend;
 pub mod run;
 #[cfg(feature = "server")]
 pub mod serve;
+pub mod task_config;
 pub mod validate;
 
 use std::path::Path;
@@ -24,7 +25,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Launch a pipeline from a .dot file
+    /// Launch a pipeline from a .dot or .toml task file
     Run(RunArgs),
     /// Parse and validate a pipeline without executing
     Validate(ValidateArgs),
@@ -35,7 +36,7 @@ pub enum Command {
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// Path to the .dot pipeline file
+    /// Path to a .dot pipeline file or .toml task config
     pub pipeline: PathBuf,
 
     /// Log/artifact directory

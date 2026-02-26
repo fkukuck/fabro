@@ -17,6 +17,7 @@ use crate::pipeline::PipelineBuilder;
 use crate::validation::Severity;
 
 use super::backend::AgentBackend;
+use super::task_config;
 use super::{compute_stage_cost, format_cost, format_duration_human, format_event_detail, format_event_summary, format_tokens_human, print_diagnostics, read_dot_file, RunArgs};
 
 /// Accumulates token usage and cost across all pipeline stages.
@@ -37,8 +38,33 @@ struct CostAccumulator {
 ///
 /// Returns an error if the pipeline cannot be read, parsed, validated, or executed.
 pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Result<()> {
+    // 0. Load task config if TOML, resolve DOT path, run setup
+    let (dot_path, task_cfg) = if args.pipeline.extension().is_some_and(|ext| ext == "toml") {
+        let cfg = task_config::load_task_config(&args.pipeline)?;
+        let dot = task_config::resolve_graph_path(&args.pipeline, &cfg.graph);
+        (dot, Some(cfg))
+    } else {
+        (args.pipeline.clone(), None)
+    };
+
+    if let Some(ref cfg) = task_cfg {
+        if let Some(ref dir) = cfg.directory {
+            std::env::set_current_dir(dir)
+                .map_err(|e| anyhow::anyhow!("Failed to set working directory to {dir}: {e}"))?;
+        }
+        if let Some(ref setup) = cfg.setup {
+            let cwd = std::env::current_dir()?;
+            eprintln!(
+                "{dim}Running {} setup command(s)…{reset}",
+                setup.commands.len(),
+                dim = styles.dim, reset = styles.reset,
+            );
+            task_config::run_setup(setup, &cwd).await?;
+        }
+    }
+
     // 1. Parse and validate pipeline
-    let source = read_dot_file(&args.pipeline)?;
+    let source = read_dot_file(&dot_path)?;
     let (graph, diagnostics) = PipelineBuilder::new().prepare(&source)?;
 
     eprintln!(
@@ -74,6 +100,11 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     tokio::fs::create_dir_all(&logs_dir).await?;
     tokio::fs::write(logs_dir.join("graph.dot"), &source).await?;
     tokio::fs::write(logs_dir.join("run.pid"), std::process::id().to_string()).await?;
+    if args.pipeline.extension().is_some_and(|ext| ext == "toml") {
+        if let Ok(toml_contents) = tokio::fs::read(&args.pipeline).await {
+            tokio::fs::write(logs_dir.join("task.toml"), toml_contents).await?;
+        }
+    }
 
     if args.verbose >= 1 {
         eprintln!(
@@ -208,16 +239,30 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         }
     };
 
-    let provider = args.provider.or_else(|| {
-        graph
-            .attrs
-            .get("default_provider")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-    });
+    let toml_model = task_cfg
+        .as_ref()
+        .and_then(|c| c.llm.as_ref())
+        .and_then(|l| l.model.clone());
+    let toml_provider = task_cfg
+        .as_ref()
+        .and_then(|c| c.llm.as_ref())
+        .and_then(|l| l.provider.clone());
+
+    // Precedence: CLI flag > TOML > DOT graph attrs > defaults
+    let provider = args
+        .provider
+        .or(toml_provider)
+        .or_else(|| {
+            graph
+                .attrs
+                .get("default_provider")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
 
     let model = args
         .model
+        .or(toml_model)
         .or_else(|| {
             graph
                 .attrs

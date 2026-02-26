@@ -1,0 +1,230 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context};
+use serde::Deserialize;
+
+const SUPPORTED_VERSION: u32 = 1;
+
+#[derive(Debug, Deserialize)]
+pub struct TaskConfig {
+    pub version: u32,
+    pub task: String,
+    pub graph: String,
+    pub directory: Option<String>,
+    pub llm: Option<LlmConfig>,
+    pub setup: Option<SetupConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LlmConfig {
+    pub model: Option<String>,
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetupConfig {
+    pub commands: Vec<String>,
+    pub timeout_ms: Option<u64>,
+}
+
+/// Load and validate a task config from a TOML file.
+///
+/// The `graph` path in the returned config is resolved relative to the
+/// TOML file's parent directory.
+pub fn load_task_config(path: &Path) -> anyhow::Result<TaskConfig> {
+    let contents =
+        std::fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let config = parse_task_config(&contents)?;
+
+    Ok(config)
+}
+
+/// Resolve the graph path relative to the TOML file's parent directory.
+pub fn resolve_graph_path(toml_path: &Path, graph: &str) -> PathBuf {
+    let graph_path = Path::new(graph);
+    if graph_path.is_absolute() {
+        graph_path.to_path_buf()
+    } else {
+        toml_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(graph_path)
+    }
+}
+
+fn parse_task_config(contents: &str) -> anyhow::Result<TaskConfig> {
+    let config: TaskConfig =
+        toml::from_str(contents).context("Failed to parse task config TOML")?;
+
+    if config.version != SUPPORTED_VERSION {
+        bail!(
+            "Unsupported task config version {}. Only version {SUPPORTED_VERSION} is supported.",
+            config.version
+        );
+    }
+
+    Ok(config)
+}
+
+/// Run setup commands sequentially in the given directory.
+///
+/// Each command gets the full `timeout_ms` budget. Commands are executed
+/// via `sh -c` so shell features (pipes, redirects, etc.) work.
+pub async fn run_setup(setup: &SetupConfig, directory: &Path) -> anyhow::Result<()> {
+    let timeout = std::time::Duration::from_millis(setup.timeout_ms.unwrap_or(300_000));
+
+    for cmd in &setup.commands {
+        let fut = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .current_dir(directory)
+            .output();
+
+        let output = tokio::time::timeout(timeout, fut)
+            .await
+            .with_context(|| format!("Setup command timed out after {}ms: {cmd}", timeout.as_millis()))?
+            .with_context(|| format!("Failed to execute setup command: {cmd}"))?;
+
+        if !output.status.success() {
+            let code = output
+                .status
+                .code()
+                .map_or("unknown".to_string(), |c| c.to_string());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("Setup command failed (exit code {code}): {cmd}\n{stderr}");
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_minimal_toml() {
+        let toml = r#"
+version = 1
+task = "Run tests"
+graph = "pipeline.dot"
+"#;
+        let config = parse_task_config(toml).unwrap();
+        assert_eq!(config.version, 1);
+        assert_eq!(config.task, "Run tests");
+        assert_eq!(config.graph, "pipeline.dot");
+        assert!(config.directory.is_none());
+        assert!(config.llm.is_none());
+        assert!(config.setup.is_none());
+    }
+
+    #[test]
+    fn parse_full_toml() {
+        let toml = r#"
+version = 1
+task = "Full workflow"
+graph = "pipeline.dot"
+directory = "/tmp/repo"
+
+[llm]
+model = "claude-haiku"
+provider = "anthropic"
+
+[setup]
+commands = ["pip install -r requirements.txt", "npm install"]
+timeout_ms = 60000
+"#;
+        let config = parse_task_config(toml).unwrap();
+        assert_eq!(config.task, "Full workflow");
+        assert_eq!(config.directory.as_deref(), Some("/tmp/repo"));
+
+        let llm = config.llm.unwrap();
+        assert_eq!(llm.model.as_deref(), Some("claude-haiku"));
+        assert_eq!(llm.provider.as_deref(), Some("anthropic"));
+
+        let setup = config.setup.unwrap();
+        assert_eq!(setup.commands.len(), 2);
+        assert_eq!(setup.timeout_ms, Some(60000));
+    }
+
+    #[test]
+    fn unsupported_version_rejected() {
+        let toml = r#"
+version = 2
+task = "x"
+graph = "p.dot"
+"#;
+        let err = parse_task_config(toml).unwrap_err();
+        assert!(
+            err.to_string().contains("Unsupported task config version 2"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn graph_path_resolved_relative_to_toml() {
+        let toml_path = Path::new("/tmp/sub/task.toml");
+        let resolved = resolve_graph_path(toml_path, "p.dot");
+        assert_eq!(resolved, PathBuf::from("/tmp/sub/p.dot"));
+    }
+
+    #[test]
+    fn graph_path_absolute_unchanged() {
+        let toml_path = Path::new("/tmp/sub/task.toml");
+        let resolved = resolve_graph_path(toml_path, "/other/pipeline.dot");
+        assert_eq!(resolved, PathBuf::from("/other/pipeline.dot"));
+    }
+
+    #[test]
+    fn missing_required_fields() {
+        let no_task = r#"
+version = 1
+graph = "p.dot"
+"#;
+        assert!(parse_task_config(no_task).is_err());
+
+        let no_graph = r#"
+version = 1
+task = "x"
+"#;
+        assert!(parse_task_config(no_graph).is_err());
+    }
+
+    #[tokio::test]
+    async fn run_setup_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = SetupConfig {
+            commands: vec!["echo hello".to_string()],
+            timeout_ms: None,
+        };
+        run_setup(&setup, dir.path()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_setup_fails_on_nonzero_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = SetupConfig {
+            commands: vec!["false".to_string()],
+            timeout_ms: None,
+        };
+        let err = run_setup(&setup, dir.path()).await.unwrap_err();
+        assert!(
+            err.to_string().contains("exit code"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_setup_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = SetupConfig {
+            commands: vec!["sleep 10".to_string()],
+            timeout_ms: Some(100),
+        };
+        let err = run_setup(&setup, dir.path()).await.unwrap_err();
+        assert!(
+            err.to_string().contains("timed out"),
+            "unexpected error: {err}"
+        );
+    }
+}
