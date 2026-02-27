@@ -1,6 +1,38 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+/// Events emitted during execution environment lifecycle operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExecutionEnvEvent {
+    // -- Common lifecycle --
+    Initializing { env_type: String },
+    Ready { env_type: String, duration_ms: u64 },
+    InitializeFailed { env_type: String, error: String, duration_ms: u64 },
+    CleanupStarted { env_type: String },
+    CleanupCompleted { env_type: String, duration_ms: u64 },
+    CleanupFailed { env_type: String, error: String },
+
+    // -- Docker --
+    ImagePulling { image: String },
+    ImagePulled { image: String, duration_ms: u64 },
+
+    // -- Daytona snapshots --
+    SnapshotEnsuring { name: String },
+    SnapshotCreating { name: String },
+    SnapshotReady { name: String, duration_ms: u64 },
+    SnapshotFailed { name: String, error: String },
+
+    // -- Daytona git --
+    GitCloneStarted { url: String, branch: Option<String> },
+    GitCloneCompleted { url: String, duration_ms: u64 },
+    GitCloneFailed { url: String, error: String },
+}
+
+/// Callback type for execution environment events.
+pub type ExecEnvEventCallback = Arc<dyn Fn(ExecutionEnvEvent) + Send + Sync>;
 
 /// Formats file content with line numbers for display.
 ///
@@ -147,5 +179,41 @@ mod tests {
         assert_eq!(env.platform(), "darwin");
         assert_eq!(env.working_directory(), "/tmp/test");
         assert_eq!(env.os_version(), "Darwin 24.0.0");
+    }
+
+    #[test]
+    fn execution_env_event_serialization_round_trip() {
+        let events = vec![
+            ExecutionEnvEvent::Initializing { env_type: "local".into() },
+            ExecutionEnvEvent::Ready { env_type: "local".into(), duration_ms: 50 },
+            ExecutionEnvEvent::InitializeFailed { env_type: "docker".into(), error: "no daemon".into(), duration_ms: 100 },
+            ExecutionEnvEvent::CleanupStarted { env_type: "daytona".into() },
+            ExecutionEnvEvent::CleanupCompleted { env_type: "daytona".into(), duration_ms: 200 },
+            ExecutionEnvEvent::CleanupFailed { env_type: "docker".into(), error: "container gone".into() },
+            ExecutionEnvEvent::ImagePulling { image: "ubuntu:22.04".into() },
+            ExecutionEnvEvent::ImagePulled { image: "ubuntu:22.04".into(), duration_ms: 5000 },
+            ExecutionEnvEvent::SnapshotEnsuring { name: "my-snap".into() },
+            ExecutionEnvEvent::SnapshotCreating { name: "my-snap".into() },
+            ExecutionEnvEvent::SnapshotReady { name: "my-snap".into(), duration_ms: 30000 },
+            ExecutionEnvEvent::SnapshotFailed { name: "my-snap".into(), error: "build failed".into() },
+            ExecutionEnvEvent::GitCloneStarted { url: "https://github.com/org/repo.git".into(), branch: Some("main".into()) },
+            ExecutionEnvEvent::GitCloneCompleted { url: "https://github.com/org/repo.git".into(), duration_ms: 8000 },
+            ExecutionEnvEvent::GitCloneFailed { url: "https://github.com/org/repo.git".into(), error: "auth failed".into() },
+        ];
+
+        assert_eq!(events.len(), 15, "should test all 15 variants");
+
+        for event in &events {
+            let json = serde_json::to_string(event).unwrap();
+            let deserialized: ExecutionEnvEvent = serde_json::from_str(&json).unwrap();
+            let json2 = serde_json::to_string(&deserialized).unwrap();
+            assert_eq!(json, json2);
+        }
+    }
+
+    #[test]
+    fn exec_env_event_callback_type_compiles() {
+        let cb: ExecEnvEventCallback = Arc::new(|_event| {});
+        cb(ExecutionEnvEvent::Initializing { env_type: "test".into() });
     }
 }

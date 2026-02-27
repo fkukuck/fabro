@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use agent::AgentEvent;
+use agent::{AgentEvent, ExecutionEnvEvent};
 use crate::outcome::StageUsage;
 
 /// Events emitted during pipeline execution for observability.
@@ -128,6 +128,32 @@ pub enum PipelineEvent {
         steps_executed: usize,
         status: String,
         duration_ms: u64,
+    },
+    /// Forwarded from an execution environment lifecycle operation.
+    ExecutionEnv {
+        event: ExecutionEnvEvent,
+    },
+    SetupStarted {
+        command_count: usize,
+    },
+    SetupCommandStarted {
+        command: String,
+        index: usize,
+    },
+    SetupCommandCompleted {
+        command: String,
+        index: usize,
+        exit_code: i32,
+        duration_ms: u64,
+    },
+    SetupCompleted {
+        duration_ms: u64,
+    },
+    SetupFailed {
+        command: String,
+        index: usize,
+        exit_code: i32,
+        stderr: String,
     },
 }
 
@@ -596,5 +622,39 @@ mod tests {
 
         let deserialized: PipelineEvent = serde_json::from_str(&json).unwrap();
         assert!(matches!(deserialized, PipelineEvent::SubgraphCompleted { steps_executed: 5, .. }));
+    }
+
+    #[test]
+    fn execution_env_event_wrapper_serialization() {
+        use agent::ExecutionEnvEvent;
+
+        let event = PipelineEvent::ExecutionEnv {
+            event: ExecutionEnvEvent::Initializing { env_type: "docker".into() },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("ExecutionEnv"));
+        assert!(json.contains("Initializing"));
+        assert!(json.contains("docker"));
+
+        let deserialized: PipelineEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, PipelineEvent::ExecutionEnv { .. }));
+    }
+
+    #[test]
+    fn setup_events_serialization() {
+        let events = vec![
+            PipelineEvent::SetupStarted { command_count: 3 },
+            PipelineEvent::SetupCommandStarted { command: "npm install".into(), index: 0 },
+            PipelineEvent::SetupCommandCompleted { command: "npm install".into(), index: 0, exit_code: 0, duration_ms: 5000 },
+            PipelineEvent::SetupCompleted { duration_ms: 8000 },
+            PipelineEvent::SetupFailed { command: "npm test".into(), index: 1, exit_code: 1, stderr: "test failed".into() },
+        ];
+
+        for event in &events {
+            let json = serde_json::to_string(event).unwrap();
+            let deserialized: PipelineEvent = serde_json::from_str(&json).unwrap();
+            let json2 = serde_json::to_string(&deserialized).unwrap();
+            assert_eq!(json, json2);
+        }
     }
 }

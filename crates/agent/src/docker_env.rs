@@ -1,4 +1,4 @@
-use crate::execution_env::{format_lines_numbered, DirEntry, ExecResult, ExecutionEnvironment, GrepOptions};
+use crate::execution_env::{format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent, ExecutionEnvironment, GrepOptions};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use bollard::container::{
@@ -60,6 +60,7 @@ pub struct DockerExecutionEnvironment {
     container_id: tokio::sync::OnceCell<String>,
     cached_platform: std::sync::OnceLock<String>,
     cached_os_version: std::sync::OnceLock<String>,
+    event_callback: Option<ExecEnvEventCallback>,
 }
 
 impl DockerExecutionEnvironment {
@@ -76,7 +77,18 @@ impl DockerExecutionEnvironment {
             container_id: tokio::sync::OnceCell::new(),
             cached_platform: std::sync::OnceLock::new(),
             cached_os_version: std::sync::OnceLock::new(),
+            event_callback: None,
         })
+    }
+
+    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+        self.event_callback = Some(cb);
+    }
+
+    fn emit(&self, event: ExecutionEnvEvent) {
+        if let Some(ref cb) = self.event_callback {
+            cb(event);
+        }
     }
 
     fn container_id(&self) -> Result<&str, String> {
@@ -253,7 +265,18 @@ impl DockerExecutionEnvironment {
 #[async_trait]
 impl ExecutionEnvironment for DockerExecutionEnvironment {
     async fn initialize(&self) -> Result<(), String> {
-        self.ensure_image().await?;
+        self.emit(ExecutionEnvEvent::Initializing { env_type: "docker".into() });
+        let init_start = Instant::now();
+
+        self.emit(ExecutionEnvEvent::ImagePulling { image: self.config.image.clone() });
+        let pull_start = Instant::now();
+        if let Err(e) = self.ensure_image().await {
+            let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "docker".into(), error: e.clone(), duration_ms });
+            return Err(e);
+        }
+        let pull_duration = u64::try_from(pull_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::ImagePulled { image: self.config.image.clone(), duration_ms: pull_duration });
 
         let mut binds = vec![format!(
             "{}:{}",
@@ -328,13 +351,23 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             .cached_os_version
             .set(format!("linux {}", uname_output.trim()));
 
+        let init_duration = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::Ready { env_type: "docker".into(), duration_ms: init_duration });
+
         Ok(())
     }
 
     async fn cleanup(&self) -> Result<(), String> {
+        self.emit(ExecutionEnvEvent::CleanupStarted { env_type: "docker".into() });
+        let start = Instant::now();
+
         let container_id = match self.container_id.get() {
             Some(id) => id.clone(),
-            None => return Ok(()),
+            None => {
+                let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.emit(ExecutionEnvEvent::CleanupCompleted { env_type: "docker".into(), duration_ms });
+                return Ok(());
+            }
         };
 
         // Stop with 5-second grace period; ignore "not running" errors
@@ -350,6 +383,9 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             .docker
             .remove_container(&container_id, Some(remove_opts))
             .await;
+
+        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::CleanupCompleted { env_type: "docker".into(), duration_ms });
 
         Ok(())
     }

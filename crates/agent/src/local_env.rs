@@ -1,4 +1,4 @@
-use crate::execution_env::{format_lines_numbered, DirEntry, ExecResult, ExecutionEnvironment, GrepOptions};
+use crate::execution_env::{format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent, ExecutionEnvironment, GrepOptions};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -8,12 +8,23 @@ use tokio_util::sync::CancellationToken;
 
 pub struct LocalExecutionEnvironment {
     working_directory: PathBuf,
+    event_callback: Option<ExecEnvEventCallback>,
 }
 
 impl LocalExecutionEnvironment {
     #[must_use]
-    pub const fn new(working_directory: PathBuf) -> Self {
-        Self { working_directory }
+    pub fn new(working_directory: PathBuf) -> Self {
+        Self { working_directory, event_callback: None }
+    }
+
+    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+        self.event_callback = Some(cb);
+    }
+
+    fn emit(&self, event: ExecutionEnvEvent) {
+        if let Some(ref cb) = self.event_callback {
+            cb(event);
+        }
     }
 
     const ENV_SAFELIST: &'static [&'static str] = &[
@@ -307,12 +318,24 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
     }
 
     async fn initialize(&self) -> Result<(), String> {
-        tokio::fs::create_dir_all(&self.working_directory)
+        self.emit(ExecutionEnvEvent::Initializing { env_type: "local".into() });
+        let start = Instant::now();
+        let result = tokio::fs::create_dir_all(&self.working_directory)
             .await
-            .map_err(|e| format!("Failed to create working directory: {e}"))
+            .map_err(|e| format!("Failed to create working directory: {e}"));
+        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        match &result {
+            Ok(()) => self.emit(ExecutionEnvEvent::Ready { env_type: "local".into(), duration_ms }),
+            Err(e) => self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "local".into(), error: e.clone(), duration_ms }),
+        }
+        result
     }
 
     async fn cleanup(&self) -> Result<(), String> {
+        self.emit(ExecutionEnvEvent::CleanupStarted { env_type: "local".into() });
+        let start = Instant::now();
+        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::CleanupCompleted { env_type: "local".into(), duration_ms });
         Ok(())
     }
 
@@ -599,6 +622,54 @@ mod tests {
         let env = LocalExecutionEnvironment::new(dir.clone());
         env.initialize().await.unwrap();
         assert!(dir.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn initialize_emits_events() {
+        use crate::execution_env::ExecutionEnvEvent;
+        use std::sync::{Arc, Mutex};
+
+        let dir = std::env::temp_dir().join(format!("init_event_test_{}", uuid::Uuid::new_v4()));
+        let events: Arc<Mutex<Vec<ExecutionEnvEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = Arc::clone(&events);
+
+        let mut env = LocalExecutionEnvironment::new(dir.clone());
+        env.set_event_callback(Arc::new(move |e| {
+            events_clone.lock().unwrap().push(e);
+        }));
+
+        env.initialize().await.unwrap();
+
+        let captured = events.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        assert!(matches!(&captured[0], ExecutionEnvEvent::Initializing { env_type } if env_type == "local"));
+        assert!(matches!(&captured[1], ExecutionEnvEvent::Ready { env_type, .. } if env_type == "local"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cleanup_emits_events() {
+        use crate::execution_env::ExecutionEnvEvent;
+        use std::sync::{Arc, Mutex};
+
+        let dir = temp_dir();
+        let events: Arc<Mutex<Vec<ExecutionEnvEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = Arc::clone(&events);
+
+        let mut env = LocalExecutionEnvironment::new(dir.clone());
+        env.set_event_callback(Arc::new(move |e| {
+            events_clone.lock().unwrap().push(e);
+        }));
+
+        env.cleanup().await.unwrap();
+
+        let captured = events.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        assert!(matches!(&captured[0], ExecutionEnvEvent::CleanupStarted { env_type } if env_type == "local"));
+        assert!(matches!(&captured[1], ExecutionEnvEvent::CleanupCompleted { env_type, .. } if env_type == "local"));
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

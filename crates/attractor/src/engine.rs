@@ -458,13 +458,13 @@ impl PipelineEngine {
     #[must_use]
     pub fn new(
         registry: HandlerRegistry,
-        emitter: EventEmitter,
+        emitter: Arc<EventEmitter>,
         execution_env: Arc<dyn ExecutionEnvironment>,
     ) -> Self {
         Self {
             services: EngineServices {
                 registry: Arc::new(registry),
-                emitter: Arc::new(emitter),
+                emitter,
                 execution_env,
             },
             interviewer: None,
@@ -475,14 +475,14 @@ impl PipelineEngine {
     #[must_use]
     pub fn with_interviewer(
         registry: HandlerRegistry,
-        emitter: EventEmitter,
+        emitter: Arc<EventEmitter>,
         interviewer: Arc<dyn Interviewer>,
         execution_env: Arc<dyn ExecutionEnvironment>,
     ) -> Self {
         Self {
             services: EngineServices {
                 registry: Arc::new(registry),
-                emitter: Arc::new(emitter),
+                emitter,
                 execution_env,
             },
             interviewer: Some(interviewer),
@@ -1690,7 +1690,7 @@ mod tests {
     async fn engine_runs_simple_pipeline() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1704,7 +1704,7 @@ mod tests {
     async fn engine_saves_checkpoint() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1727,7 +1727,7 @@ mod tests {
             events_clone.lock().unwrap().push(format!("{event:?}"));
         });
 
-        let engine = PipelineEngine::new(make_registry(), emitter, local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(emitter), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1745,7 +1745,7 @@ mod tests {
     async fn engine_error_when_no_start_node() {
         let dir = tempfile::tempdir().unwrap();
         let g = Graph::new("empty");
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1759,7 +1759,7 @@ mod tests {
     async fn engine_mirrors_graph_goal_to_context() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1786,7 +1786,7 @@ mod tests {
         g.edges.push(Edge::new("start", "work"));
         g.edges.push(Edge::new("work", "exit"));
 
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1839,7 +1839,7 @@ mod tests {
         g.edges.push(Edge::new("path_a", "exit"));
         g.edges.push(Edge::new("path_b", "exit"));
 
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1910,7 +1910,7 @@ mod tests {
     async fn engine_writes_manifest_json() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1933,7 +1933,7 @@ mod tests {
     async fn engine_writes_node_status_json() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -1953,7 +1953,7 @@ mod tests {
     async fn engine_stores_fidelity_in_context() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -2101,7 +2101,7 @@ mod tests {
     async fn engine_manifest_includes_goal() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         engine.run(&g, &config).await.unwrap();
 
@@ -2123,7 +2123,7 @@ mod tests {
         g.nodes.insert("exit".to_string(), exit);
         g.edges.push(Edge::new("start", "exit"));
 
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         engine.run(&g, &config).await.unwrap();
 
@@ -2159,7 +2159,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         let outcome = engine.run(&g, &config).await.unwrap();
 
@@ -2195,7 +2195,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         let result = engine.run(&g, &config).await;
 
@@ -2234,7 +2234,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         let result = engine.run(&g, &config).await;
         assert!(result.is_ok());
@@ -2268,7 +2268,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 10 }));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2299,7 +2299,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false };
         let outcome = engine.run(&g, &config).await.unwrap();
 
@@ -2346,7 +2346,7 @@ mod tests {
         let informer = Arc::new(RecordingInformer::new());
         let engine = PipelineEngine::with_interviewer(
             make_registry(),
-            EventEmitter::new(),
+            Arc::new(EventEmitter::new()),
             Arc::clone(&informer) as Arc<dyn crate::interviewer::Interviewer>,
             local_env(),
         );
@@ -2373,7 +2373,7 @@ mod tests {
         let informer = Arc::new(RecordingInformer::new());
         let engine = PipelineEngine::with_interviewer(
             make_registry(),
-            EventEmitter::new(),
+            Arc::new(EventEmitter::new()),
             Arc::clone(&informer) as Arc<dyn crate::interviewer::Interviewer>,
             local_env(),
         );
@@ -2401,7 +2401,7 @@ mod tests {
     async fn engine_without_interviewer_runs_normally() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -2417,7 +2417,7 @@ mod tests {
     async fn engine_returns_cancelled_when_token_set_before_run() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let cancel_token = Arc::new(AtomicBool::new(true));
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
@@ -2433,7 +2433,7 @@ mod tests {
     async fn engine_runs_normally_with_unset_cancel_token() {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let cancel_token = Arc::new(AtomicBool::new(false));
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
@@ -2462,7 +2462,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 200 }));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: Some(cancel_token),
@@ -2534,7 +2534,7 @@ mod tests {
             "max_node_visits".to_string(),
             AttrValue::Integer(3),
         );
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -2553,7 +2553,7 @@ mod tests {
     async fn dry_run_applies_default_visit_limit() {
         let dir = tempfile::tempdir().unwrap();
         let g = cyclic_graph();
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -2576,7 +2576,7 @@ mod tests {
             "max_node_visits".to_string(),
             AttrValue::Integer(2),
         );
-        let engine = PipelineEngine::new(make_registry(), EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -2634,7 +2634,7 @@ mod tests {
 
         let mut registry = make_registry();
         registry.register("panicker", Box::new(PanickingHandler));
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,

@@ -2,24 +2,40 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 
-use agent::execution_env::{format_lines_numbered, DirEntry, ExecResult, ExecutionEnvironment, GrepOptions};
+use agent::execution_env::{format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent, ExecutionEnvironment, GrepOptions};
 use async_trait::async_trait;
+use serde::Deserialize;
+
+const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
+const DEFAULT_IMAGE: &str = "ubuntu:22.04";
 
 /// Configuration for a Daytona cloud sandbox execution environment.
+///
+/// Doubles as the TOML deserialization target for `[execution.daytona]`.
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct DaytonaConfig {
-    /// Docker image to use for the sandbox.
-    pub image: String,
-    /// Working directory inside the sandbox.
-    pub working_directory: String,
+    #[serde(default)]
+    pub sandbox: DaytonaSandboxConfig,
+    pub snapshot: Option<DaytonaSnapshotConfig>,
 }
 
-impl Default for DaytonaConfig {
-    fn default() -> Self {
-        Self {
-            image: "ubuntu:22.04".to_string(),
-            working_directory: "/home/daytona/workspace".to_string(),
-        }
-    }
+/// Sandbox-level settings (name, labels, auto-stop).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct DaytonaSandboxConfig {
+    pub name: Option<String>,
+    pub auto_stop_interval: Option<i32>,
+    pub labels: Option<HashMap<String, String>>,
+}
+
+/// Snapshot configuration: when present, the sandbox is created from a snapshot
+/// instead of a bare Docker image.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DaytonaSnapshotConfig {
+    pub name: String,
+    pub cpu: Option<i32>,
+    pub memory: Option<i32>,
+    pub disk: Option<i32>,
+    pub dockerfile: Option<String>,
 }
 
 /// Execution environment that runs all operations inside a Daytona cloud sandbox.
@@ -27,6 +43,7 @@ pub struct DaytonaExecutionEnvironment {
     config: DaytonaConfig,
     client: daytona_sdk::Client,
     sandbox: tokio::sync::OnceCell<daytona_sdk::Sandbox>,
+    event_callback: Option<ExecEnvEventCallback>,
 }
 
 impl DaytonaExecutionEnvironment {
@@ -36,6 +53,17 @@ impl DaytonaExecutionEnvironment {
             config,
             client,
             sandbox: tokio::sync::OnceCell::new(),
+            event_callback: None,
+        }
+    }
+
+    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+        self.event_callback = Some(cb);
+    }
+
+    fn emit(&self, event: ExecutionEnvEvent) {
+        if let Some(ref cb) = self.event_callback {
+            cb(event);
         }
     }
 
@@ -44,7 +72,7 @@ impl DaytonaExecutionEnvironment {
         if Path::new(path).is_absolute() {
             path.to_string()
         } else {
-            format!("{}/{}", self.config.working_directory, path)
+            format!("{WORKING_DIRECTORY}/{path}")
         }
     }
 
@@ -53,6 +81,111 @@ impl DaytonaExecutionEnvironment {
         self.sandbox
             .get()
             .ok_or_else(|| "Daytona sandbox not initialized — call initialize() first".to_string())
+    }
+
+    /// Build `SandboxBaseParams` from config.
+    fn base_params(&self) -> daytona_sdk::SandboxBaseParams {
+        daytona_sdk::SandboxBaseParams {
+            name: self.config.sandbox.name.clone(),
+            auto_stop_interval: self.config.sandbox.auto_stop_interval,
+            labels: self.config.sandbox.labels.clone(),
+            ephemeral: Some(true),
+            ..Default::default()
+        }
+    }
+
+    /// Ensure the named snapshot exists and is active.
+    ///
+    /// If the snapshot doesn't exist and a dockerfile is provided, creates it
+    /// and polls until it reaches `Active` state. Returns an error if the
+    /// snapshot is in a terminal failure state.
+    async fn ensure_snapshot(&self, snap_cfg: &DaytonaSnapshotConfig) -> Result<(), String> {
+        match self.client.snapshot.get(&snap_cfg.name).await {
+            Ok(dto) => {
+                use daytona_api_client::models::SnapshotState;
+                match dto.state {
+                    SnapshotState::Active => return Ok(()),
+                    SnapshotState::Error | SnapshotState::BuildFailed => {
+                        return Err(format!(
+                            "Snapshot '{}' is in state '{}': {}",
+                            snap_cfg.name,
+                            dto.state,
+                            dto.error_reason.unwrap_or_default()
+                        ));
+                    }
+                    _ => {
+                        // Building/Pending/Pulling — fall through to poll
+                    }
+                }
+            }
+            Err(daytona_sdk::DaytonaError::NotFound { .. }) => {
+                let dockerfile = snap_cfg.dockerfile.as_deref().ok_or_else(|| {
+                    format!(
+                        "Snapshot '{}' does not exist and no dockerfile provided to create it",
+                        snap_cfg.name
+                    )
+                })?;
+
+                let params = daytona_sdk::CreateSnapshotParams {
+                    name: snap_cfg.name.clone(),
+                    image: daytona_sdk::ImageSource::Custom(
+                        daytona_sdk::DockerImage::from_dockerfile(dockerfile),
+                    ),
+                    resources: Some(daytona_sdk::Resources {
+                        cpu: snap_cfg.cpu,
+                        memory: snap_cfg.memory,
+                        disk: snap_cfg.disk,
+                        ..Default::default()
+                    }),
+                    entrypoint: None,
+                };
+                self.client
+                    .snapshot
+                    .create(&params)
+                    .await
+                    .map_err(|e| format!("Failed to create snapshot '{}': {e}", snap_cfg.name))?;
+            }
+            Err(e) => {
+                return Err(format!("Failed to get snapshot '{}': {e}", snap_cfg.name));
+            }
+        }
+
+        // Poll until Active (or terminal failure).
+        self.poll_snapshot_active(&snap_cfg.name).await
+    }
+
+    /// Poll a snapshot until it reaches `Active` state, with exponential back-off.
+    async fn poll_snapshot_active(&self, name: &str) -> Result<(), String> {
+        use daytona_api_client::models::SnapshotState;
+        let mut delay = std::time::Duration::from_secs(2);
+        let max_delay = std::time::Duration::from_secs(30);
+        let deadline = Instant::now() + std::time::Duration::from_secs(600);
+
+        while Instant::now() < deadline {
+            tokio::time::sleep(delay).await;
+            let dto = self
+                .client
+                .snapshot
+                .get(name)
+                .await
+                .map_err(|e| format!("Failed to poll snapshot '{name}': {e}"))?;
+
+            match dto.state {
+                SnapshotState::Active => return Ok(()),
+                SnapshotState::Error | SnapshotState::BuildFailed => {
+                    return Err(format!(
+                        "Snapshot '{name}' failed ({}): {}",
+                        dto.state,
+                        dto.error_reason.unwrap_or_default()
+                    ));
+                }
+                _ => {
+                    delay = (delay * 2).min(max_delay);
+                }
+            }
+        }
+
+        Err(format!("Timed out waiting for snapshot '{name}' to become active"))
     }
 }
 
@@ -104,38 +237,82 @@ pub fn get_gh_token() -> Result<String, String> {
 #[async_trait]
 impl ExecutionEnvironment for DaytonaExecutionEnvironment {
     async fn initialize(&self) -> Result<(), String> {
+        self.emit(ExecutionEnvEvent::Initializing { env_type: "daytona".into() });
+        let init_start = Instant::now();
+
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-        let params = daytona_sdk::CreateParams::Image(daytona_sdk::ImageParams {
-            base: daytona_sdk::SandboxBaseParams {
-                ephemeral: Some(true),
-                ..Default::default()
-            },
-            image: daytona_sdk::ImageSource::Name(self.config.image.clone()),
-            resources: None,
-        });
+        let params = if let Some(ref snap_cfg) = self.config.snapshot {
+            self.emit(ExecutionEnvEvent::SnapshotEnsuring { name: snap_cfg.name.clone() });
+            let snap_start = Instant::now();
+            if let Err(e) = self.ensure_snapshot(snap_cfg).await {
+                self.emit(ExecutionEnvEvent::SnapshotFailed { name: snap_cfg.name.clone(), error: e.clone() });
+                let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "daytona".into(), error: e.clone(), duration_ms });
+                return Err(e);
+            }
+            let snap_duration = u64::try_from(snap_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            self.emit(ExecutionEnvEvent::SnapshotReady { name: snap_cfg.name.clone(), duration_ms: snap_duration });
+
+            daytona_sdk::CreateParams::Snapshot(daytona_sdk::SnapshotParams {
+                base: self.base_params(),
+                snapshot: snap_cfg.name.clone(),
+            })
+        } else {
+            daytona_sdk::CreateParams::Image(daytona_sdk::ImageParams {
+                base: self.base_params(),
+                image: daytona_sdk::ImageSource::Name(DEFAULT_IMAGE.to_string()),
+                resources: None,
+            })
+        };
 
         let sandbox = self
             .client
             .create(params, daytona_sdk::CreateSandboxOptions::default())
             .await
-            .map_err(|e| format!("Failed to create Daytona sandbox: {e}"))?;
+            .map_err(|e| {
+                let err = format!("Failed to create Daytona sandbox: {e}");
+                let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "daytona".into(), error: err.clone(), duration_ms });
+                err
+            })?;
 
         // Clone the repo into the sandbox
         match detect_repo_info(&cwd) {
             Ok((url, branch)) => {
+                self.emit(ExecutionEnvEvent::GitCloneStarted { url: url.clone(), branch: branch.clone() });
+                let clone_start = Instant::now();
+
                 let token = get_gh_token()
-                    .map_err(|e| format!("Failed to get GitHub token for Daytona clone: {e}"))?;
+                    .map_err(|e| format!("Failed to get GitHub token for Daytona clone: {e}"));
+                let token = match token {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.emit(ExecutionEnvEvent::GitCloneFailed { url: url.clone(), error: e.clone() });
+                        let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "daytona".into(), error: e.clone(), duration_ms });
+                        return Err(e);
+                    }
+                };
 
                 let git_svc = sandbox
                     .git()
                     .await
-                    .map_err(|e| format!("Failed to get Daytona git service: {e}"))?;
+                    .map_err(|e| format!("Failed to get Daytona git service: {e}"));
+                let git_svc = match git_svc {
+                    Ok(g) => g,
+                    Err(e) => {
+                        self.emit(ExecutionEnvEvent::GitCloneFailed { url: url.clone(), error: e.clone() });
+                        let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "daytona".into(), error: e.clone(), duration_ms });
+                        return Err(e);
+                    }
+                };
 
-                git_svc
+                match git_svc
                     .clone(
                         &url,
-                        &self.config.working_directory,
+                        WORKING_DIRECTORY,
                         daytona_sdk::GitCloneOptions {
                             branch,
                             username: Some("x-access-token".to_string()),
@@ -144,7 +321,19 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                         },
                     )
                     .await
-                    .map_err(|e| format!("Failed to clone repo into Daytona sandbox: {e}"))?;
+                {
+                    Ok(()) => {
+                        let clone_duration = u64::try_from(clone_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        self.emit(ExecutionEnvEvent::GitCloneCompleted { url, duration_ms: clone_duration });
+                    }
+                    Err(e) => {
+                        let err = format!("Failed to clone repo into Daytona sandbox: {e}");
+                        self.emit(ExecutionEnvEvent::GitCloneFailed { url, error: err.clone() });
+                        let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        self.emit(ExecutionEnvEvent::InitializeFailed { env_type: "daytona".into(), error: err.clone(), duration_ms });
+                        return Err(err);
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Warning: could not detect git repo for Daytona clone: {e}");
@@ -154,7 +343,7 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                     .await
                     .map_err(|e| format!("Failed to get Daytona fs service: {e}"))?;
                 fs_svc
-                    .create_folder(&self.config.working_directory, None)
+                    .create_folder(WORKING_DIRECTORY, None)
                     .await
                     .map_err(|e| format!("Failed to create working directory: {e}"))?;
             }
@@ -164,21 +353,29 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
             .set(sandbox)
             .map_err(|_| "Daytona sandbox already initialized".to_string())?;
 
+        let init_duration = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::Ready { env_type: "daytona".into(), duration_ms: init_duration });
+
         Ok(())
     }
 
     async fn cleanup(&self) -> Result<(), String> {
+        self.emit(ExecutionEnvEvent::CleanupStarted { env_type: "daytona".into() });
+        let start = Instant::now();
         if let Some(sandbox) = self.sandbox.get() {
-            sandbox
-                .delete()
-                .await
-                .map_err(|e| format!("Failed to delete Daytona sandbox: {e}"))?;
+            if let Err(e) = sandbox.delete().await {
+                let err = format!("Failed to delete Daytona sandbox: {e}");
+                self.emit(ExecutionEnvEvent::CleanupFailed { env_type: "daytona".into(), error: err.clone() });
+                return Err(err);
+            }
         }
+        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.emit(ExecutionEnvEvent::CleanupCompleted { env_type: "daytona".into(), duration_ms });
         Ok(())
     }
 
     fn working_directory(&self) -> &str {
-        &self.config.working_directory
+        WORKING_DIRECTORY
     }
 
     fn platform(&self) -> &str {
@@ -321,7 +518,7 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
 
         let cwd = working_dir
             .map(|d| self.resolve_path(d))
-            .unwrap_or_else(|| self.config.working_directory.clone());
+            .unwrap_or_else(|| WORKING_DIRECTORY.to_string());
 
         let process_svc = sandbox
             .process()
@@ -334,8 +531,11 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
             ..Default::default()
         };
 
+        // Wrap with `bash -c` so pipes, env vars, and shell features work.
+        // The Daytona API uses direct exec, not a shell.
+        let wrapped = wrap_bash_command(command);
         let result = process_svc
-            .execute_command(command, options)
+            .execute_command(&wrapped, options)
             .await
             .map_err(|e| format!("Failed to execute command: {e}"))?;
 
@@ -393,7 +593,7 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
     async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
         let base = path
             .map(|p| self.resolve_path(p))
-            .unwrap_or_else(|| self.config.working_directory.clone());
+            .unwrap_or_else(|| WORKING_DIRECTORY.to_string());
 
         let cmd = format!(
             "find '{}' -name '{}' -type f | sort",
@@ -416,6 +616,15 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
     }
 }
 
+/// Wrap a command string with `bash -c '...'`, escaping single quotes.
+///
+/// The Daytona API uses direct exec (not a shell), so pipes, env vars,
+/// semicolons, etc. won't work without this wrapper.
+fn wrap_bash_command(command: &str) -> String {
+    // Shell-quote by replacing ' with '\'' then wrapping in single quotes.
+    format!("bash -c '{}'", command.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,8 +632,31 @@ mod tests {
     #[test]
     fn daytona_config_defaults() {
         let config = DaytonaConfig::default();
-        assert_eq!(config.image, "ubuntu:22.04");
-        assert_eq!(config.working_directory, "/home/daytona/workspace");
+        assert!(config.snapshot.is_none());
+        assert!(config.sandbox.name.is_none());
+        assert!(config.sandbox.auto_stop_interval.is_none());
+        assert!(config.sandbox.labels.is_none());
+    }
+
+    #[test]
+    fn wrap_bash_simple() {
+        assert_eq!(wrap_bash_command("echo hello"), "bash -c 'echo hello'");
+    }
+
+    #[test]
+    fn wrap_bash_with_pipe() {
+        assert_eq!(
+            wrap_bash_command("ls | grep foo"),
+            "bash -c 'ls | grep foo'"
+        );
+    }
+
+    #[test]
+    fn wrap_bash_escapes_single_quotes() {
+        assert_eq!(
+            wrap_bash_command("echo 'hello world'"),
+            "bash -c 'echo '\\''hello world'\\'''"
+        );
     }
 
     #[test]

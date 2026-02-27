@@ -31,6 +31,7 @@ pub struct MockExecutionEnvironment {
     pub written_files: Mutex<Vec<(String, String)>>,
     /// Captures the `timeout_ms` argument from `exec_command` calls.
     pub captured_timeout: Mutex<Option<u64>>,
+    pub event_callback: Option<crate::execution_env::ExecEnvEventCallback>,
 }
 
 impl MockExecutionEnvironment {
@@ -40,6 +41,18 @@ impl MockExecutionEnvironment {
             platform_str: "linux",
             os_version_str: "Linux 6.1.0".into(),
             ..Default::default()
+        }
+    }
+}
+
+impl MockExecutionEnvironment {
+    pub fn set_event_callback(&mut self, cb: crate::execution_env::ExecEnvEventCallback) {
+        self.event_callback = Some(cb);
+    }
+
+    fn emit(&self, event: crate::execution_env::ExecutionEnvEvent) {
+        if let Some(ref cb) = self.event_callback {
+            cb(event);
         }
     }
 }
@@ -63,6 +76,7 @@ impl Default for MockExecutionEnvironment {
             apply_read_offset_limit: false,
             written_files: Mutex::new(Vec::new()),
             captured_timeout: Mutex::new(None),
+            event_callback: None,
         }
     }
 }
@@ -145,10 +159,14 @@ impl ExecutionEnvironment for MockExecutionEnvironment {
     }
 
     async fn initialize(&self) -> Result<(), String> {
+        self.emit(crate::execution_env::ExecutionEnvEvent::Initializing { env_type: "mock".into() });
+        self.emit(crate::execution_env::ExecutionEnvEvent::Ready { env_type: "mock".into(), duration_ms: 0 });
         Ok(())
     }
 
     async fn cleanup(&self) -> Result<(), String> {
+        self.emit(crate::execution_env::ExecutionEnvEvent::CleanupStarted { env_type: "mock".into() });
+        self.emit(crate::execution_env::ExecutionEnvEvent::CleanupCompleted { env_type: "mock".into(), duration_ms: 0 });
         Ok(())
     }
 

@@ -190,7 +190,7 @@ async fn start_pipeline(
     let execution_env: Arc<dyn agent::ExecutionEnvironment> = Arc::new(LocalExecutionEnvironment::new(cwd));
     let engine = PipelineEngine::with_interviewer(
         registry,
-        emitter,
+        Arc::new(emitter),
         Arc::clone(&interviewer) as Arc<dyn Interviewer>,
         execution_env,
     );

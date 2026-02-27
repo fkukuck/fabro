@@ -421,6 +421,39 @@ pub fn format_event_summary(event: &PipelineEvent, styles: &Styles) -> String {
         } => {
             format!("[SUBGRAPH_COMPLETED] node={node_id} steps={steps_executed} status={status} duration={duration_ms}ms")
         }
+        PipelineEvent::ExecutionEnv { event } => {
+            use agent::ExecutionEnvEvent;
+            match event {
+                ExecutionEnvEvent::Initializing { env_type } => format!("[EXEC_ENV_INITIALIZING] env_type={env_type}"),
+                ExecutionEnvEvent::Ready { env_type, duration_ms } => format!("[EXEC_ENV_READY] env_type={env_type} duration={duration_ms}ms"),
+                ExecutionEnvEvent::InitializeFailed { env_type, error, duration_ms } => format!("[EXEC_ENV_INIT_FAILED] env_type={env_type} error=\"{error}\" duration={duration_ms}ms"),
+                ExecutionEnvEvent::CleanupStarted { env_type } => format!("[EXEC_ENV_CLEANUP_STARTED] env_type={env_type}"),
+                ExecutionEnvEvent::CleanupCompleted { env_type, duration_ms } => format!("[EXEC_ENV_CLEANUP_COMPLETED] env_type={env_type} duration={duration_ms}ms"),
+                ExecutionEnvEvent::CleanupFailed { env_type, error } => format!("[EXEC_ENV_CLEANUP_FAILED] env_type={env_type} error=\"{error}\""),
+                ExecutionEnvEvent::ImagePulling { image } => format!("[EXEC_ENV_IMAGE_PULLING] image={image}"),
+                ExecutionEnvEvent::ImagePulled { image, duration_ms } => format!("[EXEC_ENV_IMAGE_PULLED] image={image} duration={duration_ms}ms"),
+                ExecutionEnvEvent::SnapshotEnsuring { name } => format!("[EXEC_ENV_SNAPSHOT_ENSURING] name={name}"),
+                ExecutionEnvEvent::SnapshotCreating { name } => format!("[EXEC_ENV_SNAPSHOT_CREATING] name={name}"),
+                ExecutionEnvEvent::SnapshotReady { name, duration_ms } => format!("[EXEC_ENV_SNAPSHOT_READY] name={name} duration={duration_ms}ms"),
+                ExecutionEnvEvent::SnapshotFailed { name, error } => format!("[EXEC_ENV_SNAPSHOT_FAILED] name={name} error=\"{error}\""),
+                ExecutionEnvEvent::GitCloneStarted { url, branch } => {
+                    let branch_str = branch.as_deref().unwrap_or("(default)");
+                    format!("[EXEC_ENV_GIT_CLONE_STARTED] url={url} branch={branch_str}")
+                }
+                ExecutionEnvEvent::GitCloneCompleted { url, duration_ms } => format!("[EXEC_ENV_GIT_CLONE_COMPLETED] url={url} duration={duration_ms}ms"),
+                ExecutionEnvEvent::GitCloneFailed { url, error } => format!("[EXEC_ENV_GIT_CLONE_FAILED] url={url} error=\"{error}\""),
+            }
+        }
+        PipelineEvent::SetupStarted { command_count } => format!("[SETUP_STARTED] command_count={command_count}"),
+        PipelineEvent::SetupCommandStarted { command, index } => format!("[SETUP_COMMAND_STARTED] index={index} command=\"{command}\""),
+        PipelineEvent::SetupCommandCompleted { command, index, exit_code, duration_ms } => {
+            format!("[SETUP_COMMAND_COMPLETED] index={index} command=\"{command}\" exit_code={exit_code} duration={duration_ms}ms")
+        }
+        PipelineEvent::SetupCompleted { duration_ms } => format!("[SETUP_COMPLETED] duration={duration_ms}ms"),
+        PipelineEvent::SetupFailed { command, index, exit_code, stderr } => {
+            let truncated = if stderr.len() > 80 { &stderr[..80] } else { stderr };
+            format!("[SETUP_FAILED] index={index} command=\"{command}\" exit_code={exit_code} stderr=\"{truncated}\"")
+        }
     };
     format!("{dim}{body}{reset}", dim = styles.dim, reset = styles.reset)
 }
@@ -678,6 +711,72 @@ pub fn format_event_detail(event: &PipelineEvent, styles: &Styles) -> String {
         } => {
             format!("{d}── SUBGRAPH_COMPLETED ───────────────────────{r}\n  {d}node_id:{r}        {node_id}\n  {d}steps_executed:{r} {steps_executed}\n  {d}status:{r}         {status}\n  {d}duration_ms:{r}    {duration_ms}\n")
         }
+        PipelineEvent::ExecutionEnv { event } => {
+            use agent::ExecutionEnvEvent;
+            match event {
+                ExecutionEnvEvent::Initializing { env_type } => {
+                    format!("{d}── EXEC_ENV_INITIALIZING ────────────────────{r}\n  {d}env_type:{r} {env_type}\n")
+                }
+                ExecutionEnvEvent::Ready { env_type, duration_ms } => {
+                    format!("{d}── EXEC_ENV_READY ───────────────────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::InitializeFailed { env_type, error, duration_ms } => {
+                    format!("{d}── EXEC_ENV_INIT_FAILED ─────────────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}error:{r}       {error}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::CleanupStarted { env_type } => {
+                    format!("{d}── EXEC_ENV_CLEANUP_STARTED ─────────────────{r}\n  {d}env_type:{r} {env_type}\n")
+                }
+                ExecutionEnvEvent::CleanupCompleted { env_type, duration_ms } => {
+                    format!("{d}── EXEC_ENV_CLEANUP_COMPLETED ───────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::CleanupFailed { env_type, error } => {
+                    format!("{d}── EXEC_ENV_CLEANUP_FAILED ──────────────────{r}\n  {d}env_type:{r} {env_type}\n  {d}error:{r}    {error}\n")
+                }
+                ExecutionEnvEvent::ImagePulling { image } => {
+                    format!("{d}── EXEC_ENV_IMAGE_PULLING ───────────────────{r}\n  {d}image:{r} {image}\n")
+                }
+                ExecutionEnvEvent::ImagePulled { image, duration_ms } => {
+                    format!("{d}── EXEC_ENV_IMAGE_PULLED ────────────────────{r}\n  {d}image:{r}       {image}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::SnapshotEnsuring { name } => {
+                    format!("{d}── EXEC_ENV_SNAPSHOT_ENSURING ───────────────{r}\n  {d}name:{r} {name}\n")
+                }
+                ExecutionEnvEvent::SnapshotCreating { name } => {
+                    format!("{d}── EXEC_ENV_SNAPSHOT_CREATING ───────────────{r}\n  {d}name:{r} {name}\n")
+                }
+                ExecutionEnvEvent::SnapshotReady { name, duration_ms } => {
+                    format!("{d}── EXEC_ENV_SNAPSHOT_READY ──────────────────{r}\n  {d}name:{r}        {name}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::SnapshotFailed { name, error } => {
+                    format!("{d}── EXEC_ENV_SNAPSHOT_FAILED ─────────────────{r}\n  {d}name:{r}  {name}\n  {d}error:{r} {error}\n")
+                }
+                ExecutionEnvEvent::GitCloneStarted { url, branch } => {
+                    let branch_str = branch.as_deref().unwrap_or("(default)");
+                    format!("{d}── EXEC_ENV_GIT_CLONE_STARTED ──────────────{r}\n  {d}url:{r}    {url}\n  {d}branch:{r} {branch_str}\n")
+                }
+                ExecutionEnvEvent::GitCloneCompleted { url, duration_ms } => {
+                    format!("{d}── EXEC_ENV_GIT_CLONE_COMPLETED ────────────{r}\n  {d}url:{r}         {url}\n  {d}duration_ms:{r} {duration_ms}\n")
+                }
+                ExecutionEnvEvent::GitCloneFailed { url, error } => {
+                    format!("{d}── EXEC_ENV_GIT_CLONE_FAILED ───────────────{r}\n  {d}url:{r}   {url}\n  {d}error:{r} {error}\n")
+                }
+            }
+        }
+        PipelineEvent::SetupStarted { command_count } => {
+            format!("{d}── SETUP_STARTED ────────────────────────────{r}\n  {d}command_count:{r} {command_count}\n")
+        }
+        PipelineEvent::SetupCommandStarted { command, index } => {
+            format!("{d}── SETUP_COMMAND_STARTED ────────────────────{r}\n  {d}index:{r}   {index}\n  {d}command:{r} {command}\n")
+        }
+        PipelineEvent::SetupCommandCompleted { command, index, exit_code, duration_ms } => {
+            format!("{d}── SETUP_COMMAND_COMPLETED ──────────────────{r}\n  {d}index:{r}       {index}\n  {d}command:{r}     {command}\n  {d}exit_code:{r}   {exit_code}\n  {d}duration_ms:{r} {duration_ms}\n")
+        }
+        PipelineEvent::SetupCompleted { duration_ms } => {
+            format!("{d}── SETUP_COMPLETED ──────────────────────────{r}\n  {d}duration_ms:{r} {duration_ms}\n")
+        }
+        PipelineEvent::SetupFailed { command, index, exit_code, stderr } => {
+            format!("{d}── SETUP_FAILED ─────────────────────────────{r}\n  {d}index:{r}     {index}\n  {d}command:{r}   {command}\n  {d}exit_code:{r} {exit_code}\n  {d}stderr:{r}    {stderr}\n")
+        }
     }
 }
 
@@ -730,5 +829,52 @@ mod tests {
         assert_eq!(ExecutionEnvKind::Local.to_string(), "local");
         assert_eq!(ExecutionEnvKind::Docker.to_string(), "docker");
         assert_eq!(ExecutionEnvKind::Daytona.to_string(), "daytona");
+    }
+
+    fn test_styles() -> &'static Styles {
+        Box::leak(Box::new(Styles::new(false)))
+    }
+
+    #[test]
+    fn format_summary_execution_env_initializing() {
+        let event = PipelineEvent::ExecutionEnv {
+            event: agent::ExecutionEnvEvent::Initializing { env_type: "docker".into() },
+        };
+        let s = format_event_summary(&event, test_styles());
+        assert!(s.contains("[EXEC_ENV_INITIALIZING]"));
+        assert!(s.contains("docker"));
+    }
+
+    #[test]
+    fn format_summary_setup_started() {
+        let event = PipelineEvent::SetupStarted { command_count: 3 };
+        let s = format_event_summary(&event, test_styles());
+        assert!(s.contains("[SETUP_STARTED]"));
+        assert!(s.contains("3"));
+    }
+
+    #[test]
+    fn format_detail_execution_env_ready() {
+        let event = PipelineEvent::ExecutionEnv {
+            event: agent::ExecutionEnvEvent::Ready { env_type: "local".into(), duration_ms: 42 },
+        };
+        let s = format_event_detail(&event, test_styles());
+        assert!(s.contains("EXEC_ENV_READY"));
+        assert!(s.contains("local"));
+        assert!(s.contains("42"));
+    }
+
+    #[test]
+    fn format_detail_setup_command_completed() {
+        let event = PipelineEvent::SetupCommandCompleted {
+            command: "npm install".into(),
+            index: 0,
+            exit_code: 0,
+            duration_ms: 5000,
+        };
+        let s = format_event_detail(&event, test_styles());
+        assert!(s.contains("SETUP_COMMAND_COMPLETED"));
+        assert!(s.contains("npm install"));
+        assert!(s.contains("5000"));
     }
 }

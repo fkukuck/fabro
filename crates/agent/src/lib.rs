@@ -24,7 +24,7 @@ pub mod types;
 pub use config::{SessionConfig, ToolApprovalFn};
 pub use error::AgentError;
 pub use event::EventEmitter;
-pub use execution_env::{format_lines_numbered, DirEntry, ExecResult, ExecutionEnvironment, GrepOptions};
+pub use execution_env::{format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent, ExecutionEnvironment, GrepOptions};
 pub use history::History;
 #[cfg(feature = "docker")]
 pub use docker_env::{DockerConfig, DockerExecutionEnvironment};

@@ -150,9 +150,12 @@ fn dry_run_writes_ndjson_and_live_json() {
     assert!(first_line.get("run_id").is_some(), "line should have run_id");
     assert!(first_line.get("event").is_some(), "line should have event");
 
-    // First event should be PipelineStarted
-    let first_event = &first_line["event"];
-    assert!(first_event.get("PipelineStarted").is_some(), "first event should be PipelineStarted");
+    // Events should contain PipelineStarted (may not be first due to exec env events)
+    let has_pipeline_started = lines.iter().any(|line| {
+        let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+        parsed["event"].get("PipelineStarted").is_some()
+    });
+    assert!(has_pipeline_started, "events should contain PipelineStarted");
 
     // run_id should be non-empty after PipelineStarted
     let last_line: serde_json::Value = serde_json::from_str(lines[lines.len() - 1]).unwrap();

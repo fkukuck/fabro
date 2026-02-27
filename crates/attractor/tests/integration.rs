@@ -181,7 +181,7 @@ async fn end_to_end_linear_pipeline() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -296,7 +296,7 @@ async fn end_to_end_branching_pipeline() {
     registry.register("codergen", Box::new(CodergenHandler::new(None)));
     registry.register("conditional", Box::new(ConditionalHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -401,7 +401,7 @@ async fn end_to_end_human_gate_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -500,7 +500,7 @@ async fn goal_gate_routes_to_retry_target_on_failure() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("always_fail", Box::new(AlwaysFailHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -608,7 +608,7 @@ async fn goal_gate_routes_to_retry_target_when_present() {
         }),
     );
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -916,7 +916,7 @@ async fn retry_on_failure_then_succeed() {
         }),
     );
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -978,7 +978,7 @@ async fn pipeline_with_many_nodes() {
     ));
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1268,7 +1268,7 @@ async fn smoke_test_with_mock_codergen_backend() {
     );
     registry.register("conditional", Box::new(ConditionalHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1359,7 +1359,7 @@ async fn end_to_end_parallel_fan_out_fan_in() {
         Box::new(FanInHandler::new(Some(Box::new(MockCodergenBackend)))),
     );
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1462,7 +1462,7 @@ async fn resume_from_checkpoint_completes_pipeline() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1550,7 +1550,7 @@ async fn resume_from_checkpoint_preserves_goal_gate_outcomes() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1580,7 +1580,7 @@ async fn graph_goal_in_context() {
     }"#;
     let graph = parse(input).expect("parse");
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1606,7 +1606,7 @@ async fn event_streaming_lifecycle() {
     let dir = tempfile::tempdir().unwrap();
     let mut emitter = EventEmitter::new();
     let events = collect_events(&mut emitter);
-    let engine = PipelineEngine::new(make_linear_registry(), emitter, local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(emitter), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1672,7 +1672,7 @@ async fn context_flow_between_stages() {
     graph.edges.push(Edge::new("step_b", "exit"));
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1711,7 +1711,7 @@ async fn tool_handler_e2e() {
 
     let dir = tempfile::tempdir().unwrap();
     let interviewer = Arc::new(AutoApproveInterviewer);
-    let engine = PipelineEngine::new(make_full_registry(interviewer), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_full_registry(interviewer), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1768,7 +1768,7 @@ async fn auto_approve_interviewer_e2e() {
 
     let dir = tempfile::tempdir().unwrap();
     let interviewer = Arc::new(AutoApproveInterviewer);
-    let engine = PipelineEngine::new(make_full_registry(interviewer), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_full_registry(interviewer), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1791,7 +1791,7 @@ async fn codergen_without_backend_simulated() {
     }"#;
     let graph = parse(input).expect("parse");
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1888,7 +1888,7 @@ async fn branching_loop_back_on_failure() {
             call_count: std::sync::atomic::AtomicU32::new(0),
         }),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -1968,7 +1968,7 @@ async fn human_gate_loops_back() {
         "wait.human",
         Box::new(WaitHumanHandler::new(interviewer)),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2016,7 +2016,7 @@ async fn scenario_ship_a_feature() {
     let dir = tempfile::tempdir().unwrap();
     let mut emitter = EventEmitter::new();
     let events = collect_events(&mut emitter);
-    let engine = PipelineEngine::new(make_full_registry(interviewer), emitter, local_env());
+    let engine = PipelineEngine::new(make_full_registry(interviewer), Arc::new(emitter), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2092,7 +2092,7 @@ async fn scenario_parallel_expert_review() {
         Box::new(WaitHumanHandler::new(interviewer)),
     );
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2162,7 +2162,7 @@ async fn scenario_node_retries_on_retry_status() {
             call_count: std::sync::atomic::AtomicU32::new(0),
         }),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2216,7 +2216,7 @@ async fn scenario_loop_restart_resets_context() {
             call_count: Arc::clone(&call_count),
         }),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2274,7 +2274,7 @@ async fn scenario_bug_triage_router() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
     registry.register("conditional", Box::new(ConditionalHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2320,7 +2320,7 @@ async fn scenario_crash_recovery() {
     let mut registry = HandlerRegistry::new(Box::new(StartHandler));
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2398,7 +2398,7 @@ async fn manager_loop_stop_condition_satisfied_e2e() {
         "stack.manager_loop",
         Box::new(ManagerLoopHandler::new(None)),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2444,7 +2444,7 @@ async fn manager_loop_max_cycles_exceeded_e2e() {
         "stack.manager_loop",
         Box::new(ManagerLoopHandler::new(None)),
     );
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2570,7 +2570,7 @@ async fn conditional_branching_success_fail_paths() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
     registry.register("always_fail", Box::new(AlwaysFailHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2614,7 +2614,7 @@ async fn edge_selection_condition_match_wins_over_weight() {
     let mut registry = HandlerRegistry::new(Box::new(StartHandler));
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2653,7 +2653,7 @@ async fn edge_selection_weight_breaks_ties() {
     let mut registry = HandlerRegistry::new(Box::new(StartHandler));
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2684,7 +2684,7 @@ async fn edge_selection_lexical_tiebreak() {
     let mut registry = HandlerRegistry::new(Box::new(StartHandler));
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2732,7 +2732,7 @@ async fn context_updates_visible_across_nodes() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("conditional", Box::new(ConditionalHandler));
     registry.register("context_setter", Box::new(ContextSetterHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2762,7 +2762,7 @@ async fn stylesheet_applies_model_override() {
     assert_eq!(graph.nodes["work"].llm_model(), Some("custom-model"));
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2808,7 +2808,7 @@ async fn custom_handler_registration_and_execution() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
     registry.register("my_custom", Box::new(CustomHandler));
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -2865,7 +2865,7 @@ async fn integration_smoke_plan_implement_review_done() {
     let dir = tempfile::tempdir().unwrap();
     let mut emitter = EventEmitter::new();
     let events = collect_events(&mut emitter);
-    let engine = PipelineEngine::new(make_full_registry(interviewer), emitter, local_env());
+    let engine = PipelineEngine::new(make_full_registry(interviewer), Arc::new(emitter), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3350,7 +3350,7 @@ async fn sub_pipeline_e2e_through_engine() {
     registry.register("codergen", Box::new(CodergenHandler::new(None)));
     registry.register("sub_pipeline", Box::new(SubPipelineHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3492,7 +3492,7 @@ async fn manager_loop_with_child_observer_e2e() {
         Box::new(ManagerLoopHandler::new(Some(Box::new(observer)))),
     );
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3611,7 +3611,7 @@ async fn graph_merge_e2e_through_engine() {
     assert!(main_graph.nodes.contains_key("dep.release"));
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3751,7 +3751,7 @@ async fn fidelity_default_is_compact() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3790,7 +3790,7 @@ async fn fidelity_graph_default_applied() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3828,7 +3828,7 @@ async fn fidelity_node_overrides_graph_default() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3872,7 +3872,7 @@ async fn fidelity_edge_overrides_node_and_graph() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3906,7 +3906,7 @@ async fn fidelity_full_produces_empty_preamble() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -3947,7 +3947,7 @@ async fn fidelity_truncate_preamble_minimal() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4004,7 +4004,7 @@ async fn fidelity_summary_low_mode() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4056,7 +4056,7 @@ async fn fidelity_summary_medium_mode() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4108,7 +4108,7 @@ async fn fidelity_summary_high_mode() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4153,7 +4153,7 @@ async fn fidelity_full_sets_thread_id_in_context() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4209,7 +4209,7 @@ async fn fidelity_full_nodes_share_thread_id() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4272,7 +4272,7 @@ async fn fidelity_resume_degrades_full_to_summary_high() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4351,7 +4351,7 @@ async fn fidelity_resume_degrade_only_affects_first_hop() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4417,7 +4417,7 @@ async fn fidelity_resume_no_degrade_when_not_full() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4449,7 +4449,7 @@ async fn fidelity_stored_in_checkpoint_context() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4520,7 +4520,7 @@ async fn fidelity_precedence_multi_node_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4573,7 +4573,7 @@ async fn fidelity_compact_preamble_includes_completed_stages_and_context() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4621,7 +4621,7 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
     registry_low.register("start", Box::new(StartHandler));
     registry_low.register("exit", Box::new(ExitHandler));
     registry_low.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures_low.clone() }));
-    let engine_low = PipelineEngine::new(registry_low, EventEmitter::new(), local_env());
+    let engine_low = PipelineEngine::new(registry_low, Arc::new(EventEmitter::new()), local_env());
     let config_low = RunConfig { logs_root: dir_low.path().to_path_buf(), cancel_token: None, dry_run: false };
     engine_low.run(&graph_low, &config_low).await.expect("run low");
 
@@ -4655,7 +4655,7 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
     registry_med.register("start", Box::new(StartHandler));
     registry_med.register("exit", Box::new(ExitHandler));
     registry_med.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures_med.clone() }));
-    let engine_med = PipelineEngine::new(registry_med, EventEmitter::new(), local_env());
+    let engine_med = PipelineEngine::new(registry_med, Arc::new(EventEmitter::new()), local_env());
     let config_med = RunConfig { logs_root: dir_med.path().to_path_buf(), cancel_token: None, dry_run: false };
     engine_med.run(&graph_med, &config_med).await.expect("run med");
 
@@ -4698,7 +4698,7 @@ async fn fidelity_thread_id_fallback_to_previous_node_in_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4737,7 +4737,7 @@ async fn fidelity_thread_id_from_node_class_in_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4779,7 +4779,7 @@ async fn fidelity_edge_thread_id_override_in_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4822,7 +4822,7 @@ async fn fidelity_full_without_explicit_thread_id_uses_previous_node() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4872,7 +4872,7 @@ async fn fidelity_from_parsed_dot_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4910,7 +4910,7 @@ async fn fidelity_checkpoint_roundtrip_preserves_fidelity() {
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -4965,7 +4965,7 @@ async fn fidelity_node_thread_id_overrides_edge_thread_id_in_pipeline() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -5034,7 +5034,7 @@ async fn fidelity_resume_preserves_context_values_across_checkpoint() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures.clone() }));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -5219,7 +5219,7 @@ mod real_llm {
             )))),
         );
 
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None, dry_run: false,
@@ -5323,7 +5323,7 @@ mod real_llm {
             Box::new(CodergenHandler::new(Some(make_llm_backend(client)))),
         );
 
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None, dry_run: false,
@@ -5457,7 +5457,7 @@ mod real_llm {
         );
         registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None, dry_run: false,
@@ -5556,7 +5556,7 @@ mod real_llm {
             Box::new(CodergenHandler::new(Some(make_llm_backend(client)))),
         );
 
-        let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+        let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
         let config = RunConfig {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
@@ -5637,7 +5637,7 @@ async fn human_gate_freeform_only_routes_text() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -5752,7 +5752,7 @@ async fn human_gate_freeform_with_fixed_choice_match() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -5852,7 +5852,7 @@ async fn human_gate_freeform_fallback_on_unmatched_text() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -5965,7 +5965,7 @@ async fn human_gate_freeform_sets_allow_freeform_on_question() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6054,7 +6054,7 @@ async fn human_gate_without_freeform_sets_allow_freeform_false() {
     registry.register("exit", Box::new(ExitHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
 
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6292,7 +6292,7 @@ async fn tool_hooks_pre_success_allows_pipeline_to_proceed() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6327,7 +6327,7 @@ async fn tool_hooks_pre_failure_skips_tool_call() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6365,7 +6365,7 @@ async fn tool_hooks_post_success_does_not_affect_outcome() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6395,7 +6395,7 @@ async fn tool_hooks_post_failure_does_not_block_pipeline() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6427,7 +6427,7 @@ async fn tool_hooks_graph_level_applies_to_all_nodes() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6462,7 +6462,7 @@ async fn tool_hooks_node_level_overrides_graph_level() {
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
     let dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6507,7 +6507,7 @@ async fn tool_hooks_pre_receives_node_id_env_var() {
     let graph = parse(&input).expect("parse should succeed");
     validate_or_raise(&graph, &[]).expect("validation should pass");
 
-    let engine = PipelineEngine::new(make_linear_registry(), EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(make_linear_registry(), Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,
@@ -6599,7 +6599,7 @@ async fn attractor_e2e_with_real_llm() {
     });
 
     let logs_dir = tempfile::tempdir().unwrap();
-    let engine = PipelineEngine::new(registry, EventEmitter::new(), local_env());
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
     let config = RunConfig {
         logs_root: logs_dir.path().to_path_buf(),
         cancel_token: None, dry_run: false,

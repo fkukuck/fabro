@@ -236,28 +236,46 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         .and_then(|c| c.execution.as_ref())
         .and_then(|e| e.daytona.clone());
 
+    // Wrap emitter in Arc now so we can share it with exec env callbacks
+    let emitter = Arc::new(emitter);
+
     let execution_env: Arc<dyn ExecutionEnvironment> = match execution_env_kind {
         ExecutionEnvKind::Docker => {
             let config = DockerConfig {
                 host_working_directory: cwd.to_string_lossy().to_string(),
                 ..DockerConfig::default()
             };
-            Arc::new(
-                DockerExecutionEnvironment::new(config)
-                    .map_err(|e| anyhow::anyhow!("Failed to create Docker environment: {e}"))?,
-            )
+            let mut env = DockerExecutionEnvironment::new(config)
+                    .map_err(|e| anyhow::anyhow!("Failed to create Docker environment: {e}"))?;
+            let emitter_cb = Arc::clone(&emitter);
+            env.set_event_callback(Arc::new(move |event| {
+                emitter_cb.emit(&crate::event::PipelineEvent::ExecutionEnv { event });
+            }));
+            Arc::new(env)
         }
         ExecutionEnvKind::Daytona => {
             let daytona_client = daytona_sdk::Client::new()
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to create Daytona client: {e}"))?;
             let config = daytona_config.clone().unwrap_or_default();
-            Arc::new(crate::daytona_env::DaytonaExecutionEnvironment::new(
+            let mut env = crate::daytona_env::DaytonaExecutionEnvironment::new(
                 daytona_client,
                 config,
-            ))
+            );
+            let emitter_cb = Arc::clone(&emitter);
+            env.set_event_callback(Arc::new(move |event| {
+                emitter_cb.emit(&crate::event::PipelineEvent::ExecutionEnv { event });
+            }));
+            Arc::new(env)
         }
-        ExecutionEnvKind::Local => Arc::new(LocalExecutionEnvironment::new(cwd)),
+        ExecutionEnvKind::Local => {
+            let mut env = LocalExecutionEnvironment::new(cwd);
+            let emitter_cb = Arc::clone(&emitter);
+            env.set_event_callback(Arc::new(move |event| {
+                emitter_cb.emit(&crate::event::PipelineEvent::ExecutionEnv { event });
+            }));
+            Arc::new(env)
+        }
     };
 
     // Initialize execution environment (creates sandbox/container once for the whole pipeline)
@@ -279,18 +297,39 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     });
 
     // Run setup commands inside the execution environment (once, not per-stage)
-    for cmd in &setup_commands {
-        let result = execution_env
-            .exec_command(cmd, 300_000, None, None, None)
-            .await
-            .map_err(|e| anyhow::anyhow!("Setup command failed: {e}"))?;
-        if result.exit_code != 0 {
-            anyhow::bail!(
-                "Setup command failed (exit code {}): {cmd}\n{}",
-                result.exit_code,
-                result.stderr,
-            );
+    if !setup_commands.is_empty() {
+        emitter.emit(&crate::event::PipelineEvent::SetupStarted { command_count: setup_commands.len() });
+        let setup_start = Instant::now();
+        for (index, cmd) in setup_commands.iter().enumerate() {
+            emitter.emit(&crate::event::PipelineEvent::SetupCommandStarted { command: cmd.clone(), index });
+            let cmd_start = Instant::now();
+            let result = execution_env
+                .exec_command(cmd, 300_000, None, None, None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Setup command failed: {e}"))?;
+            let cmd_duration = u64::try_from(cmd_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if result.exit_code != 0 {
+                emitter.emit(&crate::event::PipelineEvent::SetupFailed {
+                    command: cmd.clone(),
+                    index,
+                    exit_code: result.exit_code,
+                    stderr: result.stderr.clone(),
+                });
+                anyhow::bail!(
+                    "Setup command failed (exit code {}): {cmd}\n{}",
+                    result.exit_code,
+                    result.stderr,
+                );
+            }
+            emitter.emit(&crate::event::PipelineEvent::SetupCommandCompleted {
+                command: cmd.clone(),
+                index,
+                exit_code: result.exit_code,
+                duration_ms: cmd_duration,
+            });
         }
+        let setup_duration = u64::try_from(setup_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        emitter.emit(&crate::event::PipelineEvent::SetupCompleted { duration_ms: setup_duration });
     }
 
     // 6. Resolve backend, model, and provider
@@ -372,7 +411,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
             )))
         }
     });
-    let engine = PipelineEngine::with_interviewer(registry, emitter, interviewer, Arc::clone(&execution_env));
+    let engine = PipelineEngine::with_interviewer(registry, Arc::clone(&emitter), interviewer, Arc::clone(&execution_env));
 
     // 7. Execute
     let config = RunConfig {
