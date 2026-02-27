@@ -19,6 +19,7 @@ doctest = false
 [[bin]]
 name = "agent"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 clap.workspace = true

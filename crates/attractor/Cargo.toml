@@ -15,6 +15,7 @@ doctest = false
 [[bin]]
 name = "attractor"
 path = "src/main.rs"
+test = false
 
 [features]
 default = ["server"]
