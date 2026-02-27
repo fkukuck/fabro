@@ -4599,7 +4599,7 @@ async fn fidelity_compact_preamble_includes_completed_stages_and_context() {
         "compact preamble should contain the goal"
     );
     assert!(
-        step_b_preamble.contains("Completed stages:"),
+        step_b_preamble.contains("## Completed stages"),
         "compact preamble should include completed stages section"
     );
     assert!(
@@ -4672,10 +4672,17 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
 
     let preambles_med = captures_med.preambles.lock().unwrap();
     let med_preamble = &preambles_med[1].1;
-    // summary:medium should include "Context values:" section (graph.goal is always set)
+    // summary:medium should include stage details (unlike summary:low which omits them)
     assert!(
-        med_preamble.contains("Context values:"),
-        "summary:medium preamble should include context values section"
+        med_preamble.contains("step_a"),
+        "summary:medium preamble should include completed stage step_a"
+    );
+    // Verify medium and low differ: medium shows more recent stages
+    let preambles_low = captures_low.preambles.lock().unwrap();
+    let low_preamble = &preambles_low[1].1;
+    assert!(
+        !low_preamble.contains("## Context"),
+        "summary:low preamble should not include context section"
     );
 }
 
@@ -6729,11 +6736,12 @@ async fn run_fidelity_prompt_pipeline(fidelity: &str) -> String {
 async fn fidelity_prompt_compact() {
     let prompt = run_fidelity_prompt_pipeline("compact").await;
 
-    // Preamble should contain goal, completed stages, and context values
+    // Preamble should contain goal, completed stages with handler details, and context
     assert!(prompt.contains("Validate the build"), "compact: should contain goal");
-    assert!(prompt.contains("Completed stages:"), "compact: should list completed stages");
-    assert!(prompt.contains("run_tests"), "compact: should mention run_tests node");
-    assert!(prompt.contains("Context values:"), "compact: should include context values section");
+    assert!(prompt.contains("## Completed stages"), "compact: should list completed stages");
+    assert!(prompt.contains("**run_tests**"), "compact: should mention run_tests node in bold");
+    assert!(prompt.contains("Script:"), "compact: should show script sub-item for run_tests");
+    assert!(prompt.contains("Stdout:"), "compact: should show stdout sub-item for run_tests");
 
     // Original prompt at the end
     assert!(
@@ -6779,7 +6787,7 @@ async fn fidelity_prompt_summary_medium() {
     // summary:medium includes goal, stages, and context values
     assert!(prompt.contains("Validate the build"), "summary:medium: should contain goal");
     assert!(prompt.contains("run_tests"), "summary:medium: should mention run_tests");
-    assert!(prompt.contains("Context values:"), "summary:medium: should include context values");
+    assert!(prompt.contains("## Context"), "summary:medium: should include context section");
 
     // Original prompt at the end
     assert!(
@@ -6792,10 +6800,11 @@ async fn fidelity_prompt_summary_medium() {
 async fn fidelity_prompt_summary_high() {
     let prompt = run_fidelity_prompt_pipeline("summary:high").await;
 
-    // summary:high includes goal, all stages, context values
+    // summary:high includes goal, all stages as ## Stage headings
     assert!(prompt.contains("Validate the build"), "summary:high: should contain goal");
-    assert!(prompt.contains("run_tests"), "summary:high: should mention run_tests");
-    assert!(prompt.contains("Context values:"), "summary:high: should include context values");
+    assert!(prompt.contains("## Stage: run_tests"), "summary:high: should have stage heading for run_tests");
+    assert!(prompt.contains("## Stage: start"), "summary:high: should have stage heading for start");
+    assert!(prompt.contains("Pipeline progress:"), "summary:high: should show pipeline progress");
 
     // Original prompt at the end
     assert!(

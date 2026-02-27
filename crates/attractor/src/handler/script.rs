@@ -132,6 +132,9 @@ impl Handler for ScriptHandler {
                     outcome
                         .context_updates
                         .insert("tool.output".to_string(), serde_json::json!(stdout));
+                    outcome
+                        .context_updates
+                        .insert("script.stderr".to_string(), serde_json::json!(stderr));
                     outcome.notes = Some(format!("Script completed: {script}"));
                     Ok(outcome)
                 } else {
@@ -143,7 +146,11 @@ impl Handler for ScriptHandler {
                     } else {
                         format!("Script failed: {}", stderr.trim())
                     };
-                    Ok(Outcome::fail(reason))
+                    let mut outcome = Outcome::fail(reason);
+                    outcome
+                        .context_updates
+                        .insert("script.stderr".to_string(), serde_json::json!(stderr));
+                    Ok(outcome)
                 }
             }
             Err(e) => Ok(Outcome::fail(e.to_string())),
@@ -210,6 +217,8 @@ mod tests {
         assert!(outcome.notes.as_deref().unwrap().contains("echo hello"));
         let script_output = outcome.context_updates.get("script.output").unwrap();
         assert!(script_output.as_str().unwrap().contains("hello"));
+        let script_stderr = outcome.context_updates.get("script.stderr").unwrap();
+        assert_eq!(script_stderr.as_str().unwrap(), "");
     }
 
     #[tokio::test]
@@ -542,6 +551,31 @@ mod tests {
         assert_eq!(outcome.status, StageStatus::Success);
         let script_output = outcome.context_updates.get("script.output").unwrap();
         assert!(script_output.as_str().unwrap().contains("legacy"));
+    }
+
+    #[tokio::test]
+    async fn script_handler_captures_stderr() {
+        let handler = ScriptHandler;
+        let mut node = Node::new("script_node");
+        node.attrs.insert(
+            "script".to_string(),
+            AttrValue::String("echo out && echo err >&2".to_string()),
+        );
+        let context = Context::new();
+        let graph = Graph::new("test");
+        let logs_root = tempfile::tempdir().unwrap();
+
+        let outcome = handler
+            .execute(&node, &context, &graph, logs_root.path(), &make_services())
+            .await
+            .unwrap();
+        assert_eq!(outcome.status, StageStatus::Success);
+        let script_stderr = outcome.context_updates.get("script.stderr").unwrap();
+        assert!(
+            script_stderr.as_str().unwrap().contains("err"),
+            "script.stderr should contain 'err', got: {:?}",
+            script_stderr
+        );
     }
 
     #[tokio::test]
