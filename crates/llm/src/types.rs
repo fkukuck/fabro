@@ -556,9 +556,6 @@ pub enum StreamEvent {
         error: SdkError,
         raw: Option<serde_json::Value>,
     },
-    ProviderEvent {
-        raw: Option<serde_json::Value>,
-    },
 }
 
 impl StreamEvent {

@@ -1,7 +1,6 @@
 use crate::error::SdkError;
 use crate::provider::StreamEventStream;
-use crate::types::{Request, Response, StreamEvent};
-use futures::StreamExt;
+use crate::types::{Request, Response};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,10 +20,6 @@ pub type NextStreamFn = Arc<
 >;
 
 /// Middleware for intercepting `complete()` and streaming calls (Section 2.3).
-///
-/// Implement `handle_complete` for blocking requests and `handle_stream` for
-/// streaming requests. Override `process_stream` to observe or transform
-/// individual stream events without replacing the entire stream handler.
 #[async_trait::async_trait]
 pub trait Middleware: Send + Sync {
     async fn handle_complete(
@@ -38,27 +33,4 @@ pub trait Middleware: Send + Sync {
         request: Request,
         next: NextStreamFn,
     ) -> Result<StreamEventStream, SdkError>;
-
-    /// Process an individual stream event. Override to observe or transform
-    /// events as they pass through the middleware. The default implementation
-    /// passes events through unchanged.
-    ///
-    /// # Errors
-    ///
-    /// Returns `SdkError` if the incoming event is an error or if processing fails.
-    fn process_stream_event(
-        &self,
-        event: Result<StreamEvent, SdkError>,
-    ) -> Result<StreamEvent, SdkError> {
-        event
-    }
-}
-
-/// Wrap a `StreamEventStream` so that each event passes through a middleware's
-/// `process_stream_event` method.
-pub fn wrap_stream_with_middleware(
-    stream: StreamEventStream,
-    middleware: Arc<dyn Middleware>,
-) -> StreamEventStream {
-    Box::pin(stream.map(move |event| middleware.process_stream_event(event)))
 }

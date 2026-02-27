@@ -3,12 +3,6 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use crate::error::{error_from_status_code, SdkError};
 use crate::types::{Message, RateLimitInfo, Role};
 
-#[derive(serde::Serialize)]
-pub struct ApiMessage {
-    pub role: String,
-    pub content: String,
-}
-
 /// Parse an error response body, extracting the message and error code.
 ///
 /// `error_code_field` is the JSON field name for the error code (e.g. "type" or "status").
@@ -34,54 +28,6 @@ pub fn parse_error_body(
             (message, error_code, Some(v))
         },
     )
-}
-
-/// Send an HTTP request and read the response body.
-///
-/// Returns an error on non-success status.
-///
-/// # Errors
-///
-/// Returns `SdkError::Network` on connection failure or `SdkError::Provider` on non-success status.
-pub async fn send_and_read_body(
-    request: reqwest::RequestBuilder,
-    provider: &str,
-    error_code_field: &str,
-) -> Result<String, SdkError> {
-    let http_resp = request.send().await.map_err(|e| {
-        if e.is_timeout() {
-            SdkError::RequestTimeout {
-                message: format!("{provider}: {e}"),
-            }
-        } else {
-            SdkError::Network {
-                message: e.to_string(),
-            }
-        }
-    })?;
-
-    let status = http_resp.status();
-    let retry_after = parse_retry_after(http_resp.headers());
-    let body = http_resp
-        .text()
-        .await
-        .map_err(|e| SdkError::Network {
-            message: e.to_string(),
-        })?;
-
-    if !status.is_success() {
-        let (msg, code, raw) = parse_error_body(&body, error_code_field);
-        return Err(error_from_status_code(
-            status.as_u16(),
-            msg,
-            provider.to_string(),
-            code,
-            raw,
-            retry_after,
-        ));
-    }
-
-    Ok(body)
 }
 
 /// Extract system and developer messages from a message list.

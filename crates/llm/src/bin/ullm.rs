@@ -40,6 +40,10 @@ enum Command {
         #[arg(short, long)]
         usage: bool,
 
+        /// JSON schema for structured output (inline JSON string)
+        #[arg(short = 'S', long)]
+        schema: Option<String>,
+
         /// key=value options (temperature, `max_tokens`, `top_p`)
         #[arg(short, long, value_parser = parse_option)]
         option: Vec<(String, String)>,
@@ -180,6 +184,7 @@ struct PromptArgs {
     system: Option<String>,
     no_stream: bool,
     usage: bool,
+    schema: Option<String>,
     option: Vec<(String, String)>,
 }
 
@@ -206,23 +211,48 @@ async fn run_prompt(args: PromptArgs) -> Result<()> {
     }
     params = apply_options(params, &args.option)?;
 
-    if args.no_stream {
-        let result = generate::generate(params).await?;
-        print!("{}", result.text());
-        if args.usage {
-            print_usage(result.usage());
-        }
-    } else {
-        let mut stream_result = generate::stream(params).await?;
-        while let Some(event) = stream_result.next().await {
-            if let llm::types::StreamEvent::TextDelta { delta, .. } = event? {
-                print!("{delta}");
+    let schema: Option<serde_json::Value> = match &args.schema {
+        Some(s) => Some(serde_json::from_str(s).context("--schema must be valid JSON")?),
+        None => None,
+    };
+
+    match (args.no_stream, schema) {
+        (true, Some(schema)) => {
+            let result = generate::generate_object(params, schema).await?;
+            let object = result.output.as_ref().unwrap_or(&serde_json::Value::Null);
+            println!("{}", serde_json::to_string_pretty(object)?);
+            if args.usage {
+                print_usage(result.usage());
             }
         }
-        println!();
-        if args.usage {
-            if let Some(response) = stream_result.response() {
-                print_usage(&response.usage);
+        (true, None) => {
+            let result = generate::generate(params).await?;
+            print!("{}", result.text());
+            if args.usage {
+                print_usage(result.usage());
+            }
+        }
+        (false, Some(schema)) => {
+            let mut stream_result = generate::stream_object(params, schema).await?;
+            while let Some(event) = stream_result.next().await {
+                event?;
+            }
+            if let Some(object) = stream_result.object() {
+                println!("{}", serde_json::to_string_pretty(object)?);
+            }
+        }
+        (false, None) => {
+            let mut stream_result = generate::stream(params).await?;
+            while let Some(event) = stream_result.next().await {
+                if let llm::types::StreamEvent::TextDelta { delta, .. } = event? {
+                    print!("{delta}");
+                }
+            }
+            println!();
+            if args.usage {
+                if let Some(response) = stream_result.response() {
+                    print_usage(&response.usage);
+                }
             }
         }
     }
@@ -265,6 +295,7 @@ async fn main() -> Result<()> {
             system,
             no_stream,
             usage,
+            schema,
             option,
         } => {
             run_prompt(PromptArgs {
@@ -273,6 +304,7 @@ async fn main() -> Result<()> {
                 system,
                 no_stream,
                 usage,
+                schema,
                 option,
             })
             .await?;
@@ -565,5 +597,48 @@ mod tests {
             .assert()
             .success()
             .stderr(predicate::str::contains("Tokens:"));
+    }
+
+    #[test]
+    fn prompt_schema_rejects_invalid_json() {
+        ullm()
+            .args(["--no-dotenv", "prompt", "--no-stream", "-m", "test-model", "--schema", "not json", "hello"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--schema must be valid JSON"));
+    }
+
+    #[test]
+    #[ignore = "requires API key"]
+    fn prompt_schema_no_stream_generates_json() {
+        let assert = ullm()
+            .args([
+                "prompt", "--no-stream", "-m", "claude-sonnet-4-5",
+                "--schema", r#"{"type":"object","properties":{"greeting":{"type":"string"}},"required":["greeting"]}"#,
+                "Return a JSON object with a greeting field set to hello",
+            ])
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+        assert!(parsed.get("greeting").is_some(), "expected 'greeting' key in output");
+    }
+
+    #[test]
+    #[ignore = "requires API key"]
+    fn prompt_schema_stream_generates_json() {
+        let assert = ullm()
+            .args([
+                "prompt", "-m", "claude-sonnet-4-5",
+                "--schema", r#"{"type":"object","properties":{"greeting":{"type":"string"}},"required":["greeting"]}"#,
+                "Return a JSON object with a greeting field set to hello",
+            ])
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+        assert!(parsed.get("greeting").is_some(), "expected 'greeting' key in output");
     }
 }

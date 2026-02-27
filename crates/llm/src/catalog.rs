@@ -26,19 +26,6 @@ pub fn list_models(provider: Option<&str>) -> Vec<ModelInfo> {
     )
 }
 
-/// Get the latest/best model for a provider, optionally filtered by capability (Section 2.9).
-#[must_use]
-pub fn get_latest_model(provider: &str, capability: Option<&str>) -> Option<ModelInfo> {
-    let mut models = BUILT_IN_MODELS.iter().filter(|m| m.provider == provider);
-
-    match capability {
-        Some("reasoning") => models.find(|m| m.supports_reasoning).cloned(),
-        Some("vision") => models.find(|m| m.supports_vision).cloned(),
-        Some("tools") => models.find(|m| m.supports_tools).cloned(),
-        _ => models.next().cloned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,35 +79,6 @@ mod tests {
 
         let unknown = list_models(Some("unknown"));
         assert!(unknown.is_empty());
-    }
-
-    #[test]
-    fn get_latest_model_returns_first_for_provider() {
-        let model = get_latest_model("anthropic", None).unwrap();
-        assert_eq!(model.id, "claude-opus-4-6");
-
-        let model = get_latest_model("openai", None).unwrap();
-        assert_eq!(model.id, "gpt-5.2");
-
-        let model = get_latest_model("gemini", None).unwrap();
-        assert_eq!(model.id, "gemini-3.1-pro-preview");
-    }
-
-    #[test]
-    fn get_latest_model_filtered_by_capability() {
-        let model = get_latest_model("anthropic", Some("reasoning")).unwrap();
-        assert!(model.supports_reasoning);
-
-        let model = get_latest_model("openai", Some("vision")).unwrap();
-        assert!(model.supports_vision);
-
-        let model = get_latest_model("gemini", Some("tools")).unwrap();
-        assert!(model.supports_tools);
-    }
-
-    #[test]
-    fn get_latest_model_returns_none_for_unknown_provider() {
-        assert!(get_latest_model("unknown", None).is_none());
     }
 
     #[test]
