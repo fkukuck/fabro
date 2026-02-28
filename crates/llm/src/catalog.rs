@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(info.id, "claude-sonnet-4-5");
 
         let info = get_model_info("codex").unwrap();
-        assert_eq!(info.id, "gpt-5.2-codex");
+        assert_eq!(info.id, "gpt-5.3-codex");
     }
 
     #[test]
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn list_models_all() {
         let models = list_models(None);
-        assert_eq!(models.len(), 8);
+        assert_eq!(models.len(), 9);
     }
 
     #[test]
@@ -72,7 +72,7 @@ mod tests {
         assert!(anthropic.iter().all(|m| m.provider == "anthropic"));
 
         let openai = list_models(Some("openai"));
-        assert_eq!(openai.len(), 3);
+        assert_eq!(openai.len(), 4);
 
         let gemini = list_models(Some("gemini"));
         assert_eq!(gemini.len(), 2);

@@ -7401,7 +7401,7 @@ async fn cli_backend_run_with_codex_provider() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Implemented the feature.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":300,\"output_tokens\":150}}";
     let test_env = Arc::new(CliTestEnv::new(codex_output));
     let env: Arc<dyn agent::ExecutionEnvironment> = test_env.clone();
-    let backend = CliBackend::new("gpt-5.3-codex-spark".into(), "openai".into());
+    let backend = CliBackend::new("gpt-5.3-codex".into(), "openai".into());
 
     let node = Node::new("implement");
     let context = Context::new();
@@ -7417,7 +7417,7 @@ async fn cli_backend_run_with_codex_provider() {
     let commands = test_env.recorded_commands();
     let cli_cmd = commands.iter().find(|c| c.contains("codex")).expect("should call codex CLI");
     assert!(cli_cmd.contains("exec --json"), "should use exec mode");
-    assert!(cli_cmd.contains("gpt-5.3-codex-spark"), "should use correct model");
+    assert!(cli_cmd.contains("gpt-5.3-codex"), "should use correct model");
 
     match result {
         CodergenResult::Text { text, usage, .. } => {
@@ -7536,7 +7536,7 @@ async fn cli_backend_run_uses_node_provider_override() {
 
     let mut node = Node::new("step");
     node.attrs.insert("llm_provider".to_string(), AttrValue::String("openai".to_string()));
-    node.attrs.insert("llm_model".to_string(), AttrValue::String("gpt-5.3-codex-spark".to_string()));
+    node.attrs.insert("llm_model".to_string(), AttrValue::String("gpt-5.3-codex".to_string()));
 
     let context = Context::new();
     let emitter = Arc::new(EventEmitter::new());
@@ -7549,7 +7549,7 @@ async fn cli_backend_run_uses_node_provider_override() {
 
     let commands = test_env.recorded_commands();
     let cli_cmd = commands.iter().find(|c| c.contains("codex")).expect("should call codex based on provider override");
-    assert!(cli_cmd.contains("gpt-5.3-codex-spark"));
+    assert!(cli_cmd.contains("gpt-5.3-codex"));
 }
 
 #[tokio::test]
@@ -7640,16 +7640,16 @@ async fn backend_router_delegates_to_api_for_normal_node() {
 }
 
 #[tokio::test]
-async fn backend_router_delegates_to_cli_for_cli_only_model() {
+async fn backend_router_delegates_to_cli_for_backend_attr() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Codex did it\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}";
     let env: Arc<dyn agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(codex_output));
 
     let api_backend = Box::new(MockCodergenBackend);
-    let cli = CliBackend::new("gpt-5.3-codex-spark".into(), "openai".into());
+    let cli = CliBackend::new("gpt-5.3-codex".into(), "openai".into());
     let router = BackendRouter::new(api_backend, cli);
 
     let mut node = Node::new("codex_step");
-    node.attrs.insert("llm_model".to_string(), AttrValue::String("gpt-5.3-codex-spark".to_string()));
+    node.attrs.insert("backend".to_string(), AttrValue::String("cli".to_string()));
     node.attrs.insert("llm_provider".to_string(), AttrValue::String("openai".to_string()));
 
     let context = Context::new();
@@ -7663,7 +7663,7 @@ async fn backend_router_delegates_to_cli_for_cli_only_model() {
 
     match result {
         CodergenResult::Text { text, .. } => {
-            assert_eq!(text, "Codex did it", "should route to CLI backend for CLI-only model");
+            assert_eq!(text, "Codex did it", "should route to CLI backend for backend=cli");
         }
         CodergenResult::Full(_) => panic!("expected Text result"),
     }

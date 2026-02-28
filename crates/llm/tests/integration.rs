@@ -53,6 +53,20 @@ async fn openai_complete() {
 }
 
 #[tokio::test]
+#[ignore = "requires OPENAI_API_KEY"]
+async fn openai_gpt_5_3_codex_complete() {
+    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+    let adapter = OpenAiAdapter::new(api_key);
+    let request = make_request("gpt-5.3-codex");
+    let response = adapter.complete(&request).await.unwrap();
+
+    assert!(!response.text().is_empty(), "response text should not be empty");
+    assert!(response.usage.input_tokens > 0);
+    assert!(response.usage.output_tokens > 0);
+    assert_eq!(response.provider, "openai");
+}
+
+#[tokio::test]
 #[ignore = "requires GEMINI_API_KEY"]
 async fn gemini_complete() {
     dotenvy::dotenv().ok();

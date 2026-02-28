@@ -12,7 +12,7 @@ use crate::handler::codergen::{CodergenBackend, CodergenResult};
 use crate::outcome::StageUsage;
 
 /// Models that are only available through CLI tools (not via API).
-const CLI_ONLY_MODELS: &[&str] = &["gpt-5.3-codex-spark"];
+const CLI_ONLY_MODELS: &[&str] = &[];
 
 /// Returns true if the given model is only available through a CLI tool.
 #[must_use]
@@ -410,9 +410,9 @@ mod tests {
 
     #[test]
     fn cli_command_for_codex() {
-        let cmd = cli_command_for_provider("openai", "gpt-5.3-codex-spark", "/tmp/prompt.txt");
+        let cmd = cli_command_for_provider("openai", "gpt-5.3-codex", "/tmp/prompt.txt");
         assert!(cmd.starts_with("codex exec --json --full-auto"));
-        assert!(cmd.contains("-m gpt-5.3-codex-spark"));
+        assert!(cmd.contains("-m gpt-5.3-codex"));
         assert!(cmd.ends_with("< /tmp/prompt.txt"));
     }
 
@@ -455,17 +455,9 @@ mod tests {
     // -- Cycle 2: is_cli_only_model --
 
     #[test]
-    fn codex_spark_is_cli_only() {
-        assert!(is_cli_only_model("gpt-5.3-codex-spark"));
-    }
-
-    #[test]
-    fn claude_opus_is_not_cli_only() {
+    fn no_models_are_currently_cli_only() {
+        assert!(!is_cli_only_model("gpt-5.3-codex"));
         assert!(!is_cli_only_model("claude-opus-4-6"));
-    }
-
-    #[test]
-    fn gemini_is_not_cli_only() {
         assert!(!is_cli_only_model("gemini-3.1-pro-preview"));
     }
 
@@ -576,22 +568,6 @@ mod tests {
             .insert("backend".to_string(), AttrValue::String("cli".to_string()));
 
         let cli_backend = CliBackend::new("model".into(), "anthropic".into());
-        let router = BackendRouter::new(
-            Box::new(StubBackend),
-            cli_backend,
-        );
-        assert!(router.should_use_cli(&node));
-    }
-
-    #[test]
-    fn router_uses_cli_for_cli_only_model() {
-        let mut node = Node::new("test");
-        node.attrs.insert(
-            "llm_model".to_string(),
-            AttrValue::String("gpt-5.3-codex-spark".to_string()),
-        );
-
-        let cli_backend = CliBackend::new("model".into(), "openai".into());
         let router = BackendRouter::new(
             Box::new(StubBackend),
             cli_backend,
