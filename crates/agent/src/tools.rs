@@ -344,24 +344,79 @@ pub(crate) fn make_list_dir_tool() -> RegisteredTool {
     }
 }
 
+fn format_brave_results(body: &serde_json::Value) -> String {
+    let results = body
+        .get("web")
+        .and_then(|w| w.get("results"))
+        .and_then(serde_json::Value::as_array);
+
+    let Some(results) = results else {
+        return "No results found.".to_string();
+    };
+
+    let mut output = String::new();
+    for (i, result) in results.iter().enumerate() {
+        let title = result.get("title").and_then(serde_json::Value::as_str).unwrap_or("(no title)");
+        let url = result.get("url").and_then(serde_json::Value::as_str).unwrap_or("(no url)");
+        let description = result.get("description").and_then(serde_json::Value::as_str).unwrap_or("");
+        let _ = write!(output, "{}. {}\n   {}\n   {}\n\n", i + 1, title, url, description);
+    }
+    output
+}
+
 #[must_use]
 pub(crate) fn make_web_search_tool() -> RegisteredTool {
+    make_web_search_tool_with_api_key(std::env::var("BRAVE_SEARCH_API_KEY").ok())
+}
+
+fn make_web_search_tool_with_api_key(api_key: Option<String>) -> RegisteredTool {
+    let client = reqwest::Client::new();
     RegisteredTool {
         definition: ToolDefinition {
             name: "web_search".into(),
-            description: "Search the web".into(),
+            description: "Search the web using Brave Search".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"},
-                    "max_results": {"type": "integer", "description": "Maximum number of results"}
+                    "max_results": {"type": "integer", "description": "Maximum number of results (default 5, max 20)"}
                 },
                 "required": ["query"]
             }),
         },
-        executor: Arc::new(|_args, _env, _cancel| {
+        executor: Arc::new(move |args, _env, _cancel| {
+            let client = client.clone();
+            let api_key = api_key.clone();
             Box::pin(async move {
-                Ok("Web search is not configured. This is a placeholder tool.".to_string())
+                let api_key = api_key
+                    .ok_or_else(|| "BRAVE_SEARCH_API_KEY environment variable is not set".to_string())?;
+
+                let query = required_str(&args, "query")?;
+                let count = args
+                    .get("max_results")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(5)
+                    .min(20);
+
+                let resp = client
+                    .get("https://api.search.brave.com/res/v1/web/search")
+                    .header("X-Subscription-Token", &api_key)
+                    .header("Accept", "application/json")
+                    .query(&[("q", query), ("count", &count.to_string())])
+                    .send()
+                    .await
+                    .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+                if !resp.status().is_success() {
+                    return Err(format!("Brave Search API returned status {}", resp.status()));
+                }
+
+                let body: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+                Ok(format_brave_results(&body))
             })
         }),
     }
@@ -644,5 +699,66 @@ mod tests {
         let output = result.unwrap();
         assert!(output.contains("src/main.rs"));
         assert!(output.contains("src/lib.rs"));
+    }
+
+    #[tokio::test]
+    async fn web_search_missing_api_key_returns_error() {
+        let tool = make_web_search_tool_with_api_key(None);
+        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let result = (tool.executor)(serde_json::json!({"query": "test"}), env, CancellationToken::new()).await;
+        let err = result.unwrap_err();
+        assert!(err.contains("BRAVE_SEARCH_API_KEY"), "error should mention BRAVE_SEARCH_API_KEY, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn web_search_missing_query_returns_error() {
+        let tool = make_web_search_tool_with_api_key(Some("fake-key".into()));
+        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let result = (tool.executor)(serde_json::json!({}), env, CancellationToken::new()).await;
+        let err = result.unwrap_err();
+        assert!(err.contains("query"), "error should mention missing query, got: {err}");
+    }
+
+    #[test]
+    fn format_brave_results_formats_results() {
+        let body = serde_json::json!({
+            "web": {
+                "results": [
+                    {"title": "Rust Lang", "url": "https://rust-lang.org", "description": "A systems language"},
+                    {"title": "Rust Book", "url": "https://doc.rust-lang.org/book", "description": "The Rust book"}
+                ]
+            }
+        });
+        let output = format_brave_results(&body);
+        assert!(output.contains("1. Rust Lang"));
+        assert!(output.contains("https://rust-lang.org"));
+        assert!(output.contains("A systems language"));
+        assert!(output.contains("2. Rust Book"));
+    }
+
+    #[test]
+    fn format_brave_results_no_results() {
+        let body = serde_json::json!({"web": {}});
+        assert_eq!(format_brave_results(&body), "No results found.");
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires BRAVE_SEARCH_API_KEY env var
+    async fn web_search_returns_results() {
+        let api_key = std::env::var("BRAVE_SEARCH_API_KEY")
+            .expect("BRAVE_SEARCH_API_KEY must be set to run this test");
+        let tool = make_web_search_tool_with_api_key(Some(api_key));
+        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let result = (tool.executor)(
+            serde_json::json!({"query": "rust programming language"}),
+            env,
+            CancellationToken::new(),
+        )
+        .await;
+        let output = result.expect("web search should succeed with valid API key");
+        assert!(
+            output.to_lowercase().contains("rust"),
+            "results should mention rust, got: {output}"
+        );
     }
 }

@@ -6,7 +6,8 @@ use crate::skills::Skill;
 use crate::tool_registry::{RegisteredTool, ToolRegistry};
 use llm::types::ToolDefinition;
 use crate::tools::{
-    make_glob_tool, make_grep_tool, make_read_file_tool, make_shell_tool, make_write_file_tool,
+    make_glob_tool, make_grep_tool, make_read_file_tool, make_shell_tool, make_web_search_tool,
+    make_write_file_tool,
 };
 use std::sync::Arc;
 
@@ -28,6 +29,7 @@ impl OpenAiProfile {
         registry.register(make_grep_tool());
         registry.register(make_glob_tool());
         registry.register(make_apply_patch_tool());
+        registry.register(make_web_search_tool());
 
         Self {
             base: BaseProfile {
@@ -143,6 +145,9 @@ Search file contents with regex. Use glob_filter to narrow results.
 
 ## glob
 Find files by name pattern.
+
+## web_search
+Search the web using Brave Search. Returns titles, URLs, and descriptions.
 
 # Coding Best Practices
 
@@ -532,27 +537,28 @@ mod tests {
         use crate::subagent::SessionFactory;
 
         let mut profile = OpenAiProfile::new("o3-mini");
-        assert_eq!(profile.tool_registry().names().len(), 6);
+        assert_eq!(profile.tool_registry().names().len(), 7);
 
         let manager = Arc::new(tokio::sync::Mutex::new(SubAgentManager::new(3)));
         let factory: SessionFactory = Arc::new(|| {
             panic!("should not be called in test")
         });
         profile.register_subagent_tools(manager, factory, 0);
-        assert_eq!(profile.tool_registry().names().len(), 10);
+        assert_eq!(profile.tool_registry().names().len(), 11);
     }
 
     #[test]
     fn openai_tools_registered() {
         let profile = OpenAiProfile::new("o3-mini");
         let names = profile.tool_registry().names();
-        assert_eq!(names.len(), 6);
+        assert_eq!(names.len(), 7);
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"write_file".to_string()));
         assert!(names.contains(&"shell".to_string()));
         assert!(names.contains(&"grep".to_string()));
         assert!(names.contains(&"glob".to_string()));
         assert!(names.contains(&"apply_patch".to_string()));
+        assert!(names.contains(&"web_search".to_string()));
     }
 
     #[test]
