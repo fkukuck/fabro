@@ -286,7 +286,9 @@ function PrCard({
                   ? "border-mint/20 text-mint hover:border-mint/50 hover:text-white"
                   : label === "Answer Question"
                     ? "border-amber/20 text-amber hover:border-amber/50 hover:text-white"
-                    : "border-white/[0.08] text-ice-300 hover:border-teal-500/40 hover:text-white"
+                    : label === "Resolve"
+                      ? "border-teal-500/20 text-teal-500 hover:border-teal-500/50 hover:text-white"
+                      : "border-white/[0.08] text-ice-300 hover:border-teal-500/40 hover:text-white"
               }`}
             >
               {label === "Watch" && (
