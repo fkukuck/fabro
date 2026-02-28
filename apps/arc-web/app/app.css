@@ -25,3 +25,23 @@
   --color-amber: #F0A45B;
   --color-coral: #E86B6B;
 }
+
+/* ── Background atmosphere ── */
+
+.bg-atmosphere {
+  background:
+    radial-gradient(ellipse 120% 60% at 15% 5%, rgba(53, 127, 158, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 50% at 85% 90%, rgba(90, 200, 168, 0.07) 0%, transparent 45%),
+    var(--color-navy-950);
+}
+.bg-atmosphere::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
