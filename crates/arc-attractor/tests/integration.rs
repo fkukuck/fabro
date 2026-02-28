@@ -87,7 +87,7 @@ fn parse_and_validate_branching_with_conditions() {
 
         start -> plan -> implement -> validate -> gate
         gate -> exit      [label="Yes", condition="outcome=success"]
-        gate -> implement [label="No", condition="outcome!=success"]
+        gate -> implement [label="No"]
     }"#;
 
     let graph = parse(input).expect("parsing should succeed");
@@ -107,7 +107,7 @@ fn parse_and_validate_branching_with_conditions() {
         .iter()
         .find(|e| e.from == "gate" && e.to == "implement")
         .expect("gate -> implement edge should exist");
-    assert_eq!(gate_impl.condition(), Some("outcome!=success"));
+    assert_eq!(gate_impl.condition(), None);
 
     let diagnostics = validate_or_raise(&graph, &[]).expect("validation should pass");
     let errors: Vec<_> = diagnostics

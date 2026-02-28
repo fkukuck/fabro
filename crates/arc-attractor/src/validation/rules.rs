@@ -1,10 +1,11 @@
 use std::collections::{HashSet, VecDeque};
 
+use crate::condition::parse_condition;
 use crate::graph::{AttrValue, Graph};
 
 use super::{Diagnostic, LintRule, Severity};
 
-/// Returns all 16 built-in lint rules.
+/// Returns all 18 built-in lint rules.
 #[must_use]
 pub fn built_in_rules() -> Vec<Box<dyn LintRule>> {
     vec![
@@ -24,6 +25,8 @@ pub fn built_in_rules() -> Vec<Box<dyn LintRule>> {
         Box::new(FreeformEdgeCountRule),
         Box::new(DirectionValidRule),
         Box::new(ReservedKeywordNodeIdRule),
+        Box::new(AllConditionalEdgesRule),
+        Box::new(OrphanCustomOutcomeRule),
     ]
 }
 
@@ -323,6 +326,21 @@ impl LintRule for ConditionSyntaxRule {
                         fix: Some("Use key=value or key!=value syntax".to_string()),
                     });
                 }
+            }
+            // Also validate via the condition parser to catch malformed expressions
+            // that pass the static check (e.g. empty key like "=value")
+            if let Err(e) = parse_condition(condition) {
+                diagnostics.push(Diagnostic {
+                    rule: self.name().to_string(),
+                    severity: Severity::Error,
+                    message: format!(
+                        "Condition '{condition}' on edge {} -> {} failed parse: {e}",
+                        edge.from, edge.to
+                    ),
+                    node_id: None,
+                    edge: Some((edge.from.clone(), edge.to.clone())),
+                    fix: Some("Fix the condition expression syntax".to_string()),
+                });
             }
         }
         diagnostics
@@ -737,6 +755,96 @@ impl LintRule for ReservedKeywordNodeIdRule {
                 )),
             })
             .collect()
+    }
+}
+
+// --- Rule 17: all_conditional_edges (ERROR) ---
+
+struct AllConditionalEdgesRule;
+
+impl LintRule for AllConditionalEdgesRule {
+    fn name(&self) -> &'static str {
+        "all_conditional_edges"
+    }
+
+    fn apply(&self, graph: &Graph) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        for node in graph.nodes.values() {
+            let outgoing = graph.outgoing_edges(&node.id);
+            if outgoing.is_empty() {
+                continue;
+            }
+            let all_conditional = outgoing
+                .iter()
+                .all(|e| e.condition().is_some_and(|c| !c.is_empty()));
+            if all_conditional {
+                diagnostics.push(Diagnostic {
+                    rule: self.name().to_string(),
+                    severity: Severity::Error,
+                    message: format!(
+                        "Node '{}' has all conditional outgoing edges with no unconditional fallback",
+                        node.id
+                    ),
+                    node_id: Some(node.id.clone()),
+                    edge: None,
+                    fix: Some(
+                        "Add at least one unconditional edge as a fallback".to_string(),
+                    ),
+                });
+            }
+        }
+        diagnostics
+    }
+}
+
+// --- Rule 18: orphan_custom_outcome (WARNING) ---
+
+struct OrphanCustomOutcomeRule;
+
+impl LintRule for OrphanCustomOutcomeRule {
+    fn name(&self) -> &'static str {
+        "orphan_custom_outcome"
+    }
+
+    fn apply(&self, graph: &Graph) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        for node in graph.nodes.values() {
+            let outgoing = graph.outgoing_edges(&node.id);
+            if outgoing.is_empty() {
+                continue;
+            }
+            // Check if any edge uses outcome=<value> (equality, not !=)
+            let has_outcome_eq = outgoing.iter().any(|e| {
+                e.condition().is_some_and(|c| {
+                    c.split("&&")
+                        .any(|clause| clause.trim().starts_with("outcome="))
+                })
+            });
+            if !has_outcome_eq {
+                continue;
+            }
+            // Check if there's at least one unconditional edge
+            let has_unconditional = outgoing
+                .iter()
+                .any(|e| e.condition().is_none_or(|c| c.is_empty()));
+            if !has_unconditional {
+                diagnostics.push(Diagnostic {
+                    rule: self.name().to_string(),
+                    severity: Severity::Warning,
+                    message: format!(
+                        "Node '{}' uses outcome-based routing but has no unconditional fallback edge",
+                        node.id
+                    ),
+                    node_id: Some(node.id.clone()),
+                    edge: None,
+                    fix: Some(
+                        "Add an unconditional edge as a safety net for unmatched outcomes"
+                            .to_string(),
+                    ),
+                });
+            }
+        }
+        diagnostics
     }
 }
 
@@ -2246,5 +2354,175 @@ mod tests {
         let rule = ReservedKeywordNodeIdRule;
         let d = rule.apply(&g);
         assert_eq!(d.len(), 3);
+    }
+
+    // --- all_conditional_edges rule tests ---
+
+    #[test]
+    fn all_conditional_edges_rule_all_conditional() {
+        let mut g = minimal_graph();
+        g.nodes.insert("work".to_string(), Node::new("work"));
+        g.edges.push({
+            let mut e = Edge::new("work", "exit");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=success".to_string()),
+            );
+            e
+        });
+        g.edges.push({
+            let mut e = Edge::new("work", "start");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=fail".to_string()),
+            );
+            e
+        });
+        let rule = AllConditionalEdgesRule;
+        let d = rule.apply(&g);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].severity, Severity::Error);
+        assert_eq!(d[0].node_id.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn all_conditional_edges_rule_mix_conditional_unconditional() {
+        let mut g = minimal_graph();
+        g.nodes.insert("work".to_string(), Node::new("work"));
+        g.edges.push({
+            let mut e = Edge::new("work", "exit");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=success".to_string()),
+            );
+            e
+        });
+        g.edges.push(Edge::new("work", "start")); // unconditional fallback
+        let rule = AllConditionalEdgesRule;
+        let d = rule.apply(&g);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn all_conditional_edges_rule_only_unconditional() {
+        let g = minimal_graph(); // start -> exit is unconditional
+        let rule = AllConditionalEdgesRule;
+        let d = rule.apply(&g);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn all_conditional_edges_rule_exit_node_no_outgoing() {
+        let g = minimal_graph(); // exit has no outgoing edges
+        let rule = AllConditionalEdgesRule;
+        let d = rule.apply(&g);
+        // exit node has no outgoing edges, so rule doesn't fire
+        assert!(d.is_empty());
+    }
+
+    // --- orphan_custom_outcome rule tests ---
+
+    #[test]
+    fn orphan_custom_outcome_rule_outcome_eq_no_fallback() {
+        let mut g = minimal_graph();
+        g.nodes.insert("work".to_string(), Node::new("work"));
+        g.edges.push({
+            let mut e = Edge::new("work", "exit");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=success".to_string()),
+            );
+            e
+        });
+        g.edges.push({
+            let mut e = Edge::new("work", "start");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=fail".to_string()),
+            );
+            e
+        });
+        let rule = OrphanCustomOutcomeRule;
+        let d = rule.apply(&g);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].severity, Severity::Warning);
+        assert_eq!(d[0].node_id.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn orphan_custom_outcome_rule_outcome_eq_with_fallback() {
+        let mut g = minimal_graph();
+        g.nodes.insert("work".to_string(), Node::new("work"));
+        g.edges.push({
+            let mut e = Edge::new("work", "exit");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome=success".to_string()),
+            );
+            e
+        });
+        g.edges.push(Edge::new("work", "start")); // unconditional fallback
+        let rule = OrphanCustomOutcomeRule;
+        let d = rule.apply(&g);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn orphan_custom_outcome_rule_outcome_neq_only() {
+        let mut g = minimal_graph();
+        g.nodes.insert("work".to_string(), Node::new("work"));
+        g.edges.push({
+            let mut e = Edge::new("work", "exit");
+            e.attrs.insert(
+                "condition".to_string(),
+                AttrValue::String("outcome!=fail".to_string()),
+            );
+            e
+        });
+        let rule = OrphanCustomOutcomeRule;
+        let d = rule.apply(&g);
+        // outcome!= is not outcome= equality, so rule doesn't fire
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn orphan_custom_outcome_rule_no_outcome_conditions() {
+        let g = minimal_graph(); // no outcome conditions at all
+        let rule = OrphanCustomOutcomeRule;
+        let d = rule.apply(&g);
+        assert!(d.is_empty());
+    }
+
+    // --- condition_syntax + parse_condition (condition_eval) tests ---
+
+    #[test]
+    fn condition_syntax_rule_empty_key_fails_parse() {
+        let mut g = minimal_graph();
+        let mut edge = Edge::new("start", "exit");
+        edge.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("=value".to_string()),
+        );
+        g.edges = vec![edge];
+        let rule = ConditionSyntaxRule;
+        let d = rule.apply(&g);
+        // Static check passes (has '=' operator) but parse_condition catches empty key
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].severity, Severity::Error);
+        assert!(d[0].message.contains("failed parse"));
+    }
+
+    #[test]
+    fn condition_syntax_rule_valid_passes_both_checks() {
+        let mut g = minimal_graph();
+        let mut edge = Edge::new("start", "exit");
+        edge.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("outcome=success".to_string()),
+        );
+        g.edges = vec![edge];
+        let rule = ConditionSyntaxRule;
+        let d = rule.apply(&g);
+        assert!(d.is_empty());
     }
 }
