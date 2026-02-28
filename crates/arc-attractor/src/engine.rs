@@ -1426,11 +1426,11 @@ mod tests {
     }
 
     #[test]
-    fn build_retry_policy_no_attrs_uses_graph_default_50() {
+    fn build_retry_policy_no_attrs_uses_graph_default_3() {
         let node = Node::new("n");
         let graph = Graph::new("test");
         let policy = build_retry_policy(&node, &graph);
-        assert_eq!(policy.max_attempts, 51); // default_max_retry=50 + 1
+        assert_eq!(policy.max_attempts, 4); // default_max_retry=3 + 1
     }
 
     #[test]
@@ -1512,8 +1512,8 @@ mod tests {
         );
         let graph = Graph::new("test");
         let policy = build_retry_policy(&node, &graph);
-        // Unknown preset should fall back to graph default_max_retry=50
-        assert_eq!(policy.max_attempts, 51);
+        // Unknown preset should fall back to graph default_max_retry=3
+        assert_eq!(policy.max_attempts, 4);
     }
 
     // --- normalize_label tests ---
