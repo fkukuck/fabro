@@ -270,7 +270,7 @@ async fn daytona_pipeline_artifact_offload_and_sync() {
         logs_root: dir.path().to_path_buf(),
         cancel_token: None,
         dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,

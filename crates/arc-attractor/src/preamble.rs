@@ -23,7 +23,7 @@ pub fn build_preamble(
     node_outcomes: &HashMap<String, Outcome>,
 ) -> String {
     let goal = graph.goal();
-    let run_id = context.get_string("run_id", "unknown");
+    let run_id = context.get_string("internal.run_id", "unknown");
 
     match fidelity {
         "truncate" => {
@@ -74,7 +74,6 @@ fn is_context_key_excluded(key: &str) -> bool {
         || key.starts_with("graph.")
         || key.starts_with("thread.")
         || key.starts_with("response.")
-        || key == "run_id"
         || key == "outcome"
         || key == "last_stage"
         || key == "last_response"
@@ -545,7 +544,7 @@ mod tests {
             AttrValue::String("Fix the login bug".to_string()),
         );
         let context = Context::new();
-        context.set("run_id", serde_json::json!("abc-123"));
+        context.set("internal.run_id", serde_json::json!("abc-123"));
         let completed_nodes: Vec<String> = Vec::new();
         let node_outcomes: HashMap<String, Outcome> = HashMap::new();
 
@@ -603,7 +602,7 @@ mod tests {
             AttrValue::String("Deploy app".to_string()),
         );
         let context = Context::new();
-        context.set("run_id", serde_json::json!("run-456"));
+        context.set("internal.run_id", serde_json::json!("run-456"));
         let completed_nodes = vec!["plan".to_string(), "code".to_string()];
         let mut node_outcomes: HashMap<String, Outcome> = HashMap::new();
         node_outcomes.insert("plan".to_string(), Outcome::success());
@@ -1602,7 +1601,6 @@ mod tests {
         assert!(is_context_key_excluded("graph.goal"));
         assert!(is_context_key_excluded("thread.main.current_node"));
         assert!(is_context_key_excluded("response.plan"));
-        assert!(is_context_key_excluded("run_id"));
         assert!(is_context_key_excluded("outcome"));
         assert!(is_context_key_excluded("last_stage"));
         assert!(is_context_key_excluded("last_response"));

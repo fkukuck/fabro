@@ -170,7 +170,7 @@ async fn start_pipeline(
         }
     };
 
-    let pipeline_id = uuid::Uuid::new_v4().to_string();
+    let run_id = uuid::Uuid::new_v4().to_string();
     let interviewer = Arc::new(WebInterviewer::new());
     let (event_tx, _) = broadcast::channel(256);
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -198,7 +198,7 @@ async fn start_pipeline(
     {
         let mut pipelines = state.pipelines.lock().expect("pipelines lock poisoned");
         pipelines.insert(
-            pipeline_id.clone(),
+            run_id.clone(),
             ManagedPipeline {
                 dot_source: req.dot_source,
                 status: PipelineStatus::Running,
@@ -215,17 +215,17 @@ async fn start_pipeline(
 
     // Spawn pipeline execution
     let state_clone = Arc::clone(&state);
-    let id_clone = pipeline_id.clone();
+    let run_id_clone = run_id.clone();
     tokio::spawn(async move {
         let logs_root = std::env::temp_dir().join(format!("arc-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&logs_root).expect("failed to create logs directory");
-        let config = RunConfig { logs_root, cancel_token: Some(cancel_token), dry_run: state_clone.dry_run, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root, cancel_token: Some(cancel_token), dry_run: state_clone.dry_run, run_id: run_id_clone.clone(), work_dir: None, base_sha: None, run_branch: None };
 
         let result = tokio::select! {
             result = engine.run(&graph, &config) => result,
             _ = cancel_rx => {
                 let mut pipelines = state_clone.pipelines.lock().expect("pipelines lock poisoned");
-                if let Some(pipeline) = pipelines.get_mut(&id_clone) {
+                if let Some(pipeline) = pipelines.get_mut(&run_id_clone) {
                     pipeline.status = PipelineStatus::Cancelled;
                     pipeline.event_tx = None;
                 }
@@ -237,7 +237,7 @@ async fn start_pipeline(
         let checkpoint = Checkpoint::load(&config.logs_root.join("checkpoint.json")).ok();
 
         let mut pipelines = state_clone.pipelines.lock().expect("pipelines lock poisoned");
-        if let Some(pipeline) = pipelines.get_mut(&id_clone) {
+        if let Some(pipeline) = pipelines.get_mut(&run_id_clone) {
             match result {
                 Ok(_) => {
                     pipeline.status = PipelineStatus::Completed;
@@ -257,7 +257,7 @@ async fn start_pipeline(
 
     (
         StatusCode::CREATED,
-        Json(StartPipelineResponse { id: pipeline_id }),
+        Json(StartPipelineResponse { id: run_id }),
     )
         .into_response()
 }
@@ -582,7 +582,7 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Give pipeline a moment to start
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -590,7 +590,7 @@ mod tests {
         // Check status
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}"))
+            .uri(format!("/pipelines/{run_id}"))
             .body(Body::empty())
             .unwrap();
 
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = body_json(response.into_body()).await;
-        assert_eq!(body["id"].as_str().unwrap(), pipeline_id);
+        assert_eq!(body["id"].as_str().unwrap(), run_id);
         // Status should be either "running" or "completed"
         let status = body["status"].as_str().unwrap();
         assert!(
@@ -638,12 +638,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Get questions (should be empty for a pipeline without wait.human nodes)
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}/questions"))
+            .uri(format!("/pipelines/{run_id}/questions"))
             .body(Body::empty())
             .unwrap();
 
@@ -702,12 +702,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Get checkpoint immediately (before pipeline completes, may be null)
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}/checkpoint"))
+            .uri(format!("/pipelines/{run_id}/checkpoint"))
             .body(Body::empty())
             .unwrap();
 
@@ -732,12 +732,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Get context
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}/context"))
+            .uri(format!("/pipelines/{run_id}/context"))
             .body(Body::empty())
             .unwrap();
 
@@ -765,12 +765,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Cancel it
         let req = Request::builder()
             .method("POST")
-            .uri(format!("/pipelines/{pipeline_id}/cancel"))
+            .uri(format!("/pipelines/{run_id}/cancel"))
             .body(Body::empty())
             .unwrap();
 
@@ -814,12 +814,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Request the SSE stream
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}/events"))
+            .uri(format!("/pipelines/{run_id}/events"))
             .body(Body::empty())
             .unwrap();
 
@@ -856,7 +856,7 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Poll until pipeline completes
         let mut status = String::new();
@@ -864,7 +864,7 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             let req = Request::builder()
                 .method("GET")
-                .uri(format!("/pipelines/{pipeline_id}"))
+                .uri(format!("/pipelines/{run_id}"))
                 .body(Body::empty())
                 .unwrap();
             let response = app.clone().oneshot(req).await.unwrap();
@@ -895,12 +895,12 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // Request graph SVG
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/pipelines/{pipeline_id}/graph"))
+            .uri(format!("/pipelines/{run_id}/graph"))
             .body(Body::empty())
             .unwrap();
 
@@ -975,7 +975,7 @@ mod tests {
 
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let pipeline_id = body["id"].as_str().unwrap().to_string();
+        let run_id = body["id"].as_str().unwrap().to_string();
 
         // List should now contain one pipeline
         let req = Request::builder()
@@ -989,7 +989,7 @@ mod tests {
         let body = body_json(response.into_body()).await;
         let items = body.as_array().unwrap();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["id"].as_str().unwrap(), pipeline_id);
+        assert_eq!(items[0]["id"].as_str().unwrap(), run_id);
         assert!(items[0]["status"].as_str().is_some());
     }
 }

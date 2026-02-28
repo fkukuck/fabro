@@ -206,8 +206,8 @@ pub fn format_duration_human(ms: u64) -> String {
 #[must_use]
 pub fn format_event_summary(event: &PipelineEvent, styles: &Styles) -> String {
     let body = match event {
-        PipelineEvent::PipelineStarted { name, id, .. } => {
-            format!("[PIPELINE_STARTED] name={name} id={id}")
+        PipelineEvent::PipelineStarted { name, run_id, .. } => {
+            format!("[PIPELINE_STARTED] name={name} id={run_id}")
         }
         PipelineEvent::PipelineCompleted {
             duration_ms,
@@ -492,9 +492,9 @@ pub fn format_event_detail(event: &PipelineEvent, styles: &Styles) -> String {
     let r = styles.reset;
 
     match event {
-        PipelineEvent::PipelineStarted { name, id, .. } => {
+        PipelineEvent::PipelineStarted { name, run_id, .. } => {
             format!(
-                "{d}── PIPELINE_STARTED ─────────────────────────{r}\n  {d}name:{r} {name}\n  {d}id:{r}   {id}\n"
+                "{d}── PIPELINE_STARTED ─────────────────────────{r}\n  {d}name:{r} {name}\n  {d}id:{r}   {run_id}\n"
             )
         }
         PipelineEvent::PipelineCompleted {

@@ -8,7 +8,7 @@ use crate::outcome::StageUsage;
 pub enum PipelineEvent {
     PipelineStarted {
         name: String,
-        id: String,
+        run_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         base_sha: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,7 +240,7 @@ mod tests {
         });
         emitter.emit(&PipelineEvent::PipelineStarted {
             name: "test".to_string(),
-            id: "1".to_string(),
+            run_id: "1".to_string(),
             base_sha: None,
             run_branch: None,
             worktree_dir: None,

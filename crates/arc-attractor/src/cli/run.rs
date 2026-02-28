@@ -180,8 +180,8 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         let run_id = Arc::new(Mutex::new(String::new()));
         let run_id_clone = Arc::clone(&run_id);
         emitter.on_event(move |event| {
-            if let crate::event::PipelineEvent::PipelineStarted { id, .. } = event {
-                *run_id_clone.lock().unwrap() = id.clone();
+            if let crate::event::PipelineEvent::PipelineStarted { run_id, .. } = event {
+                *run_id_clone.lock().unwrap() = run_id.clone();
             }
             let envelope = serde_json::json!({
                 "timestamp": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -480,11 +480,12 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     let engine = PipelineEngine::with_interviewer(registry, Arc::clone(&emitter), interviewer, Arc::clone(&execution_env));
 
     // 7. Execute
+    let run_id = worktree_run_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let config = RunConfig {
         logs_root: logs_dir.clone(),
         cancel_token: None,
         dry_run: dry_run_mode,
-        run_id: worktree_run_id,
+        run_id,
         work_dir: worktree_work_dir,
         base_sha: worktree_base_sha,
         run_branch: worktree_branch,

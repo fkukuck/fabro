@@ -470,8 +470,8 @@ pub struct RunConfig {
     pub logs_root: PathBuf,
     pub cancel_token: Option<Arc<AtomicBool>>,
     pub dry_run: bool,
-    /// Pre-assigned run ID. Generated if `None`.
-    pub run_id: Option<String>,
+    /// Unique identifier for this pipeline run.
+    pub run_id: String,
     /// Git worktree path for checkpoint commits.
     pub work_dir: Option<PathBuf>,
     /// SHA of the commit the worktree branched from.
@@ -706,12 +706,12 @@ impl PipelineEngine {
         mut node_visits: HashMap<String, usize>,
     ) -> Result<Outcome> {
         let run_start = Instant::now();
-        let run_id = config.run_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let run_id = config.run_id.clone();
         let artifact_store = ArtifactStore::new(Some(config.logs_root.clone()));
 
         self.services.emitter.emit(&PipelineEvent::PipelineStarted {
             name: graph.name.clone(),
-            id: run_id.clone(),
+            run_id: run_id.clone(),
             base_sha: config.base_sha.clone(),
             run_branch: config.run_branch.clone(),
             worktree_dir: config.work_dir.as_ref().map(|p| p.display().to_string()),
@@ -1815,7 +1815,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1833,7 +1833,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1860,7 +1860,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1882,7 +1882,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1900,7 +1900,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1931,7 +1931,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -1988,7 +1988,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2063,7 +2063,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2090,7 +2090,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2114,7 +2114,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2262,7 +2262,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
         let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         engine.run(&g, &config).await.unwrap();
 
         let manifest_path = dir.path().join("manifest.json");
@@ -2284,7 +2284,7 @@ mod tests {
         g.edges.push(Edge::new("start", "exit"));
 
         let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         engine.run(&g, &config).await.unwrap();
 
         let manifest_path = dir.path().join("manifest.json");
@@ -2320,7 +2320,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
 
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2356,7 +2356,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         let result = engine.run(&g, &config).await;
 
         assert!(result.is_ok());
@@ -2395,7 +2395,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         let result = engine.run(&g, &config).await;
         assert!(result.is_ok());
 
@@ -2429,7 +2429,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 10 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
     }
@@ -2460,7 +2460,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: None, work_dir: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), work_dir: None, base_sha: None, run_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
 
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2514,7 +2514,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2545,7 +2545,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2574,7 +2574,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2595,7 +2595,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: Some(cancel_token),
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2615,7 +2615,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: Some(cancel_token),
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2647,7 +2647,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: Some(cancel_token),
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2723,7 +2723,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2746,7 +2746,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: true,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2773,7 +2773,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: true,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
@@ -2861,7 +2861,7 @@ mod tests {
             logs_root: dir.path().to_path_buf(),
             cancel_token: None,
             dry_run: false,
-        run_id: None,
+        run_id: "test-run".into(),
         work_dir: None,
         base_sha: None,
         run_branch: None,
