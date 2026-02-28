@@ -21,6 +21,7 @@ pub mod subagent;
 pub mod tool_registry;
 pub mod tools;
 pub mod truncation;
+pub mod v4a_patch;
 pub mod types;
 
 pub use config::{SessionConfig, ToolApprovalFn};
