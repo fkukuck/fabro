@@ -73,7 +73,7 @@ interface Column {
   accent: string;
   iconColor: string;
   icon: React.ComponentType<{ className?: string }>;
-  action?: string;
+  actions?: string[];
   items: PullRequest[];
 }
 
@@ -84,7 +84,7 @@ const columns: Column[] = [
     accent: "bg-teal-500",
     iconColor: "text-teal-500",
     icon: GitBranchIcon,
-    action: "Watch",
+    actions: ["Watch", "Steer"],
     items: [
       {
         repo: "api-server",
@@ -112,7 +112,7 @@ const columns: Column[] = [
     accent: "bg-amber",
     iconColor: "text-amber",
     icon: GitBranchIcon,
-    action: "Answer Question",
+    actions: ["Answer Question"],
     items: [
       {
         repo: "api-server",
@@ -136,7 +136,7 @@ const columns: Column[] = [
     accent: "bg-mint",
     iconColor: "text-mint",
     icon: GitPullRequestIcon,
-    action: "Resolve",
+    actions: ["Resolve"],
     items: [
       {
         repo: "web-dashboard",
@@ -165,7 +165,7 @@ const columns: Column[] = [
     accent: "bg-teal-300",
     iconColor: "text-teal-300",
     icon: GitPullRequestIcon,
-    action: "Merge",
+    actions: ["Merge"],
     items: [
       {
         repo: "api-server",
@@ -221,12 +221,12 @@ function PrCard({
   pr,
   icon: Icon,
   iconColor,
-  action,
+  actions,
 }: {
   pr: PullRequest;
   icon: React.ComponentType<{ className?: string }>;
   iconColor: string;
-  action?: string;
+  actions?: string[];
 }) {
   return (
     <div className="group rounded-lg border border-white/[0.06] bg-navy-800/80 p-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-navy-800 hover:shadow-lg hover:shadow-black/20">
@@ -274,14 +274,19 @@ function PrCard({
         </div>
       )}
 
-      {action != null && (
-        <button
-          type="button"
-          disabled={pr.actionDisabled}
-          className="mt-3 w-full rounded-md bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-navy-600 disabled:text-navy-950"
-        >
-          {action}
-        </button>
+      {actions != null && actions.length > 0 && (
+        <div className="mt-3 flex gap-2">
+          {actions.map((label) => (
+            <button
+              key={label}
+              type="button"
+              disabled={pr.actionDisabled}
+              className="flex-1 rounded-md bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-navy-600 disabled:text-navy-950"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -307,7 +312,7 @@ function BoardColumn({ column }: { column: Column }) {
             pr={pr}
             icon={column.icon}
             iconColor={column.iconColor}
-            action={column.action}
+            actions={column.actions}
           />
         ))}
       </div>
