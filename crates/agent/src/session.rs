@@ -7,7 +7,7 @@ use crate::loop_detection::detect_loop;
 use crate::profiles::EnvContext;
 use crate::project_docs::discover_project_docs;
 use crate::provider_profile::ProviderProfile;
-use crate::skills::{default_skill_dirs, discover_skills, expand_skill, Skill};
+use crate::skills::{default_skill_dirs, discover_skills, expand_skill, make_use_skill_tool, Skill};
 use crate::tool_registry::ToolRegistry;
 use crate::truncation::truncate_tool_output;
 use crate::types::{AgentEvent, SessionState, Turn};
@@ -94,6 +94,14 @@ impl Session {
             }
         };
         self.skills = discover_skills(self.execution_env.as_ref(), &skill_dirs).await;
+
+        // Register use_skill tool when skills are available
+        if !self.skills.is_empty() {
+            let skills_arc = Arc::new(self.skills.clone());
+            if let Some(profile) = Arc::get_mut(&mut self.provider_profile) {
+                profile.tool_registry_mut().register(make_use_skill_tool(skills_arc));
+            }
+        }
 
         // Populate environment context
         self.env_context = self.build_env_context().await;

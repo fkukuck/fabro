@@ -1,4 +1,8 @@
 use crate::execution_env::ExecutionEnvironment;
+use crate::tool_registry::RegisteredTool;
+use crate::tools::required_str;
+use llm::types::ToolDefinition;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Skill {
@@ -148,17 +152,54 @@ pub fn expand_skill(skills: &[Skill], input: &str) -> Result<ExpandedInput, Stri
     })
 }
 
+pub fn make_use_skill_tool(skills: Arc<Vec<Skill>>) -> RegisteredTool {
+    RegisteredTool {
+        definition: ToolDefinition {
+            name: "use_skill".into(),
+            description: "Load a skill's instructions by name. Call this when the user's \
+                          request matches an available skill."
+                .into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill to load (without the / prefix)"
+                    }
+                },
+                "required": ["skill_name"]
+            }),
+        },
+        executor: Arc::new(move |args, _env, _cancel| {
+            let skills = skills.clone();
+            Box::pin(async move {
+                let name = required_str(&args, "skill_name")?;
+                let skill = skills
+                    .iter()
+                    .find(|s| s.name == name)
+                    .ok_or_else(|| format!("Unknown skill: {name}"))?;
+                Ok(skill.template.clone())
+            })
+        }),
+    }
+}
+
 pub fn format_skills_prompt_section(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
 
-    let mut lines = vec!["# Available Skills".to_string()];
+    let mut lines = vec![
+        "# Available Skills".to_string(),
+        "When the user's request matches a skill below, call the `use_skill` tool \
+         to load its instructions, then follow them."
+            .to_string(),
+    ];
     for skill in skills {
         if skill.description.is_empty() {
-            lines.push(format!("- /{}", skill.name));
+            lines.push(format!("- `{}`", skill.name));
         } else {
-            lines.push(format!("- /{}: {}", skill.name, skill.description));
+            lines.push(format!("- `{}`: {}", skill.name, skill.description));
         }
     }
     lines.join("\n")
@@ -392,8 +433,9 @@ name: trimmed
         let skills = test_skills();
         let section = format_skills_prompt_section(&skills);
         assert!(section.contains("# Available Skills"));
-        assert!(section.contains("- /commit: Create a commit"));
-        assert!(section.contains("- /test: Run tests"));
+        assert!(section.contains("call the `use_skill` tool"));
+        assert!(section.contains("- `commit`: Create a commit"));
+        assert!(section.contains("- `test`: Run tests"));
     }
 
     // --- discover_skills tests ---
@@ -490,5 +532,48 @@ name: trimmed
     fn default_dirs_without_git_root() {
         let dirs = default_skill_dirs(Some("/home/user"), None);
         assert_eq!(dirs, vec!["/home/user/.attractor/skills"]);
+    }
+
+    // --- make_use_skill_tool tests ---
+
+    #[tokio::test]
+    async fn use_skill_tool_returns_template() {
+        let skills = Arc::new(test_skills());
+        let tool = make_use_skill_tool(skills);
+
+        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
+            Arc::new(MockExecutionEnvironment::default());
+        let args = serde_json::json!({"skill_name": "commit"});
+        let result = (tool.executor)(args, env, tokio_util::sync::CancellationToken::new()).await;
+        assert_eq!(
+            result.unwrap(),
+            "Review changes and commit.\n\n{{user_input}}"
+        );
+    }
+
+    #[tokio::test]
+    async fn use_skill_tool_unknown_skill_errors() {
+        let skills = Arc::new(test_skills());
+        let tool = make_use_skill_tool(skills);
+
+        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
+            Arc::new(MockExecutionEnvironment::default());
+        let args = serde_json::json!({"skill_name": "nonexistent"});
+        let result = (tool.executor)(args, env, tokio_util::sync::CancellationToken::new()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown skill"));
+    }
+
+    #[tokio::test]
+    async fn use_skill_tool_missing_param_errors() {
+        let skills = Arc::new(test_skills());
+        let tool = make_use_skill_tool(skills);
+
+        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
+            Arc::new(MockExecutionEnvironment::default());
+        let args = serde_json::json!({});
+        let result = (tool.executor)(args, env, tokio_util::sync::CancellationToken::new()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required parameter"));
     }
 }
