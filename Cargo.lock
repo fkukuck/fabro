@@ -129,11 +129,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-agent",
+ "arc-llm",
+ "arc-util",
+ "arc-workflows",
+ "axum",
+ "clap",
+ "http-body-util",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "toml",
+ "tower",
+ "ulid",
+ "uuid",
+]
+
+[[package]]
 name = "arc-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-agent",
+ "arc-api",
  "arc-llm",
  "arc-util",
  "arc-workflows",
@@ -216,7 +241,6 @@ dependencies = [
  "arc-util",
  "assert_cmd",
  "async-trait",
- "axum",
  "base64",
  "chrono",
  "clap",
@@ -227,8 +251,6 @@ dependencies = [
  "dotenvy",
  "futures",
  "git2",
- "http-body-util",
- "jsonwebtoken",
  "nom",
  "predicates",
  "rand 0.8.5",
@@ -238,10 +260,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "toml",
- "tower",
  "ulid",
  "uuid",
 ]

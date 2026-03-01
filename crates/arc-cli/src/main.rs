@@ -26,7 +26,7 @@ enum Command {
     /// Validate a pipeline
     Validate(arc_workflows::cli::ValidateArgs),
     /// Start the HTTP API server
-    Serve(arc_workflows::cli::ServeArgs),
+    Serve(arc_api::serve::ServeArgs),
 }
 
 #[derive(Subcommand)]
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
         Command::Serve(args) => {
             let styles: &'static arc_util::terminal::Styles =
                 Box::leak(Box::new(arc_util::terminal::Styles::detect_stderr()));
-            arc_workflows::cli::serve::serve_command(args, styles).await?;
+            arc_api::serve::serve_command(args, styles).await?;
         }
     }
 

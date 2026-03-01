@@ -15,14 +15,14 @@ use tokio_stream::StreamExt;
 
 use arc_agent::LocalExecutionEnvironment;
 
-use crate::checkpoint::Checkpoint;
-use crate::context::Context;
+use arc_workflows::checkpoint::Checkpoint;
+use arc_workflows::context::Context;
 use crate::jwt_auth::{AuthMode, AuthenticatedService};
-use crate::engine::{PipelineEngine, RunConfig};
-use crate::event::{EventEmitter, PipelineEvent};
-use crate::handler::HandlerRegistry;
-use crate::interviewer::web::WebInterviewer;
-use crate::interviewer::{Answer, Interviewer};
+use arc_workflows::engine::{PipelineEngine, RunConfig};
+use arc_workflows::event::{EventEmitter, PipelineEvent};
+use arc_workflows::handler::HandlerRegistry;
+use arc_workflows::interviewer::web::WebInterviewer;
+use arc_workflows::interviewer::{Answer, Interviewer};
 
 /// Status of a managed pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,7 +165,7 @@ async fn start_pipeline(
     Json(req): Json<StartPipelineRequest>,
 ) -> Response {
     // Parse the DOT source
-    let graph = match crate::pipeline::prepare_pipeline(&req.dot_source) {
+    let graph = match arc_workflows::pipeline::prepare_pipeline(&req.dot_source) {
         Ok(g) => g,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e.to_string()})))
@@ -245,7 +245,7 @@ async fn start_pipeline(
                 Ok(_) => {
                     pipeline.status = PipelineStatus::Completed;
                 }
-                Err(crate::error::AttractorError::Cancelled) => {
+                Err(arc_workflows::error::AttractorError::Cancelled) => {
                     pipeline.status = PipelineStatus::Cancelled;
                 }
                 Err(e) => {
@@ -511,8 +511,8 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
-    use crate::handler::exit::ExitHandler;
-    use crate::handler::start::StartHandler;
+    use arc_workflows::handler::exit::ExitHandler;
+    use arc_workflows::handler::start::StartHandler;
 
     const MINIMAL_DOT: &str = r#"digraph Test {
         graph [goal="Test"]
@@ -521,7 +521,7 @@ mod tests {
         start -> exit
     }"#;
 
-    fn test_registry(_interviewer: Arc<dyn crate::interviewer::Interviewer>) -> HandlerRegistry {
+    fn test_registry(_interviewer: Arc<dyn arc_workflows::interviewer::Interviewer>) -> HandlerRegistry {
         let mut registry = HandlerRegistry::new(Box::new(StartHandler));
         registry.register("start", Box::new(StartHandler));
         registry.register("exit", Box::new(ExitHandler));

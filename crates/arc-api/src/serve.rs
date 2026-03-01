@@ -4,12 +4,40 @@ use arc_llm::provider::Provider;
 use arc_util::terminal::Styles;
 use tokio::net::TcpListener;
 
-use crate::cli::backend::AgentBackend;
-use crate::handler::default_registry;
-use crate::interviewer::Interviewer;
+use clap::Args;
+
+use arc_workflows::cli::backend::AgentBackend;
+use arc_workflows::cli::ExecutionEnvKind;
+use arc_workflows::handler::default_registry;
+use arc_workflows::interviewer::Interviewer;
 use crate::server::{build_router, create_app_state_with_options};
 
-use super::ServeArgs;
+#[derive(Args)]
+pub struct ServeArgs {
+    /// Port to listen on
+    #[arg(long, default_value = "3000")]
+    pub port: u16,
+
+    /// Host address to bind to
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+
+    /// Override default LLM model
+    #[arg(long)]
+    pub model: Option<String>,
+
+    /// Override default LLM provider
+    #[arg(long)]
+    pub provider: Option<String>,
+
+    /// Execute with simulated LLM backend
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Execution environment for agent tools
+    #[arg(long, value_enum)]
+    pub execution_env: Option<ExecutionEnvKind>,
+}
 
 /// Start the HTTP API server.
 ///

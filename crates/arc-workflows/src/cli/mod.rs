@@ -1,9 +1,6 @@
 pub mod backend;
 pub mod cli_backend;
 pub mod run;
-#[cfg(feature = "server")]
-pub mod serve;
-pub mod server_config;
 pub mod task_config;
 pub mod validate;
 
@@ -68,9 +65,6 @@ pub enum Command {
     Run(RunArgs),
     /// Parse and validate a pipeline without executing
     Validate(ValidateArgs),
-    /// Start the HTTP API server
-    #[cfg(feature = "server")]
-    Serve(ServeArgs),
 }
 
 #[derive(Args)]
@@ -120,34 +114,6 @@ pub struct RunArgs {
 pub struct ValidateArgs {
     /// Path to the .dot pipeline file
     pub pipeline: PathBuf,
-}
-
-#[cfg(feature = "server")]
-#[derive(Args)]
-pub struct ServeArgs {
-    /// Port to listen on
-    #[arg(long, default_value = "3000")]
-    pub port: u16,
-
-    /// Host address to bind to
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-
-    /// Override default LLM model
-    #[arg(long)]
-    pub model: Option<String>,
-
-    /// Override default LLM provider
-    #[arg(long)]
-    pub provider: Option<String>,
-
-    /// Execute with simulated LLM backend
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Execution environment for agent tools
-    #[arg(long, value_enum)]
-    pub execution_env: Option<ExecutionEnvKind>,
 }
 
 /// Read a .dot file from disk.
