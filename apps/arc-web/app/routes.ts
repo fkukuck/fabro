@@ -23,6 +23,7 @@ export default [
       route("configuration", "routes/run-configuration.tsx"),
       route("graph", "routes/run-graph.tsx"),
       route("files", "routes/run-files-changed.tsx"),
+      route("verifications", "routes/run-verifications.tsx"),
       route("usage", "routes/run-usage.tsx"),
       route("retro", "routes/run-retro.tsx"),
     ]),
