@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arc_llm::provider::Provider;
 use arc_util::terminal::Styles;
 use arc_workflows::checkpoint::Checkpoint;
-use arc_workflows::cli::backend::AgentBackend;
+use arc_workflows::cli::backend::AgentApiBackend;
 use arc_workflows::context::Context;
 use arc_workflows::engine::{PipelineEngine, RunConfig};
 use arc_workflows::error::ArcError;
@@ -7008,7 +7008,7 @@ async fn arc_e2e_with_real_llm() {
     let model = "claude-haiku-4-5-20251001".to_string();
 
     let registry = default_registry(interviewer, move || {
-        Some(Box::new(AgentBackend::new(
+        Some(Box::new(AgentApiBackend::new(
             model.clone(),
             Provider::Anthropic,
             0,
@@ -7720,7 +7720,7 @@ async fn node_dir_uses_visit_count_on_revisit() {
 // CLI Backend end-to-end tests
 // ---------------------------------------------------------------------------
 
-use arc_workflows::cli::cli_backend::{BackendRouter, CliBackend};
+use arc_workflows::cli::cli_backend::{BackendRouter, AgentCliBackend};
 
 /// A mock execution environment for CLI backend e2e tests.
 /// Records all exec_command and write_file calls, and returns configurable
@@ -7872,14 +7872,14 @@ impl arc_agent::ExecutionEnvironment for CliTestEnv {
     }
 }
 
-// -- Cycle 8: CliBackend::run() e2e via mock ExecutionEnvironment --
+// -- Cycle 8: AgentCliBackend::run() e2e via mock ExecutionEnvironment --
 
 #[tokio::test]
 async fn cli_backend_run_writes_prompt_and_calls_exec() {
     let claude_output = r#"{"type":"result","result":"I fixed the bug.","usage":{"input_tokens":500,"output_tokens":200}}"#;
     let test_env = Arc::new(CliTestEnv::new(claude_output));
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
-    let backend = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("fix_code");
     let context = Context::new();
@@ -7947,7 +7947,7 @@ async fn cli_backend_run_detects_changed_files() {
     let claude_output = r#"{"type":"result","result":"Created new file.","usage":{"input_tokens":100,"output_tokens":50}}"#;
     let env: Arc<dyn arc_agent::ExecutionEnvironment> =
         Arc::new(CliTestEnv::new(claude_output).with_git_diff_after("src/main.rs\nsrc/lib.rs\n"));
-    let backend = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("implement");
     let context = Context::new();
@@ -7980,7 +7980,7 @@ async fn cli_backend_run_with_codex_provider() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Implemented the feature.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":300,\"output_tokens\":150}}";
     let test_env = Arc::new(CliTestEnv::new(codex_output));
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
-    let backend = CliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
+    let backend = AgentCliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
 
     let node = Node::new("implement");
     let context = Context::new();
@@ -8109,7 +8109,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
     }
 
     let failing_env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(FailingCliEnv);
-    let backend = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let node = Node::new("step");
     let context = Context::new();
     let emitter = Arc::new(EventEmitter::new());
@@ -8148,7 +8148,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
 async fn cli_backend_run_fails_on_unparseable_output() {
     let env: Arc<dyn arc_agent::ExecutionEnvironment> =
         Arc::new(CliTestEnv::new("this is not json at all"));
-    let backend = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("step");
     let context = Context::new();
@@ -8184,7 +8184,7 @@ async fn cli_backend_run_uses_node_model_override() {
         r#"{"type":"result","result":"ok","usage":{"input_tokens":10,"output_tokens":5}}"#;
     let test_env = Arc::new(CliTestEnv::new(claude_output));
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
-    let backend = CliBackend::new("default-model".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("default-model".into(), Provider::Anthropic);
 
     let mut node = Node::new("step");
     node.attrs.insert(
@@ -8218,7 +8218,7 @@ async fn cli_backend_run_uses_node_provider_override() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"ok\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}";
     let test_env = Arc::new(CliTestEnv::new(codex_output));
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
-    let backend = CliBackend::new("default-model".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("default-model".into(), Provider::Anthropic);
 
     let mut node = Node::new("step");
     node.attrs.insert(
@@ -8252,7 +8252,7 @@ async fn cli_backend_run_writes_provider_used_json() {
     let claude_output =
         r#"{"type":"result","result":"done","usage":{"input_tokens":10,"output_tokens":5}}"#;
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
-    let backend = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("step");
     let context = Context::new();
@@ -8285,7 +8285,7 @@ async fn backend_router_delegates_to_cli_for_cli_node() {
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
 
     let api_backend = Box::new(MockCodergenBackend); // would return "Response for ..."
-    let cli = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let cli = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let router = BackendRouter::new(api_backend, cli);
 
     let mut node = Node::new("cli_step");
@@ -8329,7 +8329,7 @@ async fn backend_router_delegates_to_api_for_normal_node() {
     let env = local_env();
 
     let api_backend = Box::new(MockCodergenBackend);
-    let cli = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let cli = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let router = BackendRouter::new(api_backend, cli);
 
     let mut node = Node::new("api_step");
@@ -8372,7 +8372,7 @@ async fn backend_router_delegates_to_cli_for_backend_attr() {
     let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(codex_output));
 
     let api_backend = Box::new(MockCodergenBackend);
-    let cli = CliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
+    let cli = AgentCliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
     let router = BackendRouter::new(api_backend, cli);
 
     let mut node = Node::new("codex_step");
@@ -8465,7 +8465,7 @@ async fn full_pipeline_with_cli_backend_node() {
 
     // Build engine with BackendRouter
     let api = MockCodergenBackend;
-    let cli = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let cli = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let router = BackendRouter::new(Box::new(api), cli);
     let codergen_handler = CodergenHandler::new(Some(Box::new(router)));
 
@@ -8477,7 +8477,7 @@ async fn full_pipeline_with_cli_backend_node() {
         Box::new(CodergenHandler::new(Some(Box::new({
             // Second BackendRouter for the "codergen" handler
             let api2 = MockCodergenBackend;
-            let cli2 = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+            let cli2 = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
             BackendRouter::new(Box::new(api2), cli2)
         })))),
     );
@@ -8594,14 +8594,14 @@ async fn stylesheet_backend_property_routes_to_cli() {
 
     // Run the pipeline
     let api = MockCodergenBackend;
-    let cli = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let cli = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let router = BackendRouter::new(Box::new(api), cli);
 
     let mut registry = HandlerRegistry::new(Box::new(CodergenHandler::new(Some(Box::new(router)))));
     registry.register("start", Box::new(StartHandler));
     registry.register("exit", Box::new(ExitHandler));
     let api2 = MockCodergenBackend;
-    let cli2 = CliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
+    let cli2 = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let router2 = BackendRouter::new(Box::new(api2), cli2);
     registry.register(
         "codergen",
@@ -8644,7 +8644,7 @@ use arc_workflows::cli::cli_backend::parse_cli_response;
 /// Run a real CLI tool via LocalExecutionEnvironment and verify the full flow.
 async fn run_real_cli_test(provider: Provider, model: &str) {
     let env = local_env();
-    let backend = CliBackend::new(model.to_string(), provider);
+    let backend = AgentCliBackend::new(model.to_string(), provider);
 
     let mut node = Node::new("real_cli_test");
     node.attrs.insert(

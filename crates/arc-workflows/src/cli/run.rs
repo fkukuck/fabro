@@ -22,8 +22,8 @@ use crate::validation::Severity;
 
 use arc_llm::provider::Provider;
 
-use super::backend::AgentBackend;
-use super::cli_backend::{BackendRouter, CliBackend};
+use super::backend::AgentApiBackend;
+use super::cli_backend::{BackendRouter, AgentCliBackend};
 use super::task_config;
 use super::{
     compute_stage_cost, format_cost, format_duration_human, format_event_detail,
@@ -522,8 +522,8 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         if dry_run_mode {
             None
         } else {
-            let api = AgentBackend::new(model.clone(), provider_enum, args.verbose, styles);
-            let cli = CliBackend::new(model.clone(), provider_enum);
+            let api = AgentApiBackend::new(model.clone(), provider_enum, args.verbose, styles);
+            let cli = AgentCliBackend::new(model.clone(), provider_enum);
             Some(Box::new(BackendRouter::new(Box::new(api), cli)))
         }
     });
@@ -884,8 +884,8 @@ async fn run_from_branch(
         if dry_run_mode {
             None
         } else {
-            let api = AgentBackend::new(model.clone(), provider_enum, args.verbose, styles);
-            let cli = CliBackend::new(model.clone(), provider_enum);
+            let api = AgentApiBackend::new(model.clone(), provider_enum, args.verbose, styles);
+            let cli = AgentCliBackend::new(model.clone(), provider_enum);
             Some(Box::new(BackendRouter::new(Box::new(api), cli)))
         }
     });

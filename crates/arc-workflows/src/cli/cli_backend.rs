@@ -215,12 +215,12 @@ pub fn parse_cli_response(provider: Provider, output: &str) -> Option<CliRespons
 }
 
 /// CLI backend that invokes external CLI tools (claude, codex, gemini) via `exec_command()`.
-pub struct CliBackend {
+pub struct AgentCliBackend {
     model: String,
     provider: Provider,
 }
 
-impl CliBackend {
+impl AgentCliBackend {
     #[must_use]
     pub fn new(model: String, provider: Provider) -> Self {
         Self { model, provider }
@@ -280,7 +280,7 @@ impl CliBackend {
 }
 
 #[async_trait]
-impl CodergenBackend for CliBackend {
+impl CodergenBackend for AgentCliBackend {
     async fn run(
         &self,
         node: &Node,
@@ -376,12 +376,12 @@ impl CodergenBackend for CliBackend {
 /// based on node attributes and model type.
 pub struct BackendRouter {
     api_backend: Box<dyn CodergenBackend>,
-    cli_backend: CliBackend,
+    cli_backend: AgentCliBackend,
 }
 
 impl BackendRouter {
     #[must_use]
-    pub fn new(api_backend: Box<dyn CodergenBackend>, cli_backend: CliBackend) -> Self {
+    pub fn new(api_backend: Box<dyn CodergenBackend>, cli_backend: AgentCliBackend) -> Self {
         Self {
             api_backend,
             cli_backend,
@@ -615,7 +615,7 @@ mod tests {
         node.attrs
             .insert("backend".to_string(), AttrValue::String("cli".to_string()));
 
-        let cli_backend = CliBackend::new("model".into(), Provider::Anthropic);
+        let cli_backend = AgentCliBackend::new("model".into(), Provider::Anthropic);
         let router = BackendRouter::new(Box::new(StubBackend), cli_backend);
         assert!(router.should_use_cli(&node));
     }
@@ -624,7 +624,7 @@ mod tests {
     fn router_uses_api_by_default() {
         let node = Node::new("test");
 
-        let cli_backend = CliBackend::new("model".into(), Provider::Anthropic);
+        let cli_backend = AgentCliBackend::new("model".into(), Provider::Anthropic);
         let router = BackendRouter::new(Box::new(StubBackend), cli_backend);
         assert!(!router.should_use_cli(&node));
     }
@@ -637,7 +637,7 @@ mod tests {
             AttrValue::String("claude-opus-4-6".to_string()),
         );
 
-        let cli_backend = CliBackend::new("model".into(), Provider::Anthropic);
+        let cli_backend = AgentCliBackend::new("model".into(), Provider::Anthropic);
         let router = BackendRouter::new(Box::new(StubBackend), cli_backend);
         assert!(!router.should_use_cli(&node));
     }

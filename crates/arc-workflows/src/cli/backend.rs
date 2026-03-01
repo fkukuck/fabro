@@ -22,7 +22,7 @@ use crate::outcome::StageUsage;
 ///
 /// For `full` fidelity nodes sharing a thread key, sessions are cached
 /// and reused so the LLM sees the full conversation history.
-pub struct AgentBackend {
+pub struct AgentApiBackend {
     model: String,
     provider: Provider,
     verbose: u8,
@@ -30,7 +30,7 @@ pub struct AgentBackend {
     sessions: Mutex<HashMap<String, Session>>,
 }
 
-impl AgentBackend {
+impl AgentApiBackend {
     #[must_use]
     pub fn new(model: String, provider: Provider, verbose: u8, styles: &'static Styles) -> Self {
         Self {
@@ -113,7 +113,7 @@ impl AgentBackend {
 }
 
 #[async_trait]
-impl CodergenBackend for AgentBackend {
+impl CodergenBackend for AgentApiBackend {
     async fn one_shot(
         &self,
         node: &Node,
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn agent_backend_stores_config() {
         let styles = Box::leak(Box::new(Styles::new(false)));
-        let backend = AgentBackend::new("claude-opus-4-6".to_string(), Provider::OpenAi, 2, styles);
+        let backend = AgentApiBackend::new("claude-opus-4-6".to_string(), Provider::OpenAi, 2, styles);
         assert_eq!(backend.model, "claude-opus-4-6");
         assert_eq!(backend.provider, Provider::OpenAi);
         assert_eq!(backend.verbose, 2);
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn agent_backend_initializes_empty_sessions() {
         let styles = Box::leak(Box::new(Styles::new(false)));
-        let backend = AgentBackend::new(
+        let backend = AgentApiBackend::new(
             "claude-opus-4-6".to_string(),
             Provider::Anthropic,
             0,
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn build_profile_can_register_subagent_tools() {
         let styles = Box::leak(Box::new(Styles::new(false)));
-        let backend = AgentBackend::new(
+        let backend = AgentApiBackend::new(
             "claude-opus-4-6".to_string(),
             Provider::Anthropic,
             0,

@@ -769,12 +769,12 @@ async fn daytona_parallel_git_branching_e2e() {
 // CLI Backend on Daytona — real CLI tools via exec_command
 // ---------------------------------------------------------------------------
 
-use arc_workflows::cli::cli_backend::CliBackend;
+use arc_workflows::cli::cli_backend::AgentCliBackend;
 use arc_workflows::handler::codergen::{CodergenBackend, CodergenResult};
 
 /// Helper: run a real CLI backend test on Daytona.
 ///
-/// Installs the CLI tool in the sandbox, then runs the CliBackend against it.
+/// Installs the CLI tool in the sandbox, then runs the AgentCliBackend against it.
 async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: &str) {
     let env = create_env().await;
     env.initialize().await.unwrap();
@@ -791,7 +791,7 @@ async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: 
         install_result.exit_code, install_result.stdout
     );
 
-    let backend = CliBackend::new(model.to_string(), provider);
+    let backend = AgentCliBackend::new(model.to_string(), provider);
     let node = Node::new("daytona_cli_test");
     let context = Context::new();
     let emitter = Arc::new(EventEmitter::new());

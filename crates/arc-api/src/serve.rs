@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use clap::Args;
 
 use crate::server::{build_router, create_app_state_with_options};
-use arc_workflows::cli::backend::AgentBackend;
+use arc_workflows::cli::backend::AgentApiBackend;
 use arc_workflows::cli::ExecutionEnvKind;
 use arc_workflows::handler::default_registry;
 use arc_workflows::interviewer::Interviewer;
@@ -98,7 +98,7 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
             if dry_run_mode {
                 None
             } else {
-                Some(Box::new(AgentBackend::new(
+                Some(Box::new(AgentApiBackend::new(
                     model.clone(),
                     provider_enum,
                     0,
