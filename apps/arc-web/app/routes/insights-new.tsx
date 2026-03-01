@@ -37,17 +37,17 @@ export default function InsightsNew() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <SparklesIcon className="size-5 text-teal-500" />
-          <h2 className="text-lg font-semibold text-white">New Query</h2>
+          <h2 className="text-lg font-semibold text-fg">New Query</h2>
         </div>
         <textarea
           placeholder="Ask assistant to generate a report"
-          className="w-full rounded-lg border border-white/[0.06] bg-navy-950/80 px-4 py-3.5 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40"
+          className="w-full rounded-lg border border-line bg-page/80 px-4 py-3.5 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus"
           rows={4}
         />
         <div className="flex justify-end">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 transition-all hover:border-teal-500/50 hover:bg-teal-500/20 hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 transition-all hover:border-teal-500/50 hover:bg-teal-500/20 hover:text-fg"
           >
             <SparklesIcon className="size-3.5" />
             Generate
@@ -57,7 +57,7 @@ export default function InsightsNew() {
 
       {/* Template cards */}
       <div className="mt-10 space-y-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-navy-600">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
           Start from a template
         </h3>
         <div className="grid gap-3">
@@ -68,14 +68,14 @@ export default function InsightsNew() {
               onClick={() => {
                 navigate("/insights", { state: { sql: tpl.sql, name: tpl.title } });
               }}
-              className="flex items-start gap-3.5 rounded-lg border border-white/[0.06] bg-navy-800/60 px-4 py-3.5 text-left transition-colors hover:border-white/[0.12] hover:bg-navy-800/80"
+              className="flex items-start gap-3.5 rounded-lg border border-line bg-panel/60 px-4 py-3.5 text-left transition-colors hover:border-line-strong hover:bg-panel/80"
             >
-              <tpl.icon className="mt-0.5 size-5 shrink-0 text-navy-600" />
+              <tpl.icon className="mt-0.5 size-5 shrink-0 text-fg-muted" />
               <div>
-                <span className="text-sm font-medium text-ice-100">
+                <span className="text-sm font-medium text-fg-2">
                   {tpl.title}
                 </span>
-                <p className="mt-0.5 text-xs text-navy-600">
+                <p className="mt-0.5 text-xs text-fg-muted">
                   {tpl.description}
                 </p>
               </div>
@@ -88,7 +88,7 @@ export default function InsightsNew() {
       <div className="mt-10 text-center">
         <Link
           to="/insights"
-          className="inline-flex items-center gap-1.5 text-sm text-navy-600 transition-colors hover:text-ice-300"
+          className="inline-flex items-center gap-1.5 text-sm text-fg-muted transition-colors hover:text-fg-3"
         >
           <CommandLineIcon className="size-4" />
           <span className="font-semibold">Write my own report with SQL</span>

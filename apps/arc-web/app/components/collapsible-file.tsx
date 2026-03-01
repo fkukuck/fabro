@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import type { FileContents } from "@pierre/diffs";
 import { File } from "@pierre/diffs/react";
+import { useTheme } from "../lib/theme";
 
 export function CollapsibleFile({
   file,
@@ -11,32 +12,33 @@ export function CollapsibleFile({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const { theme } = useTheme();
 
   const lines = file.contents.split("\n");
   const lineCount = lines.length;
   const loc = lines.filter((l) => l.trim().length > 0).length;
 
   return (
-    <div className="rounded-md border border-white/[0.06] bg-navy-800/50 overflow-hidden">
+    <div className="rounded-md border border-line bg-panel/50 overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-overlay transition-colors"
       >
         <ChevronRightIcon
-          className={`size-4 text-navy-600 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+          className={`size-4 text-fg-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`}
         />
-        <span className="font-mono text-xs text-navy-600">{file.name}</span>
-        <span className="ml-auto font-mono text-xs text-navy-600/60">
+        <span className="font-mono text-xs text-fg-muted">{file.name}</span>
+        <span className="ml-auto font-mono text-xs text-fg-muted/60">
           {lineCount} lines ({loc} loc)
         </span>
       </button>
 
       <div className={open ? "" : "hidden"}>
-        <div className="border-t border-white/[0.06]" />
+        <div className="border-t border-line" />
         <File
           file={file}
-          options={{ theme: "pierre-dark", disableFileHeader: true }}
+          options={{ theme: theme === "dark" ? "pierre-dark" : "pierre-light", disableFileHeader: true }}
         />
       </div>
     </div>

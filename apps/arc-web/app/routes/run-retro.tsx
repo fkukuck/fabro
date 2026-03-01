@@ -23,7 +23,7 @@ export default function RunRetro({ params }: Route.ComponentProps) {
   const retro = findRetro(params.id);
 
   if (!retro) {
-    return <p className="py-8 text-center text-sm text-navy-600">No retrospective found for this run.</p>;
+    return <p className="py-8 text-center text-sm text-fg-muted">No retrospective found for this run.</p>;
   }
 
   const smoothness = retro.smoothness ? smoothnessConfig[retro.smoothness] : null;
@@ -39,8 +39,8 @@ export default function RunRetro({ params }: Route.ComponentProps) {
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-ice-300">{retro.goal}</p>
-          <p className="mt-1 font-mono text-xs text-navy-600">
+          <p className="text-sm text-fg-3">{retro.goal}</p>
+          <p className="mt-1 font-mono text-xs text-fg-muted">
             {retro.pipeline_name} &middot; {new Date(retro.timestamp).toLocaleString()}
           </p>
         </div>
@@ -58,15 +58,15 @@ export default function RunRetro({ params }: Route.ComponentProps) {
       {(retro.intent ?? retro.outcome) && (
         <div className="grid gap-3 sm:grid-cols-2">
           {retro.intent && (
-            <div className="rounded-md border border-white/[0.06] bg-navy-800/60 p-4">
-              <h3 className="text-xs font-medium uppercase tracking-wider text-navy-600">Intent</h3>
-              <p className="mt-2 text-sm leading-relaxed text-ice-300">{retro.intent}</p>
+            <div className="rounded-md border border-line bg-panel/60 p-4">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-fg-muted">Intent</h3>
+              <p className="mt-2 text-sm leading-relaxed text-fg-3">{retro.intent}</p>
             </div>
           )}
           {retro.outcome && (
-            <div className="rounded-md border border-white/[0.06] bg-navy-800/60 p-4">
-              <h3 className="text-xs font-medium uppercase tracking-wider text-navy-600">Outcome</h3>
-              <p className="mt-2 text-sm leading-relaxed text-ice-300">{retro.outcome}</p>
+            <div className="rounded-md border border-line bg-panel/60 p-4">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-fg-muted">Outcome</h3>
+              <p className="mt-2 text-sm leading-relaxed text-fg-3">{retro.outcome}</p>
             </div>
           )}
         </div>
@@ -75,16 +75,16 @@ export default function RunRetro({ params }: Route.ComponentProps) {
       {/* Learnings */}
       {retro.learnings && retro.learnings.length > 0 && (
         <div>
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-navy-600">Learnings</h3>
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">Learnings</h3>
           <div className="space-y-2">
             {retro.learnings.map((learning, i) => {
               const config = learningCategoryConfig[learning.category];
               return (
-                <div key={i} className="flex items-start gap-3 rounded-md border border-white/[0.06] bg-navy-800/60 px-4 py-3">
-                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-white/[0.06]`}>
+                <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel/60 px-4 py-3">
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-overlay`}>
                     {config.label}
                   </span>
-                  <p className="text-sm leading-relaxed text-ice-300">{learning.text}</p>
+                  <p className="text-sm leading-relaxed text-fg-3">{learning.text}</p>
                 </div>
               );
             })}
@@ -95,19 +95,19 @@ export default function RunRetro({ params }: Route.ComponentProps) {
       {/* Friction Points */}
       {retro.friction_points && retro.friction_points.length > 0 && (
         <div>
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-navy-600">Friction Points</h3>
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">Friction Points</h3>
           <div className="space-y-2">
             {retro.friction_points.map((fp, i) => {
               const config = frictionKindConfig[fp.kind];
               return (
-                <div key={i} className="flex items-start gap-3 rounded-md border border-white/[0.06] bg-navy-800/60 px-4 py-3">
-                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-white/[0.06]`}>
+                <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel/60 px-4 py-3">
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-overlay`}>
                     {config.label}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-relaxed text-ice-300">{fp.description}</p>
+                    <p className="text-sm leading-relaxed text-fg-3">{fp.description}</p>
                     {fp.stage_id && (
-                      <p className="mt-1 font-mono text-xs text-navy-600">
+                      <p className="mt-1 font-mono text-xs text-fg-muted">
                         Stage: {retro.stages.find((s) => s.stage_id === fp.stage_id)?.stage_label ?? fp.stage_id}
                       </p>
                     )}
@@ -122,16 +122,16 @@ export default function RunRetro({ params }: Route.ComponentProps) {
       {/* Open Items */}
       {retro.open_items && retro.open_items.length > 0 && (
         <div>
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-navy-600">Open Items</h3>
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">Open Items</h3>
           <div className="space-y-2">
             {retro.open_items.map((item, i) => {
               const config = openItemKindConfig[item.kind];
               return (
-                <div key={i} className="flex items-start gap-3 rounded-md border border-white/[0.06] bg-navy-800/60 px-4 py-3">
-                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-white/[0.06]`}>
+                <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel/60 px-4 py-3">
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.text} bg-overlay`}>
                     {config.label}
                   </span>
-                  <p className="text-sm leading-relaxed text-ice-300">{item.description}</p>
+                  <p className="text-sm leading-relaxed text-fg-3">{item.description}</p>
                 </div>
               );
             })}
@@ -141,11 +141,11 @@ export default function RunRetro({ params }: Route.ComponentProps) {
 
       {/* Stage Breakdown */}
       <div>
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-navy-600">Stage Breakdown</h3>
-        <div className="rounded-md border border-white/[0.06] overflow-hidden">
+        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">Stage Breakdown</h3>
+        <div className="rounded-md border border-line overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/[0.06] bg-navy-800/60 text-left text-xs text-navy-600">
+              <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
                 <th className="px-4 py-2.5 font-medium">Stage</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium text-right">Duration</th>
@@ -156,16 +156,16 @@ export default function RunRetro({ params }: Route.ComponentProps) {
             </thead>
             <tbody>
               {retro.stages.map((stage) => (
-                <tr key={stage.stage_id} className="border-b border-white/[0.06] last:border-b-0">
+                <tr key={stage.stage_id} className="border-b border-line last:border-b-0">
                   <td className="px-4 py-3">
                     <Link
                       to={`/runs/${retro.run_id}/stages/${stage.stage_id}`}
-                      className="text-ice-100 hover:text-white"
+                      className="text-fg-2 hover:text-fg"
                     >
                       {stage.stage_label}
                     </Link>
                     {stage.notes && (
-                      <p className="mt-1 text-xs text-navy-600">{stage.notes}</p>
+                      <p className="mt-1 text-xs text-fg-muted">{stage.notes}</p>
                     )}
                     {stage.failure_reason && (
                       <p className="mt-1 text-xs text-coral/80">{stage.failure_reason}</p>
@@ -174,18 +174,18 @@ export default function RunRetro({ params }: Route.ComponentProps) {
                   <td className="px-4 py-3">
                     <StageStatusBadge status={stage.status} />
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
                     {formatDuration(stage.duration_ms)}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
-                    <span className={stage.retries > 0 ? "text-amber" : "text-ice-300"}>
+                    <span className={stage.retries > 0 ? "text-amber" : "text-fg-3"}>
                       {stage.retries}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
                     {formatCost(stage.cost)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
                     {stage.files_touched.length}
                   </td>
                 </tr>
@@ -200,9 +200,9 @@ export default function RunRetro({ params }: Route.ComponentProps) {
 
 function StatCard({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className="rounded-md border border-white/[0.06] bg-navy-800/60 px-4 py-3">
-      <p className="text-xs font-medium uppercase tracking-wider text-navy-600">{label}</p>
-      <p className={`mt-1 font-mono text-lg font-semibold tabular-nums ${warn ? "text-amber" : "text-white"}`}>
+    <div className="rounded-md border border-line bg-panel/60 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">{label}</p>
+      <p className={`mt-1 font-mono text-lg font-semibold tabular-nums ${warn ? "text-amber" : "text-fg"}`}>
         {value}
       </p>
     </div>
@@ -213,10 +213,10 @@ function StageStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     completed: "text-mint",
     running: "text-teal-500",
-    pending: "text-navy-600",
+    pending: "text-fg-muted",
     failed: "text-coral",
   };
-  const colorClass = styles[status] ?? "text-ice-300";
+  const colorClass = styles[status] ?? "text-fg-3";
   return (
     <span className={`text-xs font-medium capitalize ${colorClass}`}>
       {status}

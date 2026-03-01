@@ -141,7 +141,7 @@ function BarChart({ result }: { result: QueryResult }) {
 
   if (valueCols.length === 0 || result.rows.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-navy-600">
+      <div className="flex h-64 items-center justify-center text-sm text-fg-muted">
         No numeric columns to chart
       </div>
     );
@@ -185,14 +185,14 @@ function BarChart({ result }: { result: QueryResult }) {
                   y1={y}
                   x2={containerWidth - padding.right}
                   y2={y}
-                  stroke="rgba(255,255,255,0.04)"
+                  stroke="var(--chart-gridline)"
                   strokeDasharray="4,4"
                 />
                 <text
                   x={yAxisWidth - 8}
                   y={y + 4}
                   textAnchor="end"
-                  fill="rgba(75, 87, 104, 1)"
+                  fill="var(--chart-axis-label)"
                   fontSize="11"
                   fontFamily="JetBrains Mono, monospace"
                 >
@@ -232,7 +232,7 @@ function BarChart({ result }: { result: QueryResult }) {
                   x={x + barWidth / 2}
                   y={chartHeight - padding.bottom + 16}
                   textAnchor="middle"
-                  fill="rgba(75, 87, 104, 1)"
+                  fill="var(--chart-axis-label)"
                   fontSize="10"
                   fontFamily="JetBrains Mono, monospace"
                 >
@@ -246,7 +246,7 @@ function BarChart({ result }: { result: QueryResult }) {
         </svg>
       )}
       <div className="mt-1 flex items-center gap-4 px-2">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-navy-600">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
           {valueCol.replace(/_/g, " ")}
         </span>
       </div>
@@ -261,11 +261,11 @@ function ResultTable({ result }: { result: QueryResult }) {
     <div className="overflow-x-auto">
       <table className="w-full text-left">
         <thead>
-          <tr className="border-b border-white/[0.06]">
+          <tr className="border-b border-line">
             {result.columns.map((col) => (
               <th
                 key={col}
-                className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-navy-600"
+                className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-fg-muted"
               >
                 {col}
               </th>
@@ -276,7 +276,7 @@ function ResultTable({ result }: { result: QueryResult }) {
           {result.rows.map((row, i) => (
             <tr
               key={i}
-              className="border-b border-white/[0.03] transition-colors hover:bg-white/[0.02]"
+              className="border-b border-line transition-colors hover:bg-overlay"
             >
               {result.columns.map((col) => {
                 const val = row[col];
@@ -285,7 +285,7 @@ function ResultTable({ result }: { result: QueryResult }) {
                   <td
                     key={col}
                     className={`whitespace-nowrap px-3 py-2 font-mono text-xs ${
-                      isNum ? "tabular-nums text-ice-100" : "text-ice-300"
+                      isNum ? "tabular-nums text-fg-2" : "text-fg-3"
                     }`}
                   >
                     {isNum ? formatNumber(val) : String(val)}
@@ -344,11 +344,11 @@ function SqlEditor({
   };
 
   return (
-    <div className="relative flex overflow-hidden rounded-md border border-white/[0.06] bg-navy-950/80 font-mono text-sm">
+    <div className="relative flex overflow-hidden rounded-md border border-line bg-page/80 font-mono text-sm">
       {/* Line numbers */}
       <div
         ref={lineNumbersRef}
-        className="pointer-events-none flex shrink-0 flex-col overflow-hidden border-r border-white/[0.04] bg-navy-950/60 px-3 py-3 text-right leading-[1.625rem] text-navy-600 select-none"
+        className="pointer-events-none flex shrink-0 flex-col overflow-hidden border-r border-line bg-page/60 px-3 py-3 text-right leading-[1.625rem] text-fg-muted select-none"
         aria-hidden="true"
       >
         {Array.from({ length: lineCount }, (_, i) => (
@@ -367,7 +367,7 @@ function SqlEditor({
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        className="min-h-[7lh] w-full resize-y bg-transparent px-4 py-3 leading-[1.625rem] text-ice-100 placeholder-navy-600 outline-none"
+        className="min-h-[7lh] w-full resize-y bg-transparent px-4 py-3 leading-[1.625rem] text-fg-2 placeholder-fg-muted outline-none"
         placeholder="SELECT * FROM runs LIMIT 10"
       />
     </div>
@@ -441,11 +441,11 @@ export default function InsightsEditor() {
                 }
               }}
               placeholder="Untitled query"
-              className="min-w-0 max-w-xs rounded border border-teal-500/40 bg-navy-950/60 px-2 py-0.5 text-sm font-medium text-ice-100 placeholder-navy-600 outline-none"
+              className="min-w-0 max-w-xs rounded border border-focus bg-page/60 px-2 py-0.5 text-sm font-medium text-fg-2 placeholder-fg-muted outline-none"
             />
           ) : (
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-medium text-ice-100">
+              <span className="text-sm font-medium text-fg-2">
                 {queryName || "Untitled query"}
               </span>
               <button
@@ -454,7 +454,7 @@ export default function InsightsEditor() {
                   setIsEditingName(true);
                   requestAnimationFrame(() => nameInputRef.current?.select());
                 }}
-                className="rounded p-0.5 text-navy-600 transition-colors hover:bg-white/[0.05] hover:text-ice-300"
+                className="rounded p-0.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3"
               >
                 <PencilIcon className="size-3.5" />
               </button>
@@ -468,7 +468,7 @@ export default function InsightsEditor() {
           <button
             type="button"
             onClick={() => setShowAiDialog(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-3 py-1.5 text-sm font-medium text-ice-300 transition-colors hover:border-teal-500/30 hover:bg-white/[0.03] hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm font-medium text-fg-3 transition-colors hover:border-teal-500/30 hover:bg-overlay hover:text-fg"
           >
             <SparklesIcon className="size-3.5 text-teal-500" />
             SQL AI
@@ -477,7 +477,7 @@ export default function InsightsEditor() {
           {/* Save */}
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-3 py-1.5 text-sm font-medium text-ice-300 transition-colors hover:border-white/[0.12] hover:bg-white/[0.03] hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm font-medium text-fg-3 transition-colors hover:border-line-strong hover:bg-overlay hover:text-fg"
           >
             <BookmarkIcon className="size-3.5" />
             Save
@@ -488,7 +488,7 @@ export default function InsightsEditor() {
             type="button"
             onClick={runQuery}
             disabled={isRunning || sql.trim().length === 0}
-            className="inline-flex items-center gap-1.5 rounded-md border border-mint/20 bg-mint/5 px-3.5 py-1.5 text-sm font-medium text-mint transition-all hover:border-mint/50 hover:bg-mint/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-mint/20 disabled:hover:bg-mint/5 disabled:hover:text-mint"
+            className="inline-flex items-center gap-1.5 rounded-md border border-mint/20 bg-mint/5 px-3.5 py-1.5 text-sm font-medium text-mint transition-all hover:border-mint/50 hover:bg-mint/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-mint/20 disabled:hover:bg-mint/5 disabled:hover:text-mint"
           >
             {isRunning ? (
               <ArrowPathIcon className="size-3.5 animate-spin" />
@@ -496,7 +496,7 @@ export default function InsightsEditor() {
               <PlayIcon className="size-3.5" />
             )}
             {isRunning ? "Running\u2026" : "Run"}
-            <kbd className="ml-1 hidden rounded border border-white/[0.08] bg-white/[0.04] px-1 py-0.5 font-sans text-[10px] leading-none text-navy-600 sm:inline">
+            <kbd className="ml-1 hidden rounded border border-line-strong bg-overlay px-1 py-0.5 font-sans text-[10px] leading-none text-fg-muted sm:inline">
               {"\u2318\u21B5"}
             </kbd>
           </button>
@@ -511,37 +511,37 @@ export default function InsightsEditor() {
           {/* Results bar */}
           <div className="flex items-center justify-between">
             {/* Query stats */}
-            <div className="flex items-center gap-5 font-mono text-[11px] tabular-nums text-navy-600">
+            <div className="flex items-center gap-5 font-mono text-[11px] tabular-nums text-fg-muted">
               <span>
                 Elapsed:{" "}
-                <span className="text-ice-300">
+                <span className="text-fg-3">
                   {result.elapsed.toFixed(3)}s
                 </span>
               </span>
               <span>
                 Read:{" "}
-                <span className="text-ice-300">
+                <span className="text-fg-3">
                   {formatNumber(result.rowsRead)} rows
                 </span>{" "}
                 ({formatBytes(result.bytesRead)})
               </span>
               <span>
                 Returned:{" "}
-                <span className="text-ice-300">
+                <span className="text-fg-3">
                   {formatNumber(result.rowsReturned)} rows
                 </span>
               </span>
             </div>
 
             {/* View toggle */}
-            <div className="flex items-center gap-1 rounded-md border border-white/[0.06] bg-navy-800/80 p-0.5">
+            <div className="flex items-center gap-1 rounded-md border border-line bg-panel/80 p-0.5">
               <button
                 type="button"
                 onClick={() => setResultView("chart")}
                 className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                   resultView === "chart"
-                    ? "bg-white/[0.06] text-teal-500"
-                    : "text-navy-600 hover:text-ice-300"
+                    ? "bg-overlay text-teal-500"
+                    : "text-fg-muted hover:text-fg-3"
                 }`}
               >
                 <ChartBarIcon className="size-3.5" />
@@ -552,8 +552,8 @@ export default function InsightsEditor() {
                 onClick={() => setResultView("table")}
                 className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                   resultView === "table"
-                    ? "bg-white/[0.06] text-teal-500"
-                    : "text-navy-600 hover:text-ice-300"
+                    ? "bg-overlay text-teal-500"
+                    : "text-fg-muted hover:text-fg-3"
                 }`}
               >
                 <TableCellsIcon className="size-3.5" />
@@ -563,7 +563,7 @@ export default function InsightsEditor() {
           </div>
 
           {/* Results content */}
-          <div className="rounded-md border border-white/[0.06] bg-navy-800/60 p-4">
+          <div className="rounded-md border border-line bg-panel/60 p-4">
             {resultView === "chart" ? (
               <BarChart result={result} />
             ) : (
@@ -575,8 +575,8 @@ export default function InsightsEditor() {
 
       {/* ── Running overlay ── */}
       {isRunning && !result && (
-        <div className="flex h-48 items-center justify-center rounded-md border border-white/[0.06] bg-navy-800/60">
-          <div className="flex items-center gap-3 text-sm text-navy-600">
+        <div className="flex h-48 items-center justify-center rounded-md border border-line bg-panel/60">
+          <div className="flex items-center gap-3 text-sm text-fg-muted">
             <ArrowPathIcon className="size-5 animate-spin text-teal-500" />
             Executing query&hellip;
           </div>
@@ -594,36 +594,36 @@ export default function InsightsEditor() {
           aria-hidden="true"
         />
         <div className="fixed inset-0 flex items-start justify-center pt-[15vh]">
-          <DialogPanel className="w-full max-w-lg rounded-lg border border-white/[0.08] bg-navy-800 shadow-2xl shadow-black/40">
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-              <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-white">
+          <DialogPanel className="w-full max-w-lg rounded-lg border border-line-strong bg-panel shadow-2xl shadow-black/40">
+            <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+              <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-fg">
                 <SparklesIcon className="size-4 text-teal-500" />
                 SQL AI
               </DialogTitle>
               <button
                 type="button"
                 onClick={() => setShowAiDialog(false)}
-                className="text-navy-600 transition-colors hover:text-ice-300"
+                className="text-fg-muted transition-colors hover:text-fg-3"
               >
                 <XMarkIcon className="size-4" />
               </button>
             </div>
             <div className="p-5">
-              <label className="mb-2 block text-xs font-medium text-ice-300">
+              <label className="mb-2 block text-xs font-medium text-fg-3">
                 Describe what you want to query
               </label>
               <textarea
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 placeholder="e.g. Show me the average build time per workflow over the last 30 days"
-                className="w-full rounded-md border border-white/[0.06] bg-navy-950/60 px-3 py-2.5 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40"
+                className="w-full rounded-md border border-line bg-page/60 px-3 py-2.5 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus"
                 rows={3}
               />
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAiDialog(false)}
-                  className="rounded-md border border-white/[0.06] px-3 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.03]"
+                  className="rounded-md border border-line px-3 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay"
                 >
                   Cancel
                 </button>
@@ -639,7 +639,7 @@ export default function InsightsEditor() {
                     setShowAiDialog(false);
                   }}
                   disabled={aiPrompt.trim().length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-sm font-medium text-teal-300 transition-all hover:border-teal-500/50 hover:bg-teal-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-sm font-medium text-teal-300 transition-all hover:border-teal-500/50 hover:bg-teal-500/20 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <SparklesIcon className="size-3.5" />
                   Generate SQL

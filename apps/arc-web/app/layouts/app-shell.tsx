@@ -13,12 +13,15 @@ import {
   CheckBadgeIcon,
   Cog6ToothIcon,
   LightBulbIcon,
+  MoonIcon,
   PlayIcon,
   RectangleStackIcon,
   SparklesIcon,
+  SunIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Link, Outlet, useLocation, useMatches } from "react-router";
+import { useTheme } from "../lib/theme";
 
 const user = {
   name: "Tom Cook",
@@ -46,6 +49,7 @@ function classNames(...classes: Array<string | false | null | undefined>) {
 export default function AppShell() {
   const { pathname } = useLocation();
   const matches = useMatches();
+  const { theme, toggle } = useTheme();
   const currentNav = navigation.find((item) => pathname.startsWith(item.href));
   const title = currentNav?.name ?? "";
   const lastMatch = matches[matches.length - 1];
@@ -55,9 +59,11 @@ export default function AppShell() {
   const wide = matches.some((m) => (m.handle as { wide?: boolean } | undefined)?.wide);
   const maxWidth = wide ? "" : "max-w-5xl";
 
+  const ThemeIcon = theme === "dark" ? SunIcon : MoonIcon;
+
   return (
     <div className="min-h-full">
-      <Disclosure as="nav" className="bg-navy-800/50">
+      <Disclosure as="nav" className="bg-panel/50">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center">
@@ -77,8 +83,8 @@ export default function AppShell() {
                         aria-current={current ? "page" : undefined}
                         className={classNames(
                           current
-                            ? "bg-navy-950/50 text-white"
-                            : "text-ice-300 hover:bg-white/5 hover:text-white",
+                            ? "bg-page/50 text-fg"
+                            : "text-fg-3 hover:bg-overlay hover:text-fg",
                           "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium",
                         )}
                       >
@@ -91,7 +97,16 @@ export default function AppShell() {
               </div>
             </div>
             <div className="hidden md:block">
-              <div className="ml-4 flex items-center md:ml-6">
+              <div className="ml-4 flex items-center gap-3 md:ml-6">
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  <ThemeIcon className="size-5" aria-hidden="true" />
+                  <span className="sr-only">Toggle theme</span>
+                </button>
                 <Menu as="div" className="relative">
                   <MenuButton className="relative flex max-w-xs items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500">
                     <span className="absolute -inset-1.5" />
@@ -99,19 +114,19 @@ export default function AppShell() {
                     <img
                       alt=""
                       src={user.imageUrl}
-                      className="size-8 rounded-full outline -outline-offset-1 outline-white/10"
+                      className="size-8 rounded-full outline -outline-offset-1 outline-line-strong"
                     />
                   </MenuButton>
 
                   <MenuItems
                     transition
-                    className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-navy-800 py-1 outline-1 -outline-offset-1 outline-white/10 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+                    className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-panel py-1 outline-1 -outline-offset-1 outline-line-strong transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
                   >
                     {userNavigation.map((item) => (
                       <MenuItem key={item.name}>
                         <a
                           href={item.href}
-                          className="block px-4 py-2 text-sm text-ice-300 data-focus:bg-white/5 data-focus:outline-hidden"
+                          className="block px-4 py-2 text-sm text-fg-3 data-focus:bg-overlay data-focus:outline-hidden"
                         >
                           {item.name}
                         </a>
@@ -122,7 +137,7 @@ export default function AppShell() {
               </div>
             </div>
             <div className="-mr-2 flex md:hidden">
-              <DisclosureButton className="group relative inline-flex items-center justify-center rounded-md p-2 text-navy-600 hover:bg-white/5 hover:text-white focus:outline-2 focus:outline-offset-2 focus:outline-teal-500">
+              <DisclosureButton className="group relative inline-flex items-center justify-center rounded-md p-2 text-fg-muted hover:bg-overlay hover:text-fg focus:outline-2 focus:outline-offset-2 focus:outline-teal-500">
                 <span className="absolute -inset-0.5" />
                 <span className="sr-only">Open main menu</span>
                 <Bars3Icon
@@ -150,8 +165,8 @@ export default function AppShell() {
                   aria-current={current ? "page" : undefined}
                   className={classNames(
                     current
-                      ? "bg-navy-950 text-white"
-                      : "text-ice-300 hover:bg-white/5 hover:text-white",
+                      ? "bg-page text-fg"
+                      : "text-fg-3 hover:bg-overlay hover:text-fg",
                     "flex items-center gap-2 rounded-md px-3 py-2 text-base font-medium",
                   )}
                 >
@@ -161,23 +176,32 @@ export default function AppShell() {
               );
             })}
           </div>
-          <div className="border-t border-white/10 pt-4 pb-3">
+          <div className="border-t border-line-strong pt-4 pb-3">
             <div className="flex items-center px-5">
               <div className="shrink-0">
                 <img
                   alt=""
                   src={user.imageUrl}
-                  className="size-10 rounded-full outline -outline-offset-1 outline-white/10"
+                  className="size-10 rounded-full outline -outline-offset-1 outline-line-strong"
                 />
               </div>
               <div className="ml-3">
-                <div className="text-base font-medium text-white">
+                <div className="text-base font-medium text-fg">
                   {user.name}
                 </div>
-                <div className="text-sm font-medium text-navy-600">
+                <div className="text-sm font-medium text-fg-muted">
                   {user.email}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={toggle}
+                className="ml-auto rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                <ThemeIcon className="size-5" aria-hidden="true" />
+                <span className="sr-only">Toggle theme</span>
+              </button>
             </div>
             <div className="mt-3 space-y-1 px-2">
               {userNavigation.map((item) => (
@@ -185,7 +209,7 @@ export default function AppShell() {
                   key={item.name}
                   as="a"
                   href={item.href}
-                  className="block rounded-md px-3 py-2 text-base font-medium text-navy-600 hover:bg-white/5 hover:text-white"
+                  className="block rounded-md px-3 py-2 text-base font-medium text-fg-muted hover:bg-overlay hover:text-fg"
                 >
                   {item.name}
                 </DisclosureButton>
@@ -196,10 +220,10 @@ export default function AppShell() {
       </Disclosure>
 
       {!hideHeader && (
-        <header className="relative bg-navy-800 after:pointer-events-none after:absolute after:inset-x-0 after:inset-y-0 after:bottom-0 after:border-y after:border-white/10">
+        <header className="relative bg-panel after:pointer-events-none after:absolute after:inset-x-0 after:inset-y-0 after:bottom-0 after:border-y after:border-line-strong">
           <div className={`mx-auto ${maxWidth} px-4 py-4 sm:px-6 lg:px-8`}>
             <div className="flex items-center">
-              <h1 className="text-lg/6 font-semibold text-white">{title}</h1>
+              <h1 className="text-lg/6 font-semibold text-fg">{title}</h1>
               {headerExtra && <div className="ml-auto">{headerExtra}</div>}
             </div>
           </div>

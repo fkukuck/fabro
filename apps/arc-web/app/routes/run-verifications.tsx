@@ -34,7 +34,7 @@ function StatusIcon({
     case "fail":
       return <XCircleIcon className={`${className} text-coral`} />;
     case "na":
-      return <MinusCircleIcon className={`${className} text-navy-600`} />;
+      return <MinusCircleIcon className={`${className} text-fg-muted`} />;
   }
 }
 
@@ -59,47 +59,47 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
     <Disclosure
       as="div"
       defaultOpen={category.status === "fail"}
-      className={`rounded-md border border-white/[0.06] overflow-hidden border-l-2 ${config.border}`}
+      className={`rounded-md border border-line overflow-hidden border-l-2 ${config.border}`}
     >
-      <DisclosureButton className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.02]">
+      <DisclosureButton className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-overlay">
         <StatusIcon status={category.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-3">
-            <span className="shrink-0 text-sm font-semibold text-white">
+            <span className="shrink-0 text-sm font-semibold text-fg">
               {category.name}
             </span>
-            <span className="truncate text-xs text-navy-600">
+            <span className="truncate text-xs text-fg-muted">
               {category.question}
             </span>
           </div>
         </div>
-        <span className="shrink-0 font-mono text-xs tabular-nums text-navy-600">
+        <span className="shrink-0 font-mono text-xs tabular-nums text-fg-muted">
           {criteriaStats.passing}/{applicable}
         </span>
-        <ChevronRightIcon className="size-4 shrink-0 text-navy-600 transition-transform duration-200 group-data-open:rotate-90" />
+        <ChevronRightIcon className="size-4 shrink-0 text-fg-muted transition-transform duration-200 group-data-open:rotate-90" />
       </DisclosureButton>
 
       <DisclosurePanel
         transition
         className="origin-top transition duration-200 ease-out data-closed:-translate-y-1 data-closed:opacity-0"
       >
-        <div className="border-t border-white/[0.06]">
+        <div className="border-t border-line">
           <table className="w-full text-sm">
             <tbody>
               {category.criteria.map((criterion) => (
                 <tr
                   key={criterion.name}
-                  className="border-b border-white/[0.04] last:border-b-0 transition-colors hover:bg-white/[0.015]"
+                  className="border-b border-line last:border-b-0 transition-colors hover:bg-overlay"
                 >
                   <td className="w-8 py-2.5 pl-5 pr-0">
                     <span
                       className={`inline-block size-2 rounded-full ${statusConfig[criterion.status].dot}`}
                     />
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-ice-100">
+                  <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-fg-2">
                     {criterion.name}
                   </td>
-                  <td className="py-2.5 px-3 text-navy-600">
+                  <td className="py-2.5 px-3 text-fg-muted">
                     {criterion.description || (
                       <span className="italic">Not configured</span>
                     )}

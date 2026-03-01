@@ -33,10 +33,10 @@ export const statusConfig = {
   },
   na: {
     label: "N/A",
-    color: "text-navy-600",
-    bg: "bg-white/[0.04]",
-    dot: "bg-navy-600",
-    border: "border-l-navy-600/50",
+    color: "text-fg-muted",
+    bg: "bg-overlay",
+    dot: "bg-fg-muted",
+    border: "border-l-fg-muted/50",
   },
 } as const satisfies Record<
   VerificationStatus,
@@ -157,7 +157,7 @@ export interface CriterionPerformance {
 export const modeConfig = {
   active: { label: "Active", color: "text-mint", bg: "bg-mint/10" },
   evaluate: { label: "Evaluate", color: "text-amber", bg: "bg-amber/10" },
-  disabled: { label: "Disabled", color: "text-navy-600", bg: "bg-white/[0.04]" },
+  disabled: { label: "Disabled", color: "text-fg-muted", bg: "bg-overlay" },
 } as const satisfies Record<
   VerificationMode,
   { label: string; color: string; bg: string }

@@ -226,26 +226,26 @@ function ToolRow({ tool }: { tool: ToolUse }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border-b border-white/[0.04] last:border-b-0">
+    <div className="border-b border-line last:border-b-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.02] cursor-pointer"
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-overlay cursor-pointer"
       >
-        <ChevronRightIcon className={`size-3 shrink-0 text-navy-600 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-        <WrenchScrewdriverIcon className="size-3.5 shrink-0 text-navy-600" />
-        <span className="font-mono text-xs text-ice-300">{tool.toolName}</span>
-        <span className="truncate font-mono text-xs text-navy-600">{tool.args}</span>
+        <ChevronRightIcon className={`size-3 shrink-0 text-fg-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
+        <WrenchScrewdriverIcon className="size-3.5 shrink-0 text-fg-muted" />
+        <span className="font-mono text-xs text-fg-3">{tool.toolName}</span>
+        <span className="truncate font-mono text-xs text-fg-muted">{tool.args}</span>
       </button>
       {open && (
-        <div className="space-y-px bg-white/[0.01] px-2.5 pb-2 pt-1">
-          <div className="rounded bg-white/[0.02] px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-navy-600">Args</div>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{tool.args}</pre>
+        <div className="space-y-px bg-overlay px-2.5 pb-2 pt-1">
+          <div className="rounded bg-overlay px-2.5 py-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Args</div>
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.args}</pre>
           </div>
-          <div className="rounded bg-white/[0.02] px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-navy-600">Result</div>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{tool.result}</pre>
+          <div className="rounded bg-overlay px-2.5 py-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Result</div>
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.result}</pre>
           </div>
         </div>
       )}
@@ -255,7 +255,7 @@ function ToolRow({ tool }: { tool: ToolUse }) {
 
 function ToolBlock({ tools }: { tools: ToolUse[] }) {
   return (
-    <div className="rounded-md border border-white/[0.06] bg-white/[0.01] overflow-hidden">
+    <div className="rounded-md border border-line bg-overlay overflow-hidden">
       {tools.map((tool, i) => (
         <ToolRow key={i} tool={tool} />
       ))}
@@ -277,7 +277,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="inline-flex items-center justify-center rounded-md border border-white/[0.06] bg-navy-800/80 p-1.5 text-navy-600 transition-colors hover:border-white/[0.12] hover:text-ice-300"
+      className="inline-flex items-center justify-center rounded-md border border-line bg-panel/80 p-1.5 text-fg-muted transition-colors hover:border-line-strong hover:text-fg-3"
       aria-label="Copy"
     >
       {copied
@@ -291,16 +291,16 @@ function UserBlock({ content, date }: { content: string; date?: string }) {
   return (
     <div className="group">
       <div className="flex gap-3">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-navy-800 border border-white/[0.08]">
-          <UserIcon className="size-3.5 text-ice-300" />
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-panel border border-line-strong">
+          <UserIcon className="size-3.5 text-fg-3" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-100">{content}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-fg-2">{content}</pre>
         </div>
       </div>
       <div className="ml-10 mt-1 flex h-6 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
         <CopyButton text={content} />
-        {date != null && <span className="text-[11px] text-navy-600">{date}</span>}
+        {date != null && <span className="text-[11px] text-fg-muted">{date}</span>}
       </div>
     </div>
   );
@@ -314,7 +314,7 @@ function AssistantBlock({ content, showCopy }: { content: string; showCopy: bool
           <ChatBubbleLeftIcon className="size-3.5 text-teal-500" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-300">{content}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-fg-3">{content}</pre>
         </div>
       </div>
       {showCopy && (
@@ -328,20 +328,20 @@ function AssistantBlock({ content, showCopy }: { content: string; showCopy: bool
 
 function SessionSidebar({ activeId }: { activeId: string }) {
   return (
-    <aside className="w-64 shrink-0 border-r border-white/[0.06] flex flex-col h-[calc(100vh-4rem)]">
+    <aside className="w-64 shrink-0 border-r border-line flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-3">
         <Link
           to="/start"
-          className="flex w-full items-center gap-2 rounded-lg border border-white/[0.06] bg-navy-800/60 px-3 py-2 text-sm text-ice-100 transition-colors hover:bg-navy-800 hover:border-white/[0.12]"
+          className="flex w-full items-center gap-2 rounded-lg border border-line bg-panel/60 px-3 py-2 text-sm text-fg-2 transition-colors hover:bg-panel hover:border-line-strong"
         >
-          <PencilSquareIcon className="size-4 text-navy-600" />
+          <PencilSquareIcon className="size-4 text-fg-muted" />
           New session
         </Link>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {sessionGroups.map((group) => (
           <div key={group.label} className="mt-4 first:mt-1">
-            <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-navy-600">
+            <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
               {group.label}
             </p>
             <ul className="space-y-0.5">
@@ -351,14 +351,14 @@ function SessionSidebar({ activeId }: { activeId: string }) {
                     to={`/sessions/${session.id}`}
                     className={`flex w-full flex-col rounded-lg px-2.5 py-2 text-left transition-colors ${
                       activeId === session.id
-                        ? "bg-white/[0.06] text-ice-100"
-                        : "text-ice-300 hover:bg-white/[0.04]"
+                        ? "bg-overlay text-fg-2"
+                        : "text-fg-3 hover:bg-overlay"
                     }`}
                   >
                     <span className="truncate text-sm">{session.title}</span>
                     <span className="flex items-center gap-1.5 mt-0.5">
                       <span className="font-mono text-[11px] text-teal-500">{session.repo}</span>
-                      <span className="text-[11px] text-navy-600">{session.time}</span>
+                      <span className="text-[11px] text-fg-muted">{session.time}</span>
                     </span>
                   </Link>
                 </li>
@@ -380,11 +380,11 @@ export default function SessionDetail() {
       <SessionSidebar activeId={session.id} />
 
       <div className="flex-1 flex flex-col min-h-[calc(100vh-4rem)]">
-        <div className="border-b border-white/[0.06] px-6 py-3 flex items-center gap-3">
-          <h1 className="text-sm font-medium text-ice-100">{session.title}</h1>
+        <div className="border-b border-line px-6 py-3 flex items-center gap-3">
+          <h1 className="text-sm font-medium text-fg-2">{session.title}</h1>
           <span className="font-mono text-xs text-teal-500">{session.repo}</span>
-          <span className="text-xs text-navy-600">{session.time}</span>
-          <span className="ml-auto font-mono text-xs text-navy-600">{session.model}</span>
+          <span className="text-xs text-fg-muted">{session.time}</span>
+          <span className="ml-auto font-mono text-xs text-fg-muted">{session.model}</span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -405,13 +405,13 @@ export default function SessionDetail() {
           </div>
         </div>
 
-        <div className="border-t border-white/[0.06] px-6 py-4">
+        <div className="border-t border-line px-6 py-4">
           <div className="mx-auto max-w-3xl">
-            <div className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-navy-800/80 px-4 py-3 focus-within:border-teal-500/40">
+            <div className="flex items-start gap-3 rounded-lg border border-line bg-panel/80 px-4 py-3 focus-within:border-focus">
               <textarea
                 placeholder="Send a message..."
                 rows={1}
-                className="flex-1 resize-none bg-transparent text-sm text-ice-100 placeholder-navy-600 outline-none"
+                className="flex-1 resize-none bg-transparent text-sm text-fg-2 placeholder-fg-muted outline-none"
               />
               <button
                 type="button"

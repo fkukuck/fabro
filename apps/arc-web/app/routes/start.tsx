@@ -76,9 +76,9 @@ function BranchIcon({ className }: { className?: string }) {
 
 function SessionSidebar() {
   return (
-    <aside className="w-64 shrink-0 border-r border-white/[0.06] flex flex-col h-[calc(100vh-4rem)]">
+    <aside className="w-64 shrink-0 border-r border-line flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-3">
-        <div className="flex w-full items-center gap-2 rounded-lg border border-teal-500/20 bg-navy-800/60 px-3 py-2 text-sm text-ice-100">
+        <div className="flex w-full items-center gap-2 rounded-lg border border-teal-500/20 bg-panel/60 px-3 py-2 text-sm text-fg-2">
           <PencilSquareIcon className="size-4 text-teal-500" />
           New session
         </div>
@@ -86,7 +86,7 @@ function SessionSidebar() {
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {sessionGroups.map((group) => (
           <div key={group.label} className="mt-4 first:mt-1">
-            <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-navy-600">
+            <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
               {group.label}
             </p>
             <ul className="space-y-0.5">
@@ -94,12 +94,12 @@ function SessionSidebar() {
                 <li key={session.id}>
                   <Link
                     to={`/sessions/${session.id}`}
-                    className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left transition-colors text-ice-300 hover:bg-white/[0.04]"
+                    className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left transition-colors text-fg-3 hover:bg-overlay"
                   >
                     <span className="truncate text-sm">{session.title}</span>
                     <span className="flex items-center gap-1.5 mt-0.5">
                       <span className="font-mono text-[11px] text-teal-500">{session.repo}</span>
-                      <span className="text-[11px] text-navy-600">{session.time}</span>
+                      <span className="text-[11px] text-fg-muted">{session.time}</span>
                     </span>
                   </Link>
                 </li>
@@ -148,7 +148,7 @@ export default function Start() {
 
       <div className="flex-1 flex flex-col items-center pt-[12vh] px-4">
         <div className="w-full max-w-2xl">
-          <h1 className="flex items-center justify-center gap-3 text-[2rem] font-medium tracking-tight text-ice-100 text-center mb-8">
+          <h1 className="flex items-center justify-center gap-3 text-[2rem] font-medium tracking-tight text-fg-2 text-center mb-8">
             <img src="/logo.svg" alt="" className="size-9" />
             What do you want to build?
           </h1>
@@ -156,7 +156,7 @@ export default function Start() {
           <div className="relative group">
             <div className="absolute -inset-px rounded-xl bg-gradient-to-b from-teal-500/30 to-mint/20 opacity-0 blur-sm transition-opacity duration-300 group-focus-within:opacity-100" />
 
-            <div className="relative rounded-xl bg-navy-800 border border-white/[0.08] group-focus-within:border-teal-500/40 transition-colors duration-300">
+            <div className="relative rounded-xl bg-panel border border-line-strong group-focus-within:border-focus transition-colors duration-300">
               <textarea
                 ref={textareaRef}
                 value={prompt}
@@ -167,7 +167,7 @@ export default function Start() {
                 onKeyDown={handleKeyDown}
                 placeholder="Describe a workflow, pipeline, or automation..."
                 rows={3}
-                className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] leading-relaxed text-ice-100 placeholder:text-navy-600 focus:outline-none"
+                className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] leading-relaxed text-fg-2 placeholder:text-fg-muted focus:outline-none"
               />
 
               <div className="absolute bottom-3 inset-x-3 flex items-center justify-between">
@@ -176,18 +176,18 @@ export default function Start() {
                     value={project}
                     onChange={setProject}
                     options={projects}
-                    icon={<FolderIcon className="size-3.5 text-navy-600" />}
+                    icon={<FolderIcon className="size-3.5 text-fg-muted" />}
                   />
                   <Picker
                     value={branch}
                     onChange={setBranch}
                     options={branches}
-                    icon={<BranchIcon className="size-3.5 text-navy-600" />}
+                    icon={<BranchIcon className="size-3.5 text-fg-muted" />}
                   />
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-navy-600 select-none">
+                  <span className="text-xs text-fg-muted select-none">
                     <kbd className="font-mono">Enter</kbd> to submit
                   </span>
                   <button
@@ -211,7 +211,7 @@ export default function Start() {
                   className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors cursor-pointer ${
                     openCategory === cat.label
                       ? "border-teal-500/30 bg-teal-500/10 text-teal-300"
-                      : "border-white/[0.06] bg-navy-800/50 text-ice-300 hover:bg-navy-800 hover:border-white/[0.12]"
+                      : "border-line bg-panel/50 text-fg-3 hover:bg-panel hover:border-line-strong"
                   }`}
                 >
                   <cat.icon className="size-4" />
@@ -295,23 +295,23 @@ function CategoryPanel({
   onSelect: (prompt: string) => void;
 }) {
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-navy-800 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
+    <div className="rounded-xl border border-line-strong bg-panel overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-line">
         <category.icon className="size-4 text-teal-500" />
-        <span className="text-sm font-medium text-ice-100">{category.label}</span>
+        <span className="text-sm font-medium text-fg-2">{category.label}</span>
         <button
           onClick={onClose}
-          className="ml-auto flex items-center justify-center size-6 rounded-md text-navy-600 hover:text-ice-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
+          className="ml-auto flex items-center justify-center size-6 rounded-md text-fg-muted hover:text-fg-3 hover:bg-overlay transition-colors cursor-pointer"
         >
           <XMarkIcon className="size-4" />
         </button>
       </div>
       <ul>
         {category.items.map((item, i) => (
-          <li key={item.title} className={i > 0 ? "border-t border-white/[0.04]" : ""}>
+          <li key={item.title} className={i > 0 ? "border-t border-line" : ""}>
             <button
               onClick={() => onSelect(item.prompt)}
-              className="w-full px-4 py-3 text-left text-sm text-ice-300 transition-colors hover:bg-white/[0.03] hover:text-ice-100 cursor-pointer"
+              className="w-full px-4 py-3 text-left text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg-2 cursor-pointer"
             >
               {item.title}
             </button>
@@ -336,18 +336,18 @@ function Picker<T extends { id: string; name: string }>({
   return (
     <Listbox value={value} onChange={onChange}>
       <div className="relative">
-        <ListboxButton className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ice-300 bg-navy-950/60 border border-white/[0.06] hover:border-white/[0.12] hover:bg-navy-950/80 transition-colors cursor-pointer">
+        <ListboxButton className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-fg-3 bg-page/60 border border-line hover:border-line-strong hover:bg-page/80 transition-colors cursor-pointer">
           {icon}
           <span className="max-w-[120px] truncate">{value.name}</span>
-          <ChevronUpDownIcon className="size-3.5 text-navy-600" />
+          <ChevronUpDownIcon className="size-3.5 text-fg-muted" />
         </ListboxButton>
 
-        <ListboxOptions anchor="top start" className="z-20 w-56 rounded-lg bg-navy-800 border border-white/[0.08] py-1 shadow-xl shadow-black/30 focus:outline-none [--anchor-gap:4px]">
+        <ListboxOptions anchor="top start" className="z-20 w-56 rounded-lg bg-panel border border-line-strong py-1 shadow-xl shadow-black/30 focus:outline-none [--anchor-gap:4px]">
           {options.map((option) => (
             <ListboxOption
               key={option.id}
               value={option}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs text-ice-300 cursor-pointer data-focus:bg-white/[0.06] data-selected:text-teal-300"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-fg-3 cursor-pointer data-focus:bg-overlay data-selected:text-teal-300"
             >
               {option.name}
             </ListboxOption>

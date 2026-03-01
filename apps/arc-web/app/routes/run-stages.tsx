@@ -27,7 +27,7 @@ const stages: Stage[] = [
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
   running: { icon: ArrowPathIcon, color: "text-teal-500" },
-  pending: { icon: PauseCircleIcon, color: "text-navy-600" },
+  pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
   failed: { icon: XCircleIcon, color: "text-coral" },
 };
 
@@ -83,26 +83,26 @@ function ToolRow({ tool }: { tool: ToolUse }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border-b border-white/[0.04] last:border-b-0">
+    <div className="border-b border-line last:border-b-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.02]"
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-overlay"
       >
-        <ChevronRightIcon className={`size-3 shrink-0 text-navy-600 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-        <WrenchScrewdriverIcon className="size-3.5 shrink-0 text-navy-600" />
-        <span className="font-mono text-xs text-ice-300">{tool.toolName}</span>
-        <span className="truncate font-mono text-xs text-navy-600">{tool.args}</span>
+        <ChevronRightIcon className={`size-3 shrink-0 text-fg-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
+        <WrenchScrewdriverIcon className="size-3.5 shrink-0 text-fg-muted" />
+        <span className="font-mono text-xs text-fg-3">{tool.toolName}</span>
+        <span className="truncate font-mono text-xs text-fg-muted">{tool.args}</span>
       </button>
       {open && (
-        <div className="space-y-px bg-white/[0.01] px-2.5 pb-2 pt-1">
-          <div className="rounded bg-white/[0.02] px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-navy-600">Args</div>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{tool.args}</pre>
+        <div className="space-y-px bg-overlay px-2.5 pb-2 pt-1">
+          <div className="rounded bg-overlay px-2.5 py-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Args</div>
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.args}</pre>
           </div>
-          <div className="rounded bg-white/[0.02] px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-navy-600">Result</div>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{tool.result}</pre>
+          <div className="rounded bg-overlay px-2.5 py-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Result</div>
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.result}</pre>
           </div>
         </div>
       )}
@@ -112,7 +112,7 @@ function ToolRow({ tool }: { tool: ToolUse }) {
 
 function ToolBlock({ tools }: { tools: ToolUse[] }) {
   return (
-    <div className="rounded-md border border-white/[0.06] bg-white/[0.01] overflow-hidden">
+    <div className="rounded-md border border-line bg-overlay overflow-hidden">
       {tools.map((tool, i) => (
         <ToolRow key={i} tool={tool} />
       ))}
@@ -125,10 +125,10 @@ function SystemBlock({ content }: { content: string }) {
     <div className="rounded-md border border-amber/10 bg-amber/5 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2">
         <CommandLineIcon className="size-4 shrink-0 text-amber" />
-        <span className="text-xs font-medium text-ice-300">System Prompt</span>
+        <span className="text-xs font-medium text-fg-3">System Prompt</span>
       </div>
-      <div className="border-t border-white/[0.04] px-3 py-2.5">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{content}</pre>
+      <div className="border-t border-line px-3 py-2.5">
+        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{content}</pre>
       </div>
     </div>
   );
@@ -139,10 +139,10 @@ function AssistantBlock({ content }: { content: string }) {
     <div className="rounded-md border border-teal-500/10 bg-teal-500/5 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2">
         <ChatBubbleLeftIcon className="size-4 shrink-0 text-teal-500" />
-        <span className="text-xs font-medium text-ice-300">Assistant</span>
+        <span className="text-xs font-medium text-fg-3">Assistant</span>
       </div>
-      <div className="border-t border-white/[0.04] px-3 py-2.5">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ice-300">{content}</pre>
+      <div className="border-t border-line px-3 py-2.5">
+        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{content}</pre>
       </div>
     </div>
   );
@@ -160,7 +160,7 @@ export default function RunStages() {
     <div className="flex gap-6">
       <nav className="w-56 shrink-0 space-y-6">
         <div>
-          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Stages</h3>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Stages</h3>
           <ul className="mt-2 space-y-0.5">
             {stages.map((stage) => {
               const config = statusConfig[stage.status];
@@ -172,13 +172,13 @@ export default function RunStages() {
                     to={`/runs/${id}/stages/${stage.id}`}
                     className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${
                       isSelected
-                        ? "bg-white/[0.06] text-white"
-                        : "text-ice-300 hover:bg-white/[0.04] hover:text-white"
+                        ? "bg-overlay text-fg"
+                        : "text-fg-3 hover:bg-overlay hover:text-fg"
                     }`}
                   >
                     <Icon className={`size-4 shrink-0 ${config.color} ${stage.status === "running" ? "animate-spin" : ""}`} />
                     <span className="flex-1 truncate">{stage.name}</span>
-                    <span className="font-mono text-xs tabular-nums text-navy-600">{stage.duration}</span>
+                    <span className="font-mono text-xs tabular-nums text-fg-muted">{stage.duration}</span>
                   </Link>
                 </li>
               );
@@ -188,23 +188,23 @@ export default function RunStages() {
 
         {workflow && (
           <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Workflow</h3>
+            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
             <ul className="mt-2 space-y-0.5">
               <li>
                 <Link
                   to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                 >
-                  <DocumentTextIcon className="size-4 shrink-0 text-navy-600" />
+                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
                   Run Configuration
                 </Link>
               </li>
               <li>
                 <Link
                   to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                 >
-                  <MapIcon className="size-4 shrink-0 text-navy-600" />
+                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
                   Workflow Graph
                 </Link>
               </li>
@@ -216,8 +216,8 @@ export default function RunStages() {
       <div className="min-w-0 flex-1 space-y-3">
         <div className="flex items-center gap-2">
           <SelectedIcon className={`size-5 ${selectedConfig.color}`} />
-          <h3 className="text-sm font-medium text-white">{selectedStage.name}</h3>
-          <span className="font-mono text-xs text-navy-600">{selectedStage.duration}</span>
+          <h3 className="text-sm font-medium text-fg">{selectedStage.name}</h3>
+          <span className="font-mono text-xs text-fg-muted">{selectedStage.duration}</span>
         </div>
 
         {turns.map((turn, i) => {

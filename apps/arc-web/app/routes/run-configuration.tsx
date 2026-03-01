@@ -26,7 +26,7 @@ const stages: Stage[] = [
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
   running: { icon: ArrowPathIcon, color: "text-teal-500" },
-  pending: { icon: PauseCircleIcon, color: "text-navy-600" },
+  pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
   failed: { icon: XCircleIcon, color: "text-coral" },
 };
 
@@ -39,7 +39,7 @@ export default function RunConfiguration() {
     <div className="flex gap-6">
       <nav className="w-56 shrink-0 space-y-6">
         <div>
-          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Stages</h3>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Stages</h3>
           <ul className="mt-2 space-y-0.5">
             {stages.map((stage) => {
               const config = statusConfig[stage.status];
@@ -48,11 +48,11 @@ export default function RunConfiguration() {
                 <li key={stage.id}>
                   <Link
                     to={`/runs/${id}/stages/${stage.id}`}
-                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                   >
                     <Icon className={`size-4 shrink-0 ${config.color} ${stage.status === "running" ? "animate-spin" : ""}`} />
                     <span className="flex-1 truncate">{stage.name}</span>
-                    <span className="font-mono text-xs tabular-nums text-navy-600">{stage.duration}</span>
+                    <span className="font-mono text-xs tabular-nums text-fg-muted">{stage.duration}</span>
                   </Link>
                 </li>
               );
@@ -62,23 +62,23 @@ export default function RunConfiguration() {
 
         {workflow && (
           <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Workflow</h3>
+            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
             <ul className="mt-2 space-y-0.5">
               <li>
                 <Link
                   to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md bg-white/[0.06] px-2 py-1.5 text-sm text-white transition-colors"
+                  className="flex items-center gap-2 rounded-md bg-overlay px-2 py-1.5 text-sm text-fg transition-colors"
                 >
-                  <DocumentTextIcon className="size-4 shrink-0 text-navy-600" />
+                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
                   Run Configuration
                 </Link>
               </li>
               <li>
                 <Link
                   to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                 >
-                  <MapIcon className="size-4 shrink-0 text-navy-600" />
+                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
                   Workflow Graph
                 </Link>
               </li>
@@ -93,7 +93,7 @@ export default function RunConfiguration() {
             file={{ name: "task.toml", contents: workflow.config, lang: "toml" }}
           />
         ) : (
-          <p className="text-sm text-navy-600">No configuration found.</p>
+          <p className="text-sm text-fg-muted">No configuration found.</p>
         )}
       </div>
     </div>

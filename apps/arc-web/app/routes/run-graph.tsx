@@ -5,6 +5,8 @@ import { CheckCircleIcon, ArrowPathIcon, PauseCircleIcon, XCircleIcon } from "@h
 import { DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
 import { findRun } from "../data/runs";
 import { workflowData } from "./workflow-detail";
+import { useTheme } from "../lib/theme";
+import { getGraphTheme } from "../lib/graph-theme";
 
 export const handle = { wide: true };
 
@@ -28,13 +30,13 @@ const stages: Stage[] = [
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
   running: { icon: ArrowPathIcon, color: "text-teal-500" },
-  pending: { icon: PauseCircleIcon, color: "text-navy-600" },
+  pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
   failed: { icon: XCircleIcon, color: "text-coral" },
 };
 
 type Direction = "LR" | "TB";
 
-function buildDot(direction: Direction) {
+function buildDot(direction: Direction, gt: ReturnType<typeof getGraphTheme>) {
   return `digraph sync {
     graph [label="Sync"]
     rankdir=${direction}
@@ -44,27 +46,27 @@ function buildDot(direction: Direction) {
     node [
         fontname="ui-monospace, monospace"
         fontsize=11
-        fontcolor="#c6d4e0"
-        color="#2a3f52"
-        fillcolor="#1a2b3c"
+        fontcolor="${gt.nodeText}"
+        color="${gt.edgeColor}"
+        fillcolor="${gt.nodeFill}"
         style=filled
         penwidth=1.2
     ]
     edge [
         fontname="ui-monospace, monospace"
         fontsize=9
-        fontcolor="#5a7a94"
-        color="#2a3f52"
+        fontcolor="${gt.fontcolor}"
+        color="${gt.edgeColor}"
         arrowsize=0.7
         penwidth=1.2
     ]
 
-    start [shape=Mdiamond, label="Start", fillcolor="#0d4f4f", color="#14b8a6", fontcolor="#5eead4"]
-    exit  [shape=Msquare,  label="Exit",  fillcolor="#0d4f4f", color="#14b8a6", fontcolor="#5eead4"]
+    start [shape=Mdiamond, label="Start", fillcolor="${gt.startFill}", color="${gt.startBorder}", fontcolor="${gt.startText}"]
+    exit  [shape=Msquare,  label="Exit",  fillcolor="${gt.startFill}", color="${gt.startBorder}", fontcolor="${gt.startText}"]
 
     detect  [label="Detect\\nDrift"]
     propose [label="Propose\\nChanges"]
-    review  [shape=hexagon, label="Review\\nChanges", fillcolor="#1a2030", color="#f59e0b", fontcolor="#fbbf24"]
+    review  [shape=hexagon, label="Review\\nChanges", fillcolor="${gt.gateFill}", color="${gt.gateBorder}", fontcolor="${gt.gateText}"]
     apply   [label="Apply\\nChanges"]
 
     start -> detect
@@ -89,7 +91,7 @@ function stripGraphTitle(svg: SVGSVGElement) {
   title.remove();
 }
 
-function annotateRunningNodes(svg: SVGSVGElement) {
+function annotateRunningNodes(svg: SVGSVGElement, gt: ReturnType<typeof getGraphTheme>) {
   const runningDotIds = new Set(
     stages.filter((s) => s.status === "running").map((s) => s.dotId),
   );
@@ -109,20 +111,20 @@ function annotateRunningNodes(svg: SVGSVGElement) {
       const ns = "http://www.w3.org/2000/svg";
       const shapes = group.querySelectorAll("ellipse, polygon, path");
       for (const shape of shapes) {
-        shape.setAttribute("fill", "#0d3a3a");
-        shape.setAttribute("stroke", "#14b8a6");
+        shape.setAttribute("fill", gt.runningFill);
+        shape.setAttribute("stroke", gt.runningBorder);
         shape.setAttribute("stroke-width", "2");
 
         const animFill = document.createElementNS(ns, "animate");
         animFill.setAttribute("attributeName", "fill");
-        animFill.setAttribute("values", "#0d3a3a;#134e4a;#0d3a3a");
+        animFill.setAttribute("values", `${gt.runningFill};${gt.runningPulseFill};${gt.runningFill}`);
         animFill.setAttribute("dur", "1.5s");
         animFill.setAttribute("repeatCount", "indefinite");
         shape.appendChild(animFill);
 
         const animStroke = document.createElementNS(ns, "animate");
         animStroke.setAttribute("attributeName", "stroke");
-        animStroke.setAttribute("values", "#14b8a6;#5eead4;#14b8a6");
+        animStroke.setAttribute("values", `${gt.runningBorder};${gt.runningPulseStroke};${gt.runningBorder}`);
         animStroke.setAttribute("dur", "1.5s");
         animStroke.setAttribute("repeatCount", "indefinite");
         shape.appendChild(animStroke);
@@ -136,18 +138,18 @@ function annotateRunningNodes(svg: SVGSVGElement) {
       }
       const texts = group.querySelectorAll("text");
       for (const text of texts) {
-        text.setAttribute("fill", "#5eead4");
+        text.setAttribute("fill", gt.runningText);
       }
     } else if (completedDotIds.has(nodeId)) {
       // Tint completed nodes green
       const shapes = group.querySelectorAll("ellipse, polygon, path");
       for (const shape of shapes) {
-        shape.setAttribute("fill", "#0a2a20");
-        shape.setAttribute("stroke", "#34d399");
+        shape.setAttribute("fill", gt.completedFill);
+        shape.setAttribute("stroke", gt.completedBorder);
       }
       const texts = group.querySelectorAll("text");
       for (const text of texts) {
-        text.setAttribute("fill", "#6ee7b7");
+        text.setAttribute("fill", gt.completedText);
       }
     }
   }
@@ -165,8 +167,8 @@ function annotateRunningNodes(svg: SVGSVGElement) {
     if (completedDotIds.has(targetId)) {
       const paths = group.querySelectorAll("path, polygon");
       for (const p of paths) {
-        p.setAttribute("stroke", "#34d399");
-        if (p.tagName === "polygon") p.setAttribute("fill", "#34d399");
+        p.setAttribute("stroke", gt.completedBorder);
+        if (p.tagName === "polygon") p.setAttribute("fill", gt.completedBorder);
       }
     }
   }
@@ -189,6 +191,8 @@ export default function RunGraph() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragState = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const zoom = ZOOM_STEPS[zoomIndex];
+  const { theme } = useTheme();
+  const graphTheme = getGraphTheme(theme);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,9 +203,9 @@ export default function RunGraph() {
       if (cancelled) return;
 
       try {
-        const svg = viz.renderSVGElement(buildDot(direction));
+        const svg = viz.renderSVGElement(buildDot(direction, graphTheme));
         stripGraphTitle(svg);
-        annotateRunningNodes(svg);
+        annotateRunningNodes(svg, graphTheme);
 
         svgRef.current = svg;
         if (innerRef.current) {
@@ -215,7 +219,7 @@ export default function RunGraph() {
     setPan({ x: 0, y: 0 });
     render();
     return () => { cancelled = true; };
-  }, [direction]);
+  }, [direction, graphTheme]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -264,7 +268,7 @@ export default function RunGraph() {
     <div className="flex gap-6">
       <nav className="w-56 shrink-0 space-y-6">
         <div>
-          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Stages</h3>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Stages</h3>
           <ul className="mt-2 space-y-0.5">
             {stages.map((stage) => {
               const config = statusConfig[stage.status];
@@ -273,11 +277,11 @@ export default function RunGraph() {
                 <li key={stage.id}>
                   <Link
                     to={`/runs/${id}/stages/${stage.id}`}
-                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                   >
                     <Icon className={`size-4 shrink-0 ${config.color} ${stage.status === "running" ? "animate-spin" : ""}`} />
                     <span className="flex-1 truncate">{stage.name}</span>
-                    <span className="font-mono text-xs tabular-nums text-navy-600">{stage.duration}</span>
+                    <span className="font-mono text-xs tabular-nums text-fg-muted">{stage.duration}</span>
                   </Link>
                 </li>
               );
@@ -287,23 +291,23 @@ export default function RunGraph() {
 
         {workflow && (
           <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-navy-600">Workflow</h3>
+            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
             <ul className="mt-2 space-y-0.5">
               <li>
                 <Link
                   to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
                 >
-                  <DocumentTextIcon className="size-4 shrink-0 text-navy-600" />
+                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
                   Run Configuration
                 </Link>
               </li>
               <li>
                 <Link
                   to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md bg-white/[0.06] px-2 py-1.5 text-sm text-white transition-colors"
+                  className="flex items-center gap-2 rounded-md bg-overlay px-2 py-1.5 text-sm text-fg transition-colors"
                 >
-                  <MapIcon className="size-4 shrink-0 text-navy-600" />
+                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
                   Workflow Graph
                 </Link>
               </li>
@@ -313,14 +317,14 @@ export default function RunGraph() {
       </nav>
 
       <div className="min-w-0 flex-1">
-        <div className="relative rounded-md border border-white/[0.06] bg-navy-900/40">
+        <div className="relative rounded-md border border-line bg-panel-alt/40">
           <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+            <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
               <button
                 type="button"
                 title="Left to right"
                 onClick={() => setDirection("LR")}
-                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-white/10 text-ice-300" : "text-navy-400 hover:bg-white/5 hover:text-ice-300"}`}
+                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
               >
                 <ArrowRightIcon className="size-3.5" />
               </button>
@@ -328,18 +332,18 @@ export default function RunGraph() {
                 type="button"
                 title="Top to bottom"
                 onClick={() => setDirection("TB")}
-                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-white/10 text-ice-300" : "text-navy-400 hover:bg-white/5 hover:text-ice-300"}`}
+                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
               >
                 <ArrowDownIcon className="size-3.5" />
               </button>
             </div>
 
-            <div className="flex items-center rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+            <div className="flex items-center rounded-md border border-line bg-panel/90 p-0.5">
               <button
                 type="button"
                 title="Fit to window"
                 onClick={fitToWindow}
-                className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300"
+                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3"
               >
                 <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" className="size-3.5" aria-hidden="true">
                   <rect x="1" y="1" width="12" height="12" rx="1.5" strokeWidth="1.5" strokeDasharray="3 2" />
@@ -347,13 +351,13 @@ export default function RunGraph() {
               </button>
             </div>
 
-            <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+            <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
               <button
                 type="button"
                 title="Zoom out"
                 onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}
                 disabled={zoomIndex === 0}
-                className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-navy-400"
+                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
               >
                 <MinusIcon className="size-4" />
               </button>
@@ -362,7 +366,7 @@ export default function RunGraph() {
                 title="Zoom in"
                 onClick={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
                 disabled={zoomIndex === ZOOM_STEPS.length - 1}
-                className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-navy-400"
+                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
               >
                 <PlusIcon className="size-4" />
               </button>
@@ -383,7 +387,7 @@ export default function RunGraph() {
               className="flex items-center justify-center"
               style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
             >
-              <p className="text-sm text-navy-600">Loading diagram...</p>
+              <p className="text-sm text-fg-muted">Loading diagram...</p>
             </div>
           </div>
         </div>

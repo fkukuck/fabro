@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownIcon, ArrowRightIcon, MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
+import { useTheme } from "../lib/theme";
+import { getGraphTheme } from "../lib/graph-theme";
 
 type Direction = "LR" | "TB";
 
-function buildDot(direction: Direction) {
+function buildDot(direction: Direction, theme: ReturnType<typeof getGraphTheme>) {
   return `digraph fix_build {
     graph [
         label="Fix Build"
@@ -15,29 +17,29 @@ function buildDot(direction: Direction) {
     node [
         fontname="ui-monospace, monospace"
         fontsize=11
-        fontcolor="#c6d4e0"
-        color="#2a3f52"
-        fillcolor="#1a2b3c"
+        fontcolor="${theme.nodeText}"
+        color="${theme.edgeColor}"
+        fillcolor="${theme.nodeFill}"
         style=filled
         penwidth=1.2
     ]
     edge [
         fontname="ui-monospace, monospace"
         fontsize=9
-        fontcolor="#5a7a94"
-        color="#2a3f52"
+        fontcolor="${theme.fontcolor}"
+        color="${theme.edgeColor}"
         arrowsize=0.7
         penwidth=1.2
     ]
 
-    start [shape=Mdiamond, label="Start", fillcolor="#0d4f4f", color="#14b8a6", fontcolor="#5eead4"]
-    exit  [shape=Msquare,  label="Exit",  fillcolor="#0d4f4f", color="#14b8a6", fontcolor="#5eead4"]
+    start [shape=Mdiamond, label="Start", fillcolor="${theme.startFill}", color="${theme.startBorder}", fontcolor="${theme.startText}"]
+    exit  [shape=Msquare,  label="Exit",  fillcolor="${theme.startFill}", color="${theme.startBorder}", fontcolor="${theme.startText}"]
 
     analyze  [label="Analyze\\nBuild Errors"]
     diagnose [label="Diagnose\\nRoot Cause"]
     fix      [label="Apply\\nFix"]
     validate [label="Validate\\nBuild"]
-    approve  [shape=hexagon, label="Review\\nChanges", fillcolor="#1a2030", color="#f59e0b", fontcolor="#fbbf24"]
+    approve  [shape=hexagon, label="Review\\nChanges", fillcolor="${theme.gateFill}", color="${theme.gateBorder}", fontcolor="${theme.gateText}"]
 
     start -> analyze
     analyze -> diagnose
@@ -45,7 +47,7 @@ function buildDot(direction: Direction) {
     fix -> validate
     validate -> exit      [label="Pass"]
     validate -> diagnose  [label="Fail", style=dashed, color="#f87171"]
-    validate -> approve   [label="Needs review", color="#f59e0b"]
+    validate -> approve   [label="Needs review", color="${theme.gateBorder}"]
     approve -> exit       [label="Accept"]
     approve -> fix        [label="Revise", style=dashed]
 }`;
@@ -76,6 +78,8 @@ export default function WorkflowDiagram() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragState = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const zoom = ZOOM_STEPS[zoomIndex];
+  const { theme } = useTheme();
+  const graphTheme = getGraphTheme(theme);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +90,7 @@ export default function WorkflowDiagram() {
       if (cancelled) return;
 
       try {
-        const svg = viz.renderSVGElement(buildDot(direction));
+        const svg = viz.renderSVGElement(buildDot(direction, graphTheme));
         stripGraphTitle(svg);
 
         svgRef.current = svg;
@@ -101,7 +105,7 @@ export default function WorkflowDiagram() {
     setPan({ x: 0, y: 0 });
     render();
     return () => { cancelled = true; };
-  }, [direction]);
+  }, [direction, graphTheme]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -148,14 +152,14 @@ export default function WorkflowDiagram() {
   }
 
   return (
-    <div className="relative rounded-md border border-white/[0.06] bg-navy-900/40">
+    <div className="relative rounded-md border border-line bg-panel-alt/40">
       <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-        <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+        <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
           <button
             type="button"
             title="Left to right"
             onClick={() => setDirection("LR")}
-            className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-white/10 text-ice-300" : "text-navy-400 hover:bg-white/5 hover:text-ice-300"}`}
+            className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
           >
             <ArrowRightIcon className="size-3.5" />
           </button>
@@ -163,18 +167,18 @@ export default function WorkflowDiagram() {
             type="button"
             title="Top to bottom"
             onClick={() => setDirection("TB")}
-            className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-white/10 text-ice-300" : "text-navy-400 hover:bg-white/5 hover:text-ice-300"}`}
+            className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
           >
             <ArrowDownIcon className="size-3.5" />
           </button>
         </div>
 
-        <div className="flex items-center rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+        <div className="flex items-center rounded-md border border-line bg-panel/90 p-0.5">
           <button
             type="button"
             title="Fit to window"
             onClick={fitToWindow}
-            className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300"
+            className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3"
           >
             <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" className="size-3.5" aria-hidden="true">
               <rect x="1" y="1" width="12" height="12" rx="1.5" strokeWidth="1.5" strokeDasharray="3 2" />
@@ -182,13 +186,13 @@ export default function WorkflowDiagram() {
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-navy-800/90 p-0.5">
+        <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
           <button
             type="button"
             title="Zoom out"
             onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}
             disabled={zoomIndex === 0}
-            className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-navy-400"
+            className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
           >
             <MinusIcon className="size-4" />
           </button>
@@ -197,7 +201,7 @@ export default function WorkflowDiagram() {
             title="Zoom in"
             onClick={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
             disabled={zoomIndex === ZOOM_STEPS.length - 1}
-            className="flex size-7 items-center justify-center rounded text-navy-400 transition-colors hover:bg-white/5 hover:text-ice-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-navy-400"
+            className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
           >
             <PlusIcon className="size-4" />
           </button>
@@ -218,7 +222,7 @@ export default function WorkflowDiagram() {
           className="flex items-center justify-center"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
         >
-          <p className="text-sm text-navy-600">Loading diagram...</p>
+          <p className="text-sm text-fg-muted">Loading diagram...</p>
         </div>
       </div>
     </div>

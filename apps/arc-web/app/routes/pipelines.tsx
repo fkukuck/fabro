@@ -81,12 +81,12 @@ function CheckStatusIcon({ status }: { status: CheckStatus }) {
     case "queued":
       return (
         <span className="flex size-3 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full border border-navy-600" />
+          <span className="size-2 rounded-full border border-fg-muted" />
         </span>
       );
     case "skipped":
       return (
-        <svg viewBox="0 0 16 16" fill="currentColor" className="size-3 shrink-0 text-navy-600" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="size-3 shrink-0 text-fg-muted" aria-hidden="true">
           <path d="M2 7.75A.75.75 0 0 1 2.75 7h10a.75.75 0 0 1 0 1.5h-10A.75.75 0 0 1 2 7.75Z" />
         </svg>
       );
@@ -155,26 +155,26 @@ function ChecksStatus({ checks }: { checks: CheckRun[] }) {
 
   return (
     <div
-      className="-mx-4 mt-3 overflow-hidden border-y border-white/[0.04]"
+      className="-mx-4 mt-3 overflow-hidden border-y border-line"
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-white/[0.03]"
+        className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-overlay"
       >
         <SummaryStatusIcon status={overallStatus} />
         <span className={`min-w-0 flex-1 truncate font-mono text-xs font-medium ${config.text}`}>{summary}</span>
-        <ChevronDownIcon className={`size-3 shrink-0 text-navy-600 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+        <ChevronDownIcon className={`size-3 shrink-0 text-fg-muted transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
       </button>
       <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
         <div className="overflow-hidden">
-          <div className="border-t border-white/[0.04] px-4 pb-2 pt-1.5">
+          <div className="border-t border-line px-4 pb-2 pt-1.5">
             {checks.map((check) => (
               <div key={check.name} className="flex items-center gap-2 py-1 font-mono text-[11px]">
                 <CheckStatusIcon status={check.status} />
-                <span className={check.status === "skipped" || check.status === "queued" ? "text-navy-600" : "text-ice-300"}>{check.name}</span>
-                <span className="ml-auto text-navy-600">
+                <span className={check.status === "skipped" || check.status === "queued" ? "text-fg-muted" : "text-fg-3"}>{check.name}</span>
+                <span className="ml-auto text-fg-muted">
                   {check.duration ?? (check.status === "skipped" ? "skipped" : check.status === "queued" ? "queued" : "")}
                 </span>
               </div>
@@ -195,12 +195,12 @@ const totalPrs = staticColumns.reduce(
 export const handle = {
   wide: true,
   headerExtra: (
-    <div className="flex items-center gap-4 font-mono text-xs text-ice-300">
+    <div className="flex items-center gap-4 font-mono text-xs text-fg-3">
       <span>
-        <span className="text-white">{totalCards}</span> runs
+        <span className="text-fg">{totalCards}</span> runs
       </span>
       <span>
-        <span className="text-white">{totalPrs}</span> PRs
+        <span className="text-fg">{totalPrs}</span> PRs
       </span>
     </div>
   ),
@@ -218,25 +218,25 @@ function PrCard({
   actions?: string[];
 }) {
   return (
-    <Link to={`/runs/${pr.id}`} className="group block rounded-md border border-white/[0.06] bg-navy-800/80 p-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-navy-800 hover:shadow-lg hover:shadow-black/20">
+    <Link to={`/runs/${pr.id}`} className="group block rounded-md border border-line bg-panel/80 p-4 transition-all duration-200 hover:border-line-strong hover:bg-panel hover:shadow-lg hover:shadow-black/20">
       <div className="mb-2 flex items-center gap-1.5">
         <Icon className={`size-3.5 shrink-0 ${iconColor}`} />
         <span className="font-mono text-xs font-medium text-teal-500">
           {pr.repo}
         </span>
         {pr.number != null && (
-          <span className="font-mono text-xs text-navy-600">
+          <span className="font-mono text-xs text-fg-muted">
             #{pr.number}
           </span>
         )}
       </div>
 
-      <p className="text-sm leading-snug text-ice-100">{pr.title}</p>
+      <p className="text-sm leading-snug text-fg-2">{pr.title}</p>
 
       {(pr.additions != null || pr.resources != null || pr.elapsed != null) && (
         <div className="mt-3 flex items-center gap-3 font-mono text-xs">
           {pr.resources != null && (
-            <span className="text-ice-300">{pr.resources}</span>
+            <span className="text-fg-3">{pr.resources}</span>
           )}
           {pr.additions != null && pr.deletions != null && (
             <>
@@ -249,7 +249,7 @@ function PrCard({
             </>
           )}
           {pr.comments != null && (
-            <span className="inline-flex items-center gap-1 text-navy-600">
+            <span className="inline-flex items-center gap-1 text-fg-muted">
               <svg viewBox="0 0 16 16" fill="currentColor" className="size-3" aria-hidden="true">
                 <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z" />
               </svg>
@@ -257,7 +257,7 @@ function PrCard({
             </span>
           )}
           {pr.elapsed != null && (
-            <span className={`ml-auto font-mono ${pr.elapsedWarning ? "text-amber" : "text-navy-600"}`}>{pr.elapsed}</span>
+            <span className={`ml-auto font-mono ${pr.elapsedWarning ? "text-amber" : "text-fg-muted"}`}>{pr.elapsed}</span>
           )}
         </div>
       )}
@@ -275,14 +275,14 @@ function PrCard({
               key={label}
               type="button"
               disabled={pr.actionDisabled}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:text-navy-600 disabled:border-white/[0.04] ${
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:text-fg-muted disabled:border-line ${
                 label === "Merge"
-                  ? "border-mint/20 text-mint hover:border-mint/50 hover:text-white"
+                  ? "border-mint/20 text-mint hover:border-mint/50 hover:text-fg"
                   : label === "Answer Question"
-                    ? "border-amber/20 text-amber hover:border-amber/50 hover:text-white"
+                    ? "border-amber/20 text-amber hover:border-amber/50 hover:text-fg"
                     : label === "Resolve"
-                      ? "border-teal-500/20 text-teal-500 hover:border-teal-500/50 hover:text-white"
-                      : "border-white/[0.08] text-ice-300 hover:border-teal-500/40 hover:text-white"
+                      ? "border-teal-500/20 text-teal-500 hover:border-teal-500/50 hover:text-fg"
+                      : "border-line-strong text-fg-3 hover:border-teal-500/40 hover:text-fg"
               }`}
             >
               {label === "Watch" && (
@@ -365,10 +365,10 @@ function BoardColumn({ column }: { column: (typeof staticColumns)[number] }) {
     <div className="flex min-w-[280px] flex-1 flex-col">
       <div className="mb-4 flex items-center gap-3">
         <div className={`h-2.5 w-2.5 rounded-full ${column.accent}`} />
-        <h3 className="text-sm font-semibold tracking-wide text-ice-100">
+        <h3 className="text-sm font-semibold tracking-wide text-fg-2">
           {column.name}
         </h3>
-        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-mono text-xs text-navy-600">
+        <span className="rounded-full bg-overlay px-2 py-0.5 font-mono text-xs text-fg-muted">
           {column.items.length}
         </span>
       </div>
@@ -394,16 +394,16 @@ type ViewMode = "columns" | "list";
 
 function RunRow({ run }: { run: RunWithStatus }) {
   return (
-    <Link to={`/runs/${run.id}`} className="grid items-center rounded-md border border-white/[0.06] bg-navy-800/80 px-4 py-3 transition-all duration-200 hover:border-white/[0.12] hover:bg-navy-800" style={{ gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }}>
-      <span className={`font-mono text-xs pr-2 ${run.elapsedWarning ? "text-amber" : "text-navy-600"}`}>
+    <Link to={`/runs/${run.id}`} className="grid items-center rounded-md border border-line bg-panel/80 px-4 py-3 transition-all duration-200 hover:border-line-strong hover:bg-panel" style={{ gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }}>
+      <span className={`font-mono text-xs pr-2 ${run.elapsedWarning ? "text-amber" : "text-fg-muted"}`}>
         {run.elapsed}
       </span>
 
       <span className="flex items-center gap-2 min-w-0">
         <span className="font-mono text-xs font-medium text-teal-500">{run.repo}</span>
-        <span className="truncate text-sm text-ice-100">{run.title}</span>
+        <span className="truncate text-sm text-fg-2">{run.title}</span>
         {run.comments != null && run.comments > 0 && (
-          <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-navy-600">
+          <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-fg-muted">
             <svg viewBox="0 0 16 16" fill="currentColor" className="size-3" aria-hidden="true">
               <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z" />
             </svg>
@@ -417,7 +417,7 @@ function RunRow({ run }: { run: RunWithStatus }) {
         {run.deletions != null && <span className="text-coral">-{run.deletions.toLocaleString()}</span>}
       </span>
 
-      <span className="inline-flex items-center justify-end gap-1.5 font-mono text-xs text-navy-600">
+      <span className="inline-flex items-center justify-end gap-1.5 font-mono text-xs text-fg-muted">
         {run.number != null && (
           <>
             <GitPullRequestIcon className="size-3" />
@@ -509,33 +509,33 @@ export default function Pipelines() {
       <div className="space-y-4">
         <div className="flex gap-3">
           <div className="relative flex-1">
-            <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+            <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
             <input
               type="text"
               placeholder="Search runs..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-9 pr-3 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+              className="w-full rounded-md border border-line bg-panel/80 py-2 pl-9 pr-3 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
             />
           </div>
           <div className="relative">
             <select
               value={repoFilter}
               onChange={(e) => setRepoFilter(e.target.value)}
-              className="appearance-none rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-3 pr-8 text-sm text-ice-100 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+              className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
             >
               <option value="all">All repos</option>
               {allRepos.map((repo) => (
                 <option key={repo} value={repo}>{repo}</option>
               ))}
             </select>
-            <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+            <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
           </div>
-          <div className="flex rounded-md border border-white/[0.06] bg-navy-800/80">
+          <div className="flex rounded-md border border-line bg-panel/80">
             <button
               type="button"
               onClick={() => setView("columns")}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "columns" ? "text-teal-500" : "text-navy-600 hover:text-ice-300"}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "columns" ? "text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
               aria-label="Columns view"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
@@ -545,7 +545,7 @@ export default function Pipelines() {
             <button
               type="button"
               onClick={() => setView("list")}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "list" ? "text-teal-500" : "text-navy-600 hover:text-ice-300"}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "list" ? "text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
               aria-label="List view"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
@@ -578,11 +578,11 @@ export default function Pipelines() {
                     className="mb-3 flex w-full items-center gap-2 text-left"
                   >
                     {isCollapsed
-                      ? <ChevronRightIcon className="size-3.5 text-navy-600" />
-                      : <ChevronDownIcon className="size-3.5 text-navy-600" />}
+                      ? <ChevronRightIcon className="size-3.5 text-fg-muted" />
+                      : <ChevronDownIcon className="size-3.5 text-fg-muted" />}
                     <div className={`h-2.5 w-2.5 rounded-full ${col.accent}`} />
-                    <h3 className="text-sm font-semibold tracking-wide text-ice-100">{col.name}</h3>
-                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-mono text-xs text-navy-600">
+                    <h3 className="text-sm font-semibold tracking-wide text-fg-2">{col.name}</h3>
+                    <span className="rounded-full bg-overlay px-2 py-0.5 font-mono text-xs text-fg-muted">
                       {col.items.length}
                     </span>
                   </button>
@@ -595,7 +595,7 @@ export default function Pipelines() {
                       </div>
                     </SortableContext>
                   ) : (
-                    <p className="py-4 text-center text-sm text-navy-600">No runs</p>
+                    <p className="py-4 text-center text-sm text-fg-muted">No runs</p>
                   ))}
                 </div>
               );

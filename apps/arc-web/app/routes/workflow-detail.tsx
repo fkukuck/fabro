@@ -273,13 +273,13 @@ export default function WorkflowDetail() {
   const basePath = `/workflows/${name}`;
 
   if (workflow == null) {
-    return <p className="text-sm text-ice-300">Workflow not found.</p>;
+    return <p className="text-sm text-fg-3">Workflow not found.</p>;
   }
 
   return (
     <div>
-      <nav className="mb-4 flex items-center gap-1 text-sm text-navy-600">
-        <Link to="/workflows" className="text-ice-300 hover:text-white">Workflows</Link>
+      <nav className="mb-4 flex items-center gap-1 text-sm text-fg-muted">
+        <Link to="/workflows" className="text-fg-3 hover:text-fg">Workflows</Link>
         <ChevronRightIcon className="size-3" />
         <span>{workflow.title}</span>
       </nav>
@@ -287,15 +287,15 @@ export default function WorkflowDetail() {
       <div className="mb-6 flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-white">{workflow.title}</h2>
-            <span className="font-mono text-xs text-navy-600">{workflow.filename}</span>
+            <h2 className="text-xl font-semibold text-fg">{workflow.title}</h2>
+            <span className="font-mono text-xs text-fg-muted">{workflow.filename}</span>
           </div>
-          <p className="mt-2 max-w-prose text-sm leading-relaxed text-ice-300">{workflow.description}</p>
+          <p className="mt-2 max-w-prose text-sm leading-relaxed text-fg-3">{workflow.description}</p>
         </div>
         <button
           type="button"
           title="Run workflow"
-          className="flex shrink-0 items-center gap-1.5 rounded-md border border-mint/20 px-3 py-1.5 text-sm font-medium text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-white"
+          className="flex shrink-0 items-center gap-1.5 rounded-md border border-mint/20 px-3 py-1.5 text-sm font-medium text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-fg"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" className="size-3.5" aria-hidden="true">
             <path fillRule="evenodd" d="M4.5 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L7.28 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z" clipRule="evenodd" />
@@ -304,7 +304,7 @@ export default function WorkflowDetail() {
         </button>
       </div>
 
-      <div className="border-b border-white/[0.06]">
+      <div className="border-b border-line">
         <nav className="-mb-px flex gap-6">
           {tabs.map((tab) => {
             const tabPath = `${basePath}${tab.path}`;
@@ -315,8 +315,8 @@ export default function WorkflowDetail() {
                 to={tabPath}
                 className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
                   isActive
-                    ? "border-teal-500 text-white"
-                    : "border-transparent text-navy-600 hover:border-white/10 hover:text-ice-300"
+                    ? "border-teal-500 text-fg"
+                    : "border-transparent text-fg-muted hover:border-line-strong hover:text-fg-3"
                 }`}
               >
                 {tab.name}

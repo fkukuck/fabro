@@ -146,34 +146,34 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
   return (
     <Disclosure
       as="div"
-      className="rounded-md border border-white/[0.06] overflow-hidden"
+      className="rounded-md border border-line overflow-hidden"
     >
-      <DisclosureButton className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.02]">
+      <DisclosureButton className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-overlay">
         {(() => {
           const CatIcon = categoryIcons[category.name];
-          return CatIcon ? <CatIcon className="size-5 shrink-0 text-ice-300" /> : null;
+          return CatIcon ? <CatIcon className="size-5 shrink-0 text-fg-3" /> : null;
         })()}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-3">
-            <span className="shrink-0 text-sm font-semibold text-white">
+            <span className="shrink-0 text-sm font-semibold text-fg">
               {category.name}
             </span>
-            <span className="truncate text-xs text-navy-600">
+            <span className="truncate text-xs text-fg-muted">
               {category.question}
             </span>
           </div>
         </div>
-        <span className="shrink-0 text-xs text-navy-600">
+        <span className="shrink-0 text-xs text-fg-muted">
           <span className="font-mono tabular-nums">{category.criteria.length}</span> controls
         </span>
-        <ChevronRightIcon className="size-4 shrink-0 text-navy-600 transition-transform duration-200 group-data-open:rotate-90" />
+        <ChevronRightIcon className="size-4 shrink-0 text-fg-muted transition-transform duration-200 group-data-open:rotate-90" />
       </DisclosureButton>
 
       <DisclosurePanel
         transition
         className="origin-top transition duration-200 ease-out data-closed:-translate-y-1 data-closed:opacity-0"
       >
-        <div className="border-t border-white/[0.06]">
+        <div className="border-t border-line">
           <table className="w-full text-sm">
             <tbody>
               {category.criteria.map((criterion) => {
@@ -182,15 +182,15 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
                 return (
                   <tr
                     key={criterion.name}
-                    className="border-b border-white/[0.04] last:border-b-0 transition-colors hover:bg-white/[0.015]"
+                    className="border-b border-line last:border-b-0 transition-colors hover:bg-overlay"
                   >
                     <td className="w-8 py-2.5 pl-5 pr-0">
-                      {Icon && <Icon className="size-4 text-ice-300" />}
+                      {Icon && <Icon className="size-4 text-fg-3" />}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-ice-100">
+                    <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-fg-2">
                       {criterion.name}
                     </td>
-                    <td className="py-2.5 px-3 text-navy-600">
+                    <td className="py-2.5 px-3 text-fg-muted">
                       {criterion.description || (
                         <span className="italic">Not configured</span>
                       )}
@@ -238,7 +238,7 @@ function ModeBadge({ mode }: { mode: VerificationMode }) {
 
 function EvaluationDots({ evaluations }: { evaluations: readonly EvaluationResult[] }) {
   if (evaluations.length === 0) {
-    return <span className="text-xs italic text-navy-600">—</span>;
+    return <span className="text-xs italic text-fg-muted">—</span>;
   }
   return (
     <div className="flex items-center gap-0.5">
@@ -260,10 +260,10 @@ function EvaluationDots({ evaluations }: { evaluations: readonly EvaluationResul
 
 function UngroupedView({ categories }: { categories: readonly VerificationCategory[] }) {
   return (
-    <div className="rounded-md border border-white/[0.06] overflow-hidden">
+    <div className="rounded-md border border-line overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-white/[0.06] bg-navy-800/60 text-left text-xs text-navy-600">
+          <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
             <th className="w-8 py-2.5 pl-4 pr-0 font-medium" />
             <th className="py-2.5 pl-2 pr-3 font-medium">Verification</th>
             <th className="py-2.5 px-3 font-medium">Description</th>
@@ -283,30 +283,30 @@ function UngroupedView({ categories }: { categories: readonly VerificationCatego
               return (
                 <tr
                   key={`${category.name}-${criterion.name}`}
-                  className="border-b border-white/[0.04] last:border-b-0 transition-colors hover:bg-white/[0.015]"
+                  className="border-b border-line last:border-b-0 transition-colors hover:bg-overlay"
                 >
                   <td className="w-8 py-2.5 pl-4 pr-0">
-                    {Icon && <Icon className="size-4 text-ice-300" />}
+                    {Icon && <Icon className="size-4 text-fg-3" />}
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-ice-100">
+                  <td className="whitespace-nowrap py-2.5 pl-2 pr-3 font-medium text-fg-2">
                     {criterion.name}
                   </td>
-                  <td className="py-2.5 px-3 text-navy-600">
+                  <td className="py-2.5 px-3 text-fg-muted">
                     {criterion.description || (
                       <span className="italic">Not configured</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap py-2.5 px-3 text-xs text-navy-600">
+                  <td className="whitespace-nowrap py-2.5 px-3 text-xs text-fg-muted">
                     {category.name}
                   </td>
                   <td className="whitespace-nowrap py-2.5 px-3 text-right">
                     <TypeBadge type={criterion.type} />
                   </td>
-                  <td className="whitespace-nowrap py-2.5 px-3 text-right font-mono text-xs tabular-nums text-ice-100">
-                    {perf?.f1 != null ? perf.f1.toFixed(2) : <span className="text-navy-600">—</span>}
+                  <td className="whitespace-nowrap py-2.5 px-3 text-right font-mono text-xs tabular-nums text-fg-2">
+                    {perf?.f1 != null ? perf.f1.toFixed(2) : <span className="text-fg-muted">—</span>}
                   </td>
-                  <td className="whitespace-nowrap py-2.5 px-3 text-right font-mono text-xs tabular-nums text-ice-100">
-                    {perf?.passAt1 != null ? perf.passAt1.toFixed(2) : <span className="text-navy-600">—</span>}
+                  <td className="whitespace-nowrap py-2.5 px-3 text-right font-mono text-xs tabular-nums text-fg-2">
+                    {perf?.passAt1 != null ? perf.passAt1.toFixed(2) : <span className="text-fg-muted">—</span>}
                   </td>
                   <td className="whitespace-nowrap py-2.5 px-3">
                     {perf && <ModeBadge mode={perf.mode} />}
@@ -359,33 +359,33 @@ export default function Verifications() {
       {/* Toolbar */}
       <div className="flex gap-3">
         <div className="relative flex-1">
-          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
           <input
             type="text"
             placeholder="Search verifications…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-9 pr-3 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="w-full rounded-md border border-line bg-panel/80 py-2 pl-9 pr-3 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
           />
         </div>
         <div className="relative">
           <select
             value={modeFilter}
             onChange={(e) => setModeFilter(e.target.value as VerificationMode | "all")}
-            className="appearance-none rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-3 pr-8 text-sm text-ice-100 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
           >
             <option value="all">All modes</option>
             <option value="active">Active</option>
             <option value="evaluate">Evaluate</option>
             <option value="disabled">Disabled</option>
           </select>
-          <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+          <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
         </div>
-        <div className="flex items-center gap-1 rounded-md border border-white/[0.06] bg-navy-800/80 p-0.5">
+        <div className="flex items-center gap-1 rounded-md border border-line bg-panel/80 p-0.5">
           <button
             type="button"
             onClick={() => setView("grouped")}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${view === "grouped" ? "bg-white/[0.06] text-teal-500" : "text-navy-600 hover:text-ice-300"}`}
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${view === "grouped" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="size-3.5" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-1.5Z" />
@@ -395,7 +395,7 @@ export default function Verifications() {
           <button
             type="button"
             onClick={() => setView("ungrouped")}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${view === "ungrouped" ? "bg-white/[0.06] text-teal-500" : "text-navy-600 hover:text-ice-300"}`}
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${view === "ungrouped" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="size-3.5" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />

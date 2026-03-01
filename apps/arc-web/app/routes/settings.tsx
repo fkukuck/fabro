@@ -136,7 +136,7 @@ function ToggleSwitch({ enabled, accent }: { enabled: boolean; accent: string })
   return (
     <button
       type="button"
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${enabled ? colors.toggle : "bg-white/[0.08]"}`}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${enabled ? colors.toggle : "bg-overlay-strong"}`}
       role="switch"
       aria-checked={enabled}
     >
@@ -149,11 +149,11 @@ function ToggleSwitch({ enabled, accent }: { enabled: boolean; accent: string })
 
 function SettingRow({ field, accent, isLast }: { field: SettingField; accent: string; isLast: boolean }) {
   return (
-    <div className={`flex items-center justify-between gap-8 px-5 py-3.5 ${isLast ? "" : "border-b border-white/[0.04]"}`}>
+    <div className={`flex items-center justify-between gap-8 px-5 py-3.5 ${isLast ? "" : "border-b border-line"}`}>
       <div className="min-w-0">
-        <p className="text-sm text-ice-100">{field.label}</p>
+        <p className="text-sm text-fg-2">{field.label}</p>
         {field.description != null && (
-          <p className="mt-0.5 text-xs text-navy-600">{field.description}</p>
+          <p className="mt-0.5 text-xs text-fg-muted">{field.description}</p>
         )}
       </div>
 
@@ -163,7 +163,7 @@ function SettingRow({ field, accent, isLast }: { field: SettingField; accent: st
         ) : field.type === "select" ? (
           <select
             defaultValue={field.value}
-            className="appearance-none rounded-md border border-white/[0.06] bg-navy-950/60 py-1.5 pl-3 pr-8 text-sm text-ice-100 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="appearance-none rounded-md border border-line bg-page/60 py-1.5 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
           >
             {field.options?.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
@@ -173,7 +173,7 @@ function SettingRow({ field, accent, isLast }: { field: SettingField; accent: st
           <input
             type="text"
             defaultValue={field.value}
-            className="w-64 rounded-md border border-white/[0.06] bg-navy-950/60 px-3 py-1.5 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="w-64 rounded-md border border-line bg-page/60 px-3 py-1.5 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
           />
         )}
       </div>
@@ -199,8 +199,8 @@ function SettingsSection({ group, isActive, onVisible }: { group: SettingGroup; 
       }}
       className={`rounded-xl border transition-colors duration-300 ${
         isActive
-          ? `${colors.border} bg-navy-800/60`
-          : "border-white/[0.06] bg-navy-800/40"
+          ? `${colors.border} bg-panel/60`
+          : "border-line bg-panel/40"
       }`}
     >
       <div className="flex items-center gap-3 px-5 py-4">
@@ -208,11 +208,11 @@ function SettingsSection({ group, isActive, onVisible }: { group: SettingGroup; 
           <Icon className={`size-4.5 ${colors.icon}`} />
         </div>
         <div>
-          <h2 className="text-sm font-semibold text-ice-100">{group.name}</h2>
-          <p className="text-xs text-navy-600">{group.description}</p>
+          <h2 className="text-sm font-semibold text-fg-2">{group.name}</h2>
+          <p className="text-xs text-fg-muted">{group.description}</p>
         </div>
       </div>
-      <div className="border-t border-white/[0.04]">
+      <div className="border-t border-line">
         {group.fields.map((field, i) => (
           <SettingRow
             key={field.key}
@@ -229,7 +229,7 @@ function SettingsSection({ group, isActive, onVisible }: { group: SettingGroup; 
 function SidebarNav({ activeId }: { activeId: string }) {
   return (
     <nav className="sticky top-8 w-44 shrink-0 hidden lg:block">
-      <p className="px-3 mb-3 text-[11px] font-medium uppercase tracking-wider text-navy-600">
+      <p className="px-3 mb-3 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
         Settings
       </p>
       <ul className="space-y-0.5">
@@ -248,10 +248,10 @@ function SidebarNav({ activeId }: { activeId: string }) {
                 className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
                   active
                     ? `${colors.glow} ${colors.icon} font-medium`
-                    : "text-ice-300 hover:text-ice-100 hover:bg-white/[0.04]"
+                    : "text-fg-3 hover:text-fg-2 hover:bg-overlay"
                 }`}
               >
-                <Icon className={`size-4 ${active ? colors.icon : "text-navy-600"}`} />
+                <Icon className={`size-4 ${active ? colors.icon : "text-fg-muted"}`} />
                 {group.name}
               </a>
             </li>

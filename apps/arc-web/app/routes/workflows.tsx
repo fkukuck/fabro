@@ -24,23 +24,23 @@ export const handle = {
     <div className="relative inline-flex rounded-md">
       <button
         type="button"
-        className="inline-flex items-center gap-1.5 rounded-l-md border border-r-0 border-mint/20 px-3 py-1.5 text-sm font-medium text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-white"
+        className="inline-flex items-center gap-1.5 rounded-l-md border border-r-0 border-mint/20 px-3 py-1.5 text-sm font-medium text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-fg"
       >
         <PlusIcon className="size-3.5" aria-hidden="true" />
         Create Workflow
       </button>
       <Menu as="div" className="relative -ml-px flex">
-        <MenuButton className="inline-flex items-center rounded-r-md border border-mint/20 px-1.5 text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-white">
+        <MenuButton className="inline-flex items-center rounded-r-md border border-mint/20 px-1.5 text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-fg">
           <ChevronDownIcon className="size-3.5" aria-hidden="true" />
         </MenuButton>
         <MenuItems
           transition
-          className="absolute right-0 top-full z-10 mt-2 w-48 origin-top-right rounded-md bg-navy-800 py-1 outline-1 -outline-offset-1 outline-white/10 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+          className="absolute right-0 top-full z-10 mt-2 w-48 origin-top-right rounded-md bg-panel py-1 outline-1 -outline-offset-1 outline-line-strong transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
         >
           <MenuItem>
             <button
               type="button"
-              className="block w-full px-4 py-2 text-left text-sm text-ice-300 data-focus:bg-white/5 data-focus:outline-hidden"
+              className="block w-full px-4 py-2 text-left text-sm text-fg-3 data-focus:bg-overlay data-focus:outline-hidden"
             >
               Import from file
             </button>
@@ -48,7 +48,7 @@ export const handle = {
           <MenuItem>
             <button
               type="button"
-              className="block w-full px-4 py-2 text-left text-sm text-ice-300 data-focus:bg-white/5 data-focus:outline-hidden"
+              className="block w-full px-4 py-2 text-left text-sm text-fg-3 data-focus:bg-overlay data-focus:outline-hidden"
             >
               Duplicate existing
             </button>
@@ -71,12 +71,12 @@ interface Workflow {
 }
 
 const workflows: Workflow[] = [
-  { name: "Fix Build", slug: "fix_build", filename: "fix_build.dot", lastRun: "2 hours ago", icon: WrenchIcon, color: "#F0A45B" },
-  { name: "Implement Feature", slug: "implement", filename: "implement.dot", lastRun: "4 days ago", icon: CodeBracketIcon, color: "#67B2D7" },
-  { name: "Sync Drift", slug: "sync_drift", filename: "sync_drift.dot", lastRun: "1 day ago", icon: ArrowsRightLeftIcon, color: "#5AC8A8" },
-  { name: "Expand Product", slug: "expand", filename: "expand.dot", lastRun: "2 weeks ago", icon: RocketLaunchIcon, color: "#E86B6B" },
-  { name: "Security Scan", slug: "security_scan", filename: "security_scan.dot", lastRun: "9 hours ago", icon: ShieldCheckIcon, color: "#67B2D7", schedule: "Daily at 09:00", nextRun: "Starts in 3 hours" },
-  { name: "Dependency Audit", slug: "dep_audit", filename: "dep_audit.dot", lastRun: "1 day ago", icon: ClockIcon, color: "#F0A45B", schedule: "Weekly on Mon 08:00", nextRun: "Starts in 2 days" },
+  { name: "Fix Build", slug: "fix_build", filename: "fix_build.dot", lastRun: "2 hours ago", icon: WrenchIcon, color: "var(--color-amber)" },
+  { name: "Implement Feature", slug: "implement", filename: "implement.dot", lastRun: "4 days ago", icon: CodeBracketIcon, color: "var(--color-teal-500)" },
+  { name: "Sync Drift", slug: "sync_drift", filename: "sync_drift.dot", lastRun: "1 day ago", icon: ArrowsRightLeftIcon, color: "var(--color-mint)" },
+  { name: "Expand Product", slug: "expand", filename: "expand.dot", lastRun: "2 weeks ago", icon: RocketLaunchIcon, color: "var(--color-coral)" },
+  { name: "Security Scan", slug: "security_scan", filename: "security_scan.dot", lastRun: "9 hours ago", icon: ShieldCheckIcon, color: "var(--color-teal-500)", schedule: "Daily at 09:00", nextRun: "Starts in 3 hours" },
+  { name: "Dependency Audit", slug: "dep_audit", filename: "dep_audit.dot", lastRun: "1 day ago", icon: ClockIcon, color: "var(--color-amber)", schedule: "Weekly on Mon 08:00", nextRun: "Starts in 2 days" },
 ];
 
 function PlayIcon({ className }: { className?: string }) {
@@ -98,19 +98,19 @@ function EllipsisIcon({ className }: { className?: string }) {
 function WorkflowCard({ workflow }: { workflow: Workflow }) {
   const Icon = workflow.icon;
   return (
-    <div className="group flex items-center gap-4 rounded-md border border-white/[0.06] bg-navy-800/80 p-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-navy-800 hover:shadow-lg hover:shadow-black/20">
+    <div className="group flex items-center gap-4 rounded-md border border-line bg-panel/80 p-4 transition-all duration-200 hover:border-line-strong hover:bg-panel hover:shadow-lg hover:shadow-black/20">
       <Link to={`/workflows/${workflow.slug}`} className="flex min-w-0 flex-1 items-center gap-4">
         <div
-          className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-navy-900/60"
-          style={{ borderColor: `${workflow.color}33`, color: workflow.color }}
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-panel-alt/60"
+          style={{ borderColor: `color-mix(in srgb, ${workflow.color} 20%, transparent)`, color: workflow.color }}
         >
           <Icon className="size-4" />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-ice-100 group-hover:text-white">{workflow.name}</span>
-            <span className="font-mono text-xs text-navy-600">{workflow.filename}</span>
+            <span className="text-sm font-medium text-fg-2 group-hover:text-fg">{workflow.name}</span>
+            <span className="font-mono text-xs text-fg-muted">{workflow.filename}</span>
             {workflow.schedule && (
               <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 text-[11px] font-medium text-teal-300">
                 <ClockIcon className="size-3" />
@@ -118,7 +118,7 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
               </span>
             )}
           </div>
-          <p className="mt-1 text-xs text-navy-600">
+          <p className="mt-1 text-xs text-fg-muted">
             {workflow.nextRun ?? `Last run ${workflow.lastRun}`}
           </p>
         </div>
@@ -128,7 +128,7 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
         <button
           type="button"
           title="Pause schedule"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-amber/20 text-amber transition-colors hover:border-amber/50 hover:bg-amber/10 hover:text-white"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-amber/20 text-amber transition-colors hover:border-amber/50 hover:bg-amber/10 hover:text-fg"
         >
           <PauseIcon className="size-3.5" />
         </button>
@@ -136,7 +136,7 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
         <button
           type="button"
           title="Run workflow"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-mint/20 text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-white"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-mint/20 text-mint transition-colors hover:border-mint/50 hover:bg-mint/10 hover:text-fg"
         >
           <PlayIcon className="size-3.5" />
         </button>
@@ -145,7 +145,7 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
       <button
         type="button"
         title="Actions"
-        className="flex size-8 shrink-0 items-center justify-center rounded-md text-navy-600 transition-colors hover:bg-white/5 hover:text-ice-300"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3"
       >
         <EllipsisIcon className="size-5" />
       </button>
@@ -171,26 +171,26 @@ export default function Workflows() {
     <div className="space-y-4">
       <div className="flex gap-3">
         <div className="relative flex-1">
-          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
           <input
             type="text"
             placeholder="Search workflows..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-9 pr-3 text-sm text-ice-100 placeholder-navy-600 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="w-full rounded-md border border-line bg-panel/80 py-2 pl-9 pr-3 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
           />
         </div>
         <div className="relative">
           <select
             value={triggerFilter}
             onChange={(e) => setTriggerFilter(e.target.value as TriggerFilter)}
-            className="appearance-none rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-3 pr-8 text-sm text-ice-100 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
           >
             <option value="all">All triggers</option>
             <option value="scheduled">Scheduled</option>
             <option value="manual">Manual</option>
           </select>
-          <ChevronDownOutline className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+          <ChevronDownOutline className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
         </div>
       </div>
       <div className="space-y-3">
@@ -198,7 +198,7 @@ export default function Workflows() {
           <WorkflowCard key={workflow.filename} workflow={workflow} />
         ))}
         {filtered.length === 0 && (
-          <p className="py-8 text-center text-sm text-navy-600">No workflows match "{query}"</p>
+          <p className="py-8 text-center text-sm text-fg-muted">No workflows match "{query}"</p>
         )}
       </div>
     </div>

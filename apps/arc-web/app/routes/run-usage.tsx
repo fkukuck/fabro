@@ -32,10 +32,10 @@ function formatTokens(n: number) {
 export default function RunUsage() {
   return (
     <div className="space-y-6">
-      <div className="rounded-md border border-white/[0.06] overflow-hidden">
+      <div className="rounded-md border border-line overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/[0.06] bg-navy-800/60 text-left text-xs text-navy-600">
+            <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
               <th className="px-4 py-2.5 font-medium">Stage</th>
               <th className="px-4 py-2.5 font-medium">Model</th>
               <th className="px-4 py-2.5 font-medium text-right">Tokens</th>
@@ -45,37 +45,37 @@ export default function RunUsage() {
           </thead>
           <tbody>
             {stages.map((row) => (
-              <tr key={row.stage} className="border-b border-white/[0.06] last:border-b-0">
-                <td className="px-4 py-3 text-ice-100">{row.stage}</td>
-                <td className="px-4 py-3 font-mono text-xs text-ice-300">{row.model}</td>
-                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">
-                  {formatTokens(row.inputTokens)} <span className="text-navy-600">/</span> {formatTokens(row.outputTokens)}
+              <tr key={row.stage} className="border-b border-line last:border-b-0">
+                <td className="px-4 py-3 text-fg-2">{row.stage}</td>
+                <td className="px-4 py-3 font-mono text-xs text-fg-3">{row.model}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
+                  {formatTokens(row.inputTokens)} <span className="text-fg-muted">/</span> {formatTokens(row.outputTokens)}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-ice-300">{row.runtime}</td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-ice-300">${row.cost.toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs text-fg-3">{row.runtime}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs text-fg-3">${row.cost.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-white/[0.08] bg-navy-800/40">
-              <td className="px-4 py-3 font-medium text-white">Total</td>
+            <tr className="border-t border-line-strong bg-panel/40">
+              <td className="px-4 py-3 font-medium text-fg">Total</td>
               <td />
-              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-white">
-                {formatTokens(totalInput)} <span className="text-navy-600">/</span> {formatTokens(totalOutput)}
+              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
+                {formatTokens(totalInput)} <span className="text-fg-muted">/</span> {formatTokens(totalOutput)}
               </td>
-              <td className="px-4 py-3 text-right font-mono text-xs font-medium text-white">{totalRuntime}</td>
-              <td className="px-4 py-3 text-right font-mono text-xs font-medium text-white">${totalCost.toFixed(2)}</td>
+              <td className="px-4 py-3 text-right font-mono text-xs font-medium text-fg">{totalRuntime}</td>
+              <td className="px-4 py-3 text-right font-mono text-xs font-medium text-fg">${totalCost.toFixed(2)}</td>
             </tr>
           </tfoot>
         </table>
       </div>
 
       <div>
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-navy-600">By Model</h3>
-        <div className="rounded-md border border-white/[0.06] overflow-hidden">
+        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">By Model</h3>
+        <div className="rounded-md border border-line overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/[0.06] bg-navy-800/60 text-left text-xs text-navy-600">
+              <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
                 <th className="px-4 py-2.5 font-medium">Model</th>
                 <th className="px-4 py-2.5 font-medium text-right">Stages</th>
                 <th className="px-4 py-2.5 font-medium text-right">Tokens</th>
@@ -84,24 +84,24 @@ export default function RunUsage() {
             </thead>
             <tbody>
               {modelBreakdown.map((row) => (
-                <tr key={row.model} className="border-b border-white/[0.06] last:border-b-0">
-                  <td className="px-4 py-3 font-mono text-xs text-ice-100">{row.model}</td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">{row.stages}</td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-ice-300">
-                    {formatTokens(row.inputTokens)} <span className="text-navy-600">/</span> {formatTokens(row.outputTokens)}
+                <tr key={row.model} className="border-b border-line last:border-b-0">
+                  <td className="px-4 py-3 font-mono text-xs text-fg-2">{row.model}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">{row.stages}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
+                    {formatTokens(row.inputTokens)} <span className="text-fg-muted">/</span> {formatTokens(row.outputTokens)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs text-ice-300">${row.cost.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-fg-3">${row.cost.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-white/[0.08] bg-navy-800/40">
-                <td className="px-4 py-3 font-medium text-white">Total</td>
-                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-white">{stages.length}</td>
-                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-white">
-                  {formatTokens(totalInput)} <span className="text-navy-600">/</span> {formatTokens(totalOutput)}
+              <tr className="border-t border-line-strong bg-panel/40">
+                <td className="px-4 py-3 font-medium text-fg">Total</td>
+                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">{stages.length}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
+                  {formatTokens(totalInput)} <span className="text-fg-muted">/</span> {formatTokens(totalOutput)}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-xs font-medium text-white">${totalCost.toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs font-medium text-fg">${totalCost.toFixed(2)}</td>
               </tr>
             </tfoot>
           </table>

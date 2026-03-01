@@ -64,14 +64,14 @@ export default function InsightsLayout() {
         <div className="sticky top-6 space-y-4">
           <Link
             to="/insights/new"
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-white/[0.06] bg-navy-800/80 px-3 py-2 text-sm font-medium text-ice-300 transition-colors hover:border-white/[0.12] hover:bg-navy-800 hover:text-white"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-panel/80 px-3 py-2 text-sm font-medium text-fg-3 transition-colors hover:border-line-strong hover:bg-panel hover:text-fg"
           >
             <PlusIcon className="size-3.5" />
             New Query
           </Link>
 
           <div>
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-navy-600">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
               Saved Queries
             </h3>
             <div className="space-y-0.5">
@@ -82,12 +82,12 @@ export default function InsightsLayout() {
                   onClick={() => {
                     navigate("/insights", { state: { sql: q.sql, name: q.name } });
                   }}
-                  className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                  className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-overlay"
                 >
-                  <span className="text-sm font-medium text-ice-100">
+                  <span className="text-sm font-medium text-fg-2">
                     {q.name}
                   </span>
-                  <span className="truncate font-mono text-[10px] text-navy-600">
+                  <span className="truncate font-mono text-[10px] text-fg-muted">
                     {q.sql.split("\n")[0]}
                   </span>
                 </button>
@@ -96,7 +96,7 @@ export default function InsightsLayout() {
           </div>
 
           <div>
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-navy-600">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
               History
             </h3>
             <div className="space-y-0.5">
@@ -107,12 +107,12 @@ export default function InsightsLayout() {
                   onClick={() => {
                     navigate("/insights", { state: { sql: entry.sql } });
                   }}
-                  className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                  className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-overlay"
                 >
-                  <span className="truncate font-mono text-[10px] text-ice-300">
+                  <span className="truncate font-mono text-[10px] text-fg-3">
                     {entry.sql}
                   </span>
-                  <span className="font-mono text-[10px] text-navy-600">
+                  <span className="font-mono text-[10px] text-fg-muted">
                     {entry.timestamp} · {entry.rowsReturned} rows
                   </span>
                 </button>

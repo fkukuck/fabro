@@ -21,7 +21,7 @@ export default function WorkflowDefinition() {
   }, []);
 
   if (workflow == null) {
-    return <p className="text-sm text-navy-600">No configuration found.</p>;
+    return <p className="text-sm text-fg-muted">No configuration found.</p>;
   }
 
   return (

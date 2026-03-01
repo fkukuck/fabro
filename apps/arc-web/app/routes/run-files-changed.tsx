@@ -5,6 +5,7 @@ import {
   type AnnotationSide,
   type DiffLineAnnotation,
 } from "@pierre/diffs/react";
+import { useTheme } from "../lib/theme";
 
 export const handle = { wide: true };
 
@@ -309,6 +310,7 @@ function DiffWithSteer({
 }) {
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">("split");
   const [disableBackground, setDisableBackground] = useState(false);
+  const { theme } = useTheme();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -341,14 +343,14 @@ function DiffWithSteer({
   }, []);
 
   return (
-    <div ref={containerRef} className="relative rounded-md overflow-hidden border border-white/[0.06]">
+    <div ref={containerRef} className="relative rounded-md overflow-hidden border border-line">
       <MultiFileDiff<SteerAnnotation & { text?: string }>
         oldFile={oldFile}
         newFile={newFile}
         options={{
           diffStyle,
           disableBackground,
-          theme: "pierre-dark",
+          theme: theme === "dark" ? "pierre-dark" : "pierre-light",
           lineDiffType: "word",
           onLineEnter({ lineNumber, annotationSide, lineElement }) {
             showButton(lineElement, lineNumber, annotationSide);
@@ -437,14 +439,14 @@ function SteerCommentForm({
   }, []);
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-teal-500/30 bg-navy-900/90 p-3">
+    <div className="flex flex-col gap-2 rounded-md border border-teal-500/30 bg-panel-alt/90 p-3">
       <textarea
         ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Add steering guidance..."
         rows={3}
-        className="w-full resize-none rounded border border-white/[0.06] bg-navy-800/80 px-2 py-1.5 text-sm text-ice-100 placeholder:text-navy-600 outline-none focus:border-teal-500/40"
+        className="w-full resize-none rounded border border-line bg-panel/80 px-2 py-1.5 text-sm text-fg-2 placeholder:text-fg-muted outline-none focus:border-focus"
       />
       <div className="flex gap-2">
         <button
@@ -458,7 +460,7 @@ function SteerCommentForm({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-white/[0.06] bg-navy-800/80 px-3 py-1 text-xs font-medium text-ice-300 transition-colors hover:bg-white/[0.04]"
+          className="rounded border border-line bg-panel/80 px-3 py-1 text-xs font-medium text-fg-3 transition-colors hover:bg-overlay"
         >
           Cancel
         </button>
@@ -469,7 +471,7 @@ function SteerCommentForm({
 
 function SubmittedSteerComment({ text }: { text: string }) {
   return (
-    <div className="rounded-md border border-teal-500/20 bg-teal-950/30 px-3 py-2 text-sm text-ice-200">
+    <div className="rounded-md border border-teal-500/20 bg-teal-950/30 px-3 py-2 text-sm text-fg-2">
       {text}
     </div>
   );
@@ -549,20 +551,20 @@ export default function RunFilesChanged() {
           <select
             value={checkpoint}
             onChange={(e) => setCheckpoint(e.target.value)}
-            className="appearance-none rounded-md border border-white/[0.06] bg-navy-800/80 py-2 pl-3 pr-8 text-sm text-ice-100 outline-none transition-colors focus:border-teal-500/40 focus:ring-0"
+            className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
           >
             {checkpoints.map((cp) => (
               <option key={cp.id} value={cp.id}>{cp.label}</option>
             ))}
           </select>
-          <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-navy-600" />
+          <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
         </div>
         <div className="ml-auto flex items-center gap-3">
           <DiffStat additions={567} deletions={234} />
           <button
             type="button"
             title="Settings"
-            className="flex size-8 items-center justify-center rounded-md border border-white/[0.06] bg-navy-800/80 text-ice-300 transition-colors hover:bg-white/[0.04] hover:text-white"
+            className="flex size-8 items-center justify-center rounded-md border border-line bg-panel/80 text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
           >
             <Cog6ToothIcon className="size-4" />
           </button>
