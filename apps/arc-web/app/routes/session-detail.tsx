@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router";
 import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import {
   ChatBubbleLeftIcon,
+  ClipboardDocumentIcon,
+  CheckIcon,
   PencilSquareIcon,
   UserIcon,
   WrenchScrewdriverIcon,
@@ -22,7 +24,7 @@ interface ToolUse {
 }
 
 type Turn =
-  | { kind: "user"; content: string }
+  | { kind: "user"; content: string; date?: string }
   | { kind: "assistant"; content: string }
   | { kind: "tool"; tools: ToolUse[] };
 
@@ -45,6 +47,7 @@ const sessions: Record<string, Session> = {
     turns: [
       {
         kind: "user",
+        date: "Feb 28",
         content: "Add rate limiting to the auth endpoints. We're getting hit with brute force attempts on /api/auth/login and /api/auth/register. Use a sliding window approach with Redis, 10 requests per minute per IP.",
       },
       {
@@ -110,6 +113,7 @@ const sessions: Record<string, Session> = {
     turns: [
       {
         kind: "user",
+        date: "Feb 28",
         content: "The CLI crashes when parsing nested TOML config values like [database.connection]. Can you debug and fix this?",
       },
       {
@@ -158,7 +162,7 @@ const sessions: Record<string, Session> = {
     model: "Opus 4.6",
     time: "1d ago",
     turns: [
-      { kind: "user", content: "Help me migrate our app from React Router v6 to v7. We're using createBrowserRouter with data loaders." },
+      { kind: "user", date: "Feb 26", content: "Help me migrate our app from React Router v6 to v7. We're using createBrowserRouter with data loaders." },
       { kind: "assistant", content: "I'll audit your current router setup and identify what needs to change for v7. Let me scan the codebase." },
       {
         kind: "tool",
@@ -181,7 +185,7 @@ function makeFallbackSession(id: string): Session {
     model: "Opus 4.6",
     time: "",
     turns: [
-      { kind: "user", content: "Hello, let's get started." },
+      { kind: "user", date: "Feb 28", content: "Hello, let's get started." },
       { kind: "assistant", content: "Sure! What would you like to work on?" },
     ],
   };
@@ -259,28 +263,65 @@ function ToolBlock({ tools }: { tools: ToolUse[] }) {
   );
 }
 
-function UserBlock({ content }: { content: string }) {
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   return (
-    <div className="flex gap-3">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-navy-800 border border-white/[0.08]">
-        <UserIcon className="size-3.5 text-ice-300" />
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="inline-flex items-center justify-center rounded-md border border-white/[0.06] bg-navy-800/80 p-1.5 text-navy-600 transition-colors hover:border-white/[0.12] hover:text-ice-300"
+      aria-label="Copy"
+    >
+      {copied
+        ? <CheckIcon className="size-3.5" />
+        : <ClipboardDocumentIcon className="size-3.5" />}
+    </button>
+  );
+}
+
+function UserBlock({ content, date }: { content: string; date?: string }) {
+  return (
+    <div className="group">
+      <div className="flex gap-3">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-navy-800 border border-white/[0.08]">
+          <UserIcon className="size-3.5 text-ice-300" />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-100">{content}</pre>
+        </div>
       </div>
-      <div className="min-w-0 flex-1 pt-0.5">
-        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-100">{content}</pre>
+      <div className="ml-10 mt-1 flex h-6 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <CopyButton text={content} />
+        {date != null && <span className="text-[11px] text-navy-600">{date}</span>}
       </div>
     </div>
   );
 }
 
-function AssistantBlock({ content }: { content: string }) {
+function AssistantBlock({ content, showCopy }: { content: string; showCopy: boolean }) {
   return (
-    <div className="flex gap-3">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-500/10 border border-teal-500/20">
-        <ChatBubbleLeftIcon className="size-3.5 text-teal-500" />
+    <div className="group">
+      <div className="flex gap-3">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-500/10 border border-teal-500/20">
+          <ChatBubbleLeftIcon className="size-3.5 text-teal-500" />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-300">{content}</pre>
+        </div>
       </div>
-      <div className="min-w-0 flex-1 pt-0.5">
-        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ice-300">{content}</pre>
-      </div>
+      {showCopy && (
+        <div className="ml-10 mt-1 h-6 opacity-0 transition-opacity group-hover:opacity-100">
+          <CopyButton text={content} />
+        </div>
+      )}
     </div>
   );
 }
@@ -351,9 +392,12 @@ export default function SessionDetail() {
             {session.turns.map((turn, i) => {
               switch (turn.kind) {
                 case "user":
-                  return <UserBlock key={i} content={turn.content} />;
-                case "assistant":
-                  return <AssistantBlock key={i} content={turn.content} />;
+                  return <UserBlock key={i} content={turn.content} date={turn.date} />;
+                case "assistant": {
+                  const next = session.turns[i + 1];
+                  const showCopy = next?.kind !== "tool";
+                  return <AssistantBlock key={i} content={turn.content} showCopy={showCopy} />;
+                }
                 case "tool":
                   return <div key={i} className="pl-10"><ToolBlock tools={turn.tools} /></div>;
               }
