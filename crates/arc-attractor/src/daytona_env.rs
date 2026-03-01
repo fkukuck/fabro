@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use arc_agent::execution_env::{format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent, ExecutionEnvironment, GrepOptions};
 use async_trait::async_trait;
+use rand::Rng;
 use serde::Deserialize;
 
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
@@ -90,8 +91,9 @@ impl DaytonaExecutionEnvironment {
     /// Build `SandboxBaseParams` from config, generating a unique sandbox name.
     fn base_params(&self) -> daytona_sdk::SandboxBaseParams {
         let name = format!(
-            "arc-{}",
-            chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f")
+            "arc-{}-{:04x}",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S"),
+            rand::thread_rng().gen_range(0..0x10000u32),
         );
         daytona_sdk::SandboxBaseParams {
             name: Some(name),

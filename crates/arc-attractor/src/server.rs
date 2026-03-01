@@ -222,7 +222,7 @@ async fn start_pipeline(
     tokio::spawn(async move {
         let logs_root = std::env::temp_dir().join(format!("arc-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&logs_root).expect("failed to create logs directory");
-        let config = RunConfig { logs_root, cancel_token: Some(cancel_token), dry_run: state_clone.dry_run, run_id: run_id_clone.clone(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root, cancel_token: Some(cancel_token), dry_run: state_clone.dry_run, run_id: run_id_clone.clone(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
 
         let result = tokio::select! {
             result = engine.run(&graph, &config) => result,

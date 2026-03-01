@@ -274,6 +274,7 @@ async fn daytona_pipeline_artifact_offload_and_sync() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -432,9 +433,10 @@ async fn daytona_git_checkpoint_remote_emits_events() {
         cancel_token: None,
         dry_run: false,
         run_id,
-        git_checkpoint: Some(GitCheckpointMode::Remote),
+        git_checkpoint: Some(GitCheckpointMode::Remote(dir.path().to_path_buf())),
         base_sha: Some(base_sha),
         run_branch: Some(branch_name),
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -594,4 +596,126 @@ async fn daytona_cli_gemini() {
         "npm install -g @google/gemini-cli",
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// Daytona shadow commit E2E — Remote mode with MetadataStore
+// ---------------------------------------------------------------------------
+
+use arc_attractor::git::MetadataStore;
+
+/// End-to-end test: pipeline with `GitCheckpointMode::Remote(host_repo_path)` + `meta_branch`
+/// writes shadow branch on the host repo and includes `Arc-Checkpoint` trailer in sandbox commits.
+#[tokio::test]
+#[ignore]
+async fn daytona_git_checkpoint_with_shadow_branch() {
+    let env = create_env().await;
+    env.initialize().await.unwrap();
+    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+
+    // Install git if not available
+    let git_check = env.exec_command("git --version", 10_000, None, None, None).await;
+    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+        let install = env.exec_command(
+            "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
+            120_000, None, None, None,
+        ).await.expect("apt-get install git should not error");
+        assert_eq!(install.exit_code, 0, "git install failed: {}", install.stderr);
+    }
+
+    // Set up git in the sandbox
+    let (run_id, base_sha, branch_name) = setup_daytona_git(&*env).await;
+
+    // Create a temp git repo on the host for MetadataStore
+    let host_repo = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(host_repo.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=test", "-c", "user.email=test@test",
+               "commit", "--allow-empty", "-m", "init"])
+        .current_dir(host_repo.path())
+        .output()
+        .unwrap();
+
+    // Pipeline: start -> work -> exit
+    let mut graph = Graph::new("DaytonaShadowBranch");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Test Daytona shadow branch".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start.attrs.insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut exit = Node::new("exit");
+    exit.attrs.insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+
+    let mut work = Node::new("work");
+    work.attrs.insert("label".to_string(), AttrValue::String("Work".to_string()));
+    graph.nodes.insert("work".to_string(), work);
+
+    graph.edges.push(Edge::new("start", "work"));
+    graph.edges.push(Edge::new("work", "exit"));
+
+    let dir = tempfile::tempdir().unwrap();
+    // Write graph.dot so init_run can read it
+    std::fs::write(dir.path().join("graph.dot"), "digraph {}").unwrap();
+
+    let mut registry = HandlerRegistry::new(Box::new(FileWriterHandler));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let meta_branch = MetadataStore::branch_name(&run_id);
+    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), env.clone());
+    let config = RunConfig {
+        logs_root: dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: run_id.clone(),
+        git_checkpoint: Some(GitCheckpointMode::Remote(host_repo.path().to_path_buf())),
+        base_sha: Some(base_sha),
+        run_branch: Some(branch_name),
+        meta_branch: Some(meta_branch),
+    };
+
+    let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    // Assert shadow branch on host has checkpoint data
+    let checkpoint = MetadataStore::read_checkpoint(host_repo.path(), &run_id)
+        .expect("read_checkpoint should not error")
+        .expect("shadow branch should contain checkpoint data");
+    assert!(
+        !checkpoint.completed_nodes.is_empty(),
+        "checkpoint should have completed nodes"
+    );
+    assert!(
+        checkpoint.completed_nodes.contains(&"work".to_string()),
+        "checkpoint should contain the 'work' node"
+    );
+
+    // Assert sandbox commit has Arc-Checkpoint trailer
+    let log_result = env.exec_command("git log --format=%B -1", 10_000, None, None, None).await
+        .expect("git log should succeed");
+    assert_eq!(log_result.exit_code, 0);
+    let commit_msg = log_result.stdout.trim().to_string();
+    assert!(
+        commit_msg.contains("Arc-Checkpoint:"),
+        "sandbox commit should have Arc-Checkpoint trailer, got:\n{commit_msg}"
+    );
+    assert!(
+        commit_msg.contains("Arc-Run:"),
+        "sandbox commit should have Arc-Run trailer, got:\n{commit_msg}"
+    );
+
+    // Assert final.patch exists
+    let final_patch = dir.path().join("final.patch");
+    assert!(final_patch.exists(), "final.patch should exist in logs_root");
+
+    env.cleanup().await.unwrap();
 }

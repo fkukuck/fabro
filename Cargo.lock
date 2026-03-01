@@ -134,6 +134,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-agent",
+ "arc-git-storage",
  "arc-llm",
  "arc-util",
  "assert_cmd",

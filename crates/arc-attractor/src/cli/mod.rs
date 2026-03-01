@@ -74,8 +74,9 @@ pub enum Command {
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// Path to a .dot pipeline file or .toml task config
-    pub pipeline: PathBuf,
+    /// Path to a .dot pipeline file or .toml task config (not required with --run-branch)
+    #[arg(required_unless_present = "run_branch")]
+    pub pipeline: Option<PathBuf>,
 
     /// Log/artifact directory
     #[arg(long)]
@@ -92,6 +93,10 @@ pub struct RunArgs {
     /// Resume from a checkpoint file
     #[arg(long)]
     pub resume: Option<PathBuf>,
+
+    /// Resume from a git run branch (reads checkpoint and graph from metadata branch)
+    #[arg(long, conflicts_with = "resume")]
+    pub run_branch: Option<String>,
 
     /// Override default LLM model
     #[arg(long)]

@@ -190,6 +190,7 @@ async fn end_to_end_linear_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -312,6 +313,7 @@ async fn end_to_end_branching_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -421,6 +423,7 @@ async fn end_to_end_human_gate_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -524,6 +527,7 @@ async fn goal_gate_routes_to_retry_target_on_failure() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let result = engine.run(&graph, &config).await;
@@ -636,6 +640,7 @@ async fn goal_gate_routes_to_retry_target_when_present() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -948,6 +953,7 @@ async fn retry_on_failure_then_succeed() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -1014,6 +1020,7 @@ async fn pipeline_with_many_nodes() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -1332,6 +1339,7 @@ async fn smoke_test_with_mock_codergen_backend() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -1430,6 +1438,7 @@ async fn end_to_end_parallel_fan_out_fan_in() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -1537,6 +1546,7 @@ async fn resume_from_checkpoint_completes_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -1629,6 +1639,7 @@ async fn resume_from_checkpoint_preserves_goal_gate_outcomes() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     // This should succeed because goal gate for gated_work is satisfied
@@ -1663,6 +1674,7 @@ async fn graph_goal_in_context() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -1693,6 +1705,7 @@ async fn event_streaming_lifecycle() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -1763,6 +1776,7 @@ async fn context_flow_between_stages() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -1806,6 +1820,7 @@ async fn tool_handler_e2e() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -1867,6 +1882,7 @@ async fn auto_approve_interviewer_e2e() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -1894,6 +1910,7 @@ async fn codergen_without_backend_simulated() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -1995,6 +2012,7 @@ async fn branching_loop_back_on_failure() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2079,6 +2097,7 @@ async fn human_gate_loops_back() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2131,6 +2150,7 @@ async fn scenario_ship_a_feature() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2211,6 +2231,7 @@ async fn scenario_parallel_expert_review() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2285,6 +2306,7 @@ async fn scenario_node_retries_on_retry_status() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2343,6 +2365,7 @@ async fn scenario_loop_restart_resets_context() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2405,6 +2428,7 @@ async fn scenario_bug_triage_router() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2455,6 +2479,7 @@ async fn scenario_crash_recovery() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine
         .run_from_checkpoint(&graph, &config, &checkpoint)
@@ -2537,6 +2562,7 @@ async fn manager_loop_stop_condition_satisfied_e2e() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
 
@@ -2587,6 +2613,7 @@ async fn manager_loop_max_cycles_exceeded_e2e() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
 
@@ -2717,6 +2744,7 @@ async fn conditional_branching_success_fail_paths() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2765,6 +2793,7 @@ async fn edge_selection_condition_match_wins_over_weight() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -2808,6 +2837,7 @@ async fn edge_selection_weight_breaks_ties() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -2843,6 +2873,7 @@ async fn edge_selection_lexical_tiebreak() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -2895,6 +2926,7 @@ async fn context_updates_visible_across_nodes() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -2929,6 +2961,7 @@ async fn stylesheet_applies_model_override() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -2979,6 +3012,7 @@ async fn custom_handler_registration_and_execution() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -3040,6 +3074,7 @@ async fn integration_smoke_plan_implement_review_done() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     let outcome = engine.run(&graph, &config).await.expect("run");
     assert_eq!(outcome.status, StageStatus::Success);
@@ -3117,7 +3152,7 @@ mod server_lifecycle {
     #[tokio::test]
     async fn full_http_lifecycle_approve_and_complete() {
         let state = create_app_state(gate_registry);
-        let app = build_router(Arc::clone(&state));
+        let app = build_router(Arc::clone(&state), arc_attractor::jwt_auth::AuthMode::Disabled);
 
         // 1. Start pipeline
         let req = Request::builder()
@@ -3216,7 +3251,7 @@ mod server_lifecycle {
     #[tokio::test]
     async fn full_http_lifecycle_cancel() {
         let state = create_app_state(gate_registry);
-        let app = build_router(Arc::clone(&state));
+        let app = build_router(Arc::clone(&state), arc_attractor::jwt_auth::AuthMode::Disabled);
 
         // Start a pipeline that will block at the human gate
         let req = Request::builder()
@@ -3296,7 +3331,7 @@ mod sse_events {
     #[tokio::test]
     async fn sse_stream_contains_expected_event_types() {
         let state = create_app_state(simple_registry);
-        let app = build_router(Arc::clone(&state));
+        let app = build_router(Arc::clone(&state), arc_attractor::jwt_auth::AuthMode::Disabled);
 
         // Start pipeline
         let req = Request::builder()
@@ -3429,7 +3464,7 @@ mod serve_dry_run {
             default_registry(interviewer, || None)
         };
         let state = create_app_state(factory);
-        build_router(state)
+        build_router(state, arc_attractor::jwt_auth::AuthMode::Disabled)
     }
 
     async fn body_json(body: Body) -> serde_json::Value {
@@ -3529,6 +3564,7 @@ async fn sub_pipeline_e2e_through_engine() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -3675,6 +3711,7 @@ async fn manager_loop_with_child_observer_e2e() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -3798,6 +3835,7 @@ async fn graph_merge_e2e_through_engine() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -3942,6 +3980,7 @@ async fn fidelity_default_is_compact() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -3985,6 +4024,7 @@ async fn fidelity_graph_default_applied() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4027,6 +4067,7 @@ async fn fidelity_node_overrides_graph_default() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4075,6 +4116,7 @@ async fn fidelity_edge_overrides_node_and_graph() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4113,6 +4155,7 @@ async fn fidelity_full_produces_empty_preamble() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4158,6 +4201,7 @@ async fn fidelity_truncate_preamble_minimal() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4219,6 +4263,7 @@ async fn fidelity_summary_low_mode() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4275,6 +4320,7 @@ async fn fidelity_summary_medium_mode() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4331,6 +4377,7 @@ async fn fidelity_summary_high_mode() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4380,6 +4427,7 @@ async fn fidelity_full_sets_thread_id_in_context() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4440,6 +4488,7 @@ async fn fidelity_full_nodes_share_thread_id() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4507,6 +4556,7 @@ async fn fidelity_resume_degrades_full_to_summary_high() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine
         .run_from_checkpoint(&graph, &config, &checkpoint)
@@ -4590,6 +4640,7 @@ async fn fidelity_resume_degrade_only_affects_first_hop() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine
         .run_from_checkpoint(&graph, &config, &checkpoint)
@@ -4660,6 +4711,7 @@ async fn fidelity_resume_no_degrade_when_not_full() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine
         .run_from_checkpoint(&graph, &config, &checkpoint)
@@ -4696,6 +4748,7 @@ async fn fidelity_stored_in_checkpoint_context() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4771,6 +4824,7 @@ async fn fidelity_precedence_multi_node_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4828,6 +4882,7 @@ async fn fidelity_compact_preamble_includes_completed_stages_and_context() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -4873,7 +4928,7 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
     registry_low.register("exit", Box::new(ExitHandler));
     registry_low.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures_low.clone() }));
     let engine_low = PipelineEngine::new(registry_low, Arc::new(EventEmitter::new()), local_env());
-    let config_low = RunConfig { logs_root: dir_low.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+    let config_low = RunConfig { logs_root: dir_low.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
     engine_low.run(&graph_low, &config_low).await.expect("run low");
 
     {
@@ -4907,7 +4962,7 @@ async fn fidelity_summary_low_excludes_context_values_in_pipeline() {
     registry_med.register("exit", Box::new(ExitHandler));
     registry_med.register("fidelity_capture", Box::new(FidelityCapturingHandler { captures: captures_med.clone() }));
     let engine_med = PipelineEngine::new(registry_med, Arc::new(EventEmitter::new()), local_env());
-    let config_med = RunConfig { logs_root: dir_med.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+    let config_med = RunConfig { logs_root: dir_med.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
     engine_med.run(&graph_med, &config_med).await.expect("run med");
 
     let preambles_med = captures_med.preambles.lock().unwrap();
@@ -4964,6 +5019,7 @@ async fn fidelity_thread_id_fallback_to_previous_node_in_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5007,6 +5063,7 @@ async fn fidelity_thread_id_from_node_class_in_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5053,6 +5110,7 @@ async fn fidelity_edge_thread_id_override_in_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5100,6 +5158,7 @@ async fn fidelity_full_without_explicit_thread_id_uses_previous_node() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5154,6 +5213,7 @@ async fn fidelity_from_parsed_dot_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5196,6 +5256,7 @@ async fn fidelity_checkpoint_roundtrip_preserves_fidelity() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5255,6 +5316,7 @@ async fn fidelity_node_thread_id_overrides_edge_thread_id_in_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine.run(&graph, &config).await.expect("run");
 
@@ -5328,6 +5390,7 @@ async fn fidelity_resume_preserves_context_values_across_checkpoint() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
     engine
         .run_from_checkpoint(&graph, &config, &checkpoint)
@@ -5517,6 +5580,7 @@ mod real_llm {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
         };
 
         let outcome = tokio::time::timeout(
@@ -5625,6 +5689,7 @@ mod real_llm {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
         };
 
         let outcome = tokio::time::timeout(
@@ -5763,6 +5828,7 @@ mod real_llm {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
         };
 
         let outcome = tokio::time::timeout(
@@ -5867,6 +5933,7 @@ mod real_llm {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
         };
 
         let outcome = tokio::time::timeout(
@@ -5951,6 +6018,7 @@ async fn human_gate_freeform_only_routes_text() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6070,6 +6138,7 @@ async fn human_gate_freeform_with_fixed_choice_match() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6174,6 +6243,7 @@ async fn human_gate_freeform_fallback_on_unmatched_text() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6291,6 +6361,7 @@ async fn human_gate_freeform_sets_allow_freeform_on_question() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6384,6 +6455,7 @@ async fn human_gate_without_freeform_sets_allow_freeform_false() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6626,6 +6698,7 @@ async fn tool_hooks_pre_success_allows_pipeline_to_proceed() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6665,6 +6738,7 @@ async fn tool_hooks_pre_failure_skips_tool_call() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     engine.run(&graph, &config).await.expect("run should complete");
@@ -6707,6 +6781,7 @@ async fn tool_hooks_post_success_does_not_affect_outcome() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6741,6 +6816,7 @@ async fn tool_hooks_post_failure_does_not_block_pipeline() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6777,6 +6853,7 @@ async fn tool_hooks_graph_level_applies_to_all_nodes() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -6816,6 +6893,7 @@ async fn tool_hooks_node_level_overrides_graph_level() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let _outcome = engine.run(&graph, &config).await.expect("run should complete");
@@ -6865,6 +6943,7 @@ async fn tool_hooks_pre_receives_node_id_env_var() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     engine.run(&graph, &config).await.expect("run should succeed");
@@ -6961,6 +7040,7 @@ async fn attractor_e2e_with_real_llm() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("run should succeed");
@@ -7068,6 +7148,7 @@ async fn run_fidelity_prompt_pipeline(fidelity: &str) -> String {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -7211,6 +7292,7 @@ async fn large_context_values_are_offloaded_to_artifact_store() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -7386,6 +7468,7 @@ async fn artifact_pointers_rewritten_for_remote_execution_env() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine
@@ -7500,6 +7583,7 @@ async fn node_dir_uses_visit_count_on_revisit() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -8066,6 +8150,7 @@ async fn full_pipeline_with_cli_backend_node() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -8154,6 +8239,7 @@ async fn stylesheet_backend_property_routes_to_cli() {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+        meta_branch: None,
     };
 
     let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
@@ -8353,6 +8439,7 @@ async fn git_checkpoint_host_emits_events_and_diff_patch() {
         git_checkpoint: Some(GitCheckpointMode::Host(worktree_path.clone())),
         base_sha: Some(base_sha.clone()),
         run_branch: Some("arc/run/test-docker".to_string()),
+        meta_branch: None,
     };
 
     // 5. Run pipeline
@@ -8400,6 +8487,145 @@ async fn git_checkpoint_host_emits_events_and_diff_patch() {
     assert!(final_patch.exists(), "final.patch should exist in logs_root");
     let patch_content = std::fs::read_to_string(&final_patch).unwrap();
     assert!(patch_content.contains("hello.txt"), "final.patch should contain hello.txt changes");
+
+    // Cleanup worktree
+    let _ = std::process::Command::new("git")
+        .args(["worktree", "remove", "--force"])
+        .arg(&worktree_path)
+        .current_dir(repo.path())
+        .output();
+}
+
+/// End-to-end test: pipeline with `GitCheckpointMode::Host` + `meta_branch` writes
+/// shadow branch with checkpoint data and includes `Arc-Checkpoint` trailer in run-branch commits.
+#[tokio::test]
+async fn git_checkpoint_host_writes_shadow_branch() {
+    use arc_attractor::git::MetadataStore;
+
+    // 1. Create a temporary git repo with an initial commit
+    let repo = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=test", "-c", "user.email=test@test",
+               "commit", "--allow-empty", "-m", "init"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // 2. Create a branch and worktree
+    let run_id = "test-shadow";
+    let base_sha = {
+        let out = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    std::process::Command::new("git")
+        .args(["branch", &format!("arc/run/{run_id}"), "HEAD"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    let worktree_path = repo.path().join("worktree");
+    std::process::Command::new("git")
+        .args(["worktree", "add"])
+        .arg(&worktree_path)
+        .arg(format!("arc/run/{run_id}"))
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // Write a file in the worktree so there's something to commit
+    std::fs::write(worktree_path.join("shadow_test.txt"), "shadow branch test").unwrap();
+
+    // 3. Build a simple pipeline: start -> work -> exit
+    let mut graph = Graph::new("ShadowBranchTest");
+    graph.attrs.insert("goal".to_string(), AttrValue::String("Test shadow branch".to_string()));
+    let mut start = Node::new("start");
+    start.attrs.insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+    let mut exit = Node::new("exit");
+    exit.attrs.insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+    let mut work = Node::new("work");
+    work.attrs.insert("label".to_string(), AttrValue::String("Work".to_string()));
+    graph.nodes.insert("work".to_string(), work);
+    graph.edges.push(Edge::new("start", "work"));
+    graph.edges.push(Edge::new("work", "exit"));
+
+    // 4. Set up engine with meta_branch
+    let logs_dir = tempfile::tempdir().unwrap();
+    // Write graph.dot so init_run can read it
+    std::fs::write(logs_dir.path().join("graph.dot"), "digraph {}").unwrap();
+    let emitter = EventEmitter::new();
+
+    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(
+        arc_agent::LocalExecutionEnvironment::new(worktree_path.clone()),
+    );
+    let mut registry = HandlerRegistry::new(Box::new(ContextSetterHandler));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+    let engine = PipelineEngine::new(registry, Arc::new(emitter), env);
+
+    let meta_branch = MetadataStore::branch_name(run_id);
+    let config = RunConfig {
+        logs_root: logs_dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: run_id.into(),
+        git_checkpoint: Some(GitCheckpointMode::Host(worktree_path.clone())),
+        base_sha: Some(base_sha),
+        run_branch: Some(format!("arc/run/{run_id}")),
+        meta_branch: Some(meta_branch),
+    };
+
+    // 5. Run pipeline
+    let outcome = engine.run(&graph, &config).await.expect("pipeline should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    // 6. Assert shadow branch has checkpoint data on the host repo
+    let checkpoint = MetadataStore::read_checkpoint(repo.path(), run_id)
+        .expect("read_checkpoint should not error")
+        .expect("shadow branch should contain checkpoint data");
+    assert!(
+        !checkpoint.completed_nodes.is_empty(),
+        "checkpoint should have completed nodes"
+    );
+    assert!(
+        checkpoint.completed_nodes.contains(&"work".to_string()),
+        "checkpoint should contain the 'work' node"
+    );
+
+    // 7. Assert run-branch commit has Arc-Checkpoint trailer pointing to shadow SHA
+    let output = std::process::Command::new("git")
+        .args(["log", "--format=%B", "-1"])
+        .current_dir(&worktree_path)
+        .output()
+        .unwrap();
+    let commit_msg = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(
+        commit_msg.contains("Arc-Checkpoint:"),
+        "run-branch commit should have Arc-Checkpoint trailer, got:\n{commit_msg}"
+    );
+    assert!(
+        commit_msg.contains("Arc-Run:"),
+        "run-branch commit should have Arc-Run trailer, got:\n{commit_msg}"
+    );
+    assert!(
+        commit_msg.contains("Arc-Completed:"),
+        "run-branch commit should have Arc-Completed trailer, got:\n{commit_msg}"
+    );
+
+    // 8. Verify round-trip: shadow checkpoint's completed_nodes matches expected
+    let manifest = MetadataStore::read_manifest(repo.path(), run_id)
+        .expect("read_manifest should not error")
+        .expect("shadow branch should contain manifest");
+    assert_eq!(manifest["run_id"], run_id);
 
     // Cleanup worktree
     let _ = std::process::Command::new("git")

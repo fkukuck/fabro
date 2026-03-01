@@ -43,13 +43,21 @@ struct CostAccumulator {
 ///
 /// Returns an error if the pipeline cannot be read, parsed, validated, or executed.
 pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Result<()> {
+    // Handle --run-branch resume: read everything from git metadata
+    if let Some(branch) = args.run_branch.clone() {
+        return run_from_branch(args, &branch, styles).await;
+    }
+
+    let pipeline_path = args.pipeline.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("--pipeline is required unless --run-branch is provided"))?;
+
     // 0. Load task config if TOML, resolve DOT path, run setup
-    let (dot_path, task_cfg) = if args.pipeline.extension().is_some_and(|ext| ext == "toml") {
-        let cfg = task_config::load_task_config(&args.pipeline)?;
-        let dot = task_config::resolve_graph_path(&args.pipeline, &cfg.graph);
+    let (dot_path, task_cfg) = if pipeline_path.extension().is_some_and(|ext| ext == "toml") {
+        let cfg = task_config::load_task_config(pipeline_path)?;
+        let dot = task_config::resolve_graph_path(pipeline_path, &cfg.graph);
         (dot, Some(cfg))
     } else {
-        (args.pipeline.clone(), None)
+        (pipeline_path.clone(), None)
     };
 
     if let Some(ref cfg) = task_cfg {
@@ -128,8 +136,8 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     tokio::fs::create_dir_all(&logs_dir).await?;
     tokio::fs::write(logs_dir.join("graph.dot"), &source).await?;
     tokio::fs::write(logs_dir.join("run.pid"), std::process::id().to_string()).await?;
-    if args.pipeline.extension().is_some_and(|ext| ext == "toml") {
-        if let Ok(toml_contents) = tokio::fs::read(&args.pipeline).await {
+    if pipeline_path.extension().is_some_and(|ext| ext == "toml") {
+        if let Ok(toml_contents) = tokio::fs::read(pipeline_path).await {
             tokio::fs::write(logs_dir.join("task.toml"), toml_contents).await?;
         }
     }
@@ -500,6 +508,12 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     let run_id = worktree_run_id
         .or(daytona_run_id)
         .unwrap_or_else(|| ulid::Ulid::new().to_string());
+    // Set up metadata branch for git checkpointing (host or remote)
+    let meta_branch = if worktree_work_dir.is_some() || daytona_base_sha.is_some() {
+        Some(crate::git::MetadataStore::branch_name(&run_id))
+    } else {
+        None
+    };
     let config = RunConfig {
         logs_root: logs_dir.clone(),
         cancel_token: None,
@@ -510,11 +524,12 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
                 worktree_work_dir.map(GitCheckpointMode::Host)
             }
             ExecutionEnvKind::Daytona => {
-                daytona_base_sha.as_ref().map(|_| GitCheckpointMode::Remote)
+                daytona_base_sha.as_ref().map(|_| GitCheckpointMode::Remote(original_cwd.clone()))
             }
         },
         base_sha: worktree_base_sha.or(daytona_base_sha),
         run_branch: worktree_branch.or(daytona_branch),
+        meta_branch,
     };
 
     let run_start = Instant::now();
@@ -667,6 +682,165 @@ async fn setup_daytona_git(
     }
 
     Ok((run_id, base_sha, branch_name))
+}
+
+/// Resume a pipeline run from a git run branch.
+///
+/// Reads the checkpoint, manifest, and graph DOT from the metadata branch
+/// (`refs/arc/{run_id}`), re-attaches a worktree to the existing run branch,
+/// and resumes execution via `run_from_checkpoint()`.
+async fn run_from_branch(args: RunArgs, run_branch: &str, styles: &'static Styles) -> anyhow::Result<()> {
+    // Extract run_id from branch name: "arc/run/{run_id}" -> "{run_id}"
+    let run_id = run_branch
+        .strip_prefix("arc/run/")
+        .ok_or_else(|| anyhow::anyhow!(
+            "invalid run branch format: expected 'arc/run/<run_id>', got '{run_branch}'"
+        ))?
+        .to_string();
+
+    let original_cwd = std::env::current_dir()?;
+
+    // Read checkpoint from metadata branch
+    let checkpoint = crate::git::MetadataStore::read_checkpoint(&original_cwd, &run_id)?
+        .ok_or_else(|| anyhow::anyhow!("no checkpoint found on metadata branch for run {run_id}"))?;
+
+    // Read graph DOT from metadata branch
+    let source = crate::git::MetadataStore::read_graph_dot(&original_cwd, &run_id)?
+        .ok_or_else(|| anyhow::anyhow!("no graph.dot found on metadata branch for run {run_id}"))?;
+
+    // If --pipeline was also provided, use it instead (allows overriding)
+    let source = if let Some(ref pipeline_path) = args.pipeline {
+        super::read_dot_file(pipeline_path)?
+    } else {
+        source
+    };
+
+    let (graph, diagnostics) = crate::pipeline::PipelineBuilder::new().prepare(&source)?;
+
+    eprintln!(
+        "{bold}Resuming pipeline:{reset} {} from branch {dim}{run_branch}{reset}",
+        graph.name,
+        bold = styles.bold, dim = styles.dim, reset = styles.reset,
+    );
+
+    super::print_diagnostics(&diagnostics, styles);
+    if diagnostics.iter().any(|d| d.severity == crate::validation::Severity::Error) {
+        anyhow::bail!("Validation failed");
+    }
+
+    // Set up logs directory
+    let logs_dir = args.logs_dir.unwrap_or_else(|| {
+        let base = dirs::home_dir()
+            .expect("could not determine home directory")
+            .join(".attractor")
+            .join("logs");
+        base.join(format!(
+            "arc-resume-{}",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        ))
+    });
+    tokio::fs::create_dir_all(&logs_dir).await?;
+    tokio::fs::write(logs_dir.join("graph.dot"), &source).await?;
+
+    // Re-attach worktree to the existing run branch
+    let worktree_path = logs_dir.join("worktree");
+    crate::git::add_worktree(&original_cwd, &worktree_path, run_branch)
+        .map_err(|e| anyhow::anyhow!("failed to attach worktree to {run_branch}: {e}"))?;
+    std::env::set_current_dir(&worktree_path)?;
+
+    let base_sha = crate::git::MetadataStore::read_manifest(&original_cwd, &run_id)?
+        .and_then(|m| m.get("base_sha").and_then(|v| v.as_str()).map(String::from));
+
+    // Build minimal execution environment (local only for now)
+    let emitter = Arc::new(EventEmitter::new());
+    let execution_env: Arc<dyn arc_agent::ExecutionEnvironment> = {
+        let mut env = arc_agent::LocalExecutionEnvironment::new(worktree_path.clone());
+        let emitter_cb = Arc::clone(&emitter);
+        env.set_event_callback(Arc::new(move |event| {
+            emitter_cb.emit(&crate::event::PipelineEvent::ExecutionEnv { event });
+        }));
+        Arc::new(env)
+    };
+
+    // Build interviewer
+    let interviewer: Arc<dyn crate::interviewer::Interviewer> = if args.auto_approve {
+        Arc::new(crate::interviewer::auto_approve::AutoApproveInterviewer)
+    } else {
+        Arc::new(crate::interviewer::console::ConsoleInterviewer::new(styles))
+    };
+
+    // Build engine with a backend
+    let dry_run_mode = args.dry_run || arc_llm::client::Client::from_env().await
+        .map(|c| c.provider_names().is_empty())
+        .unwrap_or(true);
+
+    let model = args.model.unwrap_or_else(|| "claude-opus-4-6".to_string());
+    let provider_enum = args.provider
+        .as_deref()
+        .map(|s| s.parse::<arc_llm::provider::Provider>())
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .unwrap_or(arc_llm::provider::Provider::Anthropic);
+
+    let registry = crate::handler::default_registry(interviewer.clone(), || {
+        if dry_run_mode {
+            None
+        } else {
+            let api = AgentBackend::new(model.clone(), provider_enum, args.verbose, styles);
+            let cli = CliBackend::new(model.clone(), provider_enum);
+            Some(Box::new(BackendRouter::new(Box::new(api), cli)))
+        }
+    });
+    let engine = crate::engine::PipelineEngine::with_interviewer(
+        registry,
+        Arc::clone(&emitter),
+        interviewer,
+        Arc::clone(&execution_env),
+    );
+
+    let meta_branch = Some(crate::git::MetadataStore::branch_name(&run_id));
+    let config = RunConfig {
+        logs_root: logs_dir.clone(),
+        cancel_token: None,
+        dry_run: dry_run_mode,
+        run_id,
+        git_checkpoint: Some(GitCheckpointMode::Host(worktree_path.clone())),
+        base_sha,
+        run_branch: Some(run_branch.to_string()),
+        meta_branch,
+    };
+
+    let run_start = Instant::now();
+    let engine_result = engine.run_from_checkpoint(&graph, &config, &checkpoint).await;
+    let run_duration_ms = run_start.elapsed().as_millis() as u64;
+
+    // Clean up
+    let _ = std::env::set_current_dir(&original_cwd);
+    let _ = crate::git::remove_worktree(&original_cwd, &worktree_path);
+
+    let outcome = engine_result?;
+
+    eprintln!(
+        "\n{bold}=== Pipeline Result ==={reset}",
+        bold = styles.bold, reset = styles.reset,
+    );
+    let status_str = outcome.status.to_string().to_uppercase();
+    let status_color = match outcome.status {
+        StageStatus::Success | StageStatus::PartialSuccess => styles.green,
+        _ => styles.red,
+    };
+    eprintln!("Status: {status_color}{status_str}{reset}", reset = styles.reset);
+    eprintln!("Duration: {}", super::format_duration_human(run_duration_ms));
+    eprintln!(
+        "{dim}Logs: {}{reset}",
+        logs_dir.display(),
+        dim = styles.dim, reset = styles.reset,
+    );
+
+    match outcome.status {
+        StageStatus::Success | StageStatus::PartialSuccess => Ok(()),
+        _ => std::process::exit(1),
+    }
 }
 
 #[cfg(test)]

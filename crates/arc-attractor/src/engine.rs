@@ -10,6 +10,8 @@ use chrono::Utc;
 use futures::FutureExt;
 use rand::Rng;
 
+use arc_git_storage::trailerlink::{self, Trailer};
+
 use crate::artifact::{offload_large_values, sync_artifacts_to_env, ArtifactStore};
 use crate::checkpoint::Checkpoint;
 use crate::condition::evaluate_condition;
@@ -239,27 +241,32 @@ pub fn resolve_thread_id(
 
 // --- Run directory helpers (spec 5.6) ---
 
-/// Write manifest.json at the start of a pipeline run.
-fn write_manifest(logs_root: &Path, graph: &Graph, run_branch: Option<&str>) {
+/// Write manifest.json at the start of a pipeline run. Returns the manifest value.
+fn write_manifest(logs_root: &Path, graph: &Graph, config: &RunConfig) -> serde_json::Value {
     let pipeline_name = if graph.name.is_empty() {
         "unnamed"
     } else {
         &graph.name
     };
     let mut manifest = serde_json::json!({
+        "run_id": config.run_id,
         "pipeline_name": pipeline_name,
         "goal": graph.goal(),
         "start_time": Utc::now().to_rfc3339(),
         "node_count": graph.nodes.len(),
         "edge_count": graph.edges.len(),
     });
-    if let Some(branch) = run_branch {
-        manifest["run_branch"] = serde_json::Value::String(branch.to_string());
+    if let Some(ref branch) = config.run_branch {
+        manifest["run_branch"] = serde_json::Value::String(branch.clone());
+    }
+    if let Some(ref base) = config.base_sha {
+        manifest["base_sha"] = serde_json::Value::String(base.clone());
     }
     if let Ok(json) = serde_json::to_string_pretty(&manifest) {
         let _ = std::fs::create_dir_all(logs_root);
         let _ = std::fs::write(logs_root.join("manifest.json"), json);
     }
+    manifest
 }
 
 /// Return the directory for a node's logs.
@@ -471,13 +478,21 @@ pub enum GitCheckpointMode {
     /// Run git commands on the host filesystem (local & Docker bind-mount).
     Host(PathBuf),
     /// Run git commands inside the remote execution environment via `exec_command`.
-    Remote,
+    /// The `PathBuf` is the host repo path used for `MetadataStore` (shadow commits).
+    Remote(PathBuf),
 }
 
 /// Run a git checkpoint commit on the host filesystem (local/Docker bind-mount).
-async fn git_checkpoint_host(work_dir: PathBuf, run_id: String, node_id: String, status: String) -> Option<String> {
+async fn git_checkpoint_host(
+    work_dir: PathBuf,
+    run_id: String,
+    node_id: String,
+    status: String,
+    completed_count: usize,
+    shadow_sha: Option<String>,
+) -> Option<String> {
     match tokio::task::spawn_blocking(move || {
-        crate::git::checkpoint_commit(&work_dir, &run_id, &node_id, &status)
+        crate::git::checkpoint_commit(&work_dir, &run_id, &node_id, &status, completed_count, shadow_sha.as_deref())
     }).await {
         Ok(Ok(sha)) => Some(sha),
         Ok(Err(_)) | Err(_) => None,
@@ -495,19 +510,41 @@ async fn git_diff_host(work_dir: PathBuf, base: String) -> Option<String> {
 }
 
 /// Run a git checkpoint commit inside a remote execution environment.
-async fn git_checkpoint_remote(exec_env: &dyn ExecutionEnvironment, run_id: &str, node_id: &str, status: &str) -> Option<String> {
+async fn git_checkpoint_remote(
+    exec_env: &dyn ExecutionEnvironment,
+    run_id: &str,
+    node_id: &str,
+    status: &str,
+    completed_count: usize,
+    shadow_sha: Option<String>,
+) -> Option<String> {
     // Stage everything
     let add_result = exec_env.exec_command("git add -A", 30_000, None, None, None).await;
     if add_result.as_ref().map_or(true, |r| r.exit_code != 0) {
         return None;
     }
 
-    // Commit with arc identity
-    let message = format!("arc({run_id}): {node_id} ({status})");
-    let commit_cmd = format!(
-        "git -c user.name=arc -c user.email=arc@local commit --allow-empty -m '{message}'"
-    );
-    let commit_result = exec_env.exec_command(&commit_cmd, 30_000, None, None, None).await;
+    // Build commit message with trailers (same format as checkpoint_commit in git.rs)
+    let subject = format!("arc({run_id}): {node_id} ({status})");
+    let completed_str = completed_count.to_string();
+    let mut trailers = vec![
+        Trailer { key: "Arc-Run", value: run_id },
+        Trailer { key: "Arc-Completed", value: &completed_str },
+    ];
+    let shadow_sha_ref = shadow_sha.as_deref().unwrap_or("");
+    if shadow_sha.is_some() {
+        trailers.push(Trailer { key: "Arc-Checkpoint", value: shadow_sha_ref });
+    }
+    let message = trailerlink::format_message(&subject, "", &trailers);
+
+    // Write message to temp file in sandbox to avoid shell escaping issues
+    if exec_env.write_file("/tmp/arc-commit-msg", &message).await.is_err() {
+        return None;
+    }
+
+    // Commit with arc identity using the message file
+    let commit_cmd = "git -c user.name=arc -c user.email=arc@local commit --allow-empty -F /tmp/arc-commit-msg";
+    let commit_result = exec_env.exec_command(commit_cmd, 30_000, None, None, None).await;
     if commit_result.as_ref().map_or(true, |r| r.exit_code != 0) {
         return None;
     }
@@ -542,6 +579,8 @@ pub struct RunConfig {
     pub base_sha: Option<String>,
     /// Git branch name for the run (e.g. `arc/run/{run_id}`).
     pub run_branch: Option<String>,
+    /// Metadata branch name for git-native checkpoint storage (e.g. `refs/arc/{run_id}`).
+    pub meta_branch: Option<String>,
 }
 
 /// The pipeline execution engine.
@@ -786,7 +825,23 @@ impl PipelineEngine {
         self.inform(&format!("Pipeline started: {}", graph.name), "pipeline");
 
         // Write manifest.json (spec 5.6)
-        write_manifest(&config.logs_root, graph, config.run_branch.as_deref());
+        let manifest = write_manifest(&config.logs_root, graph, config);
+
+        // Initialize metadata branch for git-native checkpoint storage (best-effort)
+        if config.meta_branch.is_some() {
+            let store_path = match config.git_checkpoint {
+                Some(GitCheckpointMode::Host(ref p)) | Some(GitCheckpointMode::Remote(ref p)) => Some(p),
+                None => None,
+            };
+            if let Some(repo_path) = store_path {
+                let store = crate::git::MetadataStore::new(repo_path);
+                let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
+                let dot_source = std::fs::read(config.logs_root.join("graph.dot")).unwrap_or_default();
+                if let Err(e) = store.init_run(&config.run_id, &manifest_bytes, &dot_source) {
+                    eprintln!("Warning: metadata branch init failed: {e}");
+                }
+            }
+        }
 
         // Compute effective max-node-visits limit:
         // graph attr > 0 → use it; else dry_run → 10; else 0 (disabled)
@@ -1096,18 +1151,51 @@ impl PipelineEngine {
                 });
             }
 
-            // Step 6b: Git checkpoint commit
+            // Step 6b: Write shadow branch first, then run branch commit with trailer
             if let Some(ref mode) = config.git_checkpoint {
+                // Shadow commit (best-effort): extract repo path from either variant
+                let shadow_sha: Option<String> = if config.meta_branch.is_some() {
+                    let repo_path = match mode {
+                        GitCheckpointMode::Host(ref p) | GitCheckpointMode::Remote(ref p) => p,
+                    };
+                    let store = crate::git::MetadataStore::new(repo_path);
+                    serde_json::to_vec_pretty(&checkpoint).ok().and_then(|cp_json| {
+                        let artifact_entries: Vec<(String, Vec<u8>)> = artifact_store.list().iter()
+                            .filter_map(|info| {
+                                info.file_path.as_ref().and_then(|path| {
+                                    std::fs::read(path).ok().map(|data| {
+                                        (format!("artifacts/{}.json", info.id), data)
+                                    })
+                                })
+                            })
+                            .collect();
+                        let artifact_refs: Vec<(&str, &[u8])> = artifact_entries.iter()
+                            .map(|(k, v)| (k.as_str(), v.as_slice()))
+                            .collect();
+                        match store.write_checkpoint(&config.run_id, &cp_json, &artifact_refs) {
+                            Ok(sha) => Some(sha),
+                            Err(e) => {
+                                context.append_log(format!("metadata checkpoint write failed: {e}"));
+                                None
+                            }
+                        }
+                    })
+                } else {
+                    None
+                };
+
+                // Run branch commit with Arc-Meta trailer pointing to shadow commit
                 let rid = run_id.clone();
                 let nid = node.id.clone();
                 let status_str = outcome.status.to_string();
+                let completed_count = completed_nodes.len();
 
                 let commit_result = match mode {
                     GitCheckpointMode::Host(work_dir) => {
-                        git_checkpoint_host(work_dir.clone(), rid, nid, status_str).await
+                        git_checkpoint_host(work_dir.clone(), rid, nid, status_str, completed_count, shadow_sha).await
                     }
-                    GitCheckpointMode::Remote => {
-                        git_checkpoint_remote(&*self.services.execution_env, &run_id, &node.id, &outcome.status.to_string()).await
+                    GitCheckpointMode::Remote(_) => {
+                        git_checkpoint_remote(&*self.services.execution_env, &run_id, &node.id, &outcome.status.to_string(), completed_count, shadow_sha).await
                     }
                 };
 
@@ -1134,7 +1222,7 @@ impl PipelineEngine {
                         GitCheckpointMode::Host(work_dir) => {
                             git_diff_host(work_dir.clone(), diff_base).await
                         }
-                        GitCheckpointMode::Remote => {
+                        GitCheckpointMode::Remote(_) => {
                             git_diff_remote(&*self.services.execution_env, &diff_base).await
                         }
                     };
@@ -1217,7 +1305,7 @@ impl PipelineEngine {
                 GitCheckpointMode::Host(work_dir) => {
                     git_diff_host(work_dir.clone(), base.clone()).await
                 }
-                GitCheckpointMode::Remote => {
+                GitCheckpointMode::Remote(_) => {
                     git_diff_remote(&*self.services.execution_env, base).await
                 }
             };
@@ -1900,6 +1988,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -1918,6 +2007,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
         let checkpoint_path = dir.path().join("checkpoint.json");
@@ -1945,6 +2035,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -1967,6 +2058,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -1985,6 +2077,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2016,6 +2109,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2073,6 +2167,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2148,6 +2243,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2175,6 +2271,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2199,6 +2296,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2343,7 +2441,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let g = simple_graph();
         let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         engine.run(&g, &config).await.unwrap();
 
         let manifest_path = dir.path().join("manifest.json");
@@ -2365,7 +2463,7 @@ mod tests {
         g.edges.push(Edge::new("start", "exit"));
 
         let engine = PipelineEngine::new(make_registry(), Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         engine.run(&g, &config).await.unwrap();
 
         let manifest_path = dir.path().join("manifest.json");
@@ -2401,7 +2499,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
 
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2437,7 +2535,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("always_fail", Box::new(AlwaysFailHandler));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         let result = engine.run(&g, &config).await;
 
         assert!(result.is_ok());
@@ -2476,7 +2574,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         let result = engine.run(&g, &config).await;
         assert!(result.is_ok());
 
@@ -2510,7 +2608,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 10 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
     }
@@ -2541,7 +2639,7 @@ mod tests {
         let mut registry = make_registry();
         registry.register("slow", Box::new(SlowHandler { sleep_ms: 500 }));
         let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None };
+        let config = RunConfig { logs_root: dir.path().to_path_buf(), cancel_token: None, dry_run: false, run_id: "test-run".into(), git_checkpoint: None, base_sha: None, run_branch: None, meta_branch: None };
         let outcome = engine.run(&g, &config).await.unwrap();
 
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2599,6 +2697,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
         // Give spawned inform tasks time to complete
@@ -2630,6 +2729,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         engine.run(&g, &config).await.unwrap();
         // Give spawned inform tasks time to complete
@@ -2659,6 +2759,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2680,6 +2781,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -2700,6 +2802,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2732,6 +2835,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
 
         // Set cancel after a short delay (while the slow handler is running)
@@ -2808,6 +2912,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -2831,6 +2936,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -2858,6 +2964,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -2946,6 +3053,7 @@ mod tests {
         git_checkpoint: None,
         base_sha: None,
         run_branch: None,
+            meta_branch: None,
         };
 
         // The engine returns Err because the Fail outcome has no outgoing fail edge,
