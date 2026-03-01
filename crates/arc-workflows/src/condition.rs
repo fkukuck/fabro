@@ -3,7 +3,7 @@
 /// Grammar: `ConditionExpr ::= Clause ('&&' Clause)*`, `Clause ::= Key Op Literal`,
 /// `Op ::= '=' | '!='`.
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::outcome::Outcome;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ enum Op {
     Truthy,
 }
 
-fn parse_clauses(expr: &str) -> Result<Vec<Clause>, AttractorError> {
+fn parse_clauses(expr: &str) -> Result<Vec<Clause>, ArcError> {
     let expr = expr.trim();
     if expr.is_empty() {
         return Ok(Vec::new());
@@ -34,7 +34,7 @@ fn parse_clauses(expr: &str) -> Result<Vec<Clause>, AttractorError> {
                 let key = part[..pos].trim().to_string();
                 let value = part[pos + 2..].trim().to_string();
                 if key.is_empty() {
-                    return Err(AttractorError::Parse(format!(
+                    return Err(ArcError::Parse(format!(
                         "empty key in condition clause: {part:?}"
                     )));
                 }
@@ -47,7 +47,7 @@ fn parse_clauses(expr: &str) -> Result<Vec<Clause>, AttractorError> {
                 let key = part[..pos].trim().to_string();
                 let value = part[pos + 1..].trim().to_string();
                 if key.is_empty() {
-                    return Err(AttractorError::Parse(format!(
+                    return Err(ArcError::Parse(format!(
                         "empty key in condition clause: {part:?}"
                     )));
                 }
@@ -60,7 +60,7 @@ fn parse_clauses(expr: &str) -> Result<Vec<Clause>, AttractorError> {
                 // Bare key: truthiness check
                 let key = part.to_string();
                 if key.is_empty() {
-                    return Err(AttractorError::Parse(format!(
+                    return Err(ArcError::Parse(format!(
                         "empty key in condition clause: {part:?}"
                     )));
                 }
@@ -79,7 +79,7 @@ fn parse_clauses(expr: &str) -> Result<Vec<Clause>, AttractorError> {
 /// # Errors
 ///
 /// Returns an error if the expression contains invalid syntax.
-pub fn parse_condition(expr: &str) -> Result<(), AttractorError> {
+pub fn parse_condition(expr: &str) -> Result<(), ArcError> {
     parse_clauses(expr)?;
     Ok(())
 }
@@ -319,6 +319,47 @@ mod tests {
         context.set("flag", serde_json::json!("yes"));
         assert!(evaluate_condition(
             "outcome=success && flag",
+            &outcome,
+            &context
+        ));
+    }
+
+    #[test]
+    fn context_failure_class_matches_when_set() {
+        let outcome = make_outcome(StageStatus::Fail);
+        let context = Context::new();
+        context.set("failure_class", serde_json::json!("budget_exhausted"));
+        assert!(evaluate_condition(
+            "context.failure_class=budget_exhausted",
+            &outcome,
+            &context
+        ));
+    }
+
+    #[test]
+    fn context_failure_class_not_equals_on_success() {
+        let outcome = make_outcome(StageStatus::Success);
+        let context = Context::new();
+        context.set("failure_class", serde_json::json!(""));
+        assert!(evaluate_condition(
+            "context.failure_class!=transient_infra",
+            &outcome,
+            &context
+        ));
+    }
+
+    #[test]
+    fn context_failure_class_combined_with_outcome() {
+        let outcome = make_outcome(StageStatus::Fail);
+        let context = Context::new();
+        context.set("failure_class", serde_json::json!("transient_infra"));
+        assert!(evaluate_condition(
+            "outcome=fail && context.failure_class=transient_infra",
+            &outcome,
+            &context
+        ));
+        assert!(!evaluate_condition(
+            "outcome=fail && context.failure_class=deterministic",
             &outcome,
             &context
         ));

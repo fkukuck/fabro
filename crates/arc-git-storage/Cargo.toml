@@ -4,7 +4,7 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 description = "Store structured data in git without touching the working directory"
-repository = "https://github.com/brynary/attractor-rust"
+repository = "https://github.com/brynary/arc"
 
 [lib]
 doctest = false

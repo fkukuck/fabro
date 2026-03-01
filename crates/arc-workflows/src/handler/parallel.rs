@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::PipelineEvent;
 use crate::graph::{Graph, Node};
 use crate::outcome::{Outcome, StageStatus};
@@ -99,7 +99,7 @@ impl Handler for ParallelHandler {
         graph: &Graph,
         logs_root: &Path,
         services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let parallel_start = Instant::now();
         let branches = graph.outgoing_edges(&node.id);
         if branches.is_empty() {
@@ -147,7 +147,7 @@ impl Handler for ParallelHandler {
 
             let handle = tokio::spawn(async move {
                 let _permit = sem.acquire().await.map_err(|e| {
-                    AttractorError::Handler(format!("semaphore error: {e}"))
+                    ArcError::Handler(format!("semaphore error: {e}"))
                 })?;
 
                 emitter.emit(&PipelineEvent::ParallelBranchStarted {
@@ -187,7 +187,7 @@ impl Handler for ParallelHandler {
                     status: outcome.status.to_string(),
                 });
 
-                Ok::<BranchResult, AttractorError>(BranchResult {
+                Ok::<BranchResult, ArcError>(BranchResult {
                     id: target_id,
                     outcome,
                 })

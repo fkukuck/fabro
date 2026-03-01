@@ -3,7 +3,7 @@ pub mod grammar;
 pub mod lexer;
 pub mod semantic;
 
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::types::Graph;
 
 /// Parse a DOT source string into a semantic `Graph`.
@@ -15,14 +15,14 @@ use crate::graph::types::Graph;
 ///
 /// Returns an error if the input is not valid DOT syntax or contains
 /// trailing content after the graph definition.
-pub fn parse(input: &str) -> Result<Graph, AttractorError> {
+pub fn parse(input: &str) -> Result<Graph, ArcError> {
     let stripped = lexer::strip_comments(input);
     let (rest, dot_graph) = grammar::parse_dot_graph(&stripped)
-        .map_err(|e| AttractorError::Parse(format!("grammar error: {e}")))?;
+        .map_err(|e| ArcError::Parse(format!("grammar error: {e}")))?;
 
     let remaining = rest.trim();
     if !remaining.is_empty() {
-        return Err(AttractorError::Parse(format!(
+        return Err(ArcError::Parse(format!(
             "unexpected trailing content: {:?}",
             &remaining[..remaining.len().min(50)]
         )));

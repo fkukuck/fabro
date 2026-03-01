@@ -244,7 +244,7 @@ environment = "daytona"
 auto_stop_interval = 60
 
 [execution.daytona.sandbox.labels]
-project = "attractor"
+project = "arc"
 
 [execution.daytona.snapshot]
 name = "my-snapshot"
@@ -260,7 +260,7 @@ dockerfile = "FROM rust:1.85-slim-bookworm\nRUN apt-get update"
         let daytona = execution.daytona.unwrap();
         assert_eq!(daytona.sandbox.auto_stop_interval, Some(60));
         let labels = daytona.sandbox.labels.unwrap();
-        assert_eq!(labels["project"], "attractor");
+        assert_eq!(labels["project"], "arc");
 
         let snapshot = daytona.snapshot.unwrap();
         assert_eq!(snapshot.name, "my-snapshot");

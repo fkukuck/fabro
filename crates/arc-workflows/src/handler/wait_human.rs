@@ -5,7 +5,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::{EventEmitter, PipelineEvent};
 use crate::graph::{Graph, Node};
 use crate::interviewer::{
@@ -106,7 +106,7 @@ impl Handler for WaitHumanHandler {
         graph: &Graph,
         _logs_root: &Path,
         _services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         // 1. Derive choices from outgoing edges
         let edges = graph.outgoing_edges(&node.id);
         let mut freeform_target: Option<String> = None;

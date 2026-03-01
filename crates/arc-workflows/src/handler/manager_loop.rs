@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::condition::evaluate_condition;
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::{Graph, Node};
 use crate::outcome::{Outcome, StageStatus};
 
@@ -20,15 +20,15 @@ pub trait ChildObserver: Send + Sync {
         _dotfile: &str,
         _workdir: &str,
         _context: &Context,
-    ) -> Result<(), AttractorError> {
+    ) -> Result<(), ArcError> {
         Ok(())
     }
 
     /// Ingest child telemetry into the context.
-    async fn observe(&self, context: &Context) -> Result<(), AttractorError>;
+    async fn observe(&self, context: &Context) -> Result<(), ArcError>;
 
     /// Optionally steer the child pipeline (e.g., write intervention instructions).
-    async fn steer(&self, context: &Context, node: &Node) -> Result<(), AttractorError>;
+    async fn steer(&self, context: &Context, node: &Node) -> Result<(), ArcError>;
 }
 
 /// Orchestrates observe/steer/wait cycles over a child pipeline.
@@ -74,7 +74,7 @@ impl Handler for ManagerLoopHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let poll_interval = node
             .attrs
             .get("manager.poll_interval")

@@ -2,7 +2,7 @@ pub mod rules;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::Graph;
 
 /// Severity level for validation diagnostics.
@@ -48,11 +48,11 @@ pub fn validate(graph: &Graph, extra_rules: &[&dyn LintRule]) -> Vec<Diagnostic>
 /// diagnostics are found.
 ///
 /// # Errors
-/// Returns `AttractorError::Validation` if any Error-severity diagnostics are found.
+/// Returns `ArcError::Validation` if any Error-severity diagnostics are found.
 pub fn validate_or_raise(
     graph: &Graph,
     extra_rules: &[&dyn LintRule],
-) -> Result<Vec<Diagnostic>, AttractorError> {
+) -> Result<Vec<Diagnostic>, ArcError> {
     let diagnostics = validate(graph, extra_rules);
     let errors: Vec<&Diagnostic> = diagnostics
         .iter()
@@ -60,7 +60,7 @@ pub fn validate_or_raise(
         .collect();
     if !errors.is_empty() {
         let messages: Vec<String> = errors.iter().map(|d| d.message.clone()).collect();
-        return Err(AttractorError::Validation(messages.join("; ")));
+        return Err(ArcError::Validation(messages.join("; ")));
     }
     Ok(diagnostics)
 }

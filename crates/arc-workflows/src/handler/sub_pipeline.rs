@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::context::Context;
 use crate::engine::select_edge;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::PipelineEvent;
 use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
@@ -36,7 +36,7 @@ impl Handler for SubPipelineHandler {
         _graph: &Graph,
         logs_root: &Path,
         services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         // 1. Get DOT source from node attribute
         let dot_source = match node.attrs.get("sub_pipeline.dot_source").and_then(|v| v.as_str()) {
             Some(s) if !s.is_empty() => s,
@@ -246,7 +246,7 @@ mod tests {
                 _graph: &Graph,
                 _logs_root: &Path,
                 _services: &EngineServices,
-            ) -> Result<Outcome, AttractorError> {
+            ) -> Result<Outcome, ArcError> {
                 context.set("sub.result", serde_json::json!("from_sub"));
                 Ok(Outcome::success())
             }
@@ -305,7 +305,7 @@ mod tests {
                 _graph: &Graph,
                 _logs_root: &Path,
                 _services: &EngineServices,
-            ) -> Result<Outcome, AttractorError> {
+            ) -> Result<Outcome, ArcError> {
                 Ok(Outcome::fail("sub-pipeline failure"))
             }
         }

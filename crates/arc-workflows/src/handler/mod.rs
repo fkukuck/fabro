@@ -17,7 +17,7 @@ use arc_agent::ExecutionEnvironment;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::EventEmitter;
 use crate::graph::{shape_to_handler_type, Graph, Node};
 use crate::interviewer::Interviewer;
@@ -40,11 +40,11 @@ pub trait Handler: Send + Sync {
         graph: &Graph,
         logs_root: &Path,
         services: &EngineServices,
-    ) -> Result<Outcome, AttractorError>;
+    ) -> Result<Outcome, ArcError>;
 
     /// Determines whether an error should be retried.
     /// Default implementation retries transient errors only.
-    fn should_retry(&self, err: &AttractorError) -> bool {
+    fn should_retry(&self, err: &ArcError) -> bool {
         err.is_retryable()
     }
 }
@@ -147,7 +147,7 @@ mod tests {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             Ok(Outcome::success())
         }
     }
@@ -211,8 +211,8 @@ mod tests {
         let handler = TestHandler {
             _name: "test".to_string(),
         };
-        assert!(handler.should_retry(&AttractorError::Handler("timeout".to_string())));
-        assert!(!handler.should_retry(&AttractorError::Parse("bad".to_string())));
+        assert!(handler.should_retry(&ArcError::Handler("timeout".to_string())));
+        assert!(!handler.should_retry(&ArcError::Parse("bad".to_string())));
     }
 
     struct NeverRetryHandler;
@@ -226,11 +226,11 @@ mod tests {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             Ok(Outcome::success())
         }
 
-        fn should_retry(&self, _err: &AttractorError) -> bool {
+        fn should_retry(&self, _err: &ArcError) -> bool {
             false
         }
     }
@@ -238,8 +238,8 @@ mod tests {
     #[test]
     fn custom_should_retry_override() {
         let handler = NeverRetryHandler;
-        assert!(!handler.should_retry(&AttractorError::Handler("timeout".to_string())));
-        assert!(!handler.should_retry(&AttractorError::Io("connection reset".to_string())));
+        assert!(!handler.should_retry(&ArcError::Handler("timeout".to_string())));
+        assert!(!handler.should_retry(&ArcError::Io("connection reset".to_string())));
     }
 
     #[test]

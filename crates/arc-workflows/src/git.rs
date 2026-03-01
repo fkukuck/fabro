@@ -7,10 +7,10 @@ use arc_git_storage::trailerlink::{self, Trailer};
 use git2::{Repository, Signature};
 
 use crate::checkpoint::Checkpoint;
-use crate::error::{AttractorError, Result};
+use crate::error::{ArcError, Result};
 
-fn git_error(msg: impl Into<String>) -> AttractorError {
-    AttractorError::Engine(msg.into())
+fn git_error(msg: impl Into<String>) -> ArcError {
+    ArcError::Engine(msg.into())
 }
 
 /// Assert the working directory is a clean git repo (no uncommitted changes).
@@ -250,7 +250,7 @@ impl MetadataStore {
         match Self::read_file(repo_path, run_id, "checkpoint.json")? {
             Some(bytes) => {
                 let cp: Checkpoint = serde_json::from_slice(&bytes)
-                    .map_err(|e| AttractorError::Checkpoint(format!("deserialize failed: {e}")))?;
+                    .map_err(|e| ArcError::Checkpoint(format!("deserialize failed: {e}")))?;
                 Ok(Some(cp))
             }
             None => Ok(None),

@@ -328,7 +328,7 @@ fn agent_invalid_permissions_value() {
         .stderr(predicate::str::contains("invalid value"));
 }
 
-// == Attractor: validate ======================================================
+// == Arc: validate ======================================================
 
 #[test]
 fn validate_simple() {
@@ -392,7 +392,7 @@ fn validate_invalid() {
         .failure();
 }
 
-// == Attractor: serve =========================================================
+// == Arc: serve =========================================================
 
 #[test]
 fn serve_help() {
@@ -407,7 +407,7 @@ fn serve_help() {
         .stdout(predicate::str::contains("--provider"));
 }
 
-// == Attractor: run --dry-run =================================================
+// == Arc: run --dry-run =================================================
 
 #[test]
 fn dry_run_simple() {

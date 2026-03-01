@@ -1,4 +1,4 @@
-# attractor
+# arc-workflows
 
 A DOT-based pipeline runner for multi-stage AI workflows. Define workflows as Graphviz `digraph` files and execute them with pluggable handlers, conditional routing, human-in-the-loop gates, parallel branching, retry policies, and checkpoint-based recovery.
 
@@ -41,7 +41,7 @@ digraph MyPipeline {
 ### Parsing and Validating a Pipeline
 
 ```rust
-use attractor::pipeline::prepare_pipeline;
+use arc_workflows::pipeline::prepare_pipeline;
 
 let dot_source = r#"digraph Simple {
     graph [goal="Run tests"]
@@ -62,13 +62,13 @@ assert_eq!(graph.goal(), "Run tests");
 ### Running a Pipeline
 
 ```rust
-use attractor::engine::{PipelineEngine, RunConfig};
-use attractor::event::EventEmitter;
-use attractor::handler::HandlerRegistry;
-use attractor::handler::start::StartHandler;
-use attractor::handler::exit::ExitHandler;
-use attractor::handler::codergen::CodergenHandler;
-use attractor::pipeline::prepare_pipeline;
+use arc_workflows::engine::{PipelineEngine, RunConfig};
+use arc_workflows::event::EventEmitter;
+use arc_workflows::handler::HandlerRegistry;
+use arc_workflows::handler::start::StartHandler;
+use arc_workflows::handler::exit::ExitHandler;
+use arc_workflows::handler::codergen::CodergenHandler;
+use arc_workflows::pipeline::prepare_pipeline;
 
 let graph = prepare_pipeline(dot_source).unwrap();
 
@@ -90,11 +90,11 @@ let config = RunConfig {
 Implement the `Handler` trait to add custom node behavior:
 
 ```rust
-use attractor::handler::Handler;
-use attractor::context::Context;
-use attractor::graph::{Graph, Node};
-use attractor::outcome::Outcome;
-use attractor::error::AttractorError;
+use arc_workflows::handler::Handler;
+use arc_workflows::context::Context;
+use arc_workflows::graph::{Graph, Node};
+use arc_workflows::outcome::Outcome;
+use arc_workflows::error::ArcError;
 use async_trait::async_trait;
 use std::path::Path;
 
@@ -108,7 +108,7 @@ impl Handler for MyHandler {
         context: &Context,
         graph: &Graph,
         logs_root: &Path,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         // Custom logic here
         Ok(Outcome::success())
     }

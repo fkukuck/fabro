@@ -245,7 +245,7 @@ async fn start_pipeline(
                 Ok(_) => {
                     pipeline.status = PipelineStatus::Completed;
                 }
-                Err(arc_workflows::error::AttractorError::Cancelled) => {
+                Err(arc_workflows::error::ArcError::Cancelled) => {
                     pipeline.status = PipelineStatus::Cancelled;
                 }
                 Err(e) => {

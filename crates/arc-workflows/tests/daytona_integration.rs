@@ -1,7 +1,7 @@
 //! Integration tests for `DaytonaExecutionEnvironment`.
 //!
 //! These tests require a `DAYTONA_API_KEY` environment variable and network access.
-//! Run with: `cargo test --package attractor -- --ignored daytona`
+//! Run with: `cargo test --package arc-workflows -- --ignored daytona`
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -13,7 +13,7 @@ use arc_workflows::checkpoint::Checkpoint;
 use arc_workflows::context::Context;
 use arc_workflows::daytona_env::{DaytonaConfig, DaytonaExecutionEnvironment};
 use arc_workflows::engine::{PipelineEngine, RunConfig};
-use arc_workflows::error::AttractorError;
+use arc_workflows::error::ArcError;
 use arc_workflows::event::EventEmitter;
 use arc_workflows::graph::{AttrValue, Edge, Graph, Node};
 use arc_workflows::handler::exit::ExitHandler;
@@ -179,7 +179,7 @@ async fn daytona_artifact_sync_uploads_and_rewrites_pointer() {
     // Pointer should be rewritten to the Daytona working directory
     let new_pointer = updates["response.plan"].as_str().unwrap();
     let expected_prefix = format!(
-        "file://{}/.attractor/artifacts/",
+        "file://{}/.arc/artifacts/",
         env.working_directory()
     );
     assert!(
@@ -220,7 +220,7 @@ impl Handler for LargeOutputHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let mut outcome = Outcome::success();
         let large_value = "x".repeat(150 * 1024);
         outcome.context_updates.insert(
@@ -289,7 +289,7 @@ async fn daytona_pipeline_artifact_offload_and_sync() {
         .expect("context should have response.big_output");
     let pointer_str = pointer_value.as_str().expect("pointer should be a string");
     let expected_prefix = format!(
-        "file://{}/.attractor/artifacts/",
+        "file://{}/.arc/artifacts/",
         env.working_directory()
     );
     assert!(
@@ -336,7 +336,7 @@ impl Handler for FileWriterHandler {
         _graph: &Graph,
         _logs_root: &Path,
         services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let content = format!("output from {}", node.id);
         let cmd = format!("echo '{content}' > {}.txt", node.id);
         let _ = services.execution_env.exec_command(&cmd, 10_000, None, None, None).await;

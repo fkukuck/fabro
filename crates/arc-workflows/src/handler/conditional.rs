@@ -3,7 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
 
@@ -22,7 +22,7 @@ impl Handler for ConditionalHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let mut outcome = Outcome::success();
         outcome.notes = Some(format!("Conditional node evaluated: {}", node.id));
         Ok(outcome)

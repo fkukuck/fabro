@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use super::{Answer, Interviewer, Question};
-use crate::error::AttractorError;
+use crate::error::ArcError;
 
 /// Wraps another interviewer and records all question-answer pairs.
 pub struct RecordingInterviewer {
@@ -32,26 +32,26 @@ impl RecordingInterviewer {
     ///
     /// # Errors
     /// Returns an error if serialization fails.
-    pub fn to_json(&self) -> Result<String, AttractorError> {
+    pub fn to_json(&self) -> Result<String, ArcError> {
         let recordings = self.recordings();
         serde_json::to_string_pretty(&recordings)
-            .map_err(|e| AttractorError::Io(e.to_string()))
+            .map_err(|e| ArcError::Io(e.to_string()))
     }
 
     /// Deserializes recordings from a JSON string.
     ///
     /// # Errors
     /// Returns an error if deserialization fails.
-    pub fn from_json(json: &str) -> Result<Vec<(Question, Answer)>, AttractorError> {
+    pub fn from_json(json: &str) -> Result<Vec<(Question, Answer)>, ArcError> {
         serde_json::from_str(json)
-            .map_err(|e| AttractorError::Io(e.to_string()))
+            .map_err(|e| ArcError::Io(e.to_string()))
     }
 
     /// Saves recordings to a file as JSON.
     ///
     /// # Errors
     /// Returns an error if serialization or file writing fails.
-    pub fn save_to_file(&self, path: &Path) -> Result<(), AttractorError> {
+    pub fn save_to_file(&self, path: &Path) -> Result<(), ArcError> {
         let json = self.to_json()?;
         std::fs::write(path, json)?;
         Ok(())
@@ -61,7 +61,7 @@ impl RecordingInterviewer {
     ///
     /// # Errors
     /// Returns an error if file reading or deserialization fails.
-    pub fn load_from_file(path: &Path) -> Result<Vec<(Question, Answer)>, AttractorError> {
+    pub fn load_from_file(path: &Path) -> Result<Vec<(Question, Answer)>, ArcError> {
         let json = std::fs::read_to_string(path)?;
         Self::from_json(&json)
     }

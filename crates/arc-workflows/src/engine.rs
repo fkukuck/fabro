@@ -16,7 +16,7 @@ use crate::artifact::{offload_large_values, sync_artifacts_to_env, ArtifactStore
 use crate::checkpoint::Checkpoint;
 use crate::condition::evaluate_condition;
 use crate::context::Context;
-use crate::error::{AttractorError, Result};
+use crate::error::{ArcError, FailureClass, Result, classify_failure_reason};
 use crate::event::{EventEmitter, PipelineEvent};
 use crate::graph::{Edge, Graph, Node};
 use crate::handler::{EngineServices, HandlerRegistry};
@@ -27,6 +27,37 @@ use crate::preamble::build_preamble;
 /// Convert a Duration's milliseconds to u64, saturating on overflow.
 fn millis_u64(d: std::time::Duration) -> u64 {
     u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Classify the failure mode of a completed outcome.
+///
+/// Returns `None` for `Success`, `PartialSuccess`, and `Skipped` outcomes.
+/// For failures, checks (in priority order):
+/// 1. Handler hint in `context_updates["failure_class"]`
+/// 2. String heuristics on `failure_reason`
+/// 3. Default to `Deterministic`
+#[must_use]
+fn classify_outcome(outcome: &Outcome) -> Option<FailureClass> {
+    match outcome.status {
+        StageStatus::Success | StageStatus::PartialSuccess | StageStatus::Skipped => None,
+        StageStatus::Fail | StageStatus::Retry => {
+            // Check handler hint in context_updates
+            if let Some(hint) = outcome.context_updates.get("failure_class") {
+                if let Some(s) = hint.as_str() {
+                    if let Ok(fc) = s.parse::<FailureClass>() {
+                        return Some(fc);
+                    }
+                }
+            }
+
+            // Fall back to string heuristics on failure_reason
+            if let Some(ref reason) = outcome.failure_reason {
+                return Some(classify_failure_reason(reason));
+            }
+
+            Some(FailureClass::Deterministic)
+        }
+    }
 }
 
 // --- Retry policy types ---
@@ -699,7 +730,7 @@ impl PipelineEngine {
                         let panic_dir = node_dir(logs_root, &node.id, visit);
                         let _ = std::fs::create_dir_all(&panic_dir);
                         let _ = std::fs::write(panic_dir.join("panic.txt"), &msg);
-                        Err(AttractorError::Handler(msg))
+                        Err(ArcError::Handler(msg))
                     }
                 }
             };
@@ -716,7 +747,7 @@ impl PipelineEngine {
                             error: e.to_string(),
                             will_retry: true,
                             failure_reason: None,
-                            failure_class: Some("transient".into()),
+                            failure_class: Some(e.failure_class().to_string()),
                         });
                         self.services.emitter.emit(&PipelineEvent::StageRetrying {
                             name: node.label().to_string(),
@@ -728,7 +759,12 @@ impl PipelineEngine {
                         tokio::time::sleep(delay).await;
                         continue;
                     }
-                    return Ok((Outcome::fail(e.to_string()), attempt));
+                    let mut fail_outcome = Outcome::fail(e.to_string());
+                    fail_outcome.context_updates.insert(
+                        "failure_class".to_string(),
+                        serde_json::json!(e.failure_class().to_string()),
+                    );
+                    return Ok((fail_outcome, attempt));
                 }
             };
 
@@ -917,7 +953,7 @@ impl PipelineEngine {
 
             let start_node = graph
                 .find_start_node()
-                .ok_or_else(|| AttractorError::Engine("no start node found".to_string()))?;
+                .ok_or_else(|| ArcError::Engine("no start node found".to_string()))?;
             current_node_id = start_node.id.clone();
         }
 
@@ -931,19 +967,19 @@ impl PipelineEngine {
             // Check for cancellation before processing each node
             if let Some(ref token) = config.cancel_token {
                 if token.load(Ordering::Relaxed) {
-                    return Err(AttractorError::Cancelled);
+                    return Err(ArcError::Cancelled);
                 }
             }
 
             let node = graph.nodes.get(&current_node_id).ok_or_else(|| {
-                AttractorError::Engine(format!("node not found: {current_node_id}"))
+                ArcError::Engine(format!("node not found: {current_node_id}"))
             })?;
 
             // Always track visit count (used for stage directory naming)
             let count = node_visits.entry(current_node_id.clone()).or_insert(0);
             *count += 1;
             if max_node_visits > 0 && *count > max_node_visits {
-                return Err(AttractorError::Engine(format!(
+                return Err(ArcError::Engine(format!(
                     "node \"{}\" exceeded max visit limit of {max_node_visits}",
                     current_node_id
                 )));
@@ -1057,6 +1093,8 @@ impl PipelineEngine {
 
             let stage_duration_ms = millis_u64(stage_start.elapsed());
 
+            let outcome_failure_class = classify_outcome(&outcome);
+
             if outcome.status == StageStatus::Fail {
                 self.services.emitter.emit(&PipelineEvent::StageFailed {
                     name: node.label().to_string(),
@@ -1068,7 +1106,7 @@ impl PipelineEngine {
                         .to_string(),
                     will_retry: false,
                     failure_reason: outcome.failure_reason.clone(),
-                    failure_class: Some("terminal".into()),
+                    failure_class: outcome_failure_class.map(|fc| fc.to_string()),
                 });
             } else {
                 self.services.emitter.emit(&PipelineEvent::StageCompleted {
@@ -1084,7 +1122,7 @@ impl PipelineEngine {
                     files_touched: outcome.files_touched.clone(),
                     attempt: usize::try_from(attempts_used).unwrap_or(usize::MAX),
                     max_attempts: usize::try_from(retry_policy.max_attempts).unwrap_or(usize::MAX),
-                    failure_class: None,
+                    failure_class: outcome_failure_class.map(|fc| fc.to_string()),
                 });
                 self.inform(
                     &format!("Stage completed: {}", node.label()),
@@ -1117,6 +1155,12 @@ impl PipelineEngine {
             // Step 4: Apply context updates from outcome
             context.apply_updates(&outcome.context_updates);
             context.set("outcome", serde_json::json!(outcome.status.to_string()));
+            context.set(
+                "failure_class",
+                serde_json::json!(
+                    outcome_failure_class.map_or(String::new(), |fc| fc.to_string())
+                ),
+            );
             if let Some(ref pref) = outcome.preferred_label {
                 context.set("preferred_label", serde_json::json!(pref));
             }
@@ -1258,7 +1302,7 @@ impl PipelineEngine {
                             duration_ms,
                             git_commit_sha: last_git_sha.clone(),
                         });
-                        return Err(AttractorError::Engine(error_msg));
+                        return Err(ArcError::Engine(error_msg));
                     }
                     break;
                 }
@@ -1352,7 +1396,7 @@ mod tests {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &crate::handler::EngineServices,
-        ) -> std::result::Result<Outcome, AttractorError> {
+        ) -> std::result::Result<Outcome, ArcError> {
             Ok(Outcome::fail("always fails"))
         }
     }
@@ -1371,7 +1415,7 @@ mod tests {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &crate::handler::EngineServices,
-        ) -> std::result::Result<Outcome, AttractorError> {
+        ) -> std::result::Result<Outcome, ArcError> {
             tokio::time::sleep(Duration::from_millis(self.sleep_ms)).await;
             Ok(Outcome::success())
         }
@@ -2785,7 +2829,7 @@ mod tests {
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AttractorError::Cancelled));
+        assert!(matches!(result.unwrap_err(), ArcError::Cancelled));
     }
 
     #[tokio::test]
@@ -2848,7 +2892,7 @@ mod tests {
         // The engine should detect cancellation at the next loop iteration
         // after the slow handler completes
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AttractorError::Cancelled));
+        assert!(matches!(result.unwrap_err(), ArcError::Cancelled));
     }
 
     // --- max_node_visits tests ---
@@ -3015,7 +3059,7 @@ mod tests {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &crate::handler::EngineServices,
-        ) -> std::result::Result<Outcome, AttractorError> {
+        ) -> std::result::Result<Outcome, ArcError> {
             panic!("test panic message");
         }
     }
@@ -3066,6 +3110,94 @@ mod tests {
         assert!(
             content.contains("test panic message"),
             "panic.txt should contain the panic message, got: {content}"
+        );
+    }
+
+    // --- classify_outcome tests ---
+
+    #[test]
+    fn classify_outcome_returns_none_for_success() {
+        assert!(classify_outcome(&Outcome::success()).is_none());
+    }
+
+    #[test]
+    fn classify_outcome_returns_none_for_skipped() {
+        assert!(classify_outcome(&Outcome::skipped()).is_none());
+    }
+
+    #[test]
+    fn classify_outcome_returns_none_for_partial_success() {
+        let outcome = Outcome {
+            status: StageStatus::PartialSuccess,
+            ..Outcome::success()
+        };
+        assert!(classify_outcome(&outcome).is_none());
+    }
+
+    #[test]
+    fn classify_outcome_respects_handler_hint() {
+        let mut outcome = Outcome::fail("some error");
+        outcome.context_updates.insert(
+            "failure_class".to_string(),
+            serde_json::json!("budget_exhausted"),
+        );
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::BudgetExhausted)
+        );
+    }
+
+    #[test]
+    fn classify_outcome_ignores_invalid_handler_hint() {
+        let mut outcome = Outcome::fail("timeout occurred");
+        outcome.context_updates.insert(
+            "failure_class".to_string(),
+            serde_json::json!("not_a_valid_class"),
+        );
+        // Falls through to string heuristics on failure_reason
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::TransientInfra)
+        );
+    }
+
+    #[test]
+    fn classify_outcome_uses_failure_reason_heuristics() {
+        let outcome = Outcome::fail("rate limited by provider");
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::TransientInfra)
+        );
+    }
+
+    #[test]
+    fn classify_outcome_defaults_to_deterministic() {
+        let outcome = Outcome::fail("something went wrong");
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::Deterministic)
+        );
+    }
+
+    #[test]
+    fn classify_outcome_fail_no_reason_is_deterministic() {
+        let outcome = Outcome {
+            status: StageStatus::Fail,
+            failure_reason: None,
+            ..Outcome::success()
+        };
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::Deterministic)
+        );
+    }
+
+    #[test]
+    fn classify_outcome_retry_status_uses_heuristics() {
+        let outcome = Outcome::retry("connection refused");
+        assert_eq!(
+            classify_outcome(&outcome),
+            Some(FailureClass::TransientInfra)
         );
     }
 }

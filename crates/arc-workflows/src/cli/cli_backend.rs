@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use arc_llm::provider::Provider;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::EventEmitter;
 use crate::graph::Node;
 use crate::handler::codergen::{CodergenBackend, CodergenResult};
@@ -260,16 +260,16 @@ impl CodergenBackend for CliBackend {
         _emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
         execution_env: &Arc<dyn ExecutionEnvironment>,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         // 1. Snapshot git state before the CLI run
         let files_before = self.detect_changed_files(execution_env).await;
 
         // 2. Write prompt to temp file
-        let prompt_path = "/tmp/attractor_cli_prompt.txt";
+        let prompt_path = "/tmp/arc_cli_prompt.txt";
         execution_env
             .write_file(prompt_path, prompt)
             .await
-            .map_err(|e| AttractorError::Handler(format!("Failed to write prompt file: {e}")))?;
+            .map_err(|e| ArcError::Handler(format!("Failed to write prompt file: {e}")))?;
 
         // 3. Build and execute CLI command
         let model = node.llm_model().unwrap_or(&self.model);
@@ -293,7 +293,7 @@ impl CodergenBackend for CliBackend {
         let result = execution_env
             .exec_command(&command, 600_000, None, None, None)
             .await
-            .map_err(|e| AttractorError::Handler(format!("CLI command failed: {e}")))?;
+            .map_err(|e| ArcError::Handler(format!("CLI command failed: {e}")))?;
 
         if let Ok(json) = serde_json::to_string_pretty(&serde_json::json!({
             "exit_code": result.exit_code,
@@ -305,7 +305,7 @@ impl CodergenBackend for CliBackend {
         }
 
         if result.exit_code != 0 {
-            return Err(AttractorError::Handler(format!(
+            return Err(ArcError::Handler(format!(
                 "CLI command exited with code {}: {}",
                 result.exit_code,
                 result.stderr.chars().take(500).collect::<String>()
@@ -314,7 +314,7 @@ impl CodergenBackend for CliBackend {
 
         // 4. Parse the CLI output
         let parsed = parse_cli_response(provider, &result.stdout).ok_or_else(|| {
-            AttractorError::Handler("Failed to parse CLI output".to_string())
+            ArcError::Handler("Failed to parse CLI output".to_string())
         })?;
 
         // 5. Detect changed files
@@ -387,7 +387,7 @@ impl CodergenBackend for BackendRouter {
         emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
         execution_env: &Arc<dyn ExecutionEnvironment>,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         if self.should_use_cli(node) {
             self.cli_backend
                 .run(node, prompt, context, thread_id, emitter, stage_dir, execution_env)
@@ -404,7 +404,7 @@ impl CodergenBackend for BackendRouter {
         node: &Node,
         prompt: &str,
         stage_dir: &Path,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         // CLI backend doesn't support one_shot, always route to API
         self.api_backend.one_shot(node, prompt, stage_dir).await
     }
@@ -619,7 +619,7 @@ mod tests {
             _emitter: &Arc<EventEmitter>,
             _stage_dir: &Path,
             _execution_env: &Arc<dyn ExecutionEnvironment>,
-        ) -> Result<CodergenResult, AttractorError> {
+        ) -> Result<CodergenResult, ArcError> {
             Ok(CodergenResult::Text {
                 text: "stub".to_string(),
                 usage: None,

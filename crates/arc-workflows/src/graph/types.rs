@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::AttractorError;
+use crate::error::ArcError;
 
 /// Whether a codergen node runs as a multi-turn agent loop or a single LLM call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,11 +13,11 @@ pub enum CodergenMode {
 }
 
 impl CodergenMode {
-    pub fn parse(s: &str) -> Result<Self, AttractorError> {
+    pub fn parse(s: &str) -> Result<Self, ArcError> {
         match s {
             "agent_loop" => Ok(Self::AgentLoop),
             "one_shot" => Ok(Self::OneShot),
-            other => Err(AttractorError::Validation(format!(
+            other => Err(ArcError::Validation(format!(
                 "invalid codergen_mode: {other:?} (expected \"agent_loop\" or \"one_shot\")"
             ))),
         }
@@ -231,7 +231,7 @@ impl Node {
     }
 
     /// Returns the codergen mode for this node. Defaults to `AgentLoop` when absent.
-    pub fn codergen_mode(&self) -> Result<CodergenMode, AttractorError> {
+    pub fn codergen_mode(&self) -> Result<CodergenMode, ArcError> {
         match self.str_attr("codergen_mode") {
             Some(s) => CodergenMode::parse(s),
             None => Ok(CodergenMode::AgentLoop),

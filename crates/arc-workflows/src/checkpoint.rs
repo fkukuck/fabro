@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::context::Context;
-use crate::error::{AttractorError, Result};
+use crate::error::{ArcError, Result};
 use crate::outcome::Outcome;
 
 /// Serializable snapshot of execution state for crash recovery and resume.
@@ -59,7 +59,7 @@ impl Checkpoint {
     /// Returns an error if serialization or file writing fails.
     pub fn save(&self, path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| AttractorError::Checkpoint(format!("serialize failed: {e}")))?;
+            .map_err(|e| ArcError::Checkpoint(format!("serialize failed: {e}")))?;
         std::fs::write(path, json)?;
         Ok(())
     }
@@ -72,7 +72,7 @@ impl Checkpoint {
     pub fn load(path: &Path) -> Result<Self> {
         let data = std::fs::read_to_string(path)?;
         let checkpoint: Self = serde_json::from_str(&data)
-            .map_err(|e| AttractorError::Checkpoint(format!("deserialize failed: {e}")))?;
+            .map_err(|e| ArcError::Checkpoint(format!("deserialize failed: {e}")))?;
         Ok(checkpoint)
     }
 }

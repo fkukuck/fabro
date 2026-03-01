@@ -116,7 +116,7 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
     let listener = TcpListener::bind(&addr).await?;
 
     eprintln!(
-        "{bold}Attractor server listening on {green}{addr}{reset}",
+        "{bold}Arc server listening on {green}{addr}{reset}",
         bold = styles.bold,
         green = styles.green,
         reset = styles.reset,

@@ -722,24 +722,24 @@ mod tests {
     #[test]
     fn ssh_url_to_https_converts_git_at_syntax() {
         assert_eq!(
-            ssh_url_to_https("git@github.com:brynary/attractor-rust.git"),
-            "https://github.com/brynary/attractor-rust.git"
+            ssh_url_to_https("git@github.com:brynary/arc.git"),
+            "https://github.com/brynary/arc.git"
         );
     }
 
     #[test]
     fn ssh_url_to_https_converts_ssh_protocol() {
         assert_eq!(
-            ssh_url_to_https("ssh://git@github.com/brynary/attractor-rust.git"),
-            "https://github.com/brynary/attractor-rust.git"
+            ssh_url_to_https("ssh://git@github.com/brynary/arc.git"),
+            "https://github.com/brynary/arc.git"
         );
     }
 
     #[test]
     fn ssh_url_to_https_passes_through_https() {
         assert_eq!(
-            ssh_url_to_https("https://github.com/brynary/attractor-rust.git"),
-            "https://github.com/brynary/attractor-rust.git"
+            ssh_url_to_https("https://github.com/brynary/arc.git"),
+            "https://github.com/brynary/arc.git"
         );
     }
 

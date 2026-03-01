@@ -3,7 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
 
@@ -25,7 +25,7 @@ impl Handler for ScriptHandler {
         _graph: &Graph,
         logs_root: &Path,
         _services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let script = node
             .attrs
             .get("script")
@@ -94,7 +94,7 @@ impl Handler for ScriptHandler {
                     )
                     .await?;
 
-                    return Err(AttractorError::Handler(format!(
+                    return Err(ArcError::Handler(format!(
                         "Script timed out after {}ms: {script}",
                         timeout_dur.as_millis()
                     )));
@@ -158,7 +158,7 @@ impl Handler for ScriptHandler {
                     Ok(outcome)
                 }
             }
-            Err(e) => Err(AttractorError::Handler(format!("Failed to spawn script: {e}"))),
+            Err(e) => Err(ArcError::Handler(format!("Failed to spawn script: {e}"))),
         }
     }
 }
@@ -647,7 +647,7 @@ mod tests {
         //
         // Pragmatic approach: verify the error construction matches what the
         // handler produces. The timeout test covers the other Err path.
-        let err = AttractorError::Handler(format!("Failed to spawn script: {}", "No such file"));
+        let err = ArcError::Handler(format!("Failed to spawn script: {}", "No such file"));
         assert!(err.to_string().contains("Failed to spawn script"));
     }
 

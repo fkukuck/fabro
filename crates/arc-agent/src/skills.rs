@@ -209,11 +209,11 @@ pub fn default_skill_dirs(home_dir: Option<&str>, git_root: Option<&str>) -> Vec
     let mut dirs = Vec::new();
 
     if let Some(home) = home_dir {
-        dirs.push(format!("{home}/.attractor/skills"));
+        dirs.push(format!("{home}/.arc/skills"));
     }
 
     if let Some(root) = git_root {
-        dirs.push(format!("{root}/.attractor/skills"));
+        dirs.push(format!("{root}/.arc/skills"));
         dirs.push(format!("{root}/skills"));
     }
 
@@ -521,8 +521,8 @@ name: trimmed
         assert_eq!(
             dirs,
             vec![
-                "/home/user/.attractor/skills",
-                "/repo/.attractor/skills",
+                "/home/user/.arc/skills",
+                "/repo/.arc/skills",
                 "/repo/skills",
             ]
         );
@@ -531,7 +531,7 @@ name: trimmed
     #[test]
     fn default_dirs_without_git_root() {
         let dirs = default_skill_dirs(Some("/home/user"), None);
-        assert_eq!(dirs, vec!["/home/user/.attractor/skills"]);
+        assert_eq!(dirs, vec!["/home/user/.arc/skills"]);
     }
 
     // --- make_use_skill_tool tests ---

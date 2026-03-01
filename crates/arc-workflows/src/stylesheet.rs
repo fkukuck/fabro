@@ -1,4 +1,4 @@
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::types::{AttrValue, Graph};
 
 /// A parsed stylesheet selector.
@@ -51,7 +51,7 @@ pub struct Stylesheet {
 /// # Errors
 ///
 /// Returns an error if the input contains invalid stylesheet syntax.
-pub fn parse_stylesheet(input: &str) -> Result<Stylesheet, AttractorError> {
+pub fn parse_stylesheet(input: &str) -> Result<Stylesheet, ArcError> {
     let input = input.trim();
     if input.is_empty() {
         return Ok(Stylesheet { rules: Vec::new() });
@@ -65,7 +65,7 @@ pub fn parse_stylesheet(input: &str) -> Result<Stylesheet, AttractorError> {
 
         let selector = parse_selector(&mut remaining)?;
         if !remaining.starts_with('{') {
-            return Err(AttractorError::Stylesheet(format!(
+            return Err(ArcError::Stylesheet(format!(
                 "expected '{{' after selector, got: {:?}",
                 &remaining[..remaining.len().min(20)]
             )));
@@ -84,7 +84,7 @@ pub fn parse_stylesheet(input: &str) -> Result<Stylesheet, AttractorError> {
     Ok(Stylesheet { rules })
 }
 
-fn parse_selector(remaining: &mut &str) -> Result<Selector, AttractorError> {
+fn parse_selector(remaining: &mut &str) -> Result<Selector, ArcError> {
     if remaining.starts_with('*') {
         *remaining = remaining[1..].trim();
         Ok(Selector::Universal)
@@ -94,7 +94,7 @@ fn parse_selector(remaining: &mut &str) -> Result<Selector, AttractorError> {
             .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
             .unwrap_or(remaining.len());
         if end == 0 {
-            return Err(AttractorError::Stylesheet(
+            return Err(ArcError::Stylesheet(
                 "expected identifier after '#'".into(),
             ));
         }
@@ -107,7 +107,7 @@ fn parse_selector(remaining: &mut &str) -> Result<Selector, AttractorError> {
             .find(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-')
             .unwrap_or(remaining.len());
         if end == 0 {
-            return Err(AttractorError::Stylesheet(
+            return Err(ArcError::Stylesheet(
                 "expected class name after '.'".into(),
             ));
         }
@@ -120,7 +120,7 @@ fn parse_selector(remaining: &mut &str) -> Result<Selector, AttractorError> {
             .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
             .unwrap_or(remaining.len());
         if end == 0 {
-            return Err(AttractorError::Stylesheet(format!(
+            return Err(ArcError::Stylesheet(format!(
                 "expected selector ('*', '#id', '.class', or shape name), got: {:?}",
                 &remaining[..remaining.len().min(20)]
             )));
@@ -131,11 +131,11 @@ fn parse_selector(remaining: &mut &str) -> Result<Selector, AttractorError> {
     }
 }
 
-fn parse_declarations(remaining: &mut &str) -> Result<Vec<Declaration>, AttractorError> {
+fn parse_declarations(remaining: &mut &str) -> Result<Vec<Declaration>, ArcError> {
     let mut declarations = Vec::new();
     while !remaining.starts_with('}') {
         if remaining.is_empty() {
-            return Err(AttractorError::Stylesheet(
+            return Err(ArcError::Stylesheet(
                 "unexpected end of stylesheet, expected '}'".into(),
             ));
         }
@@ -151,7 +151,7 @@ fn parse_declarations(remaining: &mut &str) -> Result<Vec<Declaration>, Attracto
         *remaining = remaining[prop_end..].trim();
 
         if !remaining.starts_with(':') {
-            return Err(AttractorError::Stylesheet(format!(
+            return Err(ArcError::Stylesheet(format!(
                 "expected ':' after property name '{property}'"
             )));
         }
@@ -164,7 +164,7 @@ fn parse_declarations(remaining: &mut &str) -> Result<Vec<Declaration>, Attracto
         *remaining = remaining[val_end..].trim();
 
         if value.is_empty() {
-            return Err(AttractorError::Stylesheet(format!(
+            return Err(ArcError::Stylesheet(format!(
                 "empty value for property '{property}'"
             )));
         }

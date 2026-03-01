@@ -126,7 +126,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     let logs_dir = args.logs_dir.unwrap_or_else(|| {
         let base = dirs::home_dir()
             .expect("could not determine home directory")
-            .join(".attractor")
+            .join(".arc")
             .join("logs");
         base.join(format!(
             "arc-run-{}",
@@ -732,7 +732,7 @@ async fn run_from_branch(args: RunArgs, run_branch: &str, styles: &'static Style
     let logs_dir = args.logs_dir.unwrap_or_else(|| {
         let base = dirs::home_dir()
             .expect("could not determine home directory")
-            .join(".attractor")
+            .join(".arc")
             .join("logs");
         base.join(format!(
             "arc-resume-{}",

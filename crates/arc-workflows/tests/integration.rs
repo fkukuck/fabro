@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arc_workflows::checkpoint::Checkpoint;
 use arc_workflows::context::Context;
 use arc_workflows::engine::{PipelineEngine, RunConfig};
-use arc_workflows::error::AttractorError;
+use arc_workflows::error::ArcError;
 use arc_workflows::event::{EventEmitter, PipelineEvent};
 use arc_workflows::graph::{AttrValue, Edge, Graph, Node};
 use arc_workflows::handler::codergen::{CodergenBackend, CodergenHandler, CodergenResult};
@@ -460,7 +460,7 @@ impl Handler for AlwaysFailHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, arc_workflows::error::AttractorError> {
+    ) -> Result<Outcome, arc_workflows::error::ArcError> {
         Ok(Outcome::fail(format!("forced failure for {}", node.id)))
     }
 }
@@ -574,7 +574,7 @@ async fn goal_gate_routes_to_retry_target_when_present() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, arc_workflows::error::AttractorError> {
+        ) -> Result<Outcome, arc_workflows::error::ArcError> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -896,7 +896,7 @@ async fn retry_on_failure_then_succeed() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1104,7 +1104,7 @@ impl CodergenBackend for MockCodergenBackend {
         _emitter: &Arc<EventEmitter>,
         _stage_dir: &std::path::Path,
         _execution_env: &Arc<dyn arc_agent::ExecutionEnvironment>,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         Ok(CodergenResult::Text {
             text: format!(
                 "Response for {}: processed prompt '{}'",
@@ -1136,7 +1136,7 @@ impl Handler for CounterHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let count = self
             .call_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1160,7 +1160,7 @@ impl Handler for LargeOutputHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let mut outcome = Outcome::success();
         // 150KB string — well above the 100KB artifact threshold
         let large_value = "x".repeat(150 * 1024);
@@ -1184,7 +1184,7 @@ impl Handler for ContextSetterHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let mut outcome = Outcome::success();
         outcome
             .context_updates
@@ -1947,7 +1947,7 @@ async fn branching_loop_back_on_failure() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2263,7 +2263,7 @@ async fn scenario_node_retries_on_retry_status() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2508,7 +2508,7 @@ async fn manager_loop_stop_condition_satisfied_e2e() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             let mut outcome = Outcome::success();
             outcome
                 .context_updates
@@ -2980,7 +2980,7 @@ async fn custom_handler_registration_and_execution() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, AttractorError> {
+        ) -> Result<Outcome, ArcError> {
             let mut outcome = Outcome::success();
             outcome
                 .context_updates
@@ -3184,7 +3184,7 @@ async fn manager_loop_with_child_observer_e2e() {
             _dotfile: &str,
             _workdir: &str,
             _context: &arc_workflows::context::Context,
-        ) -> Result<(), arc_workflows::error::AttractorError> {
+        ) -> Result<(), arc_workflows::error::ArcError> {
             self.launch_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -3192,7 +3192,7 @@ async fn manager_loop_with_child_observer_e2e() {
         async fn observe(
             &self,
             context: &arc_workflows::context::Context,
-        ) -> Result<(), arc_workflows::error::AttractorError> {
+        ) -> Result<(), arc_workflows::error::ArcError> {
             let cycle = self.observe_count.fetch_add(1, Ordering::SeqCst);
             if cycle >= 2 {
                 context.set(
@@ -3211,7 +3211,7 @@ async fn manager_loop_with_child_observer_e2e() {
             &self,
             _context: &arc_workflows::context::Context,
             _node: &arc_workflows::graph::Node,
-        ) -> Result<(), arc_workflows::error::AttractorError> {
+        ) -> Result<(), arc_workflows::error::ArcError> {
             Ok(())
         }
     }
@@ -3496,7 +3496,7 @@ impl Handler for FidelityCapturingHandler {
         _graph: &Graph,
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let fidelity = context.get_string("internal.fidelity", "none");
         self.captures
             .fidelities
@@ -4993,7 +4993,7 @@ mod real_llm {
     use async_trait::async_trait;
 
     use arc_workflows::context::Context;
-    use arc_workflows::error::AttractorError;
+    use arc_workflows::error::ArcError;
     use arc_workflows::graph::Node;
     use arc_workflows::handler::codergen::{CodergenBackend, CodergenHandler, CodergenResult};
 
@@ -5016,7 +5016,7 @@ mod real_llm {
             _emitter: &Arc<EventEmitter>,
             _stage_dir: &std::path::Path,
             _execution_env: &Arc<dyn arc_agent::ExecutionEnvironment>,
-        ) -> Result<CodergenResult, AttractorError> {
+        ) -> Result<CodergenResult, ArcError> {
             let request = Request {
                 model: self.model.clone(),
                 messages: vec![Message::user(prompt)],
@@ -5036,7 +5036,7 @@ mod real_llm {
                 .client
                 .complete(&request)
                 .await
-                .map_err(|e| AttractorError::Handler(e.to_string()))?;
+                .map_err(|e| ArcError::Handler(e.to_string()))?;
             Ok(CodergenResult::Text { text: response.text(), usage: None, files_touched: Vec::new() })
         }
     }
@@ -6485,11 +6485,11 @@ async fn tool_hooks_node_level_overrides_graph_level() {
 
 #[tokio::test]
 async fn tool_hooks_pre_receives_node_id_env_var() {
-    // Use a pre-hook that writes the ATTRACTOR_NODE_ID env var to a file
+    // Use a pre-hook that writes the ARC_NODE_ID env var to a file
     let dir = tempfile::tempdir().unwrap();
     let marker_path = dir.path().join("node_id.txt");
     let hook_cmd = format!(
-        "echo $ATTRACTOR_NODE_ID > {}",
+        "echo $ARC_NODE_ID > {}",
         marker_path.display()
     );
 
@@ -6524,7 +6524,7 @@ async fn tool_hooks_pre_receives_node_id_env_var() {
     assert_eq!(
         written.trim(),
         "my_step",
-        "ATTRACTOR_NODE_ID should contain the node id"
+        "ARC_NODE_ID should contain the node id"
     );
 }
 
@@ -6566,7 +6566,7 @@ static TEST_STYLES: Styles = Styles::new(false);
 
 #[tokio::test]
 #[ignore = "requires ANTHROPIC_API_KEY"]
-async fn attractor_e2e_with_real_llm() {
+async fn arc_e2e_with_real_llm() {
     dotenvy::dotenv().ok();
 
     let dir = tempfile::tempdir().unwrap();
@@ -7057,7 +7057,7 @@ async fn artifact_pointers_rewritten_for_remote_execution_env() {
         .expect("context should have response.big_output");
     let pointer_str = pointer_value.as_str().expect("pointer should be a string");
     assert!(
-        pointer_str.starts_with("file:///sandbox/.attractor/artifacts/"),
+        pointer_str.starts_with("file:///sandbox/.arc/artifacts/"),
         "pointer should reference remote path, got: {pointer_str}"
     );
 
@@ -7094,7 +7094,7 @@ async fn node_dir_uses_visit_count_on_revisit() {
             _graph: &Graph,
             _logs_root: &Path,
             _services: &arc_workflows::handler::EngineServices,
-        ) -> Result<Outcome, arc_workflows::error::AttractorError> {
+        ) -> Result<Outcome, arc_workflows::error::ArcError> {
             let n = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if n == 0 {
                 Ok(Outcome::fail("first attempt fails"))
@@ -7338,7 +7338,7 @@ async fn cli_backend_run_writes_prompt_and_calls_exec() {
     // Verify prompt was written
     let written = test_env.recorded_written_files();
     assert_eq!(written.len(), 1, "should write exactly one file (the prompt)");
-    assert_eq!(written[0].0, "/tmp/attractor_cli_prompt.txt");
+    assert_eq!(written[0].0, "/tmp/arc_cli_prompt.txt");
     assert_eq!(written[0].1, "Fix the authentication bug");
 
     // Verify the CLI command was called
@@ -7346,7 +7346,7 @@ async fn cli_backend_run_writes_prompt_and_calls_exec() {
     let cli_cmd = commands.iter().find(|c| c.contains("claude")).expect("should call claude CLI");
     assert!(cli_cmd.contains("-p"), "should use pipe mode");
     assert!(cli_cmd.contains("claude-opus-4-6"), "should use correct model");
-    assert!(cli_cmd.contains("/tmp/attractor_cli_prompt.txt"), "should reference prompt file");
+    assert!(cli_cmd.contains("/tmp/arc_cli_prompt.txt"), "should reference prompt file");
 
     // Verify parsed response
     match result {

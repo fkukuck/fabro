@@ -1,4 +1,4 @@
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::Graph;
 use crate::transform::{StylesheetApplicationTransform, Transform, VariableExpansionTransform};
 use crate::validation::{self, Diagnostic};
@@ -28,7 +28,7 @@ impl PipelineBuilder {
     /// # Errors
     ///
     /// Returns an error if parsing or validation fails.
-    pub fn prepare(&self, dot_source: &str) -> Result<(Graph, Vec<Diagnostic>), AttractorError> {
+    pub fn prepare(&self, dot_source: &str) -> Result<(Graph, Vec<Diagnostic>), ArcError> {
         let mut graph = crate::parser::parse(dot_source)?;
 
         // Built-in transforms (PreambleTransform moved to engine execution time)
@@ -56,7 +56,7 @@ impl Default for PipelineBuilder {
 /// # Errors
 ///
 /// Returns an error if parsing fails or if validation produces Error-severity diagnostics.
-pub fn prepare_pipeline(dot_source: &str) -> Result<Graph, AttractorError> {
+pub fn prepare_pipeline(dot_source: &str) -> Result<Graph, ArcError> {
     let builder = PipelineBuilder::new();
     let (graph, diagnostics) = builder.prepare(dot_source)?;
 
@@ -66,7 +66,7 @@ pub fn prepare_pipeline(dot_source: &str) -> Result<Graph, AttractorError> {
         .collect();
     if !errors.is_empty() {
         let messages: Vec<String> = errors.iter().map(|d| d.message.clone()).collect();
-        return Err(AttractorError::Validation(messages.join("; ")));
+        return Err(ArcError::Validation(messages.join("; ")));
     }
 
     Ok(graph)

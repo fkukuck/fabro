@@ -5,7 +5,7 @@ use arc_agent::ExecutionEnvironment;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::EventEmitter;
 use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
@@ -34,7 +34,7 @@ impl Handler for FanInHandler {
         _graph: &Graph,
         logs_root: &Path,
         services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         let results = context.get("parallel.results");
         let Some(results) = results else {
             return Ok(Outcome::fail("No parallel results to evaluate"));
@@ -159,7 +159,7 @@ async fn llm_evaluate(
     node_id: &str,
     emitter: &Arc<EventEmitter>,
     execution_env: &Arc<dyn ExecutionEnvironment>,
-) -> Result<Candidate, AttractorError> {
+) -> Result<Candidate, ArcError> {
     let results_text = serde_json::to_string_pretty(results)
         .unwrap_or_else(|_| results.to_string());
 
@@ -380,7 +380,7 @@ mod tests {
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 // Return text that contains the ID "branch_b"
                 Ok(CodergenResult::Text { text: "The best candidate is branch_b".to_string(), usage: None, files_touched: Vec::new() })
             }

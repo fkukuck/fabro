@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use arc_agent::ExecutionEnvironment;
 
-use crate::error::{AttractorError, Result};
+use crate::error::{ArcError, Result};
 
 /// Threshold above which artifacts are stored on disk instead of in memory (100KB).
 const FILE_BACKING_THRESHOLD: usize = 100 * 1024;
@@ -66,7 +66,7 @@ impl ArtifactStore {
         let id = id.into();
         let name = name.into();
         let serialized = serde_json::to_string(&data)
-            .map_err(|e| AttractorError::Engine(format!("artifact serialize failed: {e}")))?;
+            .map_err(|e| ArcError::Engine(format!("artifact serialize failed: {e}")))?;
         let size_bytes = serialized.len();
 
         let is_file_backed = size_bytes > FILE_BACKING_THRESHOLD && self.base_dir.is_some();
@@ -112,7 +112,7 @@ impl ArtifactStore {
         let guard = self.artifacts.read().expect("artifact lock poisoned");
         let (_, stored) = guard
             .get(id)
-            .ok_or_else(|| AttractorError::Engine(format!("artifact not found: {id}")))?;
+            .ok_or_else(|| ArcError::Engine(format!("artifact not found: {id}")))?;
 
         match stored {
             StoredData::InMemory(v) => Ok(v.clone()),
@@ -120,12 +120,12 @@ impl ArtifactStore {
                 let path = path.clone();
                 drop(guard);
                 let data = std::fs::read_to_string(&path).map_err(|e| {
-                    AttractorError::Engine(format!(
+                    ArcError::Engine(format!(
                         "failed to read file-backed artifact {id}: {e}"
                     ))
                 })?;
                 serde_json::from_str(&data).map_err(|e| {
-                    AttractorError::Engine(format!(
+                    ArcError::Engine(format!(
                         "failed to deserialize file-backed artifact {id}: {e}"
                     ))
                 })
@@ -254,7 +254,7 @@ pub fn format_artifact_reference(path: &str) -> String {
 ///
 /// For each `file://` pointer in `updates`, checks whether the file is accessible
 /// in `env`. If not, reads the local file and uploads it via `env.write_file`,
-/// placing it at `{working_directory}/.attractor/artifacts/{filename}`. The pointer
+/// placing it at `{working_directory}/.arc/artifacts/{filename}`. The pointer
 /// is rewritten to reference the remote path.
 ///
 /// # Errors
@@ -274,14 +274,14 @@ pub async fn sync_artifacts_to_env(
             Ok(true) => continue,
             Ok(false) => {}
             Err(e) => {
-                return Err(AttractorError::Engine(format!(
+                return Err(ArcError::Engine(format!(
                     "failed to check artifact existence: {e}"
                 )));
             }
         }
 
         let content = std::fs::read_to_string(&local_path).map_err(|e| {
-            AttractorError::Engine(format!("failed to read local artifact {local_path}: {e}"))
+            ArcError::Engine(format!("failed to read local artifact {local_path}: {e}"))
         })?;
 
         let filename = std::path::Path::new(&local_path)
@@ -290,12 +290,12 @@ pub async fn sync_artifacts_to_env(
             .unwrap_or("artifact.json");
 
         let remote_path = format!(
-            "{}/.attractor/artifacts/{filename}",
+            "{}/.arc/artifacts/{filename}",
             env.working_directory()
         );
 
         env.write_file(&remote_path, &content).await.map_err(|e| {
-            AttractorError::Engine(format!("failed to write artifact to remote env: {e}"))
+            ArcError::Engine(format!("failed to write artifact to remote env: {e}"))
         })?;
 
         *value = Value::String(format!("{ARTIFACT_POINTER_PREFIX}{remote_path}"));
@@ -592,14 +592,14 @@ mod tests {
         assert_eq!(written.len(), 1);
         assert_eq!(
             written[0].0,
-            "/workspace/.attractor/artifacts/response.plan.json"
+            "/workspace/.arc/artifacts/response.plan.json"
         );
         assert_eq!(written[0].1, r#""hello from artifact""#);
 
         let new_pointer = updates["response.plan"].as_str().unwrap();
         assert_eq!(
             new_pointer,
-            "file:///workspace/.attractor/artifacts/response.plan.json"
+            "file:///workspace/.arc/artifacts/response.plan.json"
         );
     }
 

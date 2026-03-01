@@ -13,7 +13,7 @@ use arc_llm::provider::Provider;
 use arc_util::terminal::Styles;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::graph::Node;
 use crate::handler::codergen::{CodergenBackend, CodergenResult};
 use crate::outcome::StageUsage;
@@ -51,10 +51,10 @@ impl AgentBackend {
         &self,
         node: &Node,
         execution_env: &Arc<dyn ExecutionEnvironment>,
-    ) -> Result<Session, AttractorError> {
+    ) -> Result<Session, ArcError> {
         let client = Client::from_env()
             .await
-            .map_err(|e| AttractorError::Handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| ArcError::Handler(format!("Failed to create LLM client: {e}")))?;
 
         let mut profile = self.build_profile();
 
@@ -120,10 +120,10 @@ impl CodergenBackend for AgentBackend {
         node: &Node,
         prompt: &str,
         stage_dir: &std::path::Path,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         let client = Client::from_env()
             .await
-            .map_err(|e| AttractorError::Handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| ArcError::Handler(format!("Failed to create LLM client: {e}")))?;
 
         let model = node.llm_model().unwrap_or(&self.model);
         let provider = node
@@ -157,7 +157,7 @@ impl CodergenBackend for AgentBackend {
         let response = client
             .complete(&request)
             .await
-            .map_err(|e| AttractorError::Handler(format!("one_shot LLM call failed: {e}")))?;
+            .map_err(ArcError::Llm)?;
 
         if let Ok(json) = serde_json::to_string_pretty(&response) {
             let _ = tokio::fs::write(stage_dir.join("api_response.json"), json).await;
@@ -199,7 +199,7 @@ impl CodergenBackend for AgentBackend {
         emitter: &Arc<crate::event::EventEmitter>,
         stage_dir: &std::path::Path,
         execution_env: &Arc<dyn ExecutionEnvironment>,
-    ) -> Result<CodergenResult, AttractorError> {
+    ) -> Result<CodergenResult, ArcError> {
         let fidelity = context.get_string("internal.fidelity", "");
         let reuse_key = if fidelity == "full" {
             thread_id.map(String::from)
@@ -344,7 +344,12 @@ impl CodergenBackend for AgentBackend {
         }
 
         let result = session.process_input(prompt).await.map_err(|e| {
-            AttractorError::Handler(format!("Agent session failed: {e}"))
+            use arc_agent::AgentError;
+            match e {
+                AgentError::Llm(sdk_err) => ArcError::Llm(sdk_err),
+                AgentError::Aborted => ArcError::Cancelled,
+                other => ArcError::Handler(format!("Agent session failed: {other}")),
+            }
         });
 
         // On error, drop the session (don't cache failed state).

@@ -5,7 +5,7 @@ use arc_agent::ExecutionEnvironment;
 use async_trait::async_trait;
 
 use crate::context::Context;
-use crate::error::AttractorError;
+use crate::error::ArcError;
 use crate::event::EventEmitter;
 use crate::graph::{CodergenMode, Graph, Node};
 use crate::outcome::{Outcome, StageUsage};
@@ -36,7 +36,7 @@ pub trait CodergenBackend: Send + Sync {
         emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
         execution_env: &Arc<dyn ExecutionEnvironment>,
-    ) -> Result<CodergenResult, AttractorError>;
+    ) -> Result<CodergenResult, ArcError>;
 
     /// Run a single LLM call with no tools (one_shot mode).
     async fn one_shot(
@@ -44,8 +44,8 @@ pub trait CodergenBackend: Send + Sync {
         _node: &Node,
         _prompt: &str,
         _stage_dir: &Path,
-    ) -> Result<CodergenResult, AttractorError> {
-        Err(AttractorError::Validation(
+    ) -> Result<CodergenResult, ArcError> {
+        Err(ArcError::Validation(
             "one_shot mode not supported by this backend".into(),
         ))
     }
@@ -180,7 +180,7 @@ fn run_hook(command: &str, node_id: &str, work_dir: Option<&Path>) -> bool {
     let mut cmd = std::process::Command::new("sh");
     cmd.arg("-c")
         .arg(command)
-        .env("ATTRACTOR_NODE_ID", node_id);
+        .env("ARC_NODE_ID", node_id);
     if let Some(wd) = work_dir {
         cmd.current_dir(wd);
     }
@@ -199,7 +199,7 @@ impl Handler for CodergenHandler {
         graph: &Graph,
         logs_root: &Path,
         services: &EngineServices,
-    ) -> Result<Outcome, AttractorError> {
+    ) -> Result<Outcome, ArcError> {
         // 1. Build prompt (prepend fidelity preamble if present)
         let raw_prompt = node
             .prompt()
@@ -570,7 +570,7 @@ mod tests {
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 *self.captured_thread_id.lock().unwrap() =
                     Some(thread_id.map(String::from));
                 Ok(CodergenResult::Text { text: "ok".to_string(), usage: None, files_touched: Vec::new() })
@@ -618,7 +618,7 @@ mod tests {
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 *self.captured_thread_id.lock().unwrap() =
                     Some(thread_id.map(String::from));
                 Ok(CodergenResult::Text { text: "ok".to_string(), usage: None, files_touched: Vec::new() })
@@ -661,8 +661,8 @@ mod tests {
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
-                Err(AttractorError::Handler("Request timed out".to_string()))
+            ) -> Result<CodergenResult, ArcError> {
+                Err(ArcError::Handler("Request timed out".to_string()))
             }
         }
 
@@ -775,7 +775,7 @@ Some text in between.
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 panic!("run() should not be called in one_shot mode");
             }
 
@@ -784,7 +784,7 @@ Some text in between.
                 _node: &Node,
                 _prompt: &str,
                 _stage_dir: &Path,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 Ok(CodergenResult::Text {
                     text: "one-shot response".to_string(),
                     usage: None,
@@ -879,8 +879,8 @@ Some text in between.
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
-                Err(AttractorError::Validation("bad config".to_string()))
+            ) -> Result<CodergenResult, ArcError> {
+                Err(ArcError::Validation("bad config".to_string()))
             }
         }
 
@@ -917,7 +917,7 @@ Some text in between.
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 *self.captured_prompt.lock().unwrap() = Some(prompt.to_string());
                 Ok(CodergenResult::Text {
                     text: "ok".to_string(),
@@ -985,7 +985,7 @@ Some text in between.
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 *self.captured_prompt.lock().unwrap() = Some(prompt.to_string());
                 Ok(CodergenResult::Text {
                     text: "ok".to_string(),
@@ -1039,7 +1039,7 @@ Some text in between.
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
                 _execution_env: &Arc<dyn ExecutionEnvironment>,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 panic!("run() should not be called in one_shot mode");
             }
 
@@ -1048,7 +1048,7 @@ Some text in between.
                 _node: &Node,
                 prompt: &str,
                 _stage_dir: &std::path::Path,
-            ) -> Result<CodergenResult, AttractorError> {
+            ) -> Result<CodergenResult, ArcError> {
                 *self.captured_prompt.lock().unwrap() = Some(prompt.to_string());
                 Ok(CodergenResult::Text {
                     text: "classified".to_string(),

@@ -1,4 +1,4 @@
-# Attractor Specification
+# Arc Specification
 
 A DOT-based pipeline runner that uses directed graphs (defined in Graphviz DOT syntax) to orchestrate multi-stage AI workflows. Each node in the graph is an AI task (LLM call, human review, conditional branch, parallel fan-out, etc.) and edges define the flow between them.
 
@@ -26,7 +26,7 @@ A DOT-based pipeline runner that uses directed graphs (defined in Graphviz DOT s
 
 AI-powered software workflows -- code generation, code review, testing, deployment planning -- often require multiple LLM calls chained together with conditional logic, human approvals, and parallel execution. Without a structured orchestration layer, developers either write fragile imperative scripts or build ad-hoc state machines that are difficult to visualize, version, or debug.
 
-Attractor solves this by letting pipeline authors define multi-stage AI workflows as directed graphs using Graphviz DOT syntax. The graph is the workflow: nodes are tasks, edges are transitions, and attributes configure behavior. The result is a declarative, visual, version-controllable pipeline definition that an execution engine can traverse deterministically.
+Arc solves this by letting pipeline authors define multi-stage AI workflows as directed graphs using Graphviz DOT syntax. The graph is the workflow: nodes are tasks, edges are transitions, and attributes configure behavior. The result is a declarative, visual, version-controllable pipeline definition that an execution engine can traverse deterministically.
 
 ### 1.2 Why DOT Syntax
 
@@ -53,11 +53,11 @@ For reference on DOT syntax, see the Graphviz DOT language specification: https:
 
 ### 1.4 Layering and LLM Backends
 
-Attractor defines the orchestration layer: graph definition, traversal, state management, and extensibility. It does NOT require any specific LLM integration. The codergen handler (Section 4.5) needs a way to call an LLM and get a response -- how you provide that is up to you.
+Arc defines the orchestration layer: graph definition, traversal, state management, and extensibility. It does NOT require any specific LLM integration. The codergen handler (Section 4.5) needs a way to call an LLM and get a response -- how you provide that is up to you.
 
 The codergen handler takes a backend that conforms to the `CodergenBackend` interface (Section 4.5). What that backend does internally is entirely up to the implementor -- use the companion [Agent](./coding-agent-loop-spec.md) and [Unified LLM Client](./unified-llm-spec.md) specs, spawn CLI agents (Claude Code, Codex, Gemini CLI) in subprocesses, run agents in tmux panes with a manager attaching to them, call an LLM API directly, or anything else. The pipeline definition (the DOT file) does not change regardless of backend choice.
 
-Attractor pipelines are driven by an event stream (Section 9.6). TUI, web, and IDE frontends consume events and submit human-in-the-loop answers. The pipeline engine is headless; the presentation layer is separate.
+Arc pipelines are driven by an event stream (Section 9.6). TUI, web, and IDE frontends consume events and submit human-in-the-loop answers. The pipeline engine is headless; the presentation layer is separate.
 
 ---
 
@@ -65,7 +65,7 @@ Attractor pipelines are driven by an event stream (Section 9.6). TUI, web, and I
 
 ### 2.1 Supported Subset
 
-Attractor accepts a strict subset of the Graphviz DOT language. The restrictions exist for predictability: one graph per file, directed edges only, no HTML labels, and typed attributes with defaults.
+Arc accepts a strict subset of the Graphviz DOT language. The restrictions exist for predictability: one graph per file, directed edges only, no HTML labels, and typed attributes with defaults.
 
 ### 2.2 BNF-Style Grammar
 
@@ -1277,7 +1277,7 @@ Each pipeline execution produces a directory tree for logging, checkpoints, and 
 
 ### 6.1 Interviewer Interface
 
-All human interaction in Attractor goes through an Interviewer interface. This abstraction allows the pipeline to present questions to a human and receive answers through any frontend: CLI, web UI, Slack bot, or a programmatic queue for testing.
+All human interaction in Arc goes through an Interviewer interface. This abstraction allows the pipeline to present questions to a human and receive answers through any frontend: CLI, web UI, Slack bot, or a programmatic queue for testing.
 
 ```
 INTERFACE Interviewer:
@@ -1624,7 +1624,7 @@ Custom transforms run after built-in transforms. Order of custom transforms foll
 
 ### 9.4 Pipeline Composition
 
-Attractor supports combining multiple DOT graphs through:
+Arc supports combining multiple DOT graphs through:
 
 **Sub-pipeline nodes:** A node whose handler runs an entire sub-graph as its execution. The manager loop handler (Section 4.11) is an example of this pattern.
 

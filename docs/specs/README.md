@@ -1,21 +1,21 @@
-# Attractor 
+# Arc
 
-This repository contains [NLSpecs](#terminology) to build your own version of Attractor to create your own software factory.
+This repository contains [NLSpecs](#terminology) to build your own version of Arc to create your own software factory.
 
-Although bringing your own agentic loop and unified LLM SDK is not required to build your own Attractor, we highly recommend controlling the stack so you have a strong foundation.
+Although bringing your own agentic loop and unified LLM SDK is not required to build your own Arc, we highly recommend controlling the stack so you have a strong foundation.
 
 ## Specs
 
-- [Attractor Specification](./attractor-spec.md)
+- [Arc Specification](./arc-spec.md)
 - [Agent Specification](./coding-agent-loop-spec.md)
 - [Unified LLM Client Specification](./unified-llm-spec.md)
 
-## Building Attractor
+## Building Arc
 
 Supply the following prompt to a modern coding agent (Claude Code, Codex, OpenCode, Amp, Cursor, etc):
 
 ```
-codeagent> Implement Attractor as described by https://factory.strongdm.ai/
+codeagent> Implement Arc as described by https://factory.strongdm.ai/
 ```
 
 ## Terminology
