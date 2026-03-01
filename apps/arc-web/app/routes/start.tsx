@@ -11,10 +11,13 @@ import {
   FolderIcon,
 } from "@heroicons/react/16/solid";
 import {
-  MagnifyingGlassIcon,
   BoltIcon,
+  BugAntIcon,
+  CodeBracketIcon,
+  MagnifyingGlassIcon,
   PencilSquareIcon,
   ShieldCheckIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router";
 import type { Route } from "./+types/start";
@@ -113,6 +116,7 @@ export default function Start() {
   const [prompt, setPrompt] = useState("");
   const [project, setProject] = useState(projects[0]);
   const [branch, setBranch] = useState(branches[0]);
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -197,31 +201,43 @@ export default function Start() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 mt-5">
-            {starters.map((starter) => (
-              <button
-                key={starter.title}
-                onClick={() => {
-                  setPrompt(starter.prompt);
-                  textareaRef.current?.focus();
-                  setTimeout(() => {
-                    const el = textareaRef.current;
-                    if (!el) return;
-                    el.style.height = "auto";
-                    el.style.height = Math.min(el.scrollHeight, 280) + "px";
-                  }, 0);
-                }}
-                className="group/card flex flex-col gap-3 rounded-xl border border-white/[0.06] bg-navy-800/50 px-4 py-4 text-left transition-all duration-200 hover:bg-navy-800 hover:border-white/[0.12] cursor-pointer"
-              >
-                <div className="flex size-9 items-center justify-center rounded-lg bg-navy-950/60 border border-white/[0.06] group-hover/card:border-teal-500/20 transition-colors">
-                  <starter.icon className="size-4.5 text-teal-500" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-ice-100">{starter.title}</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-navy-600">{starter.description}</p>
-                </div>
-              </button>
-            ))}
+          <div className="relative mt-5">
+            <div className="flex items-center justify-center gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat.label}
+                  onClick={() => setOpenCategory(openCategory === cat.label ? null : cat.label)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors cursor-pointer ${
+                    openCategory === cat.label
+                      ? "border-teal-500/30 bg-teal-500/10 text-teal-300"
+                      : "border-white/[0.06] bg-navy-800/50 text-ice-300 hover:bg-navy-800 hover:border-white/[0.12]"
+                  }`}
+                >
+                  <cat.icon className="size-4" />
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {openCategory && (
+              <div className="absolute inset-x-0 top-0 z-10">
+                <CategoryPanel
+                  category={categories.find((c) => c.label === openCategory)!}
+                  onClose={() => setOpenCategory(null)}
+                  onSelect={(p) => {
+                    setPrompt(p);
+                    setOpenCategory(null);
+                    textareaRef.current?.focus();
+                    setTimeout(() => {
+                      const el = textareaRef.current;
+                      if (!el) return;
+                      el.style.height = "auto";
+                      el.style.height = Math.min(el.scrollHeight, 280) + "px";
+                    }, 0);
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -229,26 +245,81 @@ export default function Start() {
   );
 }
 
-const starters = [
+interface Category {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  items: { title: string; prompt: string }[];
+}
+
+const categories: Category[] = [
   {
-    title: "Code review",
-    description: "Analyze a PR for bugs, security issues, and style",
-    prompt: "Review the latest pull request for bugs, security vulnerabilities, and code style issues. Summarize findings and suggest fixes.",
+    label: "Build",
+    icon: CodeBracketIcon,
+    items: [
+      { title: "Implement a new feature", prompt: "Implement a new feature that adds user authentication with OAuth2, including login, logout, and session management." },
+      { title: "Create an API endpoint", prompt: "Create a new REST API endpoint with request validation, error handling, and proper HTTP status codes." },
+      { title: "Set up a CI/CD pipeline", prompt: "Set up a CI/CD pipeline with build, test, lint, and deploy stages for the main branch." },
+      { title: "Add database migrations", prompt: "Add database migrations to create the new tables and indexes needed for the upcoming feature." },
+    ],
+  },
+  {
+    label: "Review",
     icon: MagnifyingGlassIcon,
+    items: [
+      { title: "Review a pull request", prompt: "Review the latest pull request for bugs, security vulnerabilities, and code style issues. Summarize findings and suggest fixes." },
+      { title: "Audit dependencies", prompt: "Audit all project dependencies for known vulnerabilities, outdated versions, and unused packages." },
+      { title: "Analyze test coverage", prompt: "Analyze the current test coverage, identify untested code paths, and recommend which areas need tests most." },
+      { title: "Check for security issues", prompt: "Scan the codebase for common security vulnerabilities including injection, XSS, and authentication flaws." },
+    ],
   },
   {
-    title: "Generate tests",
-    description: "Scaffold unit and integration tests for a module",
-    prompt: "Generate comprehensive unit and integration tests for the core module, covering edge cases and error paths.",
-    icon: ShieldCheckIcon,
-  },
-  {
-    title: "Refactor & optimize",
-    description: "Improve performance and clean up technical debt",
-    prompt: "Identify performance bottlenecks and technical debt, then refactor the code for clarity and speed.",
-    icon: BoltIcon,
+    label: "Fix",
+    icon: BugAntIcon,
+    items: [
+      { title: "Debug a failing test", prompt: "Debug the failing test suite, identify the root cause of each failure, and apply fixes." },
+      { title: "Fix a production bug", prompt: "Investigate and fix the reported production bug, including root cause analysis and a regression test." },
+      { title: "Resolve merge conflicts", prompt: "Resolve the merge conflicts in the current branch, preserving the intended changes from both sides." },
+      { title: "Fix type errors", prompt: "Fix all TypeScript type errors in the project, ensuring strict type safety without using any type assertions." },
+    ],
   },
 ];
+
+function CategoryPanel({
+  category,
+  onClose,
+  onSelect,
+}: {
+  category: Category;
+  onClose: () => void;
+  onSelect: (prompt: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-navy-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
+        <category.icon className="size-4 text-teal-500" />
+        <span className="text-sm font-medium text-ice-100">{category.label}</span>
+        <button
+          onClick={onClose}
+          className="ml-auto flex items-center justify-center size-6 rounded-md text-navy-600 hover:text-ice-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
+        >
+          <XMarkIcon className="size-4" />
+        </button>
+      </div>
+      <ul>
+        {category.items.map((item, i) => (
+          <li key={item.title} className={i > 0 ? "border-t border-white/[0.04]" : ""}>
+            <button
+              onClick={() => onSelect(item.prompt)}
+              className="w-full px-4 py-3 text-left text-sm text-ice-300 transition-colors hover:bg-white/[0.03] hover:text-ice-100 cursor-pointer"
+            >
+              {item.title}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function Picker<T extends { id: string; name: string }>({
   value,
