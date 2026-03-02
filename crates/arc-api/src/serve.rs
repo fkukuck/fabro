@@ -9,7 +9,7 @@ use clap::Args;
 
 use crate::server::{build_router, create_app_state_with_options};
 use arc_workflows::cli::backend::AgentApiBackend;
-use arc_workflows::cli::ExecutionEnvKind;
+use arc_workflows::cli::SandboxProvider;
 use arc_workflows::handler::default_registry;
 use arc_workflows::interviewer::Interviewer;
 
@@ -37,7 +37,7 @@ pub struct ServeArgs {
 
     /// Execution environment for agent tools
     #[arg(long, value_enum)]
-    pub execution_env: Option<ExecutionEnvKind>,
+    pub sandbox: Option<SandboxProvider>,
 
     /// Serve static demo data (disables auth, read-only)
     #[arg(long)]

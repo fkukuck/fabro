@@ -5,16 +5,16 @@ graph = "check.dot"
 [llm]
 model = "claude-sonnet"
 
-[execution]
-environment = "daytona"
+[sandbox]
+provider = "daytona"
 
-[execution.daytona.sandbox]
+[sandbox.daytona]
 auto_stop_interval = 60
 
-[execution.daytona.sandbox.labels]
+[sandbox.daytona.labels]
 project = "attractor-rust"
 
-[execution.daytona.snapshot]
+[sandbox.daytona.snapshot]
 name = "attractor-rust-check-dev"
 cpu = 4
 memory = 8

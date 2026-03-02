@@ -1,6 +1,6 @@
-use crate::execution_env::{
-    format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent,
-    ExecutionEnvironment, GrepOptions,
+use crate::sandbox::{
+    format_lines_numbered, DirEntry, SandboxEventCallback, ExecResult, SandboxEvent,
+    Sandbox, GrepOptions,
 };
 use async_trait::async_trait;
 use bollard::container::{
@@ -16,7 +16,7 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 /// Configuration for a Docker-based execution environment.
-pub struct DockerConfig {
+pub struct DockerSandboxConfig {
     /// Docker image to use. Default: `"arc-agent:latest"`.
     pub image: String,
     /// Host directory to bind-mount into the container.
@@ -37,7 +37,7 @@ pub struct DockerConfig {
     pub env_vars: Vec<String>,
 }
 
-impl Default for DockerConfig {
+impl Default for DockerSandboxConfig {
     fn default() -> Self {
         Self {
             image: "arc-agent:latest".to_string(),
@@ -57,22 +57,22 @@ impl Default for DockerConfig {
 ///
 /// The host working directory is bind-mounted at `container_mount_point`. All file
 /// operations, commands, grep, and glob execute inside the container via `docker exec`.
-pub struct DockerExecutionEnvironment {
+pub struct DockerSandbox {
     docker: Docker,
-    config: DockerConfig,
+    config: DockerSandboxConfig,
     container_id: tokio::sync::OnceCell<String>,
     cached_platform: std::sync::OnceLock<String>,
     cached_os_version: std::sync::OnceLock<String>,
     rg_available: tokio::sync::OnceCell<bool>,
-    event_callback: Option<ExecEnvEventCallback>,
+    event_callback: Option<SandboxEventCallback>,
 }
 
-impl DockerExecutionEnvironment {
-    /// Creates a new `DockerExecutionEnvironment`.
+impl DockerSandbox {
+    /// Creates a new `DockerSandbox`.
     ///
     /// Validates Docker daemon connectivity but does NOT create a container.
     /// Call `initialize()` to create and start the container.
-    pub fn new(config: DockerConfig) -> Result<Self, String> {
+    pub fn new(config: DockerSandboxConfig) -> Result<Self, String> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| format!("Failed to connect to Docker daemon: {e}"))?;
         Ok(Self {
@@ -86,11 +86,11 @@ impl DockerExecutionEnvironment {
         })
     }
 
-    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+    pub fn set_event_callback(&mut self, cb: SandboxEventCallback) {
         self.event_callback = Some(cb);
     }
 
-    fn emit(&self, event: ExecutionEnvEvent) {
+    fn emit(&self, event: SandboxEvent) {
         event.trace();
         if let Some(ref cb) = self.event_callback {
             cb(event);
@@ -269,29 +269,29 @@ impl DockerExecutionEnvironment {
 }
 
 #[async_trait]
-impl ExecutionEnvironment for DockerExecutionEnvironment {
+impl Sandbox for DockerSandbox {
     async fn initialize(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::Initializing {
-            env_type: "docker".into(),
+        self.emit(SandboxEvent::Initializing {
+            provider: "docker".into(),
         });
         let init_start = Instant::now();
 
-        self.emit(ExecutionEnvEvent::ImagePulling {
-            image: self.config.image.clone(),
+        self.emit(SandboxEvent::SnapshotPulling {
+            name: self.config.image.clone(),
         });
         let pull_start = Instant::now();
         if let Err(e) = self.ensure_image().await {
             let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-            self.emit(ExecutionEnvEvent::InitializeFailed {
-                env_type: "docker".into(),
+            self.emit(SandboxEvent::InitializeFailed {
+                provider: "docker".into(),
                 error: e.clone(),
                 duration_ms,
             });
             return Err(e);
         }
         let pull_duration = u64::try_from(pull_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::ImagePulled {
-            image: self.config.image.clone(),
+        self.emit(SandboxEvent::SnapshotPulled {
+            name: self.config.image.clone(),
             duration_ms: pull_duration,
         });
 
@@ -361,8 +361,8 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             .set(format!("linux {}", uname_output.trim()));
 
         let init_duration = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::Ready {
-            env_type: "docker".into(),
+        self.emit(SandboxEvent::Ready {
+            provider: "docker".into(),
             duration_ms: init_duration,
         });
 
@@ -370,8 +370,8 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
     }
 
     async fn cleanup(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::CleanupStarted {
-            env_type: "docker".into(),
+        self.emit(SandboxEvent::CleanupStarted {
+            provider: "docker".into(),
         });
         let start = Instant::now();
 
@@ -379,8 +379,8 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             Some(id) => id.clone(),
             None => {
                 let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                self.emit(ExecutionEnvEvent::CleanupCompleted {
-                    env_type: "docker".into(),
+                self.emit(SandboxEvent::CleanupCompleted {
+                    provider: "docker".into(),
                     duration_ms,
                 });
                 return Ok(());
@@ -405,8 +405,8 @@ impl ExecutionEnvironment for DockerExecutionEnvironment {
             .await;
 
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::CleanupCompleted {
-            env_type: "docker".into(),
+        self.emit(SandboxEvent::CleanupCompleted {
+            provider: "docker".into(),
             duration_ms,
         });
 
@@ -720,8 +720,8 @@ mod tests {
         Docker::connect_with_local_defaults().expect("Docker not available — skipping")
     }
 
-    fn test_config(host_dir: &str) -> DockerConfig {
-        DockerConfig {
+    fn test_config(host_dir: &str) -> DockerSandboxConfig {
+        DockerSandboxConfig {
             host_working_directory: host_dir.to_string(),
             auto_pull: false,
             ..Default::default()
@@ -737,8 +737,8 @@ mod tests {
         std::fs::create_dir_all(&host_dir).unwrap();
 
         let config = test_config(host_dir.to_str().unwrap());
-        let env: Arc<dyn ExecutionEnvironment> =
-            Arc::new(DockerExecutionEnvironment::new(config).unwrap());
+        let env: Arc<dyn Sandbox> =
+            Arc::new(DockerSandbox::new(config).unwrap());
 
         // Initialize
         env.initialize().await.unwrap();
@@ -803,7 +803,7 @@ mod tests {
         std::fs::create_dir_all(&host_dir).unwrap();
 
         let config = test_config(host_dir.to_str().unwrap());
-        let env = DockerExecutionEnvironment::new(config).unwrap();
+        let env = DockerSandbox::new(config).unwrap();
         env.initialize().await.unwrap();
 
         let result = env
@@ -826,7 +826,7 @@ mod tests {
         std::fs::create_dir_all(&host_dir).unwrap();
 
         let config = test_config(host_dir.to_str().unwrap());
-        let env = DockerExecutionEnvironment::new(config).unwrap();
+        let env = DockerSandbox::new(config).unwrap();
         env.initialize().await.unwrap();
 
         let content = "hello \"world\"\nit's a `test`\nprice: $100\nbackslash: \\\nnewline above";
@@ -852,7 +852,7 @@ mod tests {
         std::fs::create_dir_all(&host_dir).unwrap();
 
         let config = test_config(host_dir.to_str().unwrap());
-        let env = DockerExecutionEnvironment::new(config).unwrap();
+        let env = DockerSandbox::new(config).unwrap();
         env.initialize().await.unwrap();
 
         // Relative path resolves to container_mount_point
@@ -879,7 +879,7 @@ mod tests {
         std::fs::create_dir_all(&host_dir).unwrap();
 
         let config = test_config(host_dir.to_str().unwrap());
-        let env = DockerExecutionEnvironment::new(config).unwrap();
+        let env = DockerSandbox::new(config).unwrap();
         env.initialize().await.unwrap();
 
         // First cleanup

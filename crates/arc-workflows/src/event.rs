@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use serde::{Deserialize, Serialize};
 
 use crate::outcome::StageUsage;
-use arc_agent::{AgentEvent, ExecutionEnvEvent};
+use arc_agent::{AgentEvent, SandboxEvent};
 
 /// Events emitted during workflow run execution for observability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,9 +147,9 @@ pub enum WorkflowRunEvent {
         status: String,
         duration_ms: u64,
     },
-    /// Forwarded from an execution environment lifecycle operation.
-    ExecutionEnv {
-        event: ExecutionEnvEvent,
+    /// Forwarded from a sandbox lifecycle operation.
+    Sandbox {
+        event: SandboxEvent,
     },
     SetupStarted {
         command_count: usize,
@@ -364,7 +364,7 @@ impl WorkflowRunEvent {
                 debug!(stage, text_len = text.len(), "Prompt sent");
             }
             Self::Agent { .. } => {}
-            Self::ExecutionEnv { .. } => {}
+            Self::Sandbox { .. } => {}
             Self::ParallelEarlyTermination {
                 reason,
                 completed_count,
@@ -970,21 +970,21 @@ mod tests {
     }
 
     #[test]
-    fn execution_env_event_wrapper_serialization() {
-        use arc_agent::ExecutionEnvEvent;
+    fn sandbox_event_wrapper_serialization() {
+        use arc_agent::SandboxEvent;
 
-        let event = WorkflowRunEvent::ExecutionEnv {
-            event: ExecutionEnvEvent::Initializing {
-                env_type: "docker".into(),
+        let event = WorkflowRunEvent::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
             },
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("ExecutionEnv"));
+        assert!(json.contains("Sandbox"));
         assert!(json.contains("Initializing"));
         assert!(json.contains("docker"));
 
         let deserialized: WorkflowRunEvent = serde_json::from_str(&json).unwrap();
-        assert!(matches!(deserialized, WorkflowRunEvent::ExecutionEnv { .. }));
+        assert!(matches!(deserialized, WorkflowRunEvent::Sandbox { .. }));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::config::SessionConfig;
-use crate::execution_env::*;
+use crate::sandbox::*;
 use crate::profiles::EnvContext;
 use crate::provider_profile::{ProfileCapabilities, ProviderProfile};
 use crate::session::Session;
@@ -15,9 +15,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
-// --- MockExecutionEnvironment ---
+// --- MockSandbox ---
 
-pub struct MockExecutionEnvironment {
+pub struct MockSandbox {
     pub files: HashMap<String, String>,
     pub exec_result: ExecResult,
     pub grep_results: Vec<String>,
@@ -33,10 +33,10 @@ pub struct MockExecutionEnvironment {
     pub captured_timeout: Mutex<Option<u64>>,
     /// Captures the `command` argument from `exec_command` calls.
     pub captured_command: Mutex<Option<String>>,
-    pub event_callback: Option<crate::execution_env::ExecEnvEventCallback>,
+    pub event_callback: Option<crate::sandbox::SandboxEventCallback>,
 }
 
-impl MockExecutionEnvironment {
+impl MockSandbox {
     pub fn linux() -> Self {
         Self {
             working_dir: "/home/test",
@@ -47,8 +47,8 @@ impl MockExecutionEnvironment {
     }
 }
 
-impl MockExecutionEnvironment {
-    fn emit(&self, event: crate::execution_env::ExecutionEnvEvent) {
+impl MockSandbox {
+    fn emit(&self, event: crate::sandbox::SandboxEvent) {
         event.trace();
         if let Some(ref cb) = self.event_callback {
             cb(event);
@@ -56,7 +56,7 @@ impl MockExecutionEnvironment {
     }
 }
 
-impl Default for MockExecutionEnvironment {
+impl Default for MockSandbox {
     fn default() -> Self {
         Self {
             files: HashMap::new(),
@@ -82,7 +82,7 @@ impl Default for MockExecutionEnvironment {
 }
 
 #[async_trait]
-impl ExecutionEnvironment for MockExecutionEnvironment {
+impl Sandbox for MockSandbox {
     async fn read_file(
         &self,
         path: &str,
@@ -163,22 +163,22 @@ impl ExecutionEnvironment for MockExecutionEnvironment {
     }
 
     async fn initialize(&self) -> Result<(), String> {
-        self.emit(crate::execution_env::ExecutionEnvEvent::Initializing {
-            env_type: "mock".into(),
+        self.emit(crate::sandbox::SandboxEvent::Initializing {
+            provider: "mock".into(),
         });
-        self.emit(crate::execution_env::ExecutionEnvEvent::Ready {
-            env_type: "mock".into(),
+        self.emit(crate::sandbox::SandboxEvent::Ready {
+            provider: "mock".into(),
             duration_ms: 0,
         });
         Ok(())
     }
 
     async fn cleanup(&self) -> Result<(), String> {
-        self.emit(crate::execution_env::ExecutionEnvEvent::CleanupStarted {
-            env_type: "mock".into(),
+        self.emit(crate::sandbox::SandboxEvent::CleanupStarted {
+            provider: "mock".into(),
         });
-        self.emit(crate::execution_env::ExecutionEnvEvent::CleanupCompleted {
-            env_type: "mock".into(),
+        self.emit(crate::sandbox::SandboxEvent::CleanupCompleted {
+            provider: "mock".into(),
             duration_ms: 0,
         });
         Ok(())
@@ -197,15 +197,15 @@ impl ExecutionEnvironment for MockExecutionEnvironment {
     }
 }
 
-// --- MutableMockExecutionEnvironment ---
+// --- MutableMockSandbox ---
 
 /// A mock execution environment with Mutex-protected files for tests that need
 /// write operations to be visible to subsequent reads (e.g., `apply_patch` tests).
-pub struct MutableMockExecutionEnvironment {
+pub struct MutableMockSandbox {
     pub files: Mutex<HashMap<String, String>>,
 }
 
-impl MutableMockExecutionEnvironment {
+impl MutableMockSandbox {
     pub fn new(files: HashMap<String, String>) -> Self {
         Self {
             files: Mutex::new(files),
@@ -214,7 +214,7 @@ impl MutableMockExecutionEnvironment {
 }
 
 #[async_trait]
-impl ExecutionEnvironment for MutableMockExecutionEnvironment {
+impl Sandbox for MutableMockSandbox {
     async fn read_file(
         &self,
         path: &str,
@@ -370,7 +370,7 @@ impl ProviderProfile for TestProfile {
 
     fn build_system_prompt(
         &self,
-        _env: &dyn ExecutionEnvironment,
+        _env: &dyn Sandbox,
         _env_context: &EnvContext,
         _project_docs: &[String],
         user_instructions: Option<&str>,
@@ -508,7 +508,7 @@ pub async fn make_session(responses: Vec<Response>) -> Session {
     let provider = Arc::new(MockLlmProvider::new(responses));
     let client = make_client(provider).await;
     let profile = Arc::new(TestProfile::new());
-    let env = Arc::new(MockExecutionEnvironment::default());
+    let env = Arc::new(MockSandbox::default());
     Session::new(client, profile, env, SessionConfig::default())
 }
 
@@ -516,7 +516,7 @@ pub async fn make_session_with_tools(responses: Vec<Response>, registry: ToolReg
     let provider = Arc::new(MockLlmProvider::new(responses));
     let client = make_client(provider).await;
     let profile = Arc::new(TestProfile::with_tools(registry));
-    let env = Arc::new(MockExecutionEnvironment::default());
+    let env = Arc::new(MockSandbox::default());
     Session::new(client, profile, env, SessionConfig::default())
 }
 
@@ -524,7 +524,7 @@ pub async fn make_session_with_config(responses: Vec<Response>, config: SessionC
     let provider = Arc::new(MockLlmProvider::new(responses));
     let client = make_client(provider).await;
     let profile = Arc::new(TestProfile::new());
-    let env = Arc::new(MockExecutionEnvironment::default());
+    let env = Arc::new(MockSandbox::default());
     Session::new(client, profile, env, config)
 }
 
@@ -536,7 +536,7 @@ pub async fn make_session_with_tools_and_config(
     let provider = Arc::new(MockLlmProvider::new(responses));
     let client = make_client(provider).await;
     let profile = Arc::new(TestProfile::with_tools(registry));
-    let env = Arc::new(MockExecutionEnvironment::default());
+    let env = Arc::new(MockSandbox::default());
     Session::new(client, profile, env, config)
 }
 

@@ -1,10 +1,10 @@
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use arc_llm::provider::Provider;
 
 const BUDGET_BYTES: usize = 32768;
 
 pub async fn discover_project_docs(
-    env: &dyn ExecutionEnvironment,
+    env: &dyn Sandbox,
     git_root: &str,
     working_dir: &str,
     provider: Provider,
@@ -92,8 +92,8 @@ fn truncate_to_budget(content: &str, budget: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution_env::ExecutionEnvironment;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::sandbox::Sandbox;
+    use crate::test_support::MockSandbox;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -101,7 +101,7 @@ mod tests {
     async fn discovers_agents_md() {
         let mut files = HashMap::new();
         files.insert("/repo/AGENTS.md".into(), "Agent instructions".into());
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -118,7 +118,7 @@ mod tests {
         files.insert("/repo/.codex/instructions.md".into(), "copilot".into());
         files.insert("/repo/GEMINI.md".into(), "gemini".into());
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files: files.clone(),
             ..Default::default()
         });
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(anthropic_docs[0], "agents");
         assert_eq!(anthropic_docs[1], "claude");
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files: files.clone(),
             ..Default::default()
         });
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(openai_docs[0], "agents");
         assert_eq!(openai_docs[1], "copilot");
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -158,7 +158,7 @@ mod tests {
         files.insert("/repo/AGENTS.md".into(), large_content.clone());
         files.insert("/repo/CLAUDE.md".into(), second_content);
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -177,7 +177,7 @@ mod tests {
         files.insert("/repo/src/AGENTS.md".into(), "src agents".into());
         files.insert("/repo/src/app/AGENTS.md".into(), "app agents".into());
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });

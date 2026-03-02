@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use arc_llm::provider::Provider;
 use async_trait::async_trait;
 
@@ -229,15 +229,15 @@ impl AgentCliBackend {
     /// Detect changed files by comparing git state before and after the CLI run.
     async fn detect_changed_files(
         &self,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Vec<String> {
         // Get unstaged changes
-        let diff_result = execution_env
+        let diff_result = sandbox
             .exec_command("git diff --name-only", 30_000, None, None, None)
             .await;
 
         // Get untracked files
-        let untracked_result = execution_env
+        let untracked_result = sandbox
             .exec_command(
                 "git ls-files --others --exclude-standard",
                 30_000,
@@ -289,14 +289,14 @@ impl CodergenBackend for AgentCliBackend {
         _thread_id: Option<&str>,
         _emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Result<CodergenResult, ArcError> {
         // 1. Snapshot git state before the CLI run
-        let files_before = self.detect_changed_files(execution_env).await;
+        let files_before = self.detect_changed_files(sandbox).await;
 
         // 2. Write prompt to temp file
         let prompt_path = "/tmp/arc_cli_prompt.txt";
-        execution_env
+        sandbox
             .write_file(prompt_path, prompt)
             .await
             .map_err(|e| ArcError::Handler(format!("Failed to write prompt file: {e}")))?;
@@ -320,7 +320,7 @@ impl CodergenBackend for AgentCliBackend {
             let _ = tokio::fs::write(stage_dir.join("provider_used.json"), json).await;
         }
 
-        let result = execution_env
+        let result = sandbox
             .exec_command(&command, 600_000, None, None, None)
             .await
             .map_err(|e| ArcError::Handler(format!("CLI command failed: {e}")))?;
@@ -347,7 +347,7 @@ impl CodergenBackend for AgentCliBackend {
             .ok_or_else(|| ArcError::Handler("Failed to parse CLI output".to_string()))?;
 
         // 5. Detect changed files
-        let files_after = self.detect_changed_files(execution_env).await;
+        let files_after = self.detect_changed_files(sandbox).await;
         let files_touched: Vec<String> = files_after
             .into_iter()
             .filter(|f| !files_before.contains(f))
@@ -415,7 +415,7 @@ impl CodergenBackend for BackendRouter {
         thread_id: Option<&str>,
         emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Result<CodergenResult, ArcError> {
         if self.should_use_cli(node) {
             self.cli_backend
@@ -426,7 +426,7 @@ impl CodergenBackend for BackendRouter {
                     thread_id,
                     emitter,
                     stage_dir,
-                    execution_env,
+                    sandbox,
                 )
                 .await
         } else {
@@ -438,7 +438,7 @@ impl CodergenBackend for BackendRouter {
                     thread_id,
                     emitter,
                     stage_dir,
-                    execution_env,
+                    sandbox,
                 )
                 .await
         }
@@ -655,7 +655,7 @@ mod tests {
             _thread_id: Option<&str>,
             _emitter: &Arc<EventEmitter>,
             _stage_dir: &Path,
-            _execution_env: &Arc<dyn ExecutionEnvironment>,
+            _sandbox: &Arc<dyn Sandbox>,
         ) -> Result<CodergenResult, ArcError> {
             Ok(CodergenResult::Text {
                 text: "stub".to_string(),

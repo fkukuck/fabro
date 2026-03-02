@@ -1,6 +1,6 @@
 use crate::config::{SessionConfig, ToolApprovalFn};
 use crate::event::EventEmitter;
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::tool_registry::ToolRegistry;
 use crate::truncation::truncate_tool_output;
 use crate::types::AgentEvent;
@@ -14,7 +14,7 @@ pub async fn execute_tool_calls(
     tool_calls: &[arc_llm::types::ToolCall],
     parallel: bool,
     registry: &ToolRegistry,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: &CancellationToken,
     config: &SessionConfig,
@@ -52,7 +52,7 @@ pub async fn execute_tool_calls(
 async fn execute_tool_calls_sequential(
     tool_calls: &[arc_llm::types::ToolCall],
     registry: &ToolRegistry,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: &CancellationToken,
     config: &SessionConfig,
@@ -86,7 +86,7 @@ async fn execute_tool_calls_sequential(
 async fn execute_tool_calls_parallel(
     tool_calls: &[arc_llm::types::ToolCall],
     registry: &ToolRegistry,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: &CancellationToken,
     config: &SessionConfig,
@@ -129,7 +129,7 @@ async fn execute_tool_calls_parallel(
 pub async fn execute_and_emit_one_tool(
     tc: &arc_llm::types::ToolCall,
     registry: &ToolRegistry,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: CancellationToken,
     config: &SessionConfig,
@@ -154,7 +154,7 @@ pub async fn execute_and_emit_one_tool(
 async fn execute_and_emit_one_tool_with_lookup(
     tc: &arc_llm::types::ToolCall,
     registered_tool: Option<&crate::tool_registry::RegisteredTool>,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: CancellationToken,
     config: &SessionConfig,
@@ -207,7 +207,7 @@ async fn execute_one_tool(
     tool_name: &str,
     arguments: &serde_json::Value,
     registered_tool: Option<&crate::tool_registry::RegisteredTool>,
-    env: Arc<dyn ExecutionEnvironment>,
+    env: Arc<dyn Sandbox>,
     tool_approval: Option<&ToolApprovalFn>,
     cancel_token: CancellationToken,
 ) -> ToolResult {

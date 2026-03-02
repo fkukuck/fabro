@@ -1,4 +1,4 @@
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::profiles::EnvContext;
 use crate::skills::Skill;
 use crate::subagent::{
@@ -25,7 +25,7 @@ pub trait ProviderProfile: Send + Sync {
     fn tool_registry_mut(&mut self) -> &mut ToolRegistry;
     fn build_system_prompt(
         &self,
-        env: &dyn ExecutionEnvironment,
+        env: &dyn Sandbox,
         env_context: &EnvContext,
         project_docs: &[String],
         user_instructions: Option<&str>,
@@ -81,7 +81,7 @@ pub trait ProviderProfile: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{MockExecutionEnvironment, TestProfile};
+    use crate::test_support::{MockSandbox, TestProfile};
     use arc_llm::provider::Provider;
 
     #[test]
@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn profile_build_system_prompt() {
         let profile = TestProfile::new();
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let ctx = EnvContext::default();
         let docs = vec!["README.md contents".into()];
         let prompt = profile.build_system_prompt(&env, &ctx, &docs, None, &[]);
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn profile_build_system_prompt_with_user_instructions() {
         let profile = TestProfile::new();
-        let env = MockExecutionEnvironment::default();
+        let env = MockSandbox::default();
         let ctx = EnvContext::default();
         let prompt = profile.build_system_prompt(&env, &ctx, &[], Some("Always use TDD"), &[]);
         assert!(prompt.contains("Always use TDD"));

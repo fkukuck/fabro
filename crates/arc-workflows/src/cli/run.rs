@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use anyhow::bail;
 use arc_agent::{
-    DockerConfig, DockerExecutionEnvironment, ExecutionEnvironment, LocalExecutionEnvironment,
+    DockerSandboxConfig, DockerSandbox, Sandbox, LocalSandbox,
 };
 use arc_util::terminal::Styles;
 use chrono::{Local, Utc};
@@ -28,7 +28,7 @@ use super::cli_backend::{BackendRouter, AgentCliBackend};
 use super::task_config;
 use super::{
     compute_stage_cost, format_cost, format_duration_human, format_event_detail,
-    format_event_summary, format_tokens_human, print_diagnostics, read_dot_file, ExecutionEnvKind,
+    format_event_summary, format_tokens_human, print_diagnostics, read_dot_file, SandboxProvider,
     RunArgs,
 };
 
@@ -76,7 +76,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         }
     }
 
-    // Collect setup commands — they'll be run inside the execution environment
+    // Collect setup commands — they'll be run inside the sandbox
     let setup_commands: Vec<String> = task_cfg
         .as_ref()
         .and_then(|c| c.setup.as_ref())
@@ -118,23 +118,23 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
 
     // 2. Pre-flight: check git cleanliness before creating any files
     //    (must happen before logs dir is created, which may be inside the repo)
-    let execution_env_kind_preview = {
+    let sandbox_provider_preview = {
         let toml_exec = task_cfg
             .as_ref()
-            .and_then(|c| c.execution.as_ref())
-            .and_then(|e| e.environment.as_deref())
-            .map(|s| s.parse::<ExecutionEnvKind>())
+            .and_then(|c| c.sandbox.as_ref())
+            .and_then(|e| e.provider.as_deref())
+            .map(|s| s.parse::<SandboxProvider>())
             .transpose()
             .ok()
             .flatten();
-        args.execution_env.or(toml_exec).unwrap_or_default()
+        args.sandbox.or(toml_exec).unwrap_or_default()
     };
     let original_cwd = std::env::current_dir()?;
-    let git_clean = match execution_env_kind_preview {
-        ExecutionEnvKind::Local | ExecutionEnvKind::Docker => {
+    let git_clean = match sandbox_provider_preview {
+        SandboxProvider::Local | SandboxProvider::Docker => {
             crate::git::ensure_clean(&original_cwd).is_ok()
         }
-        ExecutionEnvKind::Daytona => false,
+        SandboxProvider::Daytona => false,
     };
 
     // 3. Create logs directory
@@ -284,17 +284,17 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         Arc::new(ConsoleInterviewer::new(styles))
     };
 
-    // 5. Resolve execution environment: CLI flag > TOML > default
-    let toml_execution_env = task_cfg
+    // 5. Resolve sandbox: CLI flag > TOML > default
+    let toml_sandbox = task_cfg
         .as_ref()
-        .and_then(|c| c.execution.as_ref())
-        .and_then(|e| e.environment.as_deref())
-        .map(|s| s.parse::<ExecutionEnvKind>())
+        .and_then(|c| c.sandbox.as_ref())
+        .and_then(|e| e.provider.as_deref())
+        .map(|s| s.parse::<SandboxProvider>())
         .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid execution environment in TOML: {e}"))?;
-    let execution_env_kind = args
-        .execution_env
-        .or(toml_execution_env)
+        .map_err(|e| anyhow::anyhow!("Invalid sandbox in TOML: {e}"))?;
+    let sandbox_provider = args
+        .sandbox
+        .or(toml_sandbox)
         .unwrap_or_default();
 
     // Set up git worktree for local execution (must happen before cwd is captured)
@@ -319,75 +319,75 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let daytona_config = task_cfg
         .as_ref()
-        .and_then(|c| c.execution.as_ref())
+        .and_then(|c| c.sandbox.as_ref())
         .and_then(|e| e.daytona.clone());
 
     // Wrap emitter in Arc now so we can share it with exec env callbacks
     let emitter = Arc::new(emitter);
 
-    let execution_env: Arc<dyn ExecutionEnvironment> = match execution_env_kind {
-        ExecutionEnvKind::Docker => {
-            let config = DockerConfig {
+    let sandbox: Arc<dyn Sandbox> = match sandbox_provider {
+        SandboxProvider::Docker => {
+            let config = DockerSandboxConfig {
                 host_working_directory: cwd.to_string_lossy().to_string(),
-                ..DockerConfig::default()
+                ..DockerSandboxConfig::default()
             };
-            let mut env = DockerExecutionEnvironment::new(config)
+            let mut env = DockerSandbox::new(config)
                 .map_err(|e| anyhow::anyhow!("Failed to create Docker environment: {e}"))?;
             let emitter_cb = Arc::clone(&emitter);
             env.set_event_callback(Arc::new(move |event| {
-                emitter_cb.emit(&crate::event::WorkflowRunEvent::ExecutionEnv { event });
+                emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
             }));
             Arc::new(env)
         }
-        ExecutionEnvKind::Daytona => {
+        SandboxProvider::Daytona => {
             let daytona_client = daytona_sdk::Client::new()
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to create Daytona client: {e}"))?;
             let config = daytona_config.clone().unwrap_or_default();
             let mut env =
-                crate::daytona_env::DaytonaExecutionEnvironment::new(daytona_client, config);
+                crate::daytona_sandbox::DaytonaSandbox::new(daytona_client, config);
             let emitter_cb = Arc::clone(&emitter);
             env.set_event_callback(Arc::new(move |event| {
-                emitter_cb.emit(&crate::event::WorkflowRunEvent::ExecutionEnv { event });
+                emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
             }));
             Arc::new(env)
         }
-        ExecutionEnvKind::Local => {
-            let mut env = LocalExecutionEnvironment::new(cwd);
+        SandboxProvider::Local => {
+            let mut env = LocalSandbox::new(cwd);
             let emitter_cb = Arc::clone(&emitter);
             env.set_event_callback(Arc::new(move |event| {
-                emitter_cb.emit(&crate::event::WorkflowRunEvent::ExecutionEnv { event });
+                emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
             }));
             Arc::new(env)
         }
     };
 
-    // Initialize execution environment (creates sandbox/container once for the whole run)
-    execution_env
+    // Initialize sandbox (creates sandbox/container once for the whole run)
+    sandbox
         .initialize()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize execution environment: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to initialize sandbox: {e}"))?;
 
     // Ensure cleanup runs even on error/panic
-    let exec_env_for_cleanup = Arc::clone(&execution_env);
+    let sandbox_for_cleanup = Arc::clone(&sandbox);
     let _cleanup_guard = scopeguard::guard((), move |()| {
         // Best-effort cleanup — fire and forget in a blocking context
         let rt = tokio::runtime::Handle::try_current();
         if let Ok(handle) = rt {
             handle.spawn(async move {
-                if let Err(e) = exec_env_for_cleanup.cleanup().await {
+                if let Err(e) = sandbox_for_cleanup.cleanup().await {
                     tracing::warn!(error = %e, "Execution environment cleanup failed");
-                    eprintln!("Warning: execution environment cleanup failed: {e}");
+                    eprintln!("Warning: sandbox cleanup failed: {e}");
                 }
             });
         }
     });
 
     // Set up git inside Daytona sandbox (if applicable)
-    let (daytona_run_id, daytona_base_sha, daytona_branch) = if execution_env_kind
-        == ExecutionEnvKind::Daytona
+    let (daytona_run_id, daytona_base_sha, daytona_branch) = if sandbox_provider
+        == SandboxProvider::Daytona
     {
-        match setup_daytona_git(&*execution_env).await {
+        match setup_daytona_git(&*sandbox).await {
             Ok((rid, base, branch)) => (Some(rid), Some(base), Some(branch)),
             Err(e) => {
                 eprintln!(
@@ -401,7 +401,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         (None, None, None)
     };
 
-    // Run setup commands inside the execution environment (once, not per-stage)
+    // Run setup commands inside the sandbox (once, not per-stage)
     if !setup_commands.is_empty() {
         emitter.emit(&crate::event::WorkflowRunEvent::SetupStarted {
             command_count: setup_commands.len(),
@@ -413,7 +413,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
                 index,
             });
             let cmd_start = Instant::now();
-            let result = execution_env
+            let result = sandbox
                 .exec_command(cmd, 300_000, None, None, None)
                 .await
                 .map_err(|e| anyhow::anyhow!("Setup command failed: {e}"))?;
@@ -533,7 +533,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         registry,
         Arc::clone(&emitter),
         interviewer,
-        Arc::clone(&execution_env),
+        Arc::clone(&sandbox),
     );
 
     // 7. Execute
@@ -551,11 +551,11 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
         cancel_token: None,
         dry_run: dry_run_mode,
         run_id,
-        git_checkpoint: match execution_env_kind {
-            ExecutionEnvKind::Local | ExecutionEnvKind::Docker => {
+        git_checkpoint: match sandbox_provider {
+            SandboxProvider::Local | SandboxProvider::Docker => {
                 worktree_work_dir.map(GitCheckpointMode::Host)
             }
-            ExecutionEnvKind::Daytona => daytona_base_sha
+            SandboxProvider::Daytona => daytona_base_sha
                 .as_ref()
                 .map(|_| GitCheckpointMode::Remote(original_cwd.clone())),
         },
@@ -622,7 +622,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
             run_duration_ms,
             dry_run_mode,
             llm_client.as_ref(),
-            &execution_env,
+            &sandbox,
             provider_enum,
             &model,
             styles,
@@ -738,10 +738,10 @@ fn setup_worktree(
 /// Set up git inside a Daytona sandbox for checkpoint commits.
 /// Returns (run_id, base_sha, branch_name) on success.
 async fn setup_daytona_git(
-    exec_env: &dyn arc_agent::ExecutionEnvironment,
+    sandbox: &dyn arc_agent::Sandbox,
 ) -> anyhow::Result<(String, String, String)> {
     // Get current HEAD as base SHA
-    let sha_result = exec_env
+    let sha_result = sandbox
         .exec_command("git rev-parse HEAD", 10_000, None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("git rev-parse HEAD failed: {e}"))?;
@@ -759,7 +759,7 @@ async fn setup_daytona_git(
 
     // Create and checkout a run branch
     let checkout_cmd = format!("git checkout -b {branch_name}");
-    let checkout_result = exec_env
+    let checkout_result = sandbox
         .exec_command(&checkout_cmd, 10_000, None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("git checkout failed: {e}"))?;
@@ -854,13 +854,13 @@ async fn run_from_branch(
     let base_sha = crate::git::MetadataStore::read_manifest(&original_cwd, &run_id)?
         .and_then(|m| m.get("base_sha").and_then(|v| v.as_str()).map(String::from));
 
-    // Build minimal execution environment (local only for now)
+    // Build minimal sandbox (local only for now)
     let emitter = Arc::new(EventEmitter::new());
-    let execution_env: Arc<dyn arc_agent::ExecutionEnvironment> = {
-        let mut env = arc_agent::LocalExecutionEnvironment::new(worktree_path.clone());
+    let sandbox: Arc<dyn arc_agent::Sandbox> = {
+        let mut env = arc_agent::LocalSandbox::new(worktree_path.clone());
         let emitter_cb = Arc::clone(&emitter);
         env.set_event_callback(Arc::new(move |event| {
-            emitter_cb.emit(&crate::event::WorkflowRunEvent::ExecutionEnv { event });
+            emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
         }));
         Arc::new(env)
     };
@@ -901,7 +901,7 @@ async fn run_from_branch(
         registry,
         Arc::clone(&emitter),
         interviewer,
-        Arc::clone(&execution_env),
+        Arc::clone(&sandbox),
     );
 
     let meta_branch = Some(crate::git::MetadataStore::branch_name(&run_id));
@@ -950,7 +950,7 @@ async fn run_from_branch(
             run_duration_ms,
             dry_run_mode,
             llm_client.as_ref(),
-            &execution_env,
+            &sandbox,
             provider_enum,
             &model,
             styles,
@@ -1006,7 +1006,7 @@ async fn generate_retro(
     run_duration_ms: u64,
     dry_run_mode: bool,
     llm_client: Option<&arc_llm::client::Client>,
-    execution_env: &Arc<dyn arc_agent::ExecutionEnvironment>,
+    sandbox: &Arc<dyn arc_agent::Sandbox>,
     provider_enum: Provider,
     model: &str,
     styles: &'static Styles,
@@ -1050,7 +1050,7 @@ async fn generate_retro(
     let narrative_result = if dry_run_mode {
         Ok(crate::retro_agent::dry_run_narrative())
     } else if let Some(client) = llm_client {
-        crate::retro_agent::run_retro_agent(execution_env, logs_dir, client, provider_enum, model)
+        crate::retro_agent::run_retro_agent(sandbox, logs_dir, client, provider_enum, model)
             .await
     } else {
         Err(anyhow::anyhow!("No LLM client available"))

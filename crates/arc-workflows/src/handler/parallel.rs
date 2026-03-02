@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
@@ -16,18 +16,18 @@ use crate::outcome::{Outcome, StageStatus};
 use super::{EngineServices, Handler};
 
 // ---------------------------------------------------------------------------
-// WorktreeEnv — decorates an ExecutionEnvironment with a custom working dir
+// WorktreeSandbox — decorates an Sandbox with a custom working dir
 // ---------------------------------------------------------------------------
 
-/// Wraps an existing `ExecutionEnvironment` so that all operations use a
+/// Wraps an existing `Sandbox` so that all operations use a
 /// different working directory (the worktree path inside a remote sandbox).
-struct WorktreeEnv {
-    inner: Arc<dyn ExecutionEnvironment>,
+struct WorktreeSandbox {
+    inner: Arc<dyn Sandbox>,
     worktree_dir: String,
 }
 
 #[async_trait]
-impl ExecutionEnvironment for WorktreeEnv {
+impl Sandbox for WorktreeSandbox {
     async fn read_file(
         &self,
         path: &str,
@@ -49,7 +49,7 @@ impl ExecutionEnvironment for WorktreeEnv {
         &self,
         path: &str,
         depth: Option<usize>,
-    ) -> Result<Vec<arc_agent::execution_env::DirEntry>, String> {
+    ) -> Result<Vec<arc_agent::sandbox::DirEntry>, String> {
         self.inner.list_directory(path, depth).await
     }
     async fn exec_command(
@@ -59,7 +59,7 @@ impl ExecutionEnvironment for WorktreeEnv {
         working_dir: Option<&str>,
         env_vars: Option<&std::collections::HashMap<String, String>>,
         cancel_token: Option<tokio_util::sync::CancellationToken>,
-    ) -> Result<arc_agent::execution_env::ExecResult, String> {
+    ) -> Result<arc_agent::sandbox::ExecResult, String> {
         // Default to worktree dir when no explicit working_dir is given
         let wd = working_dir.unwrap_or(&self.worktree_dir);
         self.inner
@@ -70,7 +70,7 @@ impl ExecutionEnvironment for WorktreeEnv {
         &self,
         pattern: &str,
         path: &str,
-        options: &arc_agent::execution_env::GrepOptions,
+        options: &arc_agent::sandbox::GrepOptions,
     ) -> Result<Vec<String>, String> {
         self.inner.grep(pattern, path, options).await
     }
@@ -242,7 +242,7 @@ impl Handler for ParallelHandler {
                 }
                 GitCheckpointMode::Remote(_) => {
                     crate::engine::git_checkpoint_remote(
-                        &*services.execution_env,
+                        &*services.sandbox,
                         &gs.run_id,
                         &node.id,
                         "parallel_base",
@@ -256,12 +256,12 @@ impl Handler for ParallelHandler {
             None
         };
 
-        // Build per-branch execution environments (sequentially for git setup)
+        // Build per-branch sandboxs (sequentially for git setup)
         struct BranchSetup {
             target_id: String,
             branch_index: usize,
             branch_context: Context,
-            execution_env: Arc<dyn ExecutionEnvironment>,
+            sandbox: Arc<dyn Sandbox>,
             worktree_path: Option<PathBuf>,
         }
 
@@ -270,7 +270,7 @@ impl Handler for ParallelHandler {
             let target_id = edge.to.clone();
             let branch_context = context.clone_context();
 
-            let (branch_exec_env, worktree_path): (Arc<dyn ExecutionEnvironment>, Option<PathBuf>) =
+            let (branch_sandbox, worktree_path): (Arc<dyn Sandbox>, Option<PathBuf>) =
                 if let (Some(ref gs), Some(ref bsha)) = (&git_state, &base_sha) {
                     let branch_key = &target_id;
                     let branch_name = format!(
@@ -305,21 +305,21 @@ impl Handler for ParallelHandler {
                                 "internal.work_dir",
                                 serde_json::json!(wt_path.to_string_lossy().as_ref()),
                             );
-                            let env: Arc<dyn ExecutionEnvironment> = Arc::new(
-                                arc_agent::LocalExecutionEnvironment::new(wt_path.clone()),
+                            let env: Arc<dyn Sandbox> = Arc::new(
+                                arc_agent::LocalSandbox::new(wt_path.clone()),
                             );
                             (env, Some(wt_path))
                         }
                         GitCheckpointMode::Remote(_) => {
                             let wt_path_str = format!(
                                 "{}/.arc/logs/{}/parallel/{}/{}",
-                                services.execution_env.working_directory(),
+                                services.sandbox.working_directory(),
                                 gs.run_id,
                                 node.id,
                                 branch_key
                             );
                             let ok = crate::engine::git_create_branch_at_remote(
-                                &*services.execution_env,
+                                &*services.sandbox,
                                 &branch_name,
                                 bsha,
                             )
@@ -330,7 +330,7 @@ impl Handler for ParallelHandler {
                                 )));
                             }
                             let ok = crate::engine::git_replace_worktree_remote(
-                                &*services.execution_env,
+                                &*services.sandbox,
                                 &wt_path_str,
                                 &branch_name,
                             )
@@ -344,7 +344,7 @@ impl Handler for ParallelHandler {
                             let reset_cmd =
                                 format!("{} reset --hard {bsha}", crate::engine::GIT_REMOTE);
                             let reset_result = services
-                                .execution_env
+                                .sandbox
                                 .exec_command(&reset_cmd, 30_000, Some(&wt_path_str), None, None)
                                 .await;
                             if !matches!(reset_result, Ok(ref r) if r.exit_code == 0) {
@@ -354,22 +354,22 @@ impl Handler for ParallelHandler {
                             }
                             branch_context
                                 .set("internal.work_dir", serde_json::json!(&wt_path_str));
-                            let env: Arc<dyn ExecutionEnvironment> = Arc::new(WorktreeEnv {
-                                inner: Arc::clone(&services.execution_env),
+                            let env: Arc<dyn Sandbox> = Arc::new(WorktreeSandbox {
+                                inner: Arc::clone(&services.sandbox),
                                 worktree_dir: wt_path_str.clone(),
                             });
                             (env, Some(PathBuf::from(wt_path_str)))
                         }
                     }
                 } else {
-                    (Arc::clone(&services.execution_env), None)
+                    (Arc::clone(&services.sandbox), None)
                 };
 
             branch_setups.push(BranchSetup {
                 target_id,
                 branch_index,
                 branch_context,
-                execution_env: branch_exec_env,
+                sandbox: branch_sandbox,
                 worktree_path,
             });
         }
@@ -417,7 +417,7 @@ impl Handler for ParallelHandler {
                 let branch_services = EngineServices {
                     registry: Arc::clone(&registry),
                     emitter: Arc::clone(&emitter),
-                    execution_env: Arc::clone(&setup.execution_env),
+                    sandbox: Arc::clone(&setup.sandbox),
                     git_state: std::sync::RwLock::new(None),
                 };
                 let handler = registry.resolve(target_node);
@@ -440,7 +440,7 @@ impl Handler for ParallelHandler {
                     let git_r = crate::engine::GIT_REMOTE;
                     let add_cmd = format!("{git_r} add -A");
                     let add_result = setup
-                        .execution_env
+                        .sandbox
                         .exec_command(&add_cmd, 30_000, None, None, None)
                         .await;
                     if add_result.as_ref().is_ok_and(|r| r.exit_code == 0) {
@@ -449,13 +449,13 @@ impl Handler for ParallelHandler {
                             "{git_r} -c user.name=arc -c user.email=arc@local commit --allow-empty -m '{msg}'"
                         );
                         let _ = setup
-                            .execution_env
+                            .sandbox
                             .exec_command(&commit_cmd, 30_000, None, None, None)
                             .await;
                     }
                     let sha_cmd = format!("{git_r} rev-parse HEAD");
                     let sha_result = setup
-                        .execution_env
+                        .sandbox
                         .exec_command(&sha_cmd, 10_000, None, None, None)
                         .await;
                     match sha_result {
@@ -564,7 +564,7 @@ impl Handler for ParallelHandler {
                         GitCheckpointMode::Remote(_) => {
                             let wt_str = wt_path.to_string_lossy().to_string();
                             crate::engine::git_remove_worktree_remote(
-                                &*services.execution_env,
+                                &*services.sandbox,
                                 &wt_str,
                             )
                             .await;
@@ -592,7 +592,7 @@ impl Handler for ParallelHandler {
                                 .await;
                     }
                     GitCheckpointMode::Remote(_) => {
-                        crate::engine::git_merge_ff_only_remote(&*services.execution_env, sha)
+                        crate::engine::git_merge_ff_only_remote(&*services.sandbox, sha)
                             .await;
                     }
                 }
@@ -717,7 +717,7 @@ mod tests {
         EngineServices {
             registry: Arc::new(registry),
             emitter: Arc::new(EventEmitter::new()),
-            execution_env: Arc::new(arc_agent::LocalExecutionEnvironment::new(
+            sandbox: Arc::new(arc_agent::LocalSandbox::new(
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             )),
             git_state: std::sync::RwLock::new(None),

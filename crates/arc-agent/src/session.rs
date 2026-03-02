@@ -1,7 +1,7 @@
 use crate::config::SessionConfig;
 use crate::error::AgentError;
 use crate::event::EventEmitter;
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::file_tracker::FileTracker;
 use crate::history::History;
 use crate::loop_detection::detect_loop;
@@ -31,7 +31,7 @@ pub struct Session {
     state: SessionState,
     llm_client: Client,
     provider_profile: Arc<dyn ProviderProfile>,
-    execution_env: Arc<dyn ExecutionEnvironment>,
+    sandbox: Arc<dyn Sandbox>,
     steering_queue: Arc<Mutex<VecDeque<String>>>,
     followup_queue: Arc<Mutex<VecDeque<String>>>,
     cancel_token: CancellationToken,
@@ -47,7 +47,7 @@ impl Session {
     pub fn new(
         llm_client: Client,
         provider_profile: Arc<dyn ProviderProfile>,
-        execution_env: Arc<dyn ExecutionEnvironment>,
+        sandbox: Arc<dyn Sandbox>,
         config: SessionConfig,
     ) -> Self {
         Self {
@@ -58,7 +58,7 @@ impl Session {
             state: SessionState::Idle,
             llm_client,
             provider_profile,
-            execution_env,
+            sandbox,
             steering_queue: Arc::new(Mutex::new(VecDeque::new())),
             followup_queue: Arc::new(Mutex::new(VecDeque::new())),
             cancel_token: CancellationToken::new(),
@@ -80,11 +80,11 @@ impl Session {
             .config
             .git_root
             .clone()
-            .unwrap_or_else(|| self.execution_env.working_directory().to_string());
+            .unwrap_or_else(|| self.sandbox.working_directory().to_string());
         self.project_docs = discover_project_docs(
-            self.execution_env.as_ref(),
+            self.sandbox.as_ref(),
             &doc_root,
-            self.execution_env.working_directory(),
+            self.sandbox.working_directory(),
             self.provider_profile.provider(),
         )
         .await;
@@ -98,7 +98,7 @@ impl Session {
                 default_skill_dirs(home.as_deref(), self.config.git_root.as_deref())
             }
         };
-        self.skills = discover_skills(self.execution_env.as_ref(), &skill_dirs).await;
+        self.skills = discover_skills(self.sandbox.as_ref(), &skill_dirs).await;
         debug!(skill_count = self.skills.len(), "Skills discovered");
 
         // Register use_skill tool when skills are available
@@ -158,7 +158,7 @@ impl Session {
 
         // Build system prompt once (static for the session lifetime)
         self.system_prompt = self.provider_profile.build_system_prompt(
-            self.execution_env.as_ref(),
+            self.sandbox.as_ref(),
             &self.env_context,
             &self.project_docs,
             self.config.user_instructions.as_deref(),
@@ -172,7 +172,7 @@ impl Session {
 
         // Detect git info via execution environment
         let git_branch = self
-            .execution_env
+            .sandbox
             .exec_command("git rev-parse --abbrev-ref HEAD", 5000, None, None, None)
             .await
             .ok()
@@ -182,7 +182,7 @@ impl Session {
         let is_git_repo = git_branch.is_some();
 
         let git_status_short = if is_git_repo {
-            self.execution_env
+            self.sandbox
                 .exec_command("git status --short", 5000, None, None, None)
                 .await
                 .ok()
@@ -194,7 +194,7 @@ impl Session {
         };
 
         let git_recent_commits = if is_git_repo {
-            self.execution_env
+            self.sandbox
                 .exec_command("git log --oneline -10", 5000, None, None, None)
                 .await
                 .ok()
@@ -585,7 +585,7 @@ impl Session {
                 &tool_calls,
                 self.provider_profile.supports_parallel_tool_calls(),
                 self.provider_profile.tool_registry(),
-                self.execution_env.clone(),
+                self.sandbox.clone(),
                 self.config.tool_approval.as_ref(),
                 &self.cancel_token,
                 &self.config,
@@ -1056,7 +1056,7 @@ mod tests {
         let provider = Arc::new(MockLlmProvider::new(responses));
         let client = make_client(provider).await;
         let profile = Arc::new(TestProfile::with_tools(registry));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             enable_loop_detection: false,
             ..Default::default()
@@ -1091,7 +1091,7 @@ mod tests {
         });
         let client = make_client(error_provider).await;
         let profile = Arc::new(TestProfile::new());
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
 
         let result = session.process_input("Hello").await;
@@ -1170,7 +1170,7 @@ mod tests {
         let provider = Arc::new(MockLlmProvider::new(responses));
         let client = make_client(provider).await;
         let profile = Arc::new(TestProfile::parallel(registry));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
         let mut rx = session.subscribe();
 
@@ -1221,7 +1221,7 @@ mod tests {
         let client = make_client(provider).await;
         let registry = ToolRegistry::new();
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 100));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
         let mut rx = session.subscribe();
 
@@ -1247,7 +1247,7 @@ mod tests {
         let provider_ref = provider.clone();
         let client = make_client(provider as Arc<dyn ProviderAdapter>).await;
         let profile = Arc::new(TestProfile::new());
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
 
         // Default reasoning_effort is None
@@ -1270,7 +1270,7 @@ mod tests {
         let registry = ToolRegistry::new();
         // Large context window so short input stays well under 80%
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 200_000));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
         let mut rx = session.subscribe();
 
@@ -1399,7 +1399,7 @@ mod tests {
         let provider_ref = provider.clone();
         let client = make_client(provider as Arc<dyn ProviderAdapter>).await;
         let profile = Arc::new(TestProfile::new());
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             user_instructions: Some("Always use TDD".into()),
             ..Default::default()
@@ -1621,7 +1621,7 @@ mod tests {
         });
         let client = make_client(provider as Arc<dyn ProviderAdapter>).await;
         let profile = Arc::new(TestProfile::new());
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, SessionConfig::default());
 
         let result = session.process_input("Hello").await;
@@ -1647,7 +1647,7 @@ mod tests {
         let client = make_client(provider).await;
         let registry = ToolRegistry::new();
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 100));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             enable_context_compaction: true,
             compaction_preserve_turns: 1,
@@ -1690,7 +1690,7 @@ mod tests {
         let client = make_client(provider).await;
         let registry = ToolRegistry::new();
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 100));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             enable_context_compaction: false,
             ..Default::default()
@@ -1773,7 +1773,7 @@ mod tests {
         let client = make_client(provider as Arc<dyn ProviderAdapter>).await;
         let registry = ToolRegistry::new();
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 100));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             enable_context_compaction: true,
             compaction_preserve_turns: 1,
@@ -1876,7 +1876,7 @@ mod tests {
         let client = make_client(provider.clone() as Arc<dyn ProviderAdapter>).await;
         // Tiny context window to force compaction
         let profile = Arc::new(TestProfile::parallel_with_context_window(registry, 100));
-        let env = Arc::new(MockExecutionEnvironment::default());
+        let env = Arc::new(MockSandbox::default());
         let config = SessionConfig {
             enable_context_compaction: true,
             compaction_preserve_turns: 1,
@@ -1977,8 +1977,8 @@ mod tests {
         let client = make_client(provider).await;
         let profile: Arc<dyn crate::provider_profile::ProviderProfile> =
             Arc::new(TestProfile::new());
-        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
-            Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn crate::sandbox::Sandbox> =
+            Arc::new(MockSandbox::default());
         let mut session = Session::new(client, profile, env, config);
 
         // Subscribe to events before initialize

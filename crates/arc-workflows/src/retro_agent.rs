@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use arc_agent::{
-    AnthropicProfile, ExecutionEnvironment, GeminiProfile, OpenAiProfile, ProviderProfile, Session,
+    AnthropicProfile, Sandbox, GeminiProfile, OpenAiProfile, ProviderProfile, Session,
     SessionConfig,
 };
 use arc_llm::client::Client;
@@ -112,16 +112,16 @@ const SUBMIT_RETRO_SCHEMA: &str = r#"{
 /// a structured narrative. The agent explores `progress.ndjson` and other
 /// files via tool access, then calls `submit_retro` with its analysis.
 pub async fn run_retro_agent(
-    execution_env: &Arc<dyn ExecutionEnvironment>,
+    sandbox: &Arc<dyn Sandbox>,
     logs_root: &Path,
     llm_client: &Client,
     provider: Provider,
     model: &str,
 ) -> anyhow::Result<RetroNarrative> {
-    // Upload data files into execution env (needed for Daytona; no-op effect for local
+    // Upload data files into sandbox (needed for Daytona; no-op effect for local
     // since the agent can also read from the original paths via tools).
     let retro_data_dir = "/tmp/retro_data";
-    upload_data_files(execution_env, logs_root, retro_data_dir).await?;
+    upload_data_files(sandbox, logs_root, retro_data_dir).await?;
 
     // Build provider profile with the submit_retro tool
     let captured: Arc<Mutex<Option<RetroNarrative>>> = Arc::new(Mutex::new(None));
@@ -164,7 +164,7 @@ pub async fn run_retro_agent(
     let mut session = Session::new(
         llm_client.clone(),
         profile,
-        Arc::clone(execution_env),
+        Arc::clone(sandbox),
         config,
     );
 
@@ -218,12 +218,12 @@ fn build_profile(provider: Provider, model: &str) -> Box<dyn ProviderProfile> {
 }
 
 async fn upload_data_files(
-    execution_env: &Arc<dyn ExecutionEnvironment>,
+    sandbox: &Arc<dyn Sandbox>,
     logs_root: &Path,
     target_dir: &str,
 ) -> anyhow::Result<()> {
     // Create target directory
-    execution_env
+    sandbox
         .exec_command(&format!("mkdir -p {target_dir}"), 10_000, None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create retro data dir: {e}"))?;
@@ -233,7 +233,7 @@ async fn upload_data_files(
         let source = logs_root.join(filename);
         if source.exists() {
             let content = std::fs::read_to_string(&source)?;
-            execution_env
+            sandbox
                 .write_file(&format!("{target_dir}/{filename}"), &content)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to upload {filename}: {e}"))?;

@@ -1,4 +1,4 @@
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::tool_registry::RegisteredTool;
 use arc_llm::types::ToolDefinition;
 use std::sync::Arc;
@@ -130,7 +130,7 @@ pub fn parse_v4a_patch(text: &str) -> Result<Vec<PatchOperation>, String> {
 /// Returns an error if any file operation fails.
 pub async fn apply_patch_operations(
     ops: &[PatchOperation],
-    env: &dyn ExecutionEnvironment,
+    env: &dyn Sandbox,
 ) -> Result<String, String> {
     let mut results = Vec::new();
 
@@ -244,7 +244,7 @@ pub fn make_apply_patch_tool() -> RegisteredTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MutableMockExecutionEnvironment;
+    use crate::test_support::MutableMockSandbox;
     use std::collections::HashMap;
 
     #[test]
@@ -338,7 +338,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_patch_add_file() {
-        let env = MutableMockExecutionEnvironment::new(HashMap::new());
+        let env = MutableMockSandbox::new(HashMap::new());
         let ops = vec![PatchOperation::Add {
             path: "src/new.rs".into(),
             content: "fn new() {}".into(),
@@ -358,7 +358,7 @@ mod tests {
             "src/lib.rs".to_string(),
             "fn hello() {\n    println!(\"old\");\n}".to_string(),
         );
-        let env = MutableMockExecutionEnvironment::new(files);
+        let env = MutableMockSandbox::new(files);
 
         let ops = vec![PatchOperation::Update {
             path: "src/lib.rs".into(),

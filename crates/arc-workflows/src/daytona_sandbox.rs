@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 
-use arc_agent::execution_env::{
-    format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent,
-    ExecutionEnvironment, GrepOptions,
+use arc_agent::sandbox::{
+    format_lines_numbered, DirEntry, SandboxEventCallback, ExecResult, SandboxEvent,
+    Sandbox, GrepOptions,
 };
 use async_trait::async_trait;
 use rand::Rng;
@@ -13,23 +13,15 @@ use serde::Deserialize;
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
 const DEFAULT_IMAGE: &str = "ubuntu:22.04";
 
-/// Configuration for a Daytona cloud sandbox execution environment.
+/// Configuration for a Daytona cloud sandbox.
 ///
-/// Doubles as the TOML deserialization target for `[execution.daytona]`.
+/// Doubles as the TOML deserialization target for `[sandbox.daytona]`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DaytonaConfig {
-    #[serde(default)]
-    pub sandbox: DaytonaSandboxConfig,
-    pub snapshot: Option<DaytonaSnapshotConfig>,
-}
-
-/// Sandbox-level settings (labels, auto-stop).
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DaytonaSandboxConfig {
     pub auto_stop_interval: Option<i32>,
     pub labels: Option<HashMap<String, String>>,
+    pub snapshot: Option<DaytonaSnapshotConfig>,
 }
 
 /// Snapshot configuration: when present, the sandbox is created from a snapshot
@@ -44,16 +36,16 @@ pub struct DaytonaSnapshotConfig {
     pub dockerfile: Option<String>,
 }
 
-/// Execution environment that runs all operations inside a Daytona cloud sandbox.
-pub struct DaytonaExecutionEnvironment {
+/// Sandbox that runs all operations inside a Daytona cloud sandbox.
+pub struct DaytonaSandbox {
     config: DaytonaConfig,
     client: daytona_sdk::Client,
     sandbox: tokio::sync::OnceCell<daytona_sdk::Sandbox>,
     rg_available: tokio::sync::OnceCell<bool>,
-    event_callback: Option<ExecEnvEventCallback>,
+    event_callback: Option<SandboxEventCallback>,
 }
 
-impl DaytonaExecutionEnvironment {
+impl DaytonaSandbox {
     #[must_use]
     pub fn new(client: daytona_sdk::Client, config: DaytonaConfig) -> Self {
         Self {
@@ -65,11 +57,11 @@ impl DaytonaExecutionEnvironment {
         }
     }
 
-    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+    pub fn set_event_callback(&mut self, cb: SandboxEventCallback) {
         self.event_callback = Some(cb);
     }
 
-    fn emit(&self, event: ExecutionEnvEvent) {
+    fn emit(&self, event: SandboxEvent) {
         event.trace();
         if let Some(ref cb) = self.event_callback {
             cb(event);
@@ -101,8 +93,8 @@ impl DaytonaExecutionEnvironment {
         );
         daytona_sdk::SandboxBaseParams {
             name: Some(name),
-            auto_stop_interval: self.config.sandbox.auto_stop_interval,
-            labels: self.config.sandbox.labels.clone(),
+            auto_stop_interval: self.config.auto_stop_interval,
+            labels: self.config.labels.clone(),
             ephemeral: Some(true),
             ..Default::default()
         }
@@ -270,36 +262,36 @@ pub fn get_gh_token() -> Result<String, String> {
 }
 
 #[async_trait]
-impl ExecutionEnvironment for DaytonaExecutionEnvironment {
+impl Sandbox for DaytonaSandbox {
     async fn initialize(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::Initializing {
-            env_type: "daytona".into(),
+        self.emit(SandboxEvent::Initializing {
+            provider: "daytona".into(),
         });
         let init_start = Instant::now();
 
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
         let params = if let Some(ref snap_cfg) = self.config.snapshot {
-            self.emit(ExecutionEnvEvent::SnapshotEnsuring {
+            self.emit(SandboxEvent::SnapshotEnsuring {
                 name: snap_cfg.name.clone(),
             });
             let snap_start = Instant::now();
             if let Err(e) = self.ensure_snapshot(snap_cfg).await {
-                self.emit(ExecutionEnvEvent::SnapshotFailed {
+                self.emit(SandboxEvent::SnapshotFailed {
                     name: snap_cfg.name.clone(),
                     error: e.clone(),
                 });
                 let duration_ms =
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                self.emit(ExecutionEnvEvent::InitializeFailed {
-                    env_type: "daytona".into(),
+                self.emit(SandboxEvent::InitializeFailed {
+                    provider: "daytona".into(),
                     error: e.clone(),
                     duration_ms,
                 });
                 return Err(e);
             }
             let snap_duration = u64::try_from(snap_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-            self.emit(ExecutionEnvEvent::SnapshotReady {
+            self.emit(SandboxEvent::SnapshotReady {
                 name: snap_cfg.name.clone(),
                 duration_ms: snap_duration,
             });
@@ -325,8 +317,8 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                 let err = format!("Failed to create Daytona sandbox: {e}");
                 let duration_ms =
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                self.emit(ExecutionEnvEvent::InitializeFailed {
-                    env_type: "daytona".into(),
+                self.emit(SandboxEvent::InitializeFailed {
+                    provider: "daytona".into(),
                     error: err.clone(),
                     duration_ms,
                 });
@@ -338,7 +330,7 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
             Ok((detected_url, branch)) => {
                 // Daytona clones over HTTPS with token auth, so rewrite SSH URLs.
                 let url = ssh_url_to_https(&detected_url);
-                self.emit(ExecutionEnvEvent::GitCloneStarted {
+                self.emit(SandboxEvent::GitCloneStarted {
                     url: url.clone(),
                     branch: branch.clone(),
                 });
@@ -349,14 +341,14 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                 let token = match token {
                     Ok(t) => t,
                     Err(e) => {
-                        self.emit(ExecutionEnvEvent::GitCloneFailed {
+                        self.emit(SandboxEvent::GitCloneFailed {
                             url: url.clone(),
                             error: e.clone(),
                         });
                         let duration_ms =
                             u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        self.emit(ExecutionEnvEvent::InitializeFailed {
-                            env_type: "daytona".into(),
+                        self.emit(SandboxEvent::InitializeFailed {
+                            provider: "daytona".into(),
                             error: e.clone(),
                             duration_ms,
                         });
@@ -371,14 +363,14 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                 let git_svc = match git_svc {
                     Ok(g) => g,
                     Err(e) => {
-                        self.emit(ExecutionEnvEvent::GitCloneFailed {
+                        self.emit(SandboxEvent::GitCloneFailed {
                             url: url.clone(),
                             error: e.clone(),
                         });
                         let duration_ms =
                             u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        self.emit(ExecutionEnvEvent::InitializeFailed {
-                            env_type: "daytona".into(),
+                        self.emit(SandboxEvent::InitializeFailed {
+                            provider: "daytona".into(),
                             error: e.clone(),
                             duration_ms,
                         });
@@ -402,21 +394,21 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
                     Ok(()) => {
                         let clone_duration =
                             u64::try_from(clone_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        self.emit(ExecutionEnvEvent::GitCloneCompleted {
+                        self.emit(SandboxEvent::GitCloneCompleted {
                             url,
                             duration_ms: clone_duration,
                         });
                     }
                     Err(e) => {
                         let err = format!("Failed to clone repo into Daytona sandbox: {e}");
-                        self.emit(ExecutionEnvEvent::GitCloneFailed {
+                        self.emit(SandboxEvent::GitCloneFailed {
                             url,
                             error: err.clone(),
                         });
                         let duration_ms =
                             u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        self.emit(ExecutionEnvEvent::InitializeFailed {
-                            env_type: "daytona".into(),
+                        self.emit(SandboxEvent::InitializeFailed {
+                            provider: "daytona".into(),
                             error: err.clone(),
                             duration_ms,
                         });
@@ -444,8 +436,8 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
         tracing::info!("Daytona sandbox ready");
 
         let init_duration = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::Ready {
-            env_type: "daytona".into(),
+        self.emit(SandboxEvent::Ready {
+            provider: "daytona".into(),
             duration_ms: init_duration,
         });
 
@@ -453,24 +445,24 @@ impl ExecutionEnvironment for DaytonaExecutionEnvironment {
     }
 
     async fn cleanup(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::CleanupStarted {
-            env_type: "daytona".into(),
+        self.emit(SandboxEvent::CleanupStarted {
+            provider: "daytona".into(),
         });
         let start = Instant::now();
         if let Some(sandbox) = self.sandbox.get() {
             tracing::info!("Destroying Daytona sandbox");
             if let Err(e) = sandbox.delete().await {
                 let err = format!("Failed to delete Daytona sandbox: {e}");
-                self.emit(ExecutionEnvEvent::CleanupFailed {
-                    env_type: "daytona".into(),
+                self.emit(SandboxEvent::CleanupFailed {
+                    provider: "daytona".into(),
                     error: err.clone(),
                 });
                 return Err(err);
             }
         }
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::CleanupCompleted {
-            env_type: "daytona".into(),
+        self.emit(SandboxEvent::CleanupCompleted {
+            provider: "daytona".into(),
             duration_ms,
         });
         Ok(())
@@ -775,8 +767,8 @@ mod tests {
     fn daytona_config_defaults() {
         let config = DaytonaConfig::default();
         assert!(config.snapshot.is_none());
-        assert!(config.sandbox.auto_stop_interval.is_none());
-        assert!(config.sandbox.labels.is_none());
+        assert!(config.auto_stop_interval.is_none());
+        assert!(config.labels.is_none());
     }
 
     #[test]

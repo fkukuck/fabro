@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use chrono::Utc;
 use futures::FutureExt;
 use rand::Rng;
@@ -531,7 +531,7 @@ pub struct GitState {
 pub enum GitCheckpointMode {
     /// Run git commands on the host filesystem (local & Docker bind-mount).
     Host(PathBuf),
-    /// Run git commands inside the remote execution environment via `exec_command`.
+    /// Run git commands inside the remote sandbox via `exec_command`.
     /// The `PathBuf` is the host repo path used for `MetadataStore` (shadow commits).
     Remote(PathBuf),
 }
@@ -579,9 +579,9 @@ async fn git_diff_host(work_dir: PathBuf, base: String) -> Option<String> {
 
 pub const GIT_REMOTE: &str = "git -c maintenance.auto=0 -c gc.auto=0";
 
-/// Run a git checkpoint commit inside a remote execution environment.
+/// Run a git checkpoint commit inside a remote sandbox.
 pub async fn git_checkpoint_remote(
-    exec_env: &dyn ExecutionEnvironment,
+    sandbox: &dyn Sandbox,
     run_id: &str,
     node_id: &str,
     status: &str,
@@ -590,7 +590,7 @@ pub async fn git_checkpoint_remote(
 ) -> Option<String> {
     // Stage everything
     let add_cmd = format!("{GIT_REMOTE} add -A");
-    let add_result = exec_env
+    let add_result = sandbox
         .exec_command(&add_cmd, 30_000, None, None, None)
         .await;
     if add_result.as_ref().map_or(true, |r| r.exit_code != 0) {
@@ -620,7 +620,7 @@ pub async fn git_checkpoint_remote(
     let message = trailerlink::format_message(&subject, "", &trailers);
 
     // Write message to temp file in sandbox to avoid shell escaping issues
-    if exec_env
+    if sandbox
         .write_file("/tmp/arc-commit-msg", &message)
         .await
         .is_err()
@@ -632,7 +632,7 @@ pub async fn git_checkpoint_remote(
     let commit_cmd = format!(
         "{GIT_REMOTE} -c user.name=arc -c user.email=arc@local commit --allow-empty -F /tmp/arc-commit-msg"
     );
-    let commit_result = exec_env
+    let commit_result = sandbox
         .exec_command(&commit_cmd, 30_000, None, None, None)
         .await;
     if commit_result.as_ref().map_or(true, |r| r.exit_code != 0) {
@@ -641,7 +641,7 @@ pub async fn git_checkpoint_remote(
 
     // Get the new HEAD SHA
     let sha_cmd = format!("{GIT_REMOTE} rev-parse HEAD");
-    let sha_result = exec_env
+    let sha_result = sandbox
         .exec_command(&sha_cmd, 10_000, None, None, None)
         .await;
     match sha_result {
@@ -650,10 +650,10 @@ pub async fn git_checkpoint_remote(
     }
 }
 
-/// Run a git diff inside a remote execution environment.
-async fn git_diff_remote(exec_env: &dyn ExecutionEnvironment, base: &str) -> Option<String> {
+/// Run a git diff inside a remote sandbox.
+async fn git_diff_remote(sandbox: &dyn Sandbox, base: &str) -> Option<String> {
     let cmd = format!("{GIT_REMOTE} diff {base} HEAD");
-    match exec_env.exec_command(&cmd, 30_000, None, None, None).await {
+    match sandbox.exec_command(&cmd, 30_000, None, None, None).await {
         Ok(r) if r.exit_code == 0 => Some(r.stdout),
         _ => None,
     }
@@ -661,54 +661,54 @@ async fn git_diff_remote(exec_env: &dyn ExecutionEnvironment, base: &str) -> Opt
 
 // --- Remote worktree helpers (for Daytona / sandbox environments) ---
 
-/// Create a branch at a specific SHA inside a remote execution environment.
+/// Create a branch at a specific SHA inside a remote sandbox.
 pub async fn git_create_branch_at_remote(
-    exec_env: &dyn ExecutionEnvironment,
+    sandbox: &dyn Sandbox,
     name: &str,
     sha: &str,
 ) -> bool {
     let cmd = format!("{GIT_REMOTE} branch --force {name} {sha}");
     matches!(
-        exec_env.exec_command(&cmd, 30_000, None, None, None).await,
+        sandbox.exec_command(&cmd, 30_000, None, None, None).await,
         Ok(r) if r.exit_code == 0
     )
 }
 
-/// Add a git worktree inside a remote execution environment.
+/// Add a git worktree inside a remote sandbox.
 pub async fn git_add_worktree_remote(
-    exec_env: &dyn ExecutionEnvironment,
+    sandbox: &dyn Sandbox,
     path: &str,
     branch: &str,
 ) -> bool {
     let cmd = format!("{GIT_REMOTE} worktree add {path} {branch}");
     matches!(
-        exec_env.exec_command(&cmd, 30_000, None, None, None).await,
+        sandbox.exec_command(&cmd, 30_000, None, None, None).await,
         Ok(r) if r.exit_code == 0
     )
 }
 
-/// Remove a git worktree inside a remote execution environment.
-pub async fn git_remove_worktree_remote(exec_env: &dyn ExecutionEnvironment, path: &str) -> bool {
+/// Remove a git worktree inside a remote sandbox.
+pub async fn git_remove_worktree_remote(sandbox: &dyn Sandbox, path: &str) -> bool {
     let cmd = format!("{GIT_REMOTE} worktree remove --force {path}");
     matches!(
-        exec_env.exec_command(&cmd, 30_000, None, None, None).await,
+        sandbox.exec_command(&cmd, 30_000, None, None, None).await,
         Ok(r) if r.exit_code == 0
     )
 }
 
-/// Fast-forward merge to a given SHA inside a remote execution environment.
-pub async fn git_merge_ff_only_remote(exec_env: &dyn ExecutionEnvironment, sha: &str) -> bool {
+/// Fast-forward merge to a given SHA inside a remote sandbox.
+pub async fn git_merge_ff_only_remote(sandbox: &dyn Sandbox, sha: &str) -> bool {
     let cmd = format!("{GIT_REMOTE} merge --ff-only {sha}");
     matches!(
-        exec_env.exec_command(&cmd, 30_000, None, None, None).await,
+        sandbox.exec_command(&cmd, 30_000, None, None, None).await,
         Ok(r) if r.exit_code == 0
     )
 }
 
-/// Get the current HEAD SHA from a remote execution environment.
-pub async fn git_head_sha_remote(exec_env: &dyn ExecutionEnvironment) -> Option<String> {
+/// Get the current HEAD SHA from a remote sandbox.
+pub async fn git_head_sha_remote(sandbox: &dyn Sandbox) -> Option<String> {
     let cmd = format!("{GIT_REMOTE} rev-parse HEAD");
-    match exec_env.exec_command(&cmd, 10_000, None, None, None).await {
+    match sandbox.exec_command(&cmd, 10_000, None, None, None).await {
         Ok(r) if r.exit_code == 0 => Some(r.stdout.trim().to_string()),
         _ => None,
     }
@@ -716,12 +716,12 @@ pub async fn git_head_sha_remote(exec_env: &dyn ExecutionEnvironment) -> Option<
 
 /// Remove any stale worktree at `path` (best-effort), then add a fresh one.
 pub async fn git_replace_worktree_remote(
-    exec_env: &dyn ExecutionEnvironment,
+    sandbox: &dyn Sandbox,
     path: &str,
     branch: &str,
 ) -> bool {
-    let _ = git_remove_worktree_remote(exec_env, path).await;
-    git_add_worktree_remote(exec_env, path, branch).await
+    let _ = git_remove_worktree_remote(sandbox, path).await;
+    git_add_worktree_remote(sandbox, path, branch).await
 }
 
 /// Configuration for a workflow run.
@@ -754,13 +754,13 @@ impl WorkflowRunEngine {
     pub fn new(
         registry: HandlerRegistry,
         emitter: Arc<EventEmitter>,
-        execution_env: Arc<dyn ExecutionEnvironment>,
+        sandbox: Arc<dyn Sandbox>,
     ) -> Self {
         Self {
             services: EngineServices {
                 registry: Arc::new(registry),
                 emitter,
-                execution_env,
+                sandbox,
                 git_state: std::sync::RwLock::new(None),
             },
             interviewer: None,
@@ -774,7 +774,7 @@ impl WorkflowRunEngine {
             services: EngineServices {
                 registry: Arc::clone(&services.registry),
                 emitter: Arc::clone(&services.emitter),
-                execution_env: Arc::clone(&services.execution_env),
+                sandbox: Arc::clone(&services.sandbox),
                 git_state: std::sync::RwLock::new(None),
             },
             interviewer: None,
@@ -787,13 +787,13 @@ impl WorkflowRunEngine {
         registry: HandlerRegistry,
         emitter: Arc<EventEmitter>,
         interviewer: Arc<dyn Interviewer>,
-        execution_env: Arc<dyn ExecutionEnvironment>,
+        sandbox: Arc<dyn Sandbox>,
     ) -> Self {
         Self {
             services: EngineServices {
                 registry: Arc::new(registry),
                 emitter,
-                execution_env,
+                sandbox,
                 git_state: std::sync::RwLock::new(None),
             },
             interviewer: Some(interviewer),
@@ -1400,9 +1400,9 @@ impl WorkflowRunEngine {
                 context.append_log(format!("artifact offload failed: {e}"));
             }
 
-            // Sync artifact files to the execution environment (no-op for local envs)
+            // Sync artifact files to the sandbox (no-op for local envs)
             if let Err(e) =
-                sync_artifacts_to_env(&mut outcome.context_updates, &*self.services.execution_env)
+                sync_artifacts_to_env(&mut outcome.context_updates, &*self.services.sandbox)
                     .await
             {
                 context.append_log(format!("artifact sync failed: {e}"));
@@ -1523,7 +1523,7 @@ impl WorkflowRunEngine {
                     }
                     GitCheckpointMode::Remote(_) => {
                         git_checkpoint_remote(
-                            &*self.services.execution_env,
+                            &*self.services.sandbox,
                             &run_id,
                             &node.id,
                             &outcome.status.to_string(),
@@ -1559,7 +1559,7 @@ impl WorkflowRunEngine {
                             git_diff_host(work_dir.clone(), diff_base).await
                         }
                         GitCheckpointMode::Remote(_) => {
-                            git_diff_remote(&*self.services.execution_env, &diff_base).await
+                            git_diff_remote(&*self.services.sandbox, &diff_base).await
                         }
                     };
                     if let Some(patch) = diff_result {
@@ -1677,7 +1677,7 @@ impl WorkflowRunEngine {
                     git_diff_host(work_dir.clone(), base.clone()).await
                 }
                 GitCheckpointMode::Remote(_) => {
-                    git_diff_remote(&*self.services.execution_env, base).await
+                    git_diff_remote(&*self.services.sandbox, base).await
                 }
             };
             if let Some(patch) = patch {
@@ -1703,8 +1703,8 @@ mod tests {
     use async_trait::async_trait;
     use std::time::Duration;
 
-    fn local_env() -> Arc<dyn ExecutionEnvironment> {
-        Arc::new(arc_agent::LocalExecutionEnvironment::new(
+    fn local_env() -> Arc<dyn Sandbox> {
+        Arc::new(arc_agent::LocalSandbox::new(
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         ))
     }

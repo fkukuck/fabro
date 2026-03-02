@@ -18,9 +18,9 @@ use crate::outcome::StageUsage;
 use crate::validation::{Diagnostic, Severity};
 use arc_agent::AgentEvent;
 
-/// Execution environment for agent tool operations.
+/// Sandbox provider for agent tool operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
-pub enum ExecutionEnvKind {
+pub enum SandboxProvider {
     /// Run tools on the local host (default)
     #[default]
     Local,
@@ -30,7 +30,7 @@ pub enum ExecutionEnvKind {
     Daytona,
 }
 
-impl fmt::Display for ExecutionEnvKind {
+impl fmt::Display for SandboxProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Local => write!(f, "local"),
@@ -40,7 +40,7 @@ impl fmt::Display for ExecutionEnvKind {
     }
 }
 
-impl FromStr for ExecutionEnvKind {
+impl FromStr for SandboxProvider {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -48,7 +48,7 @@ impl FromStr for ExecutionEnvKind {
             "local" => Ok(Self::Local),
             "docker" => Ok(Self::Docker),
             "daytona" => Ok(Self::Daytona),
-            other => Err(format!("unknown execution environment: {other}")),
+            other => Err(format!("unknown sandbox provider: {other}")),
         }
     }
 }
@@ -112,7 +112,7 @@ pub struct RunArgs {
 
     /// Execution environment for agent tools
     #[arg(long, value_enum)]
-    pub execution_env: Option<ExecutionEnvKind>,
+    pub sandbox: Option<SandboxProvider>,
 
     /// Attach a label to this run (repeatable, format: KEY=VALUE)
     #[arg(long = "label", value_name = "KEY=VALUE")]
@@ -511,27 +511,27 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
         } => {
             format!("[SUBGRAPH_COMPLETED] node={node_id} steps={steps_executed} status={status} duration={duration_ms}ms")
         }
-        WorkflowRunEvent::ExecutionEnv { event } => {
-            use arc_agent::ExecutionEnvEvent;
+        WorkflowRunEvent::Sandbox { event } => {
+            use arc_agent::SandboxEvent;
             match event {
-                ExecutionEnvEvent::Initializing { env_type } => format!("[EXEC_ENV_INITIALIZING] env_type={env_type}"),
-                ExecutionEnvEvent::Ready { env_type, duration_ms } => format!("[EXEC_ENV_READY] env_type={env_type} duration={duration_ms}ms"),
-                ExecutionEnvEvent::InitializeFailed { env_type, error, duration_ms } => format!("[EXEC_ENV_INIT_FAILED] env_type={env_type} error=\"{error}\" duration={duration_ms}ms"),
-                ExecutionEnvEvent::CleanupStarted { env_type } => format!("[EXEC_ENV_CLEANUP_STARTED] env_type={env_type}"),
-                ExecutionEnvEvent::CleanupCompleted { env_type, duration_ms } => format!("[EXEC_ENV_CLEANUP_COMPLETED] env_type={env_type} duration={duration_ms}ms"),
-                ExecutionEnvEvent::CleanupFailed { env_type, error } => format!("[EXEC_ENV_CLEANUP_FAILED] env_type={env_type} error=\"{error}\""),
-                ExecutionEnvEvent::ImagePulling { image } => format!("[EXEC_ENV_IMAGE_PULLING] image={image}"),
-                ExecutionEnvEvent::ImagePulled { image, duration_ms } => format!("[EXEC_ENV_IMAGE_PULLED] image={image} duration={duration_ms}ms"),
-                ExecutionEnvEvent::SnapshotEnsuring { name } => format!("[EXEC_ENV_SNAPSHOT_ENSURING] name={name}"),
-                ExecutionEnvEvent::SnapshotCreating { name } => format!("[EXEC_ENV_SNAPSHOT_CREATING] name={name}"),
-                ExecutionEnvEvent::SnapshotReady { name, duration_ms } => format!("[EXEC_ENV_SNAPSHOT_READY] name={name} duration={duration_ms}ms"),
-                ExecutionEnvEvent::SnapshotFailed { name, error } => format!("[EXEC_ENV_SNAPSHOT_FAILED] name={name} error=\"{error}\""),
-                ExecutionEnvEvent::GitCloneStarted { url, branch } => {
+                SandboxEvent::Initializing { provider } => format!("[SANDBOX_INITIALIZING] provider={provider}"),
+                SandboxEvent::Ready { provider, duration_ms } => format!("[SANDBOX_READY] provider={provider} duration={duration_ms}ms"),
+                SandboxEvent::InitializeFailed { provider, error, duration_ms } => format!("[SANDBOX_INIT_FAILED] provider={provider} error=\"{error}\" duration={duration_ms}ms"),
+                SandboxEvent::CleanupStarted { provider } => format!("[SANDBOX_CLEANUP_STARTED] provider={provider}"),
+                SandboxEvent::CleanupCompleted { provider, duration_ms } => format!("[SANDBOX_CLEANUP_COMPLETED] provider={provider} duration={duration_ms}ms"),
+                SandboxEvent::CleanupFailed { provider, error } => format!("[SANDBOX_CLEANUP_FAILED] provider={provider} error=\"{error}\""),
+                SandboxEvent::SnapshotPulling { name } => format!("[SANDBOX_SNAPSHOT_PULLING] name={name}"),
+                SandboxEvent::SnapshotPulled { name, duration_ms } => format!("[SANDBOX_SNAPSHOT_PULLED] name={name} duration={duration_ms}ms"),
+                SandboxEvent::SnapshotEnsuring { name } => format!("[SANDBOX_SNAPSHOT_ENSURING] name={name}"),
+                SandboxEvent::SnapshotCreating { name } => format!("[SANDBOX_SNAPSHOT_CREATING] name={name}"),
+                SandboxEvent::SnapshotReady { name, duration_ms } => format!("[SANDBOX_SNAPSHOT_READY] name={name} duration={duration_ms}ms"),
+                SandboxEvent::SnapshotFailed { name, error } => format!("[SANDBOX_SNAPSHOT_FAILED] name={name} error=\"{error}\""),
+                SandboxEvent::GitCloneStarted { url, branch } => {
                     let branch_str = branch.as_deref().unwrap_or("(default)");
-                    format!("[EXEC_ENV_GIT_CLONE_STARTED] url={url} branch={branch_str}")
+                    format!("[SANDBOX_GIT_CLONE_STARTED] url={url} branch={branch_str}")
                 }
-                ExecutionEnvEvent::GitCloneCompleted { url, duration_ms } => format!("[EXEC_ENV_GIT_CLONE_COMPLETED] url={url} duration={duration_ms}ms"),
-                ExecutionEnvEvent::GitCloneFailed { url, error } => format!("[EXEC_ENV_GIT_CLONE_FAILED] url={url} error=\"{error}\""),
+                SandboxEvent::GitCloneCompleted { url, duration_ms } => format!("[SANDBOX_GIT_CLONE_COMPLETED] url={url} duration={duration_ms}ms"),
+                SandboxEvent::GitCloneFailed { url, error } => format!("[SANDBOX_GIT_CLONE_FAILED] url={url} error=\"{error}\""),
             }
         }
         WorkflowRunEvent::SetupStarted { command_count } => {
@@ -846,54 +846,54 @@ pub fn format_event_detail(event: &WorkflowRunEvent, styles: &Styles) -> String 
         } => {
             format!("{d}── SUBGRAPH_COMPLETED ───────────────────────{r}\n  {d}node_id:{r}        {node_id}\n  {d}steps_executed:{r} {steps_executed}\n  {d}status:{r}         {status}\n  {d}duration_ms:{r}    {duration_ms}\n")
         }
-        WorkflowRunEvent::ExecutionEnv { event } => {
-            use arc_agent::ExecutionEnvEvent;
+        WorkflowRunEvent::Sandbox { event } => {
+            use arc_agent::SandboxEvent;
             match event {
-                ExecutionEnvEvent::Initializing { env_type } => {
-                    format!("{d}── EXEC_ENV_INITIALIZING ────────────────────{r}\n  {d}env_type:{r} {env_type}\n")
+                SandboxEvent::Initializing { provider } => {
+                    format!("{d}── SANDBOX_INITIALIZING ────────────────────{r}\n  {d}provider:{r} {provider}\n")
                 }
-                ExecutionEnvEvent::Ready { env_type, duration_ms } => {
-                    format!("{d}── EXEC_ENV_READY ───────────────────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::Ready { provider, duration_ms } => {
+                    format!("{d}── SANDBOX_READY ───────────────────────────{r}\n  {d}provider:{r}    {provider}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::InitializeFailed { env_type, error, duration_ms } => {
-                    format!("{d}── EXEC_ENV_INIT_FAILED ─────────────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}error:{r}       {error}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::InitializeFailed { provider, error, duration_ms } => {
+                    format!("{d}── SANDBOX_INIT_FAILED ─────────────────────{r}\n  {d}provider:{r}    {provider}\n  {d}error:{r}       {error}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::CleanupStarted { env_type } => {
-                    format!("{d}── EXEC_ENV_CLEANUP_STARTED ─────────────────{r}\n  {d}env_type:{r} {env_type}\n")
+                SandboxEvent::CleanupStarted { provider } => {
+                    format!("{d}── SANDBOX_CLEANUP_STARTED ─────────────────{r}\n  {d}provider:{r} {provider}\n")
                 }
-                ExecutionEnvEvent::CleanupCompleted { env_type, duration_ms } => {
-                    format!("{d}── EXEC_ENV_CLEANUP_COMPLETED ───────────────{r}\n  {d}env_type:{r}    {env_type}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::CleanupCompleted { provider, duration_ms } => {
+                    format!("{d}── SANDBOX_CLEANUP_COMPLETED ───────────────{r}\n  {d}provider:{r}    {provider}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::CleanupFailed { env_type, error } => {
-                    format!("{d}── EXEC_ENV_CLEANUP_FAILED ──────────────────{r}\n  {d}env_type:{r} {env_type}\n  {d}error:{r}    {error}\n")
+                SandboxEvent::CleanupFailed { provider, error } => {
+                    format!("{d}── SANDBOX_CLEANUP_FAILED ──────────────────{r}\n  {d}provider:{r} {provider}\n  {d}error:{r}    {error}\n")
                 }
-                ExecutionEnvEvent::ImagePulling { image } => {
-                    format!("{d}── EXEC_ENV_IMAGE_PULLING ───────────────────{r}\n  {d}image:{r} {image}\n")
+                SandboxEvent::SnapshotPulling { name } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_PULLING ───────────────────{r}\n  {d}image:{r} {name}\n")
                 }
-                ExecutionEnvEvent::ImagePulled { image, duration_ms } => {
-                    format!("{d}── EXEC_ENV_IMAGE_PULLED ────────────────────{r}\n  {d}image:{r}       {image}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::SnapshotPulled { name, duration_ms } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_PULLED ────────────────────{r}\n  {d}image:{r}       {name}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::SnapshotEnsuring { name } => {
-                    format!("{d}── EXEC_ENV_SNAPSHOT_ENSURING ───────────────{r}\n  {d}name:{r} {name}\n")
+                SandboxEvent::SnapshotEnsuring { name } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_ENSURING ───────────────{r}\n  {d}name:{r} {name}\n")
                 }
-                ExecutionEnvEvent::SnapshotCreating { name } => {
-                    format!("{d}── EXEC_ENV_SNAPSHOT_CREATING ───────────────{r}\n  {d}name:{r} {name}\n")
+                SandboxEvent::SnapshotCreating { name } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_CREATING ───────────────{r}\n  {d}name:{r} {name}\n")
                 }
-                ExecutionEnvEvent::SnapshotReady { name, duration_ms } => {
-                    format!("{d}── EXEC_ENV_SNAPSHOT_READY ──────────────────{r}\n  {d}name:{r}        {name}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::SnapshotReady { name, duration_ms } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_READY ──────────────────{r}\n  {d}name:{r}        {name}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::SnapshotFailed { name, error } => {
-                    format!("{d}── EXEC_ENV_SNAPSHOT_FAILED ─────────────────{r}\n  {d}name:{r}  {name}\n  {d}error:{r} {error}\n")
+                SandboxEvent::SnapshotFailed { name, error } => {
+                    format!("{d}── SANDBOX_SNAPSHOT_FAILED ─────────────────{r}\n  {d}name:{r}  {name}\n  {d}error:{r} {error}\n")
                 }
-                ExecutionEnvEvent::GitCloneStarted { url, branch } => {
+                SandboxEvent::GitCloneStarted { url, branch } => {
                     let branch_str = branch.as_deref().unwrap_or("(default)");
-                    format!("{d}── EXEC_ENV_GIT_CLONE_STARTED ──────────────{r}\n  {d}url:{r}    {url}\n  {d}branch:{r} {branch_str}\n")
+                    format!("{d}── SANDBOX_GIT_CLONE_STARTED ──────────────{r}\n  {d}url:{r}    {url}\n  {d}branch:{r} {branch_str}\n")
                 }
-                ExecutionEnvEvent::GitCloneCompleted { url, duration_ms } => {
-                    format!("{d}── EXEC_ENV_GIT_CLONE_COMPLETED ────────────{r}\n  {d}url:{r}         {url}\n  {d}duration_ms:{r} {duration_ms}\n")
+                SandboxEvent::GitCloneCompleted { url, duration_ms } => {
+                    format!("{d}── SANDBOX_GIT_CLONE_COMPLETED ────────────{r}\n  {d}url:{r}         {url}\n  {d}duration_ms:{r} {duration_ms}\n")
                 }
-                ExecutionEnvEvent::GitCloneFailed { url, error } => {
-                    format!("{d}── EXEC_ENV_GIT_CLONE_FAILED ───────────────{r}\n  {d}url:{r}   {url}\n  {d}error:{r} {error}\n")
+                SandboxEvent::GitCloneFailed { url, error } => {
+                    format!("{d}── SANDBOX_GIT_CLONE_FAILED ───────────────{r}\n  {d}url:{r}   {url}\n  {d}error:{r} {error}\n")
                 }
             }
         }
@@ -951,36 +951,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn execution_env_kind_default_is_local() {
-        assert_eq!(ExecutionEnvKind::default(), ExecutionEnvKind::Local);
+    fn sandbox_provider_default_is_local() {
+        assert_eq!(SandboxProvider::default(), SandboxProvider::Local);
     }
 
     #[test]
-    fn execution_env_kind_from_str() {
+    fn sandbox_provider_from_str() {
         assert_eq!(
-            "local".parse::<ExecutionEnvKind>().unwrap(),
-            ExecutionEnvKind::Local
+            "local".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Local
         );
         assert_eq!(
-            "docker".parse::<ExecutionEnvKind>().unwrap(),
-            ExecutionEnvKind::Docker
+            "docker".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Docker
         );
         assert_eq!(
-            "daytona".parse::<ExecutionEnvKind>().unwrap(),
-            ExecutionEnvKind::Daytona
+            "daytona".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Daytona
         );
         assert_eq!(
-            "LOCAL".parse::<ExecutionEnvKind>().unwrap(),
-            ExecutionEnvKind::Local
+            "LOCAL".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Local
         );
-        assert!("invalid".parse::<ExecutionEnvKind>().is_err());
+        assert!("invalid".parse::<SandboxProvider>().is_err());
     }
 
     #[test]
-    fn execution_env_kind_display() {
-        assert_eq!(ExecutionEnvKind::Local.to_string(), "local");
-        assert_eq!(ExecutionEnvKind::Docker.to_string(), "docker");
-        assert_eq!(ExecutionEnvKind::Daytona.to_string(), "daytona");
+    fn sandbox_provider_display() {
+        assert_eq!(SandboxProvider::Local.to_string(), "local");
+        assert_eq!(SandboxProvider::Docker.to_string(), "docker");
+        assert_eq!(SandboxProvider::Daytona.to_string(), "daytona");
     }
 
     fn test_styles() -> &'static Styles {
@@ -988,14 +988,14 @@ mod tests {
     }
 
     #[test]
-    fn format_summary_execution_env_initializing() {
-        let event = WorkflowRunEvent::ExecutionEnv {
-            event: arc_agent::ExecutionEnvEvent::Initializing {
-                env_type: "docker".into(),
+    fn format_summary_sandbox_initializing() {
+        let event = WorkflowRunEvent::Sandbox {
+            event: arc_agent::SandboxEvent::Initializing {
+                provider: "docker".into(),
             },
         };
         let s = format_event_summary(&event, test_styles());
-        assert!(s.contains("[EXEC_ENV_INITIALIZING]"));
+        assert!(s.contains("[SANDBOX_INITIALIZING]"));
         assert!(s.contains("docker"));
     }
 
@@ -1008,15 +1008,15 @@ mod tests {
     }
 
     #[test]
-    fn format_detail_execution_env_ready() {
-        let event = WorkflowRunEvent::ExecutionEnv {
-            event: arc_agent::ExecutionEnvEvent::Ready {
-                env_type: "local".into(),
+    fn format_detail_sandbox_ready() {
+        let event = WorkflowRunEvent::Sandbox {
+            event: arc_agent::SandboxEvent::Ready {
+                provider: "local".into(),
                 duration_ms: 42,
             },
         };
         let s = format_event_detail(&event, test_styles());
-        assert!(s.contains("EXEC_ENV_READY"));
+        assert!(s.contains("SANDBOX_READY"));
         assert!(s.contains("local"));
         assert!(s.contains("42"));
     }

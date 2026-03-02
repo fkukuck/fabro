@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 use serde::Deserialize;
 
-use crate::daytona_env::DaytonaConfig;
+use crate::daytona_sandbox::DaytonaConfig;
 
 const SUPPORTED_VERSION: u32 = 1;
 
@@ -17,7 +17,7 @@ pub struct TaskConfig {
     pub directory: Option<String>,
     pub llm: Option<LlmConfig>,
     pub setup: Option<SetupConfig>,
-    pub execution: Option<ExecutionConfig>,
+    pub sandbox: Option<SandboxConfig>,
     pub vars: Option<HashMap<String, String>>,
 }
 
@@ -37,8 +37,8 @@ pub struct SetupConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExecutionConfig {
-    pub environment: Option<String>,
+pub struct SandboxConfig {
+    pub provider: Option<String>,
     pub daytona: Option<DaytonaConfig>,
 }
 
@@ -220,19 +220,19 @@ language = "python"
     }
 
     #[test]
-    fn parse_toml_with_execution() {
+    fn parse_toml_with_sandbox() {
         let toml = r#"
 version = 1
 task = "Run tests"
 graph = "workflow.dot"
 
-[execution]
-environment = "daytona"
+[sandbox]
+provider = "daytona"
 "#;
         let config = parse_task_config(toml).unwrap();
-        let execution = config.execution.unwrap();
-        assert_eq!(execution.environment.as_deref(), Some("daytona"));
-        assert!(execution.daytona.is_none());
+        let sandbox = config.sandbox.unwrap();
+        assert_eq!(sandbox.provider.as_deref(), Some("daytona"));
+        assert!(sandbox.daytona.is_none());
     }
 
     #[test]
@@ -242,16 +242,16 @@ version = 1
 task = "Run tests"
 graph = "workflow.dot"
 
-[execution]
-environment = "daytona"
+[sandbox]
+provider = "daytona"
 
-[execution.daytona.sandbox]
+[sandbox.daytona]
 auto_stop_interval = 60
 
-[execution.daytona.sandbox.labels]
+[sandbox.daytona.labels]
 project = "arc"
 
-[execution.daytona.snapshot]
+[sandbox.daytona.snapshot]
 name = "my-snapshot"
 cpu = 4
 memory = 8
@@ -259,12 +259,12 @@ disk = 10
 dockerfile = "FROM rust:1.85-slim-bookworm\nRUN apt-get update"
 "#;
         let config = parse_task_config(toml).unwrap();
-        let execution = config.execution.unwrap();
-        assert_eq!(execution.environment.as_deref(), Some("daytona"));
+        let sandbox = config.sandbox.unwrap();
+        assert_eq!(sandbox.provider.as_deref(), Some("daytona"));
 
-        let daytona = execution.daytona.unwrap();
-        assert_eq!(daytona.sandbox.auto_stop_interval, Some(60));
-        let labels = daytona.sandbox.labels.unwrap();
+        let daytona = sandbox.daytona.unwrap();
+        assert_eq!(daytona.auto_stop_interval, Some(60));
+        let labels = daytona.labels.unwrap();
         assert_eq!(labels["project"], "arc");
 
         let snapshot = daytona.snapshot.unwrap();
@@ -285,15 +285,15 @@ version = 1
 task = "Run tests"
 graph = "workflow.dot"
 
-[execution]
-environment = "daytona"
+[sandbox]
+provider = "daytona"
 
-[execution.daytona.sandbox]
+[sandbox.daytona]
 auto_stop_interval = 30
 "#;
         let config = parse_task_config(toml).unwrap();
-        let daytona = config.execution.unwrap().daytona.unwrap();
-        assert_eq!(daytona.sandbox.auto_stop_interval, Some(30));
+        let daytona = config.sandbox.unwrap().daytona.unwrap();
+        assert_eq!(daytona.auto_stop_interval, Some(30));
         assert!(daytona.snapshot.is_none());
     }
 

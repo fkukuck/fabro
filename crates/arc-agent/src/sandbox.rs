@@ -4,14 +4,14 @@ use std::fmt::Write;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-/// Generates an `#[async_trait] impl ExecutionEnvironment` block for a decorator type
-/// that wraps an `Arc<dyn ExecutionEnvironment>`. The caller provides custom method
+/// Generates an `#[async_trait] impl Sandbox` block for a decorator type
+/// that wraps an `Arc<dyn Sandbox>`. The caller provides custom method
 /// implementations; all remaining trait methods delegate to the inner field.
 ///
 /// # Usage
 ///
 /// ```ignore
-/// delegate_execution_env! {
+/// delegate_sandbox! {
 ///     MyDecorator => inner {
 ///         // Only provide methods with custom logic — the rest delegate automatically.
 ///         async fn read_file(&self, path: &str, offset: Option<usize>, limit: Option<usize>) -> Result<String, String> {
@@ -21,14 +21,14 @@ use tokio_util::sync::CancellationToken;
 /// }
 /// ```
 #[macro_export]
-macro_rules! delegate_execution_env {
+macro_rules! delegate_sandbox {
     (
         $type:ty => $field:ident {
             $($custom:item)*
         }
     ) => {
         #[async_trait::async_trait]
-        impl $crate::execution_env::ExecutionEnvironment for $type {
+        impl $crate::sandbox::Sandbox for $type {
             $($custom)*
 
             async fn file_exists(&self, path: &str) -> Result<bool, String> {
@@ -39,7 +39,7 @@ macro_rules! delegate_execution_env {
                 &self,
                 path: &str,
                 depth: Option<usize>,
-            ) -> Result<Vec<$crate::execution_env::DirEntry>, String> {
+            ) -> Result<Vec<$crate::sandbox::DirEntry>, String> {
                 self.$field.list_directory(path, depth).await
             }
 
@@ -50,7 +50,7 @@ macro_rules! delegate_execution_env {
                 working_dir: Option<&str>,
                 env_vars: Option<&std::collections::HashMap<String, String>>,
                 cancel_token: Option<tokio_util::sync::CancellationToken>,
-            ) -> Result<$crate::execution_env::ExecResult, String> {
+            ) -> Result<$crate::sandbox::ExecResult, String> {
                 self.$field
                     .exec_command(command, timeout_ms, working_dir, env_vars, cancel_token)
                     .await
@@ -83,40 +83,40 @@ macro_rules! delegate_execution_env {
     };
 }
 
-/// Events emitted during execution environment lifecycle operations.
+/// Events emitted during sandbox lifecycle operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ExecutionEnvEvent {
+pub enum SandboxEvent {
     // -- Common lifecycle --
     Initializing {
-        env_type: String,
+        provider: String,
     },
     Ready {
-        env_type: String,
+        provider: String,
         duration_ms: u64,
     },
     InitializeFailed {
-        env_type: String,
+        provider: String,
         error: String,
         duration_ms: u64,
     },
     CleanupStarted {
-        env_type: String,
+        provider: String,
     },
     CleanupCompleted {
-        env_type: String,
+        provider: String,
         duration_ms: u64,
     },
     CleanupFailed {
-        env_type: String,
+        provider: String,
         error: String,
     },
 
     // -- Docker --
-    ImagePulling {
-        image: String,
+    SnapshotPulling {
+        name: String,
     },
-    ImagePulled {
-        image: String,
+    SnapshotPulled {
+        name: String,
         duration_ms: u64,
     },
 
@@ -151,43 +151,43 @@ pub enum ExecutionEnvEvent {
     },
 }
 
-impl ExecutionEnvEvent {
+impl SandboxEvent {
     pub fn trace(&self) {
         use tracing::{debug, error, info, warn};
         match self {
-            Self::Initializing { env_type } => {
-                debug!(env_type, "Execution env initializing");
+            Self::Initializing { provider } => {
+                debug!(provider, "Sandbox initializing");
             }
             Self::Ready {
-                env_type,
+                provider,
                 duration_ms,
             } => {
-                info!(env_type, duration_ms, "Execution env ready");
+                info!(provider, duration_ms, "Sandbox ready");
             }
             Self::InitializeFailed {
-                env_type,
+                provider,
                 error,
                 duration_ms,
             } => {
-                error!(env_type, error, duration_ms, "Execution env init failed");
+                error!(provider, error, duration_ms, "Sandbox init failed");
             }
-            Self::CleanupStarted { env_type } => {
-                debug!(env_type, "Execution env cleanup started");
+            Self::CleanupStarted { provider } => {
+                debug!(provider, "Sandbox cleanup started");
             }
             Self::CleanupCompleted {
-                env_type,
+                provider,
                 duration_ms,
             } => {
-                debug!(env_type, duration_ms, "Execution env cleanup completed");
+                debug!(provider, duration_ms, "Sandbox cleanup completed");
             }
-            Self::CleanupFailed { env_type, error } => {
-                warn!(env_type, error, "Execution env cleanup failed");
+            Self::CleanupFailed { provider, error } => {
+                warn!(provider, error, "Sandbox cleanup failed");
             }
-            Self::ImagePulling { image } => {
-                debug!(image, "Docker image pulling");
+            Self::SnapshotPulling { name } => {
+                debug!(name, "Snapshot pulling");
             }
-            Self::ImagePulled { image, duration_ms } => {
-                debug!(image, duration_ms, "Docker image pulled");
+            Self::SnapshotPulled { name, duration_ms } => {
+                debug!(name, duration_ms, "Snapshot pulled");
             }
             Self::SnapshotEnsuring { name } => {
                 debug!(name, "Snapshot ensuring");
@@ -214,8 +214,8 @@ impl ExecutionEnvEvent {
     }
 }
 
-/// Callback type for execution environment events.
-pub type ExecEnvEventCallback = Arc<dyn Fn(ExecutionEnvEvent) + Send + Sync>;
+/// Callback type for sandbox events.
+pub type SandboxEventCallback = Arc<dyn Fn(SandboxEvent) + Send + Sync>;
 
 /// Formats file content with line numbers for display.
 ///
@@ -260,7 +260,7 @@ pub struct GrepOptions {
 }
 
 #[async_trait]
-pub trait ExecutionEnvironment: Send + Sync {
+pub trait Sandbox: Send + Sync {
     async fn read_file(
         &self,
         path: &str,
@@ -300,7 +300,7 @@ pub trait ExecutionEnvironment: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -308,7 +308,7 @@ mod tests {
     async fn mock_env_read_file() {
         let mut files = HashMap::new();
         files.insert("test.rs".into(), "hello".into());
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -318,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_env_exec_command() {
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = env
             .exec_command("echo", 5000, None, None, None)
             .await
@@ -329,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_env_list_directory() {
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let entries = env.list_directory("/tmp", None).await.unwrap();
         assert_eq!(entries.len(), 0);
     }
@@ -370,68 +370,68 @@ mod tests {
 
     #[test]
     fn mock_env_platform() {
-        let env = MockExecutionEnvironment::default();
+        let env = MockSandbox::default();
         assert_eq!(env.platform(), "darwin");
         assert_eq!(env.working_directory(), "/tmp/test");
         assert_eq!(env.os_version(), "Darwin 24.0.0");
     }
 
     #[test]
-    fn execution_env_event_serialization_round_trip() {
+    fn sandbox_event_serialization_round_trip() {
         let events = vec![
-            ExecutionEnvEvent::Initializing {
-                env_type: "local".into(),
+            SandboxEvent::Initializing {
+                provider: "local".into(),
             },
-            ExecutionEnvEvent::Ready {
-                env_type: "local".into(),
+            SandboxEvent::Ready {
+                provider: "local".into(),
                 duration_ms: 50,
             },
-            ExecutionEnvEvent::InitializeFailed {
-                env_type: "docker".into(),
+            SandboxEvent::InitializeFailed {
+                provider: "docker".into(),
                 error: "no daemon".into(),
                 duration_ms: 100,
             },
-            ExecutionEnvEvent::CleanupStarted {
-                env_type: "daytona".into(),
+            SandboxEvent::CleanupStarted {
+                provider: "daytona".into(),
             },
-            ExecutionEnvEvent::CleanupCompleted {
-                env_type: "daytona".into(),
+            SandboxEvent::CleanupCompleted {
+                provider: "daytona".into(),
                 duration_ms: 200,
             },
-            ExecutionEnvEvent::CleanupFailed {
-                env_type: "docker".into(),
+            SandboxEvent::CleanupFailed {
+                provider: "docker".into(),
                 error: "container gone".into(),
             },
-            ExecutionEnvEvent::ImagePulling {
-                image: "ubuntu:22.04".into(),
+            SandboxEvent::SnapshotPulling {
+                name: "ubuntu:22.04".into(),
             },
-            ExecutionEnvEvent::ImagePulled {
-                image: "ubuntu:22.04".into(),
+            SandboxEvent::SnapshotPulled {
+                name: "ubuntu:22.04".into(),
                 duration_ms: 5000,
             },
-            ExecutionEnvEvent::SnapshotEnsuring {
+            SandboxEvent::SnapshotEnsuring {
                 name: "my-snap".into(),
             },
-            ExecutionEnvEvent::SnapshotCreating {
+            SandboxEvent::SnapshotCreating {
                 name: "my-snap".into(),
             },
-            ExecutionEnvEvent::SnapshotReady {
+            SandboxEvent::SnapshotReady {
                 name: "my-snap".into(),
                 duration_ms: 30000,
             },
-            ExecutionEnvEvent::SnapshotFailed {
+            SandboxEvent::SnapshotFailed {
                 name: "my-snap".into(),
                 error: "build failed".into(),
             },
-            ExecutionEnvEvent::GitCloneStarted {
+            SandboxEvent::GitCloneStarted {
                 url: "https://github.com/org/repo.git".into(),
                 branch: Some("main".into()),
             },
-            ExecutionEnvEvent::GitCloneCompleted {
+            SandboxEvent::GitCloneCompleted {
                 url: "https://github.com/org/repo.git".into(),
                 duration_ms: 8000,
             },
-            ExecutionEnvEvent::GitCloneFailed {
+            SandboxEvent::GitCloneFailed {
                 url: "https://github.com/org/repo.git".into(),
                 error: "auth failed".into(),
             },
@@ -441,17 +441,17 @@ mod tests {
 
         for event in &events {
             let json = serde_json::to_string(event).unwrap();
-            let deserialized: ExecutionEnvEvent = serde_json::from_str(&json).unwrap();
+            let deserialized: SandboxEvent = serde_json::from_str(&json).unwrap();
             let json2 = serde_json::to_string(&deserialized).unwrap();
             assert_eq!(json, json2);
         }
     }
 
     #[test]
-    fn exec_env_event_callback_type_compiles() {
-        let cb: ExecEnvEventCallback = Arc::new(|_event| {});
-        cb(ExecutionEnvEvent::Initializing {
-            env_type: "test".into(),
+    fn sandbox_event_callback_type_compiles() {
+        let cb: SandboxEventCallback = Arc::new(|_event| {});
+        cb(SandboxEvent::Initializing {
+            provider: "test".into(),
         });
     }
 }

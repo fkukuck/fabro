@@ -9,7 +9,7 @@ The crate is organized around a central `Session` that drives an agentic loop:
 1. **User input** is appended to a conversation `History`
 2. The session builds a `Request` with system prompt, history, and tools
 3. An LLM generates a response (text and/or tool calls) via `unified-llm`
-4. Tool calls are executed through a `ToolRegistry` against an `ExecutionEnvironment`
+4. Tool calls are executed through a `ToolRegistry` against an `Sandbox`
 5. Results are recorded and the loop continues until the LLM responds with text only (natural completion), a turn limit is reached, or the session is aborted
 
 ```
@@ -41,7 +41,7 @@ User Input
 
 - **`Session`** -- Manages the full agentic loop: LLM calls, tool execution, steering, follow-ups, abort handling, and event emission.
 - **`ProviderProfile`** (trait) -- Defines how to build system prompts, which tools to register, and what capabilities a provider supports. Ships with `AnthropicProfile`, `OpenAiProfile`, and `GeminiProfile`.
-- **`ExecutionEnvironment`** (trait) -- Abstracts filesystem, shell, grep, and glob operations. `LocalExecutionEnvironment` provides a real implementation; the trait enables sandboxing and testing.
+- **`Sandbox`** (trait) -- Abstracts filesystem, shell, grep, and glob operations. `LocalSandbox` provides a real implementation; the trait enables sandboxing and testing.
 - **`ToolRegistry`** -- Maps tool names to definitions and async executor functions. Tools are registered per-profile.
 - **`History`** -- Ordered list of `Turn` variants (`User`, `Assistant`, `ToolResults`, `System`, `Steering`) that converts to LLM messages.
 - **`EventEmitter`** -- Broadcasts `SessionEvent`s (tool calls, text, errors, warnings) over a `tokio::sync::broadcast` channel for UI or logging.
@@ -52,7 +52,7 @@ User Input
 
 ### `Session`
 
-The main entry point. Created with an LLM client, a provider profile, an execution environment, and a config.
+The main entry point. Created with an LLM client, a provider profile, a sandbox, and a config.
 
 ### `ProviderProfile`
 
@@ -63,7 +63,7 @@ pub trait ProviderProfile: Send + Sync {
     fn tool_registry(&self) -> &ToolRegistry;
     fn build_system_prompt(
         &self,
-        env: &dyn ExecutionEnvironment,
+        env: &dyn Sandbox,
         env_context: &EnvContext,
         project_docs: &[String],
         user_instructions: Option<&str>,
@@ -79,10 +79,10 @@ Built-in profiles:
 - **`OpenAiProfile`** -- 128K context, reasoning effort support, tools: `read_file`, `write_file`, `shell`, `grep`, `glob`, `apply_patch` (v4a format)
 - **`GeminiProfile`** -- 1M context, safety settings, tools: all Anthropic tools plus `read_many_files`, `list_dir`, `web_search`, `web_fetch`
 
-### `ExecutionEnvironment`
+### `Sandbox`
 
 ```rust
-pub trait ExecutionEnvironment: Send + Sync {
+pub trait Sandbox: Send + Sync {
     async fn read_file(&self, path: &str, offset: Option<usize>, limit: Option<usize>) -> Result<String, String>;
     async fn write_file(&self, path: &str, content: &str) -> Result<(), String>;
     async fn exec_command(&self, command: &str, timeout_ms: u64, ...) -> Result<ExecResult, String>;
@@ -92,7 +92,7 @@ pub trait ExecutionEnvironment: Send + Sync {
 }
 ```
 
-`LocalExecutionEnvironment` is the real implementation with env-var filtering (strips secrets), process group management, and ripgrep/grep fallback.
+`LocalSandbox` is the real implementation with env-var filtering (strips secrets), process group management, and ripgrep/grep fallback.
 
 ### `SessionConfig`
 
@@ -115,7 +115,7 @@ pub struct SessionConfig {
 
 ```rust
 use agent::{
-    AnthropicProfile, LocalExecutionEnvironment, Session, SessionConfig,
+    AnthropicProfile, LocalSandbox, Session, SessionConfig,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -127,8 +127,8 @@ let client: Client = /* configure unified-llm client */;
 // 2. Choose a provider profile
 let profile = Arc::new(AnthropicProfile::new("claude-sonnet-4-20250514"));
 
-// 3. Create an execution environment
-let env = Arc::new(LocalExecutionEnvironment::new(
+// 3. Create a sandbox
+let env = Arc::new(LocalSandbox::new(
     PathBuf::from("/path/to/project"),
 ));
 
@@ -232,6 +232,6 @@ profile.register_subagent_tools(manager, factory, 0);
 - **Context window monitoring** -- Emits `ContextWindowWarning` events when estimated usage exceeds 80%
 - **Tool argument validation** -- Validates arguments against JSON Schema before execution
 - **Tool output truncation** -- Per-tool character and line limits with head/tail or tail-only truncation modes
-- **Environment variable filtering** -- `LocalExecutionEnvironment` strips secrets (`*_API_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_CREDENTIAL`) from subprocess environments
+- **Environment variable filtering** -- `LocalSandbox` strips secrets (`*_API_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_CREDENTIAL`) from subprocess environments
 - **Command timeouts** -- Configurable per-command with process group cleanup (SIGTERM then SIGKILL)
 - **Project doc discovery** -- Automatically discovers `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or `.codex/instructions.md` based on provider, with a 32KB budget

@@ -1,21 +1,21 @@
 #[cfg(feature = "docker")]
-pub mod docker_env;
+pub mod docker_sandbox;
 
 pub mod cli;
 pub mod compaction;
 pub mod config;
 pub mod error;
 pub mod event;
-pub mod execution_env;
 pub mod file_tracker;
 pub mod history;
-pub mod local_env;
+pub mod local_sandbox;
 pub mod loop_detection;
 pub mod mcp_integration;
 pub mod profiles;
 pub mod project_docs;
 pub mod provider_profile;
-pub mod read_before_write_env;
+pub mod read_before_write_sandbox;
+pub mod sandbox;
 pub mod session;
 pub mod skills;
 pub mod subagent;
@@ -29,20 +29,20 @@ pub mod v4a_patch;
 pub use arc_mcp::config::McpServerConfig;
 pub use config::{SessionConfig, ToolApprovalFn};
 #[cfg(feature = "docker")]
-pub use docker_env::{DockerConfig, DockerExecutionEnvironment};
+pub use docker_sandbox::{DockerSandboxConfig, DockerSandbox};
 pub use error::AgentError;
 pub use event::EventEmitter;
-pub use execution_env::{
-    format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent,
-    ExecutionEnvironment, GrepOptions,
+pub use sandbox::{
+    format_lines_numbered, DirEntry, SandboxEventCallback, ExecResult, SandboxEvent,
+    Sandbox, GrepOptions,
 };
 pub use history::History;
-pub use local_env::LocalExecutionEnvironment;
+pub use local_sandbox::LocalSandbox;
 pub use loop_detection::detect_loop;
 pub use profiles::{AnthropicProfile, EnvContext, GeminiProfile, OpenAiProfile};
 pub use project_docs::discover_project_docs;
 pub use provider_profile::{ProfileCapabilities, ProviderProfile};
-pub use read_before_write_env::ReadBeforeWriteEnvironment;
+pub use read_before_write_sandbox::ReadBeforeWriteSandbox;
 pub use session::Session;
 pub use skills::Skill;
 pub use subagent::{SubAgent, SubAgentEventCallback, SubAgentManager, SubAgentResult};

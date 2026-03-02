@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use async_trait::async_trait;
 
 use crate::context::Context;
@@ -27,7 +27,7 @@ use crate::outcome::Outcome;
 pub struct EngineServices {
     pub registry: Arc<HandlerRegistry>,
     pub emitter: Arc<EventEmitter>,
-    pub execution_env: Arc<dyn ExecutionEnvironment>,
+    pub sandbox: Arc<dyn Sandbox>,
     /// Git state for the current run. Set via `set_git_state` at the start of
     /// `run_internal` and read by parallel/fan-in handlers.
     pub(crate) git_state: std::sync::RwLock<Option<Arc<GitState>>>,

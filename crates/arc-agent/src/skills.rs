@@ -1,4 +1,4 @@
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::tool_registry::RegisteredTool;
 use crate::tools::required_str;
 use arc_llm::types::ToolDefinition;
@@ -220,7 +220,7 @@ pub fn default_skill_dirs(home_dir: Option<&str>, git_root: Option<&str>) -> Vec
     dirs
 }
 
-pub async fn discover_skills(env: &dyn ExecutionEnvironment, dirs: &[String]) -> Vec<Skill> {
+pub async fn discover_skills(env: &dyn Sandbox, dirs: &[String]) -> Vec<Skill> {
     let mut skills_by_name: std::collections::HashMap<String, Skill> =
         std::collections::HashMap::new();
 
@@ -253,7 +253,7 @@ pub async fn discover_skills(env: &dyn ExecutionEnvironment, dirs: &[String]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
     use std::collections::HashMap;
 
     // --- parse_skill tests ---
@@ -444,7 +444,7 @@ name: trimmed
             "/skills/commit/SKILL.md".into(),
             "---\nname: commit\ndescription: Make a commit\n---\nDo commit".into(),
         );
-        let env = MockExecutionEnvironment {
+        let env = MockSandbox {
             files,
             glob_results: vec!["/skills/commit/SKILL.md".into()],
             ..Default::default()
@@ -464,7 +464,7 @@ name: trimmed
             "---\nname: good\n---\nGood template".into(),
         );
         files.insert("/skills/bad/SKILL.md".into(), "no frontmatter here".into());
-        let env = MockExecutionEnvironment {
+        let env = MockSandbox {
             files,
             glob_results: vec![
                 "/skills/good/SKILL.md".into(),
@@ -480,7 +480,7 @@ name: trimmed
 
     #[tokio::test]
     async fn discover_empty_dirs() {
-        let env = MockExecutionEnvironment::default();
+        let env = MockSandbox::default();
         let skills = discover_skills(&env, &[]).await;
         assert!(skills.is_empty());
     }
@@ -497,10 +497,10 @@ name: trimmed
             "---\nname: commit\ndescription: Project commit\n---\nProject template".into(),
         );
 
-        // We need separate envs because MockExecutionEnvironment returns the same glob_results
+        // We need separate envs because MockSandbox returns the same glob_results
         // for all calls. Instead, we test with a single env that has both files
         // and glob returns both — the later dir overrides the earlier.
-        let env = MockExecutionEnvironment {
+        let env = MockSandbox {
             files,
             glob_results: vec![
                 "/global/commit/SKILL.md".into(),
@@ -543,8 +543,8 @@ name: trimmed
         let skills = Arc::new(test_skills());
         let tool = make_use_skill_tool(skills);
 
-        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
-            Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn crate::sandbox::Sandbox> =
+            Arc::new(MockSandbox::default());
         let args = serde_json::json!({"skill_name": "commit"});
         let ctx = crate::tool_registry::ToolContext {
             env,
@@ -562,8 +562,8 @@ name: trimmed
         let skills = Arc::new(test_skills());
         let tool = make_use_skill_tool(skills);
 
-        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
-            Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn crate::sandbox::Sandbox> =
+            Arc::new(MockSandbox::default());
         let args = serde_json::json!({"skill_name": "nonexistent"});
         let ctx = crate::tool_registry::ToolContext {
             env,
@@ -579,8 +579,8 @@ name: trimmed
         let skills = Arc::new(test_skills());
         let tool = make_use_skill_tool(skills);
 
-        let env: Arc<dyn crate::execution_env::ExecutionEnvironment> =
-            Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn crate::sandbox::Sandbox> =
+            Arc::new(MockSandbox::default());
         let args = serde_json::json!({});
         let ctx = crate::tool_registry::ToolContext {
             env,

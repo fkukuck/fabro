@@ -32,8 +32,8 @@ use arc_workflows::transform::{
 };
 use arc_workflows::validation::{validate, validate_or_raise, Severity};
 
-fn local_env() -> Arc<dyn arc_agent::ExecutionEnvironment> {
-    Arc::new(arc_agent::LocalExecutionEnvironment::new(
+fn local_env() -> Arc<dyn arc_agent::Sandbox> {
+    Arc::new(arc_agent::LocalSandbox::new(
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
     ))
 }
@@ -1141,7 +1141,7 @@ impl CodergenBackend for MockCodergenBackend {
         _thread_id: Option<&str>,
         _emitter: &Arc<EventEmitter>,
         _stage_dir: &std::path::Path,
-        _execution_env: &Arc<dyn arc_agent::ExecutionEnvironment>,
+        _sandbox: &Arc<dyn arc_agent::Sandbox>,
     ) -> Result<CodergenResult, ArcError> {
         Ok(CodergenResult::Text {
             text: format!(
@@ -5497,7 +5497,7 @@ mod real_llm {
             _thread_id: Option<&str>,
             _emitter: &Arc<EventEmitter>,
             _stage_dir: &std::path::Path,
-            _execution_env: &Arc<dyn arc_agent::ExecutionEnvironment>,
+            _sandbox: &Arc<dyn arc_agent::Sandbox>,
         ) -> Result<CodergenResult, ArcError> {
             let request = Request {
                 model: self.model.clone(),
@@ -7628,7 +7628,7 @@ impl RemoteMockEnv {
 }
 
 #[async_trait::async_trait]
-impl arc_agent::ExecutionEnvironment for RemoteMockEnv {
+impl arc_agent::Sandbox for RemoteMockEnv {
     async fn read_file(
         &self,
         _path: &str,
@@ -7712,7 +7712,7 @@ impl arc_agent::ExecutionEnvironment for RemoteMockEnv {
 }
 
 #[tokio::test]
-async fn artifact_pointers_rewritten_for_remote_execution_env() {
+async fn artifact_pointers_rewritten_for_remote_sandbox() {
     // Pipeline: start -> big_output -> exit
     // big_output uses LargeOutputHandler which returns a >100KB context_update.
     // RemoteMockEnv simulates a container where local files don't exist.
@@ -7966,7 +7966,7 @@ impl CliTestEnv {
 }
 
 #[async_trait::async_trait]
-impl arc_agent::ExecutionEnvironment for CliTestEnv {
+impl arc_agent::Sandbox for CliTestEnv {
     async fn read_file(
         &self,
         _path: &str,
@@ -8074,13 +8074,13 @@ impl arc_agent::ExecutionEnvironment for CliTestEnv {
     }
 }
 
-// -- Cycle 8: AgentCliBackend::run() e2e via mock ExecutionEnvironment --
+// -- Cycle 8: AgentCliBackend::run() e2e via mock Sandbox --
 
 #[tokio::test]
 async fn cli_backend_run_writes_prompt_and_calls_exec() {
     let claude_output = r#"{"type":"result","result":"I fixed the bug.","usage":{"input_tokens":500,"output_tokens":200}}"#;
     let test_env = Arc::new(CliTestEnv::new(claude_output));
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
+    let env: Arc<dyn arc_agent::Sandbox> = test_env.clone();
     let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("fix_code");
@@ -8147,7 +8147,7 @@ async fn cli_backend_run_writes_prompt_and_calls_exec() {
 #[tokio::test]
 async fn cli_backend_run_detects_changed_files() {
     let claude_output = r#"{"type":"result","result":"Created new file.","usage":{"input_tokens":100,"output_tokens":50}}"#;
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> =
+    let env: Arc<dyn arc_agent::Sandbox> =
         Arc::new(CliTestEnv::new(claude_output).with_git_diff_after("src/main.rs\nsrc/lib.rs\n"));
     let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
@@ -8181,7 +8181,7 @@ async fn cli_backend_run_detects_changed_files() {
 async fn cli_backend_run_with_codex_provider() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Implemented the feature.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":300,\"output_tokens\":150}}";
     let test_env = Arc::new(CliTestEnv::new(codex_output));
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
+    let env: Arc<dyn arc_agent::Sandbox> = test_env.clone();
     let backend = AgentCliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
 
     let node = Node::new("implement");
@@ -8232,7 +8232,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
     // Override exec_command to return non-zero for the CLI call
     struct FailingCliEnv;
     #[async_trait::async_trait]
-    impl arc_agent::ExecutionEnvironment for FailingCliEnv {
+    impl arc_agent::Sandbox for FailingCliEnv {
         async fn read_file(
             &self,
             _: &str,
@@ -8310,7 +8310,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
         }
     }
 
-    let failing_env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(FailingCliEnv);
+    let failing_env: Arc<dyn arc_agent::Sandbox> = Arc::new(FailingCliEnv);
     let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
     let node = Node::new("step");
     let context = Context::new();
@@ -8348,7 +8348,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
 
 #[tokio::test]
 async fn cli_backend_run_fails_on_unparseable_output() {
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> =
+    let env: Arc<dyn arc_agent::Sandbox> =
         Arc::new(CliTestEnv::new("this is not json at all"));
     let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
@@ -8385,7 +8385,7 @@ async fn cli_backend_run_uses_node_model_override() {
     let claude_output =
         r#"{"type":"result","result":"ok","usage":{"input_tokens":10,"output_tokens":5}}"#;
     let test_env = Arc::new(CliTestEnv::new(claude_output));
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
+    let env: Arc<dyn arc_agent::Sandbox> = test_env.clone();
     let backend = AgentCliBackend::new("default-model".into(), Provider::Anthropic);
 
     let mut node = Node::new("step");
@@ -8419,7 +8419,7 @@ async fn cli_backend_run_uses_node_model_override() {
 async fn cli_backend_run_uses_node_provider_override() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"ok\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}";
     let test_env = Arc::new(CliTestEnv::new(codex_output));
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = test_env.clone();
+    let env: Arc<dyn arc_agent::Sandbox> = test_env.clone();
     let backend = AgentCliBackend::new("default-model".into(), Provider::Anthropic);
 
     let mut node = Node::new("step");
@@ -8453,7 +8453,7 @@ async fn cli_backend_run_uses_node_provider_override() {
 async fn cli_backend_run_writes_provider_used_json() {
     let claude_output =
         r#"{"type":"result","result":"done","usage":{"input_tokens":10,"output_tokens":5}}"#;
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(CliTestEnv::new(claude_output));
     let backend = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
 
     let node = Node::new("step");
@@ -8484,7 +8484,7 @@ async fn cli_backend_run_writes_provider_used_json() {
 #[tokio::test]
 async fn backend_router_delegates_to_cli_for_cli_node() {
     let claude_output = r#"{"type":"result","result":"CLI response","usage":{"input_tokens":10,"output_tokens":5}}"#;
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(CliTestEnv::new(claude_output));
 
     let api_backend = Box::new(MockCodergenBackend); // would return "Response for ..."
     let cli = AgentCliBackend::new("claude-opus-4-6".into(), Provider::Anthropic);
@@ -8571,7 +8571,7 @@ async fn backend_router_delegates_to_api_for_normal_node() {
 #[tokio::test]
 async fn backend_router_delegates_to_cli_for_backend_attr() {
     let codex_output = "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Codex did it\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}";
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(codex_output));
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(CliTestEnv::new(codex_output));
 
     let api_backend = Box::new(MockCodergenBackend);
     let cli = AgentCliBackend::new("gpt-5.3-codex".into(), Provider::OpenAi);
@@ -8620,7 +8620,7 @@ async fn full_pipeline_with_cli_backend_node() {
     // Pipeline: start -> api_work -> cli_work -> exit
     // api_work uses MockCodergenBackend (API), cli_work has backend="cli"
     let claude_output = r#"{"type":"result","result":"CLI completed the task.","usage":{"input_tokens":100,"output_tokens":50}}"#;
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(CliTestEnv::new(claude_output));
 
     let mut graph = Graph::new("CliPipelineTest");
 
@@ -8749,7 +8749,7 @@ async fn full_pipeline_with_cli_backend_node() {
 #[tokio::test]
 async fn stylesheet_backend_property_routes_to_cli() {
     let claude_output = r#"{"type":"result","result":"Styled CLI response.","usage":{"input_tokens":10,"output_tokens":5}}"#;
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(CliTestEnv::new(claude_output));
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(CliTestEnv::new(claude_output));
 
     let mut graph = Graph::new("StylesheetTest");
     graph.attrs.insert(
@@ -8845,7 +8845,7 @@ async fn stylesheet_backend_property_routes_to_cli() {
 
 use arc_workflows::cli::cli_backend::parse_cli_response;
 
-/// Run a real CLI tool via LocalExecutionEnvironment and verify the full flow.
+/// Run a real CLI tool via LocalSandbox and verify the full flow.
 async fn run_real_cli_test(provider: Provider, model: &str) {
     let env = local_env();
     let backend = AgentCliBackend::new(model.to_string(), provider);
@@ -8980,10 +8980,10 @@ impl Handler for FileWriterHandler {
         _logs_root: &Path,
         services: &arc_workflows::handler::EngineServices,
     ) -> Result<Outcome, ArcError> {
-        let work_dir = services.execution_env.working_directory().to_string();
+        let work_dir = services.sandbox.working_directory().to_string();
         let file_path = format!("{}/{}.txt", work_dir, node.id);
         services
-            .execution_env
+            .sandbox
             .write_file(&file_path, &format!("written by {}", node.id))
             .await
             .map_err(|e| ArcError::Handler(format!("write_file failed: {e}")))?;
@@ -9073,8 +9073,8 @@ async fn git_checkpoint_host_emits_events_and_diff_patch() {
     let mut emitter = EventEmitter::new();
     let events = collect_events(&mut emitter);
 
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(
-        arc_agent::LocalExecutionEnvironment::new(worktree_path.clone()),
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(
+        arc_agent::LocalSandbox::new(worktree_path.clone()),
     );
     let mut registry = HandlerRegistry::new(Box::new(ContextSetterHandler));
     registry.register("start", Box::new(StartHandler));
@@ -9253,8 +9253,8 @@ async fn git_checkpoint_host_writes_shadow_branch() {
     std::fs::write(logs_dir.path().join("graph.dot"), "digraph {}").unwrap();
     let emitter = EventEmitter::new();
 
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(
-        arc_agent::LocalExecutionEnvironment::new(worktree_path.clone()),
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(
+        arc_agent::LocalSandbox::new(worktree_path.clone()),
     );
     let mut registry = HandlerRegistry::new(Box::new(ContextSetterHandler));
     registry.register("start", Box::new(StartHandler));
@@ -9440,8 +9440,8 @@ async fn parallel_git_branching_host_e2e() {
     let mut emitter = EventEmitter::new();
     let events = collect_events(&mut emitter);
 
-    let env: Arc<dyn arc_agent::ExecutionEnvironment> = Arc::new(
-        arc_agent::LocalExecutionEnvironment::new(worktree_path.clone()),
+    let env: Arc<dyn arc_agent::Sandbox> = Arc::new(
+        arc_agent::LocalSandbox::new(worktree_path.clone()),
     );
 
     let mut registry = HandlerRegistry::new(Box::new(FileWriterHandler));

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use arc_agent::{
     subagent::{SessionFactory, SubAgentManager},
-    AgentEvent, AnthropicProfile, ExecutionEnvironment, GeminiProfile, OpenAiProfile,
+    AgentEvent, AnthropicProfile, Sandbox, GeminiProfile, OpenAiProfile,
     ProviderProfile, Session, SessionConfig, Turn,
 };
 use arc_llm::client::Client;
@@ -45,7 +45,7 @@ impl AgentApiBackend {
     async fn create_session(
         &self,
         node: &Node,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Result<Session, ArcError> {
         let client = Client::from_env()
             .await
@@ -68,7 +68,7 @@ impl AgentApiBackend {
         let factory_client = client.clone();
         let factory_provider = self.provider;
         let factory_model = self.model.clone();
-        let factory_env = Arc::clone(execution_env);
+        let factory_env = Arc::clone(sandbox);
         let factory: SessionFactory = Arc::new(move || {
             let child_profile: Arc<dyn ProviderProfile> = match factory_provider {
                 Provider::OpenAi => Arc::new(OpenAiProfile::new(&factory_model)),
@@ -89,7 +89,7 @@ impl AgentApiBackend {
         profile.register_subagent_tools(manager, factory, 0);
         let profile: Arc<dyn ProviderProfile> = Arc::from(profile);
 
-        let session = Session::new(client, profile, Arc::clone(execution_env), config);
+        let session = Session::new(client, profile, Arc::clone(sandbox), config);
 
         // Wire subagent event callback to parent session's emitter
         manager_for_callback
@@ -196,7 +196,7 @@ impl CodergenBackend for AgentApiBackend {
         thread_id: Option<&str>,
         emitter: &Arc<crate::event::EventEmitter>,
         stage_dir: &std::path::Path,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Result<CodergenResult, ArcError> {
         let fidelity = context.get_string("internal.fidelity", "");
         let reuse_key = if fidelity == "full" {
@@ -211,10 +211,10 @@ impl CodergenBackend for AgentApiBackend {
             if let Some(s) = existing {
                 (s, true)
             } else {
-                (self.create_session(node, execution_env).await?, false)
+                (self.create_session(node, sandbox).await?, false)
             }
         } else {
-            (self.create_session(node, execution_env).await?, false)
+            (self.create_session(node, sandbox).await?, false)
         };
 
         // File change tracking: shared between spawned task and main fn.

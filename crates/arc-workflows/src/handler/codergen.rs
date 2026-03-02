@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use async_trait::async_trait;
 
 use crate::context::Context;
@@ -35,7 +35,7 @@ pub trait CodergenBackend: Send + Sync {
         thread_id: Option<&str>,
         emitter: &Arc<EventEmitter>,
         stage_dir: &Path,
-        execution_env: &Arc<dyn ExecutionEnvironment>,
+        sandbox: &Arc<dyn Sandbox>,
     ) -> Result<CodergenResult, ArcError>;
 
     /// Run a single LLM call with no tools (one_shot mode).
@@ -249,7 +249,7 @@ impl Handler for CodergenHandler {
                                 thread_id.as_deref(),
                                 &services.emitter,
                                 &stage_dir,
-                                &services.execution_env,
+                                &services.sandbox,
                             )
                             .await
                     }
@@ -333,7 +333,7 @@ mod tests {
         EngineServices {
             registry: std::sync::Arc::new(HandlerRegistry::new(Box::new(StartHandler))),
             emitter: std::sync::Arc::new(EventEmitter::new()),
-            execution_env: std::sync::Arc::new(arc_agent::LocalExecutionEnvironment::new(
+            sandbox: std::sync::Arc::new(arc_agent::LocalSandbox::new(
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             )),
             git_state: std::sync::RwLock::new(None),
@@ -582,7 +582,7 @@ mod tests {
                 thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 *self.captured_thread_id.lock().unwrap() = Some(thread_id.map(String::from));
                 Ok(CodergenResult::Text {
@@ -633,7 +633,7 @@ mod tests {
                 thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 *self.captured_thread_id.lock().unwrap() = Some(thread_id.map(String::from));
                 Ok(CodergenResult::Text {
@@ -679,7 +679,7 @@ mod tests {
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 Err(ArcError::Handler("Request timed out".to_string()))
             }
@@ -795,7 +795,7 @@ Some text in between.
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 panic!("run() should not be called in one_shot mode");
             }
@@ -910,7 +910,7 @@ Some text in between.
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 Err(ArcError::Validation("bad config".to_string()))
             }
@@ -948,7 +948,7 @@ Some text in between.
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 *self.captured_prompt.lock().unwrap() = Some(prompt.to_string());
                 Ok(CodergenResult::Text {
@@ -1016,7 +1016,7 @@ Some text in between.
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 *self.captured_prompt.lock().unwrap() = Some(prompt.to_string());
                 Ok(CodergenResult::Text {
@@ -1070,7 +1070,7 @@ Some text in between.
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 panic!("run() should not be called in one_shot mode");
             }

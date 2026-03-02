@@ -1,4 +1,4 @@
-//! Integration tests for `DaytonaExecutionEnvironment`.
+//! Integration tests for `DaytonaSandbox`.
 //!
 //! These tests require a `DAYTONA_API_KEY` environment variable and network access.
 //! Run with: `cargo test --package arc-workflows -- --ignored daytona`
@@ -7,12 +7,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use arc_llm::provider::Provider;
 use arc_workflows::artifact::sync_artifacts_to_env;
 use arc_workflows::checkpoint::Checkpoint;
 use arc_workflows::context::Context;
-use arc_workflows::daytona_env::{DaytonaConfig, DaytonaExecutionEnvironment};
+use arc_workflows::daytona_sandbox::{DaytonaConfig, DaytonaSandbox};
 use arc_workflows::engine::{WorkflowRunEngine, RunConfig};
 use arc_workflows::error::ArcError;
 use arc_workflows::event::EventEmitter;
@@ -22,12 +22,12 @@ use arc_workflows::handler::start::StartHandler;
 use arc_workflows::handler::{Handler, HandlerRegistry};
 use arc_workflows::outcome::{Outcome, StageStatus};
 
-async fn create_env() -> DaytonaExecutionEnvironment {
+async fn create_env() -> DaytonaSandbox {
     dotenvy::dotenv().ok();
     let client = daytona_sdk::Client::new()
         .await
         .expect("Failed to create Daytona client — is DAYTONA_API_KEY set?");
-    DaytonaExecutionEnvironment::new(client, DaytonaConfig::default())
+    DaytonaSandbox::new(client, DaytonaConfig::default())
 }
 
 #[tokio::test]
@@ -117,7 +117,7 @@ async fn daytona_full_lifecycle() {
 #[tokio::test]
 #[ignore]
 async fn daytona_snapshot_sandbox() {
-    use arc_workflows::daytona_env::{DaytonaSandboxConfig, DaytonaSnapshotConfig};
+    use arc_workflows::daytona_sandbox::DaytonaSnapshotConfig;
 
     dotenvy::dotenv().ok();
     let client = daytona_sdk::Client::new()
@@ -125,10 +125,8 @@ async fn daytona_snapshot_sandbox() {
         .expect("Failed to create Daytona client — is DAYTONA_API_KEY set?");
 
     let config = DaytonaConfig {
-        sandbox: DaytonaSandboxConfig {
-            auto_stop_interval: Some(60),
-            ..Default::default()
-        },
+        auto_stop_interval: Some(60),
+        labels: None,
         snapshot: Some(DaytonaSnapshotConfig {
             name: "arc-test-snapshot".to_string(),
             cpu: Some(2),
@@ -140,7 +138,7 @@ async fn daytona_snapshot_sandbox() {
         }),
     };
 
-    let env = DaytonaExecutionEnvironment::new(client, config);
+    let env = DaytonaSandbox::new(client, config);
     env.initialize().await.unwrap();
 
     // Verify rg is available (installed by snapshot)
@@ -236,7 +234,7 @@ impl Handler for LargeOutputHandler {
 async fn daytona_pipeline_artifact_offload_and_sync() {
     let env = create_env().await;
     env.initialize().await.unwrap();
-    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+    let env: Arc<dyn Sandbox> = Arc::new(env);
 
     // Pipeline: start -> big_output -> exit
     let mut graph = Graph::new("DaytonaArtifactPipeline");
@@ -350,7 +348,7 @@ impl Handler for FileWriterHandler {
         let content = format!("output from {}", node.id);
         let cmd = format!("echo '{content}' > {}.txt", node.id);
         let _ = services
-            .execution_env
+            .sandbox
             .exec_command(&cmd, 10_000, None, None, None)
             .await;
         Ok(Outcome::success())
@@ -359,9 +357,9 @@ impl Handler for FileWriterHandler {
 
 /// Set up git inside a Daytona sandbox for checkpoint commits.
 /// Returns (run_id, base_sha, branch_name) on success.
-async fn setup_daytona_git(exec_env: &dyn ExecutionEnvironment) -> (String, String, String) {
+async fn setup_daytona_git(sandbox: &dyn Sandbox) -> (String, String, String) {
     // Get current HEAD as base SHA
-    let sha_result = exec_env
+    let sha_result = sandbox
         .exec_command("git rev-parse HEAD", 10_000, None, None, None)
         .await
         .expect("git rev-parse HEAD should succeed");
@@ -376,7 +374,7 @@ async fn setup_daytona_git(exec_env: &dyn ExecutionEnvironment) -> (String, Stri
     let branch_name = format!("arc/run/{run_id}");
 
     let checkout_cmd = format!("git checkout -b {branch_name}");
-    let checkout_result = exec_env
+    let checkout_result = sandbox
         .exec_command(&checkout_cmd, 10_000, None, None, None)
         .await
         .expect("git checkout should succeed");
@@ -394,7 +392,7 @@ async fn setup_daytona_git(exec_env: &dyn ExecutionEnvironment) -> (String, Stri
 async fn daytona_git_checkpoint_remote_emits_events() {
     let env = create_env().await;
     env.initialize().await.unwrap();
-    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+    let env: Arc<dyn Sandbox> = Arc::new(env);
 
     // Install git if not available (the default ubuntu:22.04 image may not have it)
     let git_check = env
@@ -553,7 +551,7 @@ use arc_workflows::handler::parallel::ParallelHandler;
 async fn daytona_parallel_git_branching_e2e() {
     let env = create_env().await;
     env.initialize().await.unwrap();
-    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+    let env: Arc<dyn Sandbox> = Arc::new(env);
 
     // Install git if not available
     let git_check = env
@@ -781,7 +779,7 @@ use arc_workflows::handler::codergen::{CodergenBackend, CodergenResult};
 async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: &str) {
     let env = create_env().await;
     env.initialize().await.unwrap();
-    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+    let env: Arc<dyn Sandbox> = Arc::new(env);
 
     // Install the CLI tool inside the Daytona sandbox
     let install_result = env
@@ -883,7 +881,7 @@ use arc_workflows::git::MetadataStore;
 async fn daytona_git_checkpoint_with_shadow_branch() {
     let env = create_env().await;
     env.initialize().await.unwrap();
-    let env: Arc<dyn ExecutionEnvironment> = Arc::new(env);
+    let env: Arc<dyn Sandbox> = Arc::new(env);
 
     // Install git if not available
     let git_check = env

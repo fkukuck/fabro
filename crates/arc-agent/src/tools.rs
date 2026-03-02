@@ -1,5 +1,5 @@
 use crate::config::SessionConfig;
-use crate::execution_env::GrepOptions;
+use crate::sandbox::GrepOptions;
 use crate::tool_registry::RegisteredTool;
 use arc_llm::client::Client;
 use arc_llm::provider::ModelId;
@@ -590,8 +590,8 @@ pub(crate) fn make_web_fetch_tool(summarizer: Option<WebFetchSummarizer>) -> Reg
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution_env::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::sandbox::*;
+    use crate::test_support::MockSandbox;
     use crate::tool_registry::ToolContext;
     use std::collections::HashMap;
     use tokio_util::sync::CancellationToken;
@@ -601,7 +601,7 @@ mod tests {
         let tool = make_read_file_tool();
         let mut files = HashMap::new();
         files.insert("/test.txt".into(), "  1 | hello\n  2 | world".into());
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             apply_read_offset_limit: true,
             ..Default::default()
@@ -625,7 +625,7 @@ mod tests {
             "/test.txt".into(),
             "  1 | line1\n  2 | line2\n  3 | line3\n  4 | line4".into(),
         );
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             apply_read_offset_limit: true,
             ..Default::default()
@@ -644,8 +644,8 @@ mod tests {
     #[tokio::test]
     async fn write_file_calls_env() {
         let tool = make_write_file_tool();
-        let env = Arc::new(MockExecutionEnvironment::default());
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env = Arc::new(MockSandbox::default());
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let result = (tool.executor)(
             serde_json::json!({"file_path": "/out.txt", "content": "hello"}),
             ToolContext {
@@ -666,11 +666,11 @@ mod tests {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
         files.insert("/f.txt".into(), "  1 | hello world".into());
-        let env = Arc::new(MockExecutionEnvironment {
+        let env = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let result = (tool.executor)(
             serde_json::json!({
                 "file_path": "/f.txt",
@@ -694,7 +694,7 @@ mod tests {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
         files.insert("/f.txt".into(), "  1 | hello world".into());
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -718,7 +718,7 @@ mod tests {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
         files.insert("/f.txt".into(), "  1 | aa bb aa".into());
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
@@ -744,11 +744,11 @@ mod tests {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
         files.insert("/f.txt".into(), "  1 | aa bb aa".into());
-        let env = Arc::new(MockExecutionEnvironment {
+        let env = Arc::new(MockSandbox {
             files,
             ..Default::default()
         });
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let result = (tool.executor)(
             serde_json::json!({
                 "file_path": "/f.txt",
@@ -771,7 +771,7 @@ mod tests {
     #[tokio::test]
     async fn shell_basic_command() {
         let tool = make_shell_tool();
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: "hello".into(),
                 stderr: String::new(),
@@ -797,8 +797,8 @@ mod tests {
     #[tokio::test]
     async fn shell_with_timeout() {
         let tool = make_shell_tool();
-        let env = Arc::new(MockExecutionEnvironment::default());
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env = Arc::new(MockSandbox::default());
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let _result = (tool.executor)(
             serde_json::json!({"command": "sleep 1", "timeout_ms": 5000}),
             ToolContext {
@@ -813,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn shell_nonzero_exit_code() {
         let tool = make_shell_tool();
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: String::new(),
                 stderr: "error".into(),
@@ -839,7 +839,7 @@ mod tests {
     #[tokio::test]
     async fn shell_timeout_output() {
         let tool = make_shell_tool();
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -864,7 +864,7 @@ mod tests {
     #[tokio::test]
     async fn grep_basic() {
         let tool = make_grep_tool();
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             grep_results: vec![
                 "src/main.rs:10:fn main()".into(),
                 "src/lib.rs:5:pub fn".into(),
@@ -887,7 +887,7 @@ mod tests {
     #[tokio::test]
     async fn glob_basic() {
         let tool = make_glob_tool();
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             glob_results: vec!["src/main.rs".into(), "src/lib.rs".into()],
             ..Default::default()
         });
@@ -907,7 +907,7 @@ mod tests {
     #[tokio::test]
     async fn web_search_missing_api_key_returns_error() {
         let tool = make_web_search_tool_with_api_key(None);
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = (tool.executor)(
             serde_json::json!({"query": "test"}),
             ToolContext {
@@ -926,7 +926,7 @@ mod tests {
     #[tokio::test]
     async fn web_search_missing_query_returns_error() {
         let tool = make_web_search_tool_with_api_key(Some("fake-key".into()));
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = (tool.executor)(
             serde_json::json!({}),
             ToolContext {
@@ -968,7 +968,7 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_builds_curl_command() {
         let tool = make_web_fetch_tool(None);
-        let env = Arc::new(MockExecutionEnvironment {
+        let env = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: "<html><body><h1>hello</h1></body></html>".into(),
                 stderr: String::new(),
@@ -978,7 +978,7 @@ mod tests {
             },
             ..Default::default()
         });
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let result = (tool.executor)(
             serde_json::json!({"url": "https://example.com"}),
             ToolContext {
@@ -1014,7 +1014,7 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_rejects_non_http_url() {
         let tool = make_web_fetch_tool(None);
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = (tool.executor)(
             serde_json::json!({"url": "ftp://example.com/file"}),
             ToolContext {
@@ -1033,8 +1033,8 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_timeout_flows_through() {
         let tool = make_web_fetch_tool(None);
-        let env = Arc::new(MockExecutionEnvironment::default());
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env = Arc::new(MockSandbox::default());
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let _result = (tool.executor)(
             serde_json::json!({"url": "https://example.com", "timeout_ms": 15000}),
             ToolContext {
@@ -1054,8 +1054,8 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_timeout_capped_at_60s() {
         let tool = make_web_fetch_tool(None);
-        let env = Arc::new(MockExecutionEnvironment::default());
-        let env_clone: Arc<dyn ExecutionEnvironment> = env.clone();
+        let env = Arc::new(MockSandbox::default());
+        let env_clone: Arc<dyn Sandbox> = env.clone();
         let _result = (tool.executor)(
             serde_json::json!({"url": "https://example.com", "timeout_ms": 120000}),
             ToolContext {
@@ -1076,7 +1076,7 @@ mod tests {
     async fn web_fetch_truncates_large_output() {
         let large_content = "x".repeat(150 * 1024);
         let tool = make_web_fetch_tool(None);
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: large_content,
                 stderr: String::new(),
@@ -1102,7 +1102,7 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_returns_error_on_nonzero_exit() {
         let tool = make_web_fetch_tool(None);
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: String::new(),
                 stderr: "curl: (6) Could not resolve host".into(),
@@ -1145,7 +1145,7 @@ mod tests {
         };
 
         let tool = make_web_fetch_tool(Some(summarizer));
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: "<html><body><p>Lots of content about Rust...</p></body></html>".into(),
                 stderr: String::new(),
@@ -1173,7 +1173,7 @@ mod tests {
     #[tokio::test]
     async fn web_fetch_prompt_without_summarizer_returns_content_with_note() {
         let tool = make_web_fetch_tool(None);
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: "<html><body><p>Rust is a systems programming language.</p></body></html>"
                     .into(),
@@ -1236,7 +1236,7 @@ mod tests {
         };
 
         let tool = make_web_fetch_tool(Some(summarizer));
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment {
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             exec_result: ExecResult {
                 stdout: "<html><body><p>Page content</p></body></html>".into(),
                 stderr: String::new(),
@@ -1295,7 +1295,7 @@ mod tests {
         let api_key = std::env::var("BRAVE_SEARCH_API_KEY")
             .expect("BRAVE_SEARCH_API_KEY must be set to run this test");
         let tool = make_web_search_tool_with_api_key(Some(api_key));
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = (tool.executor)(
             serde_json::json!({"query": "rust programming language"}),
             ToolContext {

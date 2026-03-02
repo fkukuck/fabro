@@ -1,5 +1,5 @@
 use crate::config::SessionConfig;
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::profiles::assemble_system_prompt;
 use crate::profiles::BaseProfile;
 use crate::provider_profile::{ProfileCapabilities, ProviderProfile};
@@ -65,7 +65,7 @@ impl ProviderProfile for GeminiProfile {
 
     fn build_system_prompt(
         &self,
-        env: &dyn ExecutionEnvironment,
+        env: &dyn Sandbox,
         env_context: &EnvContext,
         project_docs: &[String],
         user_instructions: Option<&str>,
@@ -229,7 +229,7 @@ in the project.";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
     use std::sync::Arc;
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn gemini_system_prompt_contains_identity() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("You are Gemini CLI"));
         assert!(prompt.contains("solving bugs"));
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn gemini_system_prompt_contains_tool_guidance() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("read_file"));
         assert!(prompt.contains("read_many_files"));
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn gemini_system_prompt_contains_project_docs_convention() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("GEMINI.md"));
         assert!(prompt.contains("AGENTS.md"));
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn gemini_system_prompt_contains_coding_best_practices() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("clean, maintainable code"));
         assert!(prompt.contains("Handle errors appropriately"));
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn gemini_system_prompt_contains_env_context() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("<environment>"));
         assert!(prompt.contains("linux"));

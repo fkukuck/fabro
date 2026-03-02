@@ -1,6 +1,6 @@
 use crate::{
     subagent::{SessionFactory, SubAgentManager},
-    AgentEvent, AnthropicProfile, GeminiProfile, LocalExecutionEnvironment, OpenAiProfile,
+    AgentEvent, AnthropicProfile, GeminiProfile, LocalSandbox, OpenAiProfile,
     ProviderProfile, Session, SessionConfig, ToolApprovalFn, Turn,
 };
 use arc_llm::client::Client;
@@ -385,7 +385,7 @@ pub async fn run_with_args(args: AgentArgs) -> anyhow::Result<()> {
     // Build execution environment
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd_str = cwd.to_string_lossy().to_string();
-    let env: Arc<dyn crate::ExecutionEnvironment> = Arc::new(LocalExecutionEnvironment::new(cwd));
+    let env: Arc<dyn crate::Sandbox> = Arc::new(LocalSandbox::new(cwd));
 
     // Build tool approval callback
     let is_interactive = std::io::stdin().is_terminal() && !args.auto_approve;

@@ -1,5 +1,5 @@
 use crate::config::SessionConfig;
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::profiles::assemble_system_prompt;
 use crate::profiles::BaseProfile;
 use crate::provider_profile::{ProfileCapabilities, ProviderProfile};
@@ -71,7 +71,7 @@ impl ProviderProfile for AnthropicProfile {
 
     fn build_system_prompt(
         &self,
-        env: &dyn ExecutionEnvironment,
+        env: &dyn Sandbox,
         env_context: &EnvContext,
         project_docs: &[String],
         user_instructions: Option<&str>,
@@ -209,7 +209,7 @@ in the project. Keep changes minimal and focused on the task.";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
 
     #[test]
     fn anthropic_profile_identity() {
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn anthropic_system_prompt_contains_env_context() {
         let profile = AnthropicProfile::new("claude-sonnet-4-20250514");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);
         assert!(prompt.contains("You are Claude, an AI coding assistant made by Anthropic"));
         assert!(prompt.contains("<environment>"));
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn anthropic_system_prompt_includes_project_docs() {
         let profile = AnthropicProfile::new("claude-sonnet-4-20250514");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let docs = vec!["# Project README".into(), "# CONTRIBUTING guide".into()];
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &docs, None, &[]);
         assert!(prompt.contains("# Project README"));
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn anthropic_system_prompt_includes_env_context() {
         let profile = AnthropicProfile::new("claude-opus-4-6");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let ctx = EnvContext {
             git_branch: Some("feature-branch".into()),
             is_git_repo: true,
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn anthropic_system_prompt_includes_user_instructions() {
         let profile = AnthropicProfile::new("claude-opus-4-6");
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let ctx = EnvContext::default();
         let prompt =
             profile.build_system_prompt(&env, &ctx, &[], Some("Always write tests first"), &[]);

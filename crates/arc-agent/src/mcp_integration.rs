@@ -83,12 +83,12 @@ mod tests {
         let tools = make_mcp_tools(Arc::new(mgr));
         let tool = &tools[0];
 
-        use crate::execution_env::ExecutionEnvironment;
-        use crate::test_support::MockExecutionEnvironment;
+        use crate::sandbox::Sandbox;
+        use crate::test_support::MockSandbox;
         use crate::tool_registry::ToolContext;
         use tokio_util::sync::CancellationToken;
 
-        let env: Arc<dyn ExecutionEnvironment> = Arc::new(MockExecutionEnvironment::default());
+        let env: Arc<dyn Sandbox> = Arc::new(MockSandbox::default());
         let result = (tool.executor)(
             serde_json::json!({"message": "test message"}),
             ToolContext {

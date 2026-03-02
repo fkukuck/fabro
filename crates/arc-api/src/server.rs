@@ -14,7 +14,7 @@ use tokio_stream::StreamExt;
 
 use tracing::{error, info};
 
-use arc_agent::LocalExecutionEnvironment;
+use arc_agent::LocalSandbox;
 
 use crate::jwt_auth::{AuthMode, AuthenticatedService};
 use arc_workflows::checkpoint::Checkpoint;
@@ -221,13 +221,13 @@ async fn start_run(
 
     let registry = (state.registry_factory)(Arc::clone(&interviewer) as Arc<dyn Interviewer>);
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let execution_env: Arc<dyn arc_agent::ExecutionEnvironment> =
-        Arc::new(LocalExecutionEnvironment::new(cwd));
+    let sandbox: Arc<dyn arc_agent::Sandbox> =
+        Arc::new(LocalSandbox::new(cwd));
     let engine = WorkflowRunEngine::with_interviewer(
         registry,
         Arc::new(emitter),
         Arc::clone(&interviewer) as Arc<dyn Interviewer>,
-        execution_env,
+        sandbox,
     );
 
     {

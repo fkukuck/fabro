@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arc_agent::{
-    AnthropicProfile, GeminiProfile, LocalExecutionEnvironment, OpenAiProfile, ProviderProfile,
+    AnthropicProfile, GeminiProfile, LocalSandbox, OpenAiProfile, ProviderProfile,
     Session, SessionConfig, SubAgentManager, WebFetchSummarizer,
 };
 use arc_llm::client::Client;
@@ -43,7 +43,7 @@ async fn make_session(provider: Provider, model: &str, cwd: &Path) -> Session {
     dotenvy::dotenv().ok();
     let client = Client::from_env().await.expect("Client::from_env failed");
     let mut profile = build_profile(provider, model, &client);
-    let env = Arc::new(LocalExecutionEnvironment::new(cwd.to_path_buf()));
+    let env = Arc::new(LocalSandbox::new(cwd.to_path_buf()));
 
     // Register subagent tools so spawn_agent / wait / send_input / close_agent are available
     let manager = Arc::new(tokio::sync::Mutex::new(SubAgentManager::new(3)));
@@ -72,7 +72,7 @@ async fn make_session(provider: Provider, model: &str, cwd: &Path) -> Session {
                 }
             }
         };
-        let sub_env = Arc::new(LocalExecutionEnvironment::new(factory_cwd.clone()));
+        let sub_env = Arc::new(LocalSandbox::new(factory_cwd.clone()));
         Session::new(
             factory_client.clone(),
             sub_profile,
@@ -99,7 +99,7 @@ async fn make_session_with_config(
     dotenvy::dotenv().ok();
     let client = Client::from_env().await.expect("Client::from_env failed");
     let profile: Arc<dyn ProviderProfile> = Arc::from(build_profile(provider, model, &client));
-    let env = Arc::new(LocalExecutionEnvironment::new(cwd.to_path_buf()));
+    let env = Arc::new(LocalSandbox::new(cwd.to_path_buf()));
     Session::new(client, profile, env, config)
 }
 

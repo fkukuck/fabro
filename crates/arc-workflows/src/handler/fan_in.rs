@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 use async_trait::async_trait;
 
 use crate::context::Context;
@@ -51,7 +51,7 @@ impl Handler for FanInHandler {
                 logs_root,
                 &node.id,
                 &services.emitter,
-                &services.execution_env,
+                &services.sandbox,
             )
             .await?
         } else {
@@ -90,7 +90,7 @@ impl Handler for FanInHandler {
                         .await;
                 }
                 crate::engine::GitCheckpointMode::Remote(_) => {
-                    crate::engine::git_merge_ff_only_remote(&*services.execution_env, sha).await;
+                    crate::engine::git_merge_ff_only_remote(&*services.sandbox, sha).await;
                 }
             }
         }
@@ -196,7 +196,7 @@ async fn llm_evaluate(
     logs_root: &Path,
     node_id: &str,
     emitter: &Arc<EventEmitter>,
-    execution_env: &Arc<dyn ExecutionEnvironment>,
+    sandbox: &Arc<dyn Sandbox>,
 ) -> Result<Candidate, ArcError> {
     let results_text =
         serde_json::to_string_pretty(results).unwrap_or_else(|_| results.to_string());
@@ -224,7 +224,7 @@ async fn llm_evaluate(
             None,
             emitter,
             &stage_dir,
-            execution_env,
+            sandbox,
         )
         .await
     {
@@ -299,7 +299,7 @@ mod tests {
         EngineServices {
             registry: std::sync::Arc::new(HandlerRegistry::new(Box::new(StartHandler))),
             emitter: std::sync::Arc::new(EventEmitter::new()),
-            execution_env: std::sync::Arc::new(arc_agent::LocalExecutionEnvironment::new(
+            sandbox: std::sync::Arc::new(arc_agent::LocalSandbox::new(
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             )),
             git_state: std::sync::RwLock::new(None),
@@ -429,7 +429,7 @@ mod tests {
                 _thread_id: Option<&str>,
                 _emitter: &Arc<EventEmitter>,
                 _stage_dir: &std::path::Path,
-                _execution_env: &Arc<dyn ExecutionEnvironment>,
+                _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
                 // Return text that contains the ID "branch_b"
                 Ok(CodergenResult::Text {

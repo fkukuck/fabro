@@ -1,6 +1,6 @@
-use crate::execution_env::{
-    format_lines_numbered, DirEntry, ExecEnvEventCallback, ExecResult, ExecutionEnvEvent,
-    ExecutionEnvironment, GrepOptions,
+use crate::sandbox::{
+    format_lines_numbered, DirEntry, SandboxEventCallback, ExecResult, SandboxEvent,
+    Sandbox, GrepOptions,
 };
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -9,13 +9,13 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
-pub struct LocalExecutionEnvironment {
+pub struct LocalSandbox {
     working_directory: PathBuf,
-    event_callback: Option<ExecEnvEventCallback>,
+    event_callback: Option<SandboxEventCallback>,
     rg_available: std::sync::OnceLock<bool>,
 }
 
-impl LocalExecutionEnvironment {
+impl LocalSandbox {
     #[must_use]
     pub fn new(working_directory: PathBuf) -> Self {
         Self {
@@ -25,11 +25,11 @@ impl LocalExecutionEnvironment {
         }
     }
 
-    pub fn set_event_callback(&mut self, cb: ExecEnvEventCallback) {
+    pub fn set_event_callback(&mut self, cb: SandboxEventCallback) {
         self.event_callback = Some(cb);
     }
 
-    fn emit(&self, event: ExecutionEnvEvent) {
+    fn emit(&self, event: SandboxEvent) {
         event.trace();
         if let Some(ref cb) = self.event_callback {
             cb(event);
@@ -72,7 +72,7 @@ impl LocalExecutionEnvironment {
 }
 
 #[async_trait]
-impl ExecutionEnvironment for LocalExecutionEnvironment {
+impl Sandbox for LocalSandbox {
     async fn read_file(
         &self,
         path: &str,
@@ -346,8 +346,8 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
     }
 
     async fn initialize(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::Initializing {
-            env_type: "local".into(),
+        self.emit(SandboxEvent::Initializing {
+            provider: "local".into(),
         });
         let start = Instant::now();
         let result = tokio::fs::create_dir_all(&self.working_directory)
@@ -355,12 +355,12 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
             .map_err(|e| format!("Failed to create working directory: {e}"));
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &result {
-            Ok(()) => self.emit(ExecutionEnvEvent::Ready {
-                env_type: "local".into(),
+            Ok(()) => self.emit(SandboxEvent::Ready {
+                provider: "local".into(),
                 duration_ms,
             }),
-            Err(e) => self.emit(ExecutionEnvEvent::InitializeFailed {
-                env_type: "local".into(),
+            Err(e) => self.emit(SandboxEvent::InitializeFailed {
+                provider: "local".into(),
                 error: e.clone(),
                 duration_ms,
             }),
@@ -369,13 +369,13 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
     }
 
     async fn cleanup(&self) -> Result<(), String> {
-        self.emit(ExecutionEnvEvent::CleanupStarted {
-            env_type: "local".into(),
+        self.emit(SandboxEvent::CleanupStarted {
+            provider: "local".into(),
         });
         let start = Instant::now();
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(ExecutionEnvEvent::CleanupCompleted {
-            env_type: "local".into(),
+        self.emit(SandboxEvent::CleanupCompleted {
+            provider: "local".into(),
             duration_ms,
         });
         Ok(())
@@ -457,7 +457,7 @@ mod tests {
         let dir = temp_dir();
         std::fs::write(dir.join("test.txt"), "hello\nworld\nfoo").unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env.read_file("test.txt", None, None).await.unwrap();
 
         assert_eq!(result, "1 | hello\n2 | world\n3 | foo\n");
@@ -470,7 +470,7 @@ mod tests {
         let content: String = (1..=12).map(|i| format!("line {i}\n")).collect();
         std::fs::write(dir.join("padded.txt"), content.trim_end()).unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env.read_file("padded.txt", None, None).await.unwrap();
 
         assert!(result.starts_with(" 1 | line 1\n"));
@@ -481,7 +481,7 @@ mod tests {
     #[tokio::test]
     async fn read_file_not_found() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env.read_file("nonexistent.txt", None, None).await;
         assert!(result.is_err());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -490,7 +490,7 @@ mod tests {
     #[tokio::test]
     async fn write_file_creates_parent_dirs() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         env.write_file("sub/dir/test.txt", "content").await.unwrap();
 
         let written = std::fs::read_to_string(dir.join("sub/dir/test.txt")).unwrap();
@@ -503,7 +503,7 @@ mod tests {
         let dir = temp_dir();
         std::fs::write(dir.join("exists.txt"), "data").unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         assert!(env.file_exists("exists.txt").await.unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -511,7 +511,7 @@ mod tests {
     #[tokio::test]
     async fn file_exists_false() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         assert!(!env.file_exists("nope.txt").await.unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -523,7 +523,7 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "a").unwrap();
         std::fs::create_dir(dir.join("c_dir")).unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let entries = env.list_directory(".", None).await.unwrap();
 
         assert_eq!(entries.len(), 3);
@@ -540,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn exec_command_echo() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env
             .exec_command("echo hello", 5000, None, None, None)
             .await
@@ -556,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn exec_command_exit_code() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env
             .exec_command("exit 42", 5000, None, None, None)
             .await
@@ -570,7 +570,7 @@ mod tests {
     #[tokio::test]
     async fn exec_command_timeout() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env
             .exec_command("sleep 10", 200, None, None, None)
             .await
@@ -584,7 +584,7 @@ mod tests {
     #[tokio::test]
     async fn exec_command_stderr() {
         let dir = temp_dir();
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let result = env
             .exec_command("echo err >&2", 5000, None, None, None)
             .await
@@ -596,43 +596,43 @@ mod tests {
 
     #[test]
     fn env_var_filtering() {
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "OPENAI_API_KEY"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "ANTHROPIC_API_KEY"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "DB_PASSWORD"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "AWS_SECRET"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "AUTH_TOKEN"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "MY_CREDENTIAL"
         ));
         // Case insensitive
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "my_api_key"
         ));
-        assert!(LocalExecutionEnvironment::should_filter_env_var(
+        assert!(LocalSandbox::should_filter_env_var(
             "Some_Secret"
         ));
         // Should not filter
-        assert!(!LocalExecutionEnvironment::should_filter_env_var("PATH"));
-        assert!(!LocalExecutionEnvironment::should_filter_env_var("HOME"));
-        assert!(!LocalExecutionEnvironment::should_filter_env_var("EDITOR"));
-        assert!(!LocalExecutionEnvironment::should_filter_env_var(
+        assert!(!LocalSandbox::should_filter_env_var("PATH"));
+        assert!(!LocalSandbox::should_filter_env_var("HOME"));
+        assert!(!LocalSandbox::should_filter_env_var("EDITOR"));
+        assert!(!LocalSandbox::should_filter_env_var(
             "SECRET_PATH"
         ));
     }
 
     #[test]
     fn platform_is_known() {
-        let env = LocalExecutionEnvironment::new(PathBuf::from("/tmp"));
+        let env = LocalSandbox::new(PathBuf::from("/tmp"));
         let platform = env.platform();
         assert!(
             platform == "darwin" || platform == "linux" || platform == "windows",
@@ -642,7 +642,7 @@ mod tests {
 
     #[test]
     fn os_version_contains_platform() {
-        let env = LocalExecutionEnvironment::new(PathBuf::from("/tmp"));
+        let env = LocalSandbox::new(PathBuf::from("/tmp"));
         let version = env.os_version();
         assert!(
             version.contains(env.platform()),
@@ -652,14 +652,14 @@ mod tests {
 
     #[test]
     fn working_directory_accessor() {
-        let env = LocalExecutionEnvironment::new(PathBuf::from("/tmp/test_dir"));
+        let env = LocalSandbox::new(PathBuf::from("/tmp/test_dir"));
         assert_eq!(env.working_directory(), "/tmp/test_dir");
     }
 
     #[tokio::test]
     async fn initialize_creates_directory() {
         let dir = std::env::temp_dir().join(format!("init_test_{}", uuid::Uuid::new_v4()));
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         env.initialize().await.unwrap();
         assert!(dir.exists());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -667,14 +667,14 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_emits_events() {
-        use crate::execution_env::ExecutionEnvEvent;
+        use crate::sandbox::SandboxEvent;
         use std::sync::{Arc, Mutex};
 
         let dir = std::env::temp_dir().join(format!("init_event_test_{}", uuid::Uuid::new_v4()));
-        let events: Arc<Mutex<Vec<ExecutionEnvEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events: Arc<Mutex<Vec<SandboxEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let events_clone = Arc::clone(&events);
 
-        let mut env = LocalExecutionEnvironment::new(dir.clone());
+        let mut env = LocalSandbox::new(dir.clone());
         env.set_event_callback(Arc::new(move |e| {
             events_clone.lock().unwrap().push(e);
         }));
@@ -684,10 +684,10 @@ mod tests {
         let captured = events.lock().unwrap();
         assert_eq!(captured.len(), 2);
         assert!(
-            matches!(&captured[0], ExecutionEnvEvent::Initializing { env_type } if env_type == "local")
+            matches!(&captured[0], SandboxEvent::Initializing { provider } if provider == "local")
         );
         assert!(
-            matches!(&captured[1], ExecutionEnvEvent::Ready { env_type, .. } if env_type == "local")
+            matches!(&captured[1], SandboxEvent::Ready { provider, .. } if provider == "local")
         );
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -695,14 +695,14 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_emits_events() {
-        use crate::execution_env::ExecutionEnvEvent;
+        use crate::sandbox::SandboxEvent;
         use std::sync::{Arc, Mutex};
 
         let dir = temp_dir();
-        let events: Arc<Mutex<Vec<ExecutionEnvEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events: Arc<Mutex<Vec<SandboxEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let events_clone = Arc::clone(&events);
 
-        let mut env = LocalExecutionEnvironment::new(dir.clone());
+        let mut env = LocalSandbox::new(dir.clone());
         env.set_event_callback(Arc::new(move |e| {
             events_clone.lock().unwrap().push(e);
         }));
@@ -712,10 +712,10 @@ mod tests {
         let captured = events.lock().unwrap();
         assert_eq!(captured.len(), 2);
         assert!(
-            matches!(&captured[0], ExecutionEnvEvent::CleanupStarted { env_type } if env_type == "local")
+            matches!(&captured[0], SandboxEvent::CleanupStarted { provider } if provider == "local")
         );
         assert!(
-            matches!(&captured[1], ExecutionEnvEvent::CleanupCompleted { env_type, .. } if env_type == "local")
+            matches!(&captured[1], SandboxEvent::CleanupCompleted { provider, .. } if provider == "local")
         );
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -730,7 +730,7 @@ mod tests {
         )
         .unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let results = env
             .grep("println", "test.rs", &GrepOptions::default())
             .await
@@ -746,7 +746,7 @@ mod tests {
         let dir = temp_dir();
         std::fs::write(dir.join("test.txt"), "Hello\nhello\nHELLO\n").unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let results = env
             .grep(
                 "hello",
@@ -768,7 +768,7 @@ mod tests {
         let dir = temp_dir();
         std::fs::write(dir.join("test.txt"), "match1\nmatch2\nmatch3\nmatch4\n").unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let results = env
             .grep(
                 "match",
@@ -792,7 +792,7 @@ mod tests {
         std::fs::write(dir.join("b.rs"), "").unwrap();
         std::fs::write(dir.join("c.txt"), "").unwrap();
 
-        let env = LocalExecutionEnvironment::new(dir.clone());
+        let env = LocalSandbox::new(dir.clone());
         let results = env.glob("*.rs", None).await.unwrap();
 
         assert_eq!(results.len(), 2);

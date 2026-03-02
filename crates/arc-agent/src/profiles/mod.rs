@@ -6,7 +6,7 @@ pub use anthropic::AnthropicProfile;
 pub use gemini::GeminiProfile;
 pub use openai::OpenAiProfile;
 
-use crate::execution_env::ExecutionEnvironment;
+use crate::sandbox::Sandbox;
 use crate::skills::{format_skills_prompt_section, Skill};
 use crate::tool_registry::ToolRegistry;
 use arc_llm::provider::Provider;
@@ -40,7 +40,7 @@ pub struct EnvContext {
 #[must_use]
 pub fn assemble_system_prompt(
     core_prompt: &str,
-    env: &dyn ExecutionEnvironment,
+    env: &dyn Sandbox,
     env_context: &EnvContext,
     project_docs: &[String],
     user_instructions: Option<&str>,
@@ -71,12 +71,12 @@ pub fn assemble_system_prompt(
 
 #[cfg(test)]
 #[must_use]
-pub fn build_env_context_block(env: &dyn ExecutionEnvironment) -> String {
+pub fn build_env_context_block(env: &dyn Sandbox) -> String {
     build_env_context_block_with(env, &EnvContext::default())
 }
 
 #[must_use]
-pub fn build_env_context_block_with(env: &dyn ExecutionEnvironment, ctx: &EnvContext) -> String {
+pub fn build_env_context_block_with(env: &dyn Sandbox, ctx: &EnvContext) -> String {
     let mut lines = vec![
         "<environment>".to_string(),
         format!("Working directory: {}", env.working_directory()),
@@ -114,11 +114,11 @@ pub fn build_env_context_block_with(env: &dyn ExecutionEnvironment, ctx: &EnvCon
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
 
     #[test]
     fn env_context_block_contains_platform() {
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let block = build_env_context_block(&env);
         assert!(block.contains("<environment>"));
         assert!(block.contains("</environment>"));
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn env_context_block_with_extra_context() {
-        let env = MockExecutionEnvironment::linux();
+        let env = MockSandbox::linux();
         let ctx = EnvContext {
             git_branch: Some("main".into()),
             is_git_repo: true,

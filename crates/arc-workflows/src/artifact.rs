@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use arc_agent::ExecutionEnvironment;
+use arc_agent::Sandbox;
 
 use crate::error::{ArcError, Result};
 
@@ -251,7 +251,7 @@ pub fn format_artifact_reference(path: &str) -> String {
     format!("See: {path}")
 }
 
-/// Sync artifact files to a remote execution environment.
+/// Sync artifact files to a remote sandbox.
 ///
 /// For each `file://` pointer in `updates`, checks whether the file is accessible
 /// in `env`. If not, reads the local file and uploads it via `env.write_file`,
@@ -263,7 +263,7 @@ pub fn format_artifact_reference(path: &str) -> String {
 /// Returns an error if reading a local artifact or writing to the remote env fails.
 pub async fn sync_artifacts_to_env(
     updates: &mut HashMap<String, Value>,
-    env: &dyn ExecutionEnvironment,
+    env: &dyn Sandbox,
 ) -> Result<()> {
     for value in updates.values_mut() {
         let local_path = match artifact_path(value) {
@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ExecutionEnvironment for TestSyncEnv {
+    impl Sandbox for TestSyncEnv {
         async fn read_file(
             &self,
             _path: &str,

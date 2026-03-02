@@ -1,4 +1,4 @@
-use crate::execution_env::*;
+use crate::sandbox::*;
 use std::collections::HashSet;
 use std::path::{Component, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,13 +8,13 @@ use std::sync::{Arc, Mutex};
 /// Tracks which file paths the agent has seen (via `read_file` or `grep`) and
 /// returns an error when `write_file` or `delete_file` targets an existing file
 /// that hasn't been read. Writing to new (non-existent) files is always allowed.
-pub struct ReadBeforeWriteEnvironment {
-    inner: Arc<dyn ExecutionEnvironment>,
+pub struct ReadBeforeWriteSandbox {
+    inner: Arc<dyn Sandbox>,
     read_set: Mutex<HashSet<String>>,
 }
 
-impl ReadBeforeWriteEnvironment {
-    pub fn new(inner: Arc<dyn ExecutionEnvironment>) -> Self {
+impl ReadBeforeWriteSandbox {
+    pub fn new(inner: Arc<dyn Sandbox>) -> Self {
         Self {
             inner,
             read_set: Mutex::new(HashSet::new()),
@@ -71,8 +71,8 @@ impl ReadBeforeWriteEnvironment {
     }
 }
 
-crate::delegate_execution_env! {
-    ReadBeforeWriteEnvironment => inner {
+crate::delegate_sandbox! {
+    ReadBeforeWriteSandbox => inner {
         async fn read_file(
             &self,
             path: &str,
@@ -116,17 +116,17 @@ crate::delegate_execution_env! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::MockExecutionEnvironment;
+    use crate::test_support::MockSandbox;
     use std::collections::HashMap;
 
     // Cycle 1: write to existing unread file → error
     #[tokio::test]
     async fn write_to_existing_unread_file_returns_error() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("a.ts".into(), "content".into())]),
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         let result = env.write_file("a.ts", "new content").await;
 
@@ -139,8 +139,8 @@ mod tests {
     // Cycle 2: write to non-existent file → success
     #[tokio::test]
     async fn write_to_nonexistent_file_succeeds() {
-        let mock = MockExecutionEnvironment::default();
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let mock = MockSandbox::default();
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         let result = env.write_file("new.ts", "content").await;
 
@@ -150,11 +150,11 @@ mod tests {
     // Cycle 3: read then write → success
     #[tokio::test]
     async fn read_then_write_succeeds() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("a.ts".into(), "content".into())]),
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         env.read_file("a.ts", None, None).await.unwrap();
         let result = env.write_file("a.ts", "new content").await;
@@ -165,12 +165,12 @@ mod tests {
     // Cycle 4: grep results populate read set
     #[tokio::test]
     async fn grep_populates_read_set() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("b.ts".into(), "content".into())]),
             grep_results: vec!["b.ts:1:content".into()],
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         env.grep("pattern", ".", &GrepOptions::default())
             .await
@@ -183,12 +183,12 @@ mod tests {
     // Cycle 5: glob does NOT populate read set
     #[tokio::test]
     async fn glob_does_not_populate_read_set() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("c.ts".into(), "content".into())]),
             glob_results: vec!["c.ts".into()],
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         env.glob("*.ts", None).await.unwrap();
         let result = env.write_file("c.ts", "new").await;
@@ -199,7 +199,7 @@ mod tests {
     // Cycle 6: path normalization — relative vs absolute
     #[tokio::test]
     async fn path_normalization_relative_and_absolute() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([
                 ("a.ts".into(), "content".into()),
                 ("/work/a.ts".into(), "content".into()),
@@ -207,7 +207,7 @@ mod tests {
             working_dir: "/work",
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         env.read_file("a.ts", None, None).await.unwrap();
         let result = env.write_file("/work/a.ts", "new content").await;
@@ -218,11 +218,11 @@ mod tests {
     // Cycle 7: delete unread file → error
     #[tokio::test]
     async fn delete_unread_file_returns_error() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("d.ts".into(), "content".into())]),
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         let result = env.delete_file("d.ts").await;
 
@@ -232,11 +232,11 @@ mod tests {
     // Cycle 8: error message is actionable
     #[tokio::test]
     async fn error_message_is_actionable() {
-        let mock = MockExecutionEnvironment {
+        let mock = MockSandbox {
             files: HashMap::from([("main.rs".into(), "fn main() {}".into())]),
             ..Default::default()
         };
-        let env = ReadBeforeWriteEnvironment::new(Arc::new(mock));
+        let env = ReadBeforeWriteSandbox::new(Arc::new(mock));
 
         let err = env.write_file("main.rs", "new").await.unwrap_err();
 

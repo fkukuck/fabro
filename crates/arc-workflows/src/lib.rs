@@ -3,7 +3,7 @@ pub mod checkpoint;
 pub mod cli;
 pub mod condition;
 pub mod context;
-pub mod daytona_env;
+pub mod daytona_sandbox;
 pub mod engine;
 pub mod error;
 pub mod event;
