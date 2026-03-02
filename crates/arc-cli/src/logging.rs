@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub fn init_tracing() -> Result<()> {
-    let filter = EnvFilter::try_from_env("ARC_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+pub fn init_tracing(debug: bool) -> Result<()> {
+    let default_level = if debug { "debug" } else { "info" };
+    let filter =
+        EnvFilter::try_from_env("ARC_LOG").unwrap_or_else(|_| EnvFilter::new(default_level));
 
     let log_dir = dirs::home_dir()
         .map(|h| h.join(".arc").join("logs"))

@@ -11,6 +11,10 @@ struct Cli {
     #[arg(long, global = true)]
     no_dotenv: bool,
 
+    /// Enable DEBUG-level logging (default is INFO)
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -65,7 +69,7 @@ async fn main() -> Result<()> {
         dotenvy::dotenv().ok();
     }
 
-    if let Err(err) = logging::init_tracing() {
+    if let Err(err) = logging::init_tracing(cli.debug) {
         eprintln!("Warning: failed to initialize logging: {err:#}");
     }
 
