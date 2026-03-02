@@ -3270,68 +3270,6 @@ async fn integration_smoke_plan_implement_review_done() {
 }
 
 // ===========================================================================
-// 19a. Sub-pipeline E2E (TS Scenario 9)
-// ===========================================================================
-
-#[tokio::test]
-async fn sub_pipeline_e2e_through_engine() {
-    use arc_workflows::handler::sub_pipeline::SubPipelineHandler;
-
-    let input = r#"digraph SubPipelineE2E {
-        graph [goal="Test sub-pipeline"]
-        start [shape=Mdiamond]
-        exit  [shape=Msquare]
-        generate [shape=box, prompt="Generate code"]
-        validate [type="sub_pipeline", sub_pipeline.dot_source="digraph Child { start [shape=Mdiamond]; lint [shape=box, prompt=\"Lint\"]; test [shape=box, prompt=\"Test\"]; exit [shape=Msquare]; start -> lint -> test -> exit }"]
-
-        start -> generate -> validate -> exit
-    }"#;
-
-    let graph = parse(input).expect("parse should succeed");
-
-    let dir = tempfile::tempdir().unwrap();
-
-    let mut registry = HandlerRegistry::new(Box::new(CodergenHandler::new(None)));
-    registry.register("start", Box::new(StartHandler));
-    registry.register("exit", Box::new(ExitHandler));
-    registry.register("codergen", Box::new(CodergenHandler::new(None)));
-    registry.register("sub_pipeline", Box::new(SubPipelineHandler));
-
-    let engine = PipelineEngine::new(registry, Arc::new(EventEmitter::new()), local_env());
-    let config = RunConfig {
-        logs_root: dir.path().to_path_buf(),
-        cancel_token: None,
-        dry_run: false,
-        run_id: "test-run".into(),
-        git_checkpoint: None,
-        base_sha: None,
-        run_branch: None,
-        meta_branch: None,
-        labels: std::collections::HashMap::new(),
-    };
-
-    let outcome = engine
-        .run(&graph, &config)
-        .await
-        .expect("sub-pipeline E2E should succeed");
-    assert_eq!(outcome.status, StageStatus::Success);
-
-    let checkpoint = Checkpoint::load(&dir.path().join("checkpoint.json")).unwrap();
-    assert!(
-        checkpoint.completed_nodes.contains(&"generate".to_string()),
-        "generate should be in completed_nodes"
-    );
-    assert!(
-        checkpoint.completed_nodes.contains(&"validate".to_string()),
-        "validate should be in completed_nodes"
-    );
-
-    // Context should have last_stage set by the validate node's sub-pipeline
-    let last_stage = checkpoint.context_values.get("last_stage");
-    assert!(last_stage.is_some(), "last_stage should be set in context");
-}
-
-// ===========================================================================
 // 19b. Manager loop runs child engine E2E
 // ===========================================================================
 

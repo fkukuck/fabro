@@ -6,7 +6,6 @@ pub mod manager_loop;
 pub mod parallel;
 pub mod script;
 pub mod start;
-pub mod sub_pipeline;
 pub mod wait_human;
 
 use std::collections::HashMap;
@@ -137,7 +136,6 @@ pub fn default_registry(
         "parallel.fan_in",
         Box::new(fan_in::FanInHandler::new(make_backend())),
     );
-    registry.register("sub_pipeline", Box::new(sub_pipeline::SubPipelineHandler));
     registry.register(
         "stack.manager_loop",
         Box::new(manager_loop::ManagerLoopHandler),
