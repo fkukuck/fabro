@@ -215,39 +215,178 @@ pub async fn get_run_graph(
 pub async fn get_run_retro(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
-    Path(_id): Path<String>,
+    Path(id): Path<String>,
 ) -> Response {
-    // Return a demo retro as JSON
-    (StatusCode::OK, Json(serde_json::json!({
-        "run_id": "run-1",
-        "pipeline_name": "implement",
-        "goal": "Add rate limiting to auth endpoints",
-        "smoothness": "smooth",
-        "intent": "Implement token-bucket rate limiting on /auth/login and /auth/register to prevent brute-force attacks.",
-        "outcome": "Rate limiter deployed with configurable per-IP limits. Integration tests added. Redis-backed counter with sliding window.",
-        "stages": [
-            {"stage_id": "detect-drift", "stage_label": "Detect Drift", "status": "completed", "duration_ms": 72000, "retries": 0, "cost": 0.48, "files_touched": ["src/middleware/rate-limit.ts"]},
-            {"stage_id": "propose-changes", "stage_label": "Propose Changes", "status": "completed", "duration_ms": 154000, "retries": 0, "cost": 1.12, "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts"]},
-            {"stage_id": "review-changes", "stage_label": "Review Changes", "status": "completed", "duration_ms": 45000, "retries": 0, "cost": 0.31, "files_touched": []},
-            {"stage_id": "apply-changes", "stage_label": "Apply Changes", "status": "completed", "duration_ms": 118000, "retries": 0, "cost": 0.87, "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts", "tests/rate-limit.test.ts"]}
-        ],
-        "stats": {
-            "total_duration_ms": 389000,
-            "total_cost": 2.78,
-            "total_retries": 0,
-            "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts", "tests/rate-limit.test.ts"],
-            "stages_completed": 4,
-            "stages_failed": 0
-        },
-        "learnings": [
-            {"category": "repo", "text": "Redis client is initialized lazily in src/infra/redis.ts -- reuse existing connection pool."},
-            {"category": "code", "text": "Auth middleware chain order matters: rate-limit must run before JWT validation."}
-        ],
-        "friction_points": [],
-        "open_items": [
-            {"kind": "follow_up", "description": "Add rate-limit headers (X-RateLimit-Remaining) to response."}
-        ]
-    }))).into_response()
+    let retro = match id.as_str() {
+        "run-1" => serde_json::json!({
+            "run_id": "run-1",
+            "workflow_name": "implement",
+            "goal": "Add rate limiting to auth endpoints",
+            "timestamp": "2026-02-28T14:32:00Z",
+            "smoothness": "smooth",
+            "intent": "Implement token-bucket rate limiting on /auth/login and /auth/register to prevent brute-force attacks.",
+            "outcome": "Rate limiter deployed with configurable per-IP limits. Integration tests added. Redis-backed counter with sliding window.",
+            "stages": [
+                {"stage_id": "detect-drift", "stage_label": "Detect Drift", "status": "completed", "duration_ms": 72000, "retries": 0, "cost": 0.48, "files_touched": ["src/middleware/rate-limit.ts"]},
+                {"stage_id": "propose-changes", "stage_label": "Propose Changes", "status": "completed", "duration_ms": 154000, "retries": 0, "cost": 1.12, "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts"]},
+                {"stage_id": "review-changes", "stage_label": "Review Changes", "status": "completed", "duration_ms": 45000, "retries": 0, "cost": 0.31, "files_touched": []},
+                {"stage_id": "apply-changes", "stage_label": "Apply Changes", "status": "completed", "duration_ms": 118000, "retries": 0, "cost": 0.87, "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts", "tests/rate-limit.test.ts"]}
+            ],
+            "stats": {
+                "total_duration_ms": 389000,
+                "total_cost": 2.78,
+                "total_retries": 0,
+                "files_touched": ["src/middleware/rate-limit.ts", "src/routes/auth.ts", "src/config.ts", "tests/rate-limit.test.ts"],
+                "stages_completed": 4,
+                "stages_failed": 0
+            },
+            "learnings": [
+                {"category": "repo", "text": "Redis client is initialized lazily in src/infra/redis.ts -- reuse existing connection pool."},
+                {"category": "code", "text": "Auth middleware chain order matters: rate-limit must run before JWT validation."}
+            ],
+            "friction_points": [],
+            "open_items": [
+                {"kind": "follow_up", "description": "Add rate-limit headers (X-RateLimit-Remaining) to response."}
+            ]
+        }),
+        "run-2" => serde_json::json!({
+            "run_id": "run-2",
+            "workflow_name": "implement",
+            "goal": "Migrate to React Router v7",
+            "timestamp": "2026-02-28T10:15:00Z",
+            "smoothness": "bumpy",
+            "intent": "Upgrade react-router from v6 to v7, updating all route definitions and loader/action patterns to the new API.",
+            "outcome": "Migration completed but required 3 retries in the apply stage due to breaking changes in nested route handling. All routes now use the v7 data API.",
+            "stages": [
+                {"stage_id": "detect-drift", "stage_label": "Detect Drift", "status": "completed", "duration_ms": 95000, "retries": 0, "cost": 0.62, "files_touched": ["package.json"]},
+                {"stage_id": "propose-changes", "stage_label": "Propose Changes", "status": "completed", "duration_ms": 312000, "retries": 1, "cost": 2.45, "notes": "First proposal missed nested outlet patterns. Retry produced correct migration.", "files_touched": ["src/routes.ts", "src/app.tsx", "src/routes/dashboard.tsx", "src/routes/settings.tsx"]},
+                {"stage_id": "review-changes", "stage_label": "Review Changes", "status": "completed", "duration_ms": 88000, "retries": 0, "cost": 0.54, "files_touched": []},
+                {"stage_id": "apply-changes", "stage_label": "Apply Changes", "status": "completed", "duration_ms": 480000, "retries": 3, "cost": 3.21, "notes": "Type errors in nested layouts required multiple correction passes.", "files_touched": ["src/routes.ts", "src/app.tsx", "src/routes/dashboard.tsx", "src/routes/settings.tsx", "src/routes/profile.tsx", "tests/routes.test.tsx"]}
+            ],
+            "stats": {
+                "total_duration_ms": 975000,
+                "total_cost": 6.82,
+                "total_retries": 4,
+                "files_touched": ["package.json", "src/routes.ts", "src/app.tsx", "src/routes/dashboard.tsx", "src/routes/settings.tsx", "src/routes/profile.tsx", "tests/routes.test.tsx"],
+                "stages_completed": 4,
+                "stages_failed": 0
+            },
+            "learnings": [
+                {"category": "workflow", "text": "Framework migration tasks benefit from running type-check after each stage, not just at the end."},
+                {"category": "code", "text": "React Router v7 outlets require explicit type annotations for loader data in nested routes."},
+                {"category": "tool", "text": "The codemod tool missed JSX spread patterns -- manual fixup was needed."}
+            ],
+            "friction_points": [
+                {"kind": "retry", "description": "Nested route outlet types were incorrect on first 3 attempts.", "stage_id": "apply-changes"},
+                {"kind": "wrong_approach", "description": "Initially tried to keep v6 compat layer, which created more issues than a clean migration.", "stage_id": "propose-changes"}
+            ],
+            "open_items": [
+                {"kind": "tech_debt", "description": "Leftover v6 compat shims in src/utils/router-compat.ts should be deleted."},
+                {"kind": "test_gap", "description": "No E2E coverage for the new nested layout error boundaries."}
+            ]
+        }),
+        "run-6" => serde_json::json!({
+            "run_id": "run-6",
+            "workflow_name": "implement",
+            "goal": "Add dark mode toggle",
+            "timestamp": "2026-02-27T16:45:00Z",
+            "smoothness": "effortless",
+            "intent": "Add a theme toggle component to the dashboard header with system/light/dark options, persisting preference to localStorage.",
+            "outcome": "Dark mode toggle shipped with smooth CSS transitions. All existing components already used CSS variables, so no style refactoring was needed.",
+            "stages": [
+                {"stage_id": "detect-drift", "stage_label": "Detect Drift", "status": "completed", "duration_ms": 42000, "retries": 0, "cost": 0.28, "files_touched": []},
+                {"stage_id": "propose-changes", "stage_label": "Propose Changes", "status": "completed", "duration_ms": 98000, "retries": 0, "cost": 0.71, "files_touched": ["src/components/ThemeToggle.tsx", "src/hooks/useTheme.ts"]},
+                {"stage_id": "apply-changes", "stage_label": "Apply Changes", "status": "completed", "duration_ms": 76000, "retries": 0, "cost": 0.52, "files_touched": ["src/components/ThemeToggle.tsx", "src/hooks/useTheme.ts", "src/layouts/Header.tsx"]}
+            ],
+            "stats": {
+                "total_duration_ms": 216000,
+                "total_cost": 1.51,
+                "total_retries": 0,
+                "files_touched": ["src/components/ThemeToggle.tsx", "src/hooks/useTheme.ts", "src/layouts/Header.tsx"],
+                "stages_completed": 3,
+                "stages_failed": 0
+            },
+            "learnings": [
+                {"category": "repo", "text": "CSS variables are defined in src/styles/tokens.css and already support dark values."}
+            ],
+            "friction_points": [],
+            "open_items": []
+        }),
+        "run-3" => serde_json::json!({
+            "run_id": "run-3",
+            "workflow_name": "fix_build",
+            "goal": "Fix config parsing for nested values",
+            "timestamp": "2026-02-27T09:20:00Z",
+            "smoothness": "struggled",
+            "intent": "Fix TOML config parser to handle deeply nested table arrays, which was causing silent data loss on certain pipeline configs.",
+            "outcome": "Root cause identified as incorrect recursion depth limit in the TOML walker. Fix applied but exposed a second bug in default value merging that required additional changes.",
+            "stages": [
+                {"stage_id": "investigate", "stage_label": "Investigate", "status": "completed", "duration_ms": 340000, "retries": 2, "cost": 1.85, "notes": "First investigation looked at wrong parser path. Second attempt found the actual recursion limit.", "files_touched": ["src/config/parser.ts", "src/config/defaults.ts"]},
+                {"stage_id": "propose-fix", "stage_label": "Propose Fix", "status": "completed", "duration_ms": 210000, "retries": 1, "cost": 1.42, "files_touched": ["src/config/parser.ts", "src/config/defaults.ts", "src/config/merge.ts"]},
+                {"stage_id": "apply-fix", "stage_label": "Apply Fix", "status": "completed", "duration_ms": 185000, "retries": 1, "cost": 1.15, "failure_reason": "Initial fix broke the default value merging path. Required a second pass.", "files_touched": ["src/config/parser.ts", "src/config/defaults.ts", "src/config/merge.ts", "tests/config-parser.test.ts"]},
+                {"stage_id": "verify", "stage_label": "Verify", "status": "completed", "duration_ms": 95000, "retries": 0, "cost": 0.55, "files_touched": []}
+            ],
+            "stats": {
+                "total_duration_ms": 830000,
+                "total_cost": 4.97,
+                "total_retries": 4,
+                "files_touched": ["src/config/parser.ts", "src/config/defaults.ts", "src/config/merge.ts", "tests/config-parser.test.ts"],
+                "stages_completed": 4,
+                "stages_failed": 0
+            },
+            "learnings": [
+                {"category": "code", "text": "TOML walker in parser.ts has a hardcoded depth limit of 8 -- needs to be configurable."},
+                {"category": "code", "text": "Default merging in merge.ts uses shallow spread, which silently drops nested keys."},
+                {"category": "workflow", "text": "Bug fix pipelines should include a regression test stage before verification."}
+            ],
+            "friction_points": [
+                {"kind": "wrong_approach", "description": "Initial investigation focused on the YAML compatibility layer instead of the TOML parser.", "stage_id": "investigate"},
+                {"kind": "retry", "description": "Fix introduced a regression in default value merging that required rework.", "stage_id": "apply-fix"},
+                {"kind": "ambiguity", "description": "Config schema docs were outdated, making it unclear which nesting depth was intended."}
+            ],
+            "open_items": [
+                {"kind": "tech_debt", "description": "Remove the hardcoded depth limit in src/config/parser.ts and make it configurable."},
+                {"kind": "investigation", "description": "Audit other parsers for similar shallow-spread bugs in merging logic."},
+                {"kind": "test_gap", "description": "No tests for configs nested deeper than 4 levels."}
+            ]
+        }),
+        "run-8" => serde_json::json!({
+            "run_id": "run-8",
+            "workflow_name": "implement",
+            "goal": "Implement webhook retry logic",
+            "timestamp": "2026-02-26T11:00:00Z",
+            "smoothness": "smooth",
+            "intent": "Add exponential backoff retry logic for failed webhook deliveries with configurable max attempts and dead-letter queue.",
+            "outcome": "Webhook retry system implemented with exponential backoff (base 2s, max 5 retries). Failed deliveries route to SQS dead-letter queue. Dashboard shows retry status.",
+            "stages": [
+                {"stage_id": "detect-drift", "stage_label": "Detect Drift", "status": "completed", "duration_ms": 55000, "retries": 0, "cost": 0.35, "files_touched": []},
+                {"stage_id": "propose-changes", "stage_label": "Propose Changes", "status": "completed", "duration_ms": 178000, "retries": 0, "cost": 1.28, "files_touched": ["src/webhooks/retry.ts", "src/webhooks/dlq.ts", "src/webhooks/dispatcher.ts"]},
+                {"stage_id": "review-changes", "stage_label": "Review Changes", "status": "completed", "duration_ms": 62000, "retries": 0, "cost": 0.41, "files_touched": []},
+                {"stage_id": "apply-changes", "stage_label": "Apply Changes", "status": "completed", "duration_ms": 145000, "retries": 1, "cost": 1.05, "notes": "Minor type fix needed on retry delay calculation.", "files_touched": ["src/webhooks/retry.ts", "src/webhooks/dlq.ts", "src/webhooks/dispatcher.ts", "tests/webhook-retry.test.ts"]}
+            ],
+            "stats": {
+                "total_duration_ms": 440000,
+                "total_cost": 3.09,
+                "total_retries": 1,
+                "files_touched": ["src/webhooks/retry.ts", "src/webhooks/dlq.ts", "src/webhooks/dispatcher.ts", "tests/webhook-retry.test.ts"],
+                "stages_completed": 4,
+                "stages_failed": 0
+            },
+            "learnings": [
+                {"category": "repo", "text": "SQS client wrapper is in src/infra/sqs.ts with pre-configured DLQ ARNs per environment."},
+                {"category": "code", "text": "Webhook dispatcher already had a hook point for retry logic via the onFailure callback."}
+            ],
+            "friction_points": [
+                {"kind": "retry", "description": "Retry delay formula had an off-by-one in the exponent calculation.", "stage_id": "apply-changes"}
+            ],
+            "open_items": [
+                {"kind": "follow_up", "description": "Add webhook retry metrics to the Grafana dashboard."},
+                {"kind": "follow_up", "description": "Document the DLQ reprocessing procedure in the runbook."}
+            ]
+        }),
+        _ => serde_json::json!(null),
+    };
+    (StatusCode::OK, Json(retro)).into_response()
 }
 
 // ── Workflows ──────────────────────────────────────────────────────────
@@ -562,7 +701,14 @@ mod runs {
                     CheckRun { name: "typecheck".into(), status: CheckRunStatus::Success, duration_secs: Some(68.0) },
                     CheckRun { name: "unit-tests".into(), status: CheckRunStatus::Success, duration_secs: Some(192.0) },
                     CheckRun { name: "integration-tests".into(), status: CheckRunStatus::Success, duration_secs: Some(334.0) },
+                    CheckRun { name: "e2e / chrome".into(), status: CheckRunStatus::Success, duration_secs: Some(262.0) },
+                    CheckRun { name: "e2e / firefox".into(), status: CheckRunStatus::Success, duration_secs: Some(285.0) },
                     CheckRun { name: "build".into(), status: CheckRunStatus::Success, duration_secs: Some(121.0) },
+                    CheckRun { name: "deploy-preview".into(), status: CheckRunStatus::Success, duration_secs: Some(93.0) },
+                    CheckRun { name: "security-scan".into(), status: CheckRunStatus::Skipped, duration_secs: None },
+                    CheckRun { name: "performance".into(), status: CheckRunStatus::Success, duration_secs: Some(138.0) },
+                    CheckRun { name: "bundle-size".into(), status: CheckRunStatus::Success, duration_secs: Some(34.0) },
+                    CheckRun { name: "accessibility".into(), status: CheckRunStatus::Success, duration_secs: Some(72.0) },
                 ],
                 elapsed_secs: Some(259200.0), elapsed_warning: Some(true),
                 resources: None, comments: Some(7),
@@ -578,6 +724,8 @@ mod runs {
                     CheckRun { name: "typecheck".into(), status: CheckRunStatus::Success, duration_secs: Some(48.0) },
                     CheckRun { name: "unit-tests".into(), status: CheckRunStatus::Success, duration_secs: Some(116.0) },
                     CheckRun { name: "build".into(), status: CheckRunStatus::Success, duration_secs: Some(82.0) },
+                    CheckRun { name: "coverage".into(), status: CheckRunStatus::Success, duration_secs: Some(124.0) },
+                    CheckRun { name: "bundle-size".into(), status: CheckRunStatus::Skipped, duration_secs: None },
                 ],
                 elapsed_secs: Some(3900.0), elapsed_warning: Some(false),
                 resources: None, comments: Some(2),
@@ -1050,7 +1198,7 @@ mod retros {
                 goal: "Add rate limiting to auth endpoints".into(),
                 timestamp: "2026-02-28T14:32:00Z".into(),
                 smoothness: Some(SmoothnessRating::Smooth),
-                stats: RetroStats { total_duration_ms: 389000, total_cost: Some(2.78), total_retries: 0, files_touched: vec!["src/middleware/rate-limit.ts".into()], stages_completed: 4, stages_failed: 0 },
+                stats: RetroStats { total_duration_ms: 389000, total_cost: Some(2.78), total_retries: 0, files_touched: vec!["src/middleware/rate-limit.ts".into(), "src/routes/auth.ts".into(), "src/config.ts".into(), "tests/rate-limit.test.ts".into()], stages_completed: 4, stages_failed: 0 },
                 friction_point_count: 0,
             },
             RetroListItem {
@@ -1058,7 +1206,7 @@ mod retros {
                 goal: "Migrate to React Router v7".into(),
                 timestamp: "2026-02-28T10:15:00Z".into(),
                 smoothness: Some(SmoothnessRating::Bumpy),
-                stats: RetroStats { total_duration_ms: 975000, total_cost: Some(6.82), total_retries: 4, files_touched: vec!["src/routes.ts".into()], stages_completed: 4, stages_failed: 0 },
+                stats: RetroStats { total_duration_ms: 975000, total_cost: Some(6.82), total_retries: 4, files_touched: vec!["package.json".into(), "src/routes.ts".into(), "src/app.tsx".into(), "src/routes/dashboard.tsx".into(), "src/routes/settings.tsx".into(), "src/routes/profile.tsx".into(), "tests/routes.test.tsx".into()], stages_completed: 4, stages_failed: 0 },
                 friction_point_count: 2,
             },
             RetroListItem {
@@ -1066,7 +1214,7 @@ mod retros {
                 goal: "Add dark mode toggle".into(),
                 timestamp: "2026-02-27T16:45:00Z".into(),
                 smoothness: Some(SmoothnessRating::Effortless),
-                stats: RetroStats { total_duration_ms: 216000, total_cost: Some(1.51), total_retries: 0, files_touched: vec!["src/components/ThemeToggle.tsx".into()], stages_completed: 3, stages_failed: 0 },
+                stats: RetroStats { total_duration_ms: 216000, total_cost: Some(1.51), total_retries: 0, files_touched: vec!["src/components/ThemeToggle.tsx".into(), "src/hooks/useTheme.ts".into(), "src/layouts/Header.tsx".into()], stages_completed: 3, stages_failed: 0 },
                 friction_point_count: 0,
             },
             RetroListItem {
@@ -1074,7 +1222,7 @@ mod retros {
                 goal: "Fix config parsing for nested values".into(),
                 timestamp: "2026-02-27T09:20:00Z".into(),
                 smoothness: Some(SmoothnessRating::Struggled),
-                stats: RetroStats { total_duration_ms: 830000, total_cost: Some(4.97), total_retries: 4, files_touched: vec!["src/config/parser.ts".into()], stages_completed: 4, stages_failed: 0 },
+                stats: RetroStats { total_duration_ms: 830000, total_cost: Some(4.97), total_retries: 4, files_touched: vec!["src/config/parser.ts".into(), "src/config/defaults.ts".into(), "src/config/merge.ts".into(), "tests/config-parser.test.ts".into()], stages_completed: 4, stages_failed: 0 },
                 friction_point_count: 3,
             },
             RetroListItem {
@@ -1082,7 +1230,7 @@ mod retros {
                 goal: "Implement webhook retry logic".into(),
                 timestamp: "2026-02-26T11:00:00Z".into(),
                 smoothness: Some(SmoothnessRating::Smooth),
-                stats: RetroStats { total_duration_ms: 440000, total_cost: Some(3.09), total_retries: 1, files_touched: vec!["src/webhooks/retry.ts".into()], stages_completed: 4, stages_failed: 0 },
+                stats: RetroStats { total_duration_ms: 440000, total_cost: Some(3.09), total_retries: 1, files_touched: vec!["src/webhooks/retry.ts".into(), "src/webhooks/dlq.ts".into(), "src/webhooks/dispatcher.ts".into(), "tests/webhook-retry.test.ts".into()], stages_completed: 4, stages_failed: 0 },
                 friction_point_count: 1,
             },
         ]
@@ -1106,13 +1254,15 @@ mod sessions {
                 sessions: vec![
                     SessionListItem { id: "s3".into(), title: "Migrate to React Router v7".into(), repo: "web-dashboard".into(), time: "1d ago".into() },
                     SessionListItem { id: "s4".into(), title: "Add dark mode toggle".into(), repo: "web-dashboard".into(), time: "1d ago".into() },
+                    SessionListItem { id: "s5".into(), title: "Update OpenAPI spec for v3".into(), repo: "api-server".into(), time: "1d ago".into() },
                 ],
             },
             SessionGroup {
                 label: "Previous 7 days".into(),
                 sessions: vec![
                     SessionListItem { id: "s6".into(), title: "Terraform module for Redis cluster".into(), repo: "infrastructure".into(), time: "3d ago".into() },
-                    SessionListItem { id: "s7".into(), title: "Add workflow run event types".into(), repo: "shared-types".into(), time: "5d ago".into() },
+                    SessionListItem { id: "s7".into(), title: "Add pipeline event types".into(), repo: "shared-types".into(), time: "5d ago".into() },
+                    SessionListItem { id: "s8".into(), title: "Implement webhook retry logic".into(), repo: "api-server".into(), time: "6d ago".into() },
                 ],
             },
         ]
@@ -1123,12 +1273,48 @@ mod sessions {
             "s1" => Some(SessionDetail {
                 id: "s1".into(), title: "Add rate limiting to auth endpoints".into(), repo: "api-server".into(), model: "Opus 4.6".into(),
                 turns: vec![
-                    SessionTurn { kind: SessionTurnKind::User, content: Some("Add rate limiting to the auth endpoints. Use a sliding window approach with Redis, 10 requests per minute per IP.".into()), date: Some("Feb 28".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("Add rate limiting to the auth endpoints. We're getting hit with brute force attempts on /api/auth/login and /api/auth/register. Use a sliding window approach with Redis, 10 requests per minute per IP.".into()), date: Some("Feb 28".into()), tools: vec![] },
                     SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll implement sliding window rate limiting using Redis. Let me first look at the existing auth routes and middleware setup.".into()), date: None, tools: vec![] },
                     SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
-                        ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/routes/auth.ts" }"#.into(), result: "import { Router } from \"express\";\n// ...".into() },
+                        ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/routes/auth.ts" }"#.into(), result: "import { Router } from \"express\";\nimport { loginHandler } from \"../handlers/auth\";\nimport { registerHandler } from \"../handlers/auth\";\n\nconst router = Router();\nrouter.post(\"/login\", loginHandler);\nrouter.post(\"/register\", registerHandler);\n\nexport default router;".into() },
+                        ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/middleware/index.ts" }"#.into(), result: "export { authMiddleware } from \"./auth\";\nexport { corsMiddleware } from \"./cors\";\nexport { loggingMiddleware } from \"./logging\";".into() },
+                        ToolUse { tool_name: "search_files".into(), args: r#"{ "pattern": "redis", "path": "src/" }"#.into(), result: "src/lib/redis.ts:1: import Redis from \"ioredis\";\nsrc/lib/redis.ts:3: export const redis = new Redis(process.env.REDIS_URL);".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Good — there's already a Redis client at `src/lib/redis.ts`. I'll create a rate limiting middleware and apply it to the auth routes.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Good \u{2014} there's already a Redis client at `src/lib/redis.ts`. I'll create a rate limiting middleware using the sliding window algorithm and apply it to the auth routes.\n\nHere's the plan:\n1. Create `src/middleware/rate-limit.ts` with sliding window logic\n2. Apply it to `/login` and `/register` routes\n3. Return `429 Too Many Requests` when the limit is exceeded".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                        ToolUse { tool_name: "write_file".into(), args: r#"{ "path": "src/middleware/rate-limit.ts" }"#.into(), result: "File written: src/middleware/rate-limit.ts (47 lines)".into() },
+                        ToolUse { tool_name: "edit_file".into(), args: r#"{ "path": "src/routes/auth.ts", "operations": [{ "type": "insert", "line": 3 }] }"#.into(), result: "Applied 1 edit to src/routes/auth.ts".into() },
+                        ToolUse { tool_name: "edit_file".into(), args: r#"{ "path": "src/middleware/index.ts", "operations": [{ "type": "append" }] }"#.into(), result: "Applied 1 edit to src/middleware/index.ts".into() },
+                    ] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Done. I've created the rate limiter and wired it up:\n\n- **`src/middleware/rate-limit.ts`** \u{2014} Sliding window rate limiter using Redis sorted sets. Each request adds a timestamped entry, expired entries are pruned, and the count is checked against the limit.\n- **`src/routes/auth.ts`** \u{2014} Applied `rateLimit({ windowMs: 60_000, max: 10 })` to both `/login` and `/register`.\n- **`src/middleware/index.ts`** \u{2014} Re-exported the new middleware.\n\nWhen the limit is exceeded, clients get a `429` response with a `Retry-After` header indicating seconds until the window resets.".into()), date: None, tools: vec![] },
+                ],
+            }),
+            "s2" => Some(SessionDetail {
+                id: "s2".into(), title: "Fix config parsing for nested values".into(), repo: "cli-tools".into(), model: "Sonnet 4.6".into(),
+                turns: vec![
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("The CLI crashes when parsing nested TOML config values like [database.connection]. Can you debug and fix this?".into()), date: Some("Feb 28".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Let me look at the config parser to understand how nested keys are handled.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                        ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/config/parser.ts" }"#.into(), result: "export function parseConfig(raw: string): Record<string, string> {\n  const result: Record<string, string> = {};\n  for (const line of raw.split(\"\\n\")) {\n    const match = line.match(/^(\\w+)\\s*=\\s*(.+)$/);\n    if (match) result[match[1]] = match[2].trim();\n  }\n  return result;\n}".into() },
+                    ] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Found the issue. The parser uses a flat `Record<string, string>` and the regex `^(\\w+)` only matches simple keys \u{2014} it can't handle TOML section headers like `[database.connection]` or dotted keys like `database.host`.\n\nI'll rewrite the parser to support nested sections and dotted keys, producing a properly nested object.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                        ToolUse { tool_name: "write_file".into(), args: r#"{ "path": "src/config/parser.ts" }"#.into(), result: "File written: src/config/parser.ts (62 lines)".into() },
+                        ToolUse { tool_name: "run_command".into(), args: r#"{ "command": "npm test -- --grep 'config parser'" }"#.into(), result: "PASS src/config/__tests__/parser.test.ts\n  config parser\n    \u{2713} parses flat keys (2ms)\n    \u{2713} parses section headers (1ms)\n    \u{2713} parses dotted keys (1ms)\n    \u{2713} handles nested sections (1ms)\n\nTest Suites: 1 passed\nTests: 4 passed".into() },
+                    ] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Fixed. The parser now:\n\n1. Tracks the current section header (e.g. `[database.connection]`)\n2. Constructs nested objects from dotted paths\n3. Handles both `key = value` within sections and bare `dotted.key = value` syntax\n\nAll 4 tests pass, including the new nested section case.".into()), date: None, tools: vec![] },
+                ],
+            }),
+            "s3" => Some(SessionDetail {
+                id: "s3".into(), title: "Migrate to React Router v7".into(), repo: "web-dashboard".into(), model: "Opus 4.6".into(),
+                turns: vec![
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("Help me migrate our app from React Router v6 to v7. We're using createBrowserRouter with data loaders.".into()), date: Some("Feb 26".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll audit your current router setup and identify what needs to change for v7. Let me scan the codebase.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                        ToolUse { tool_name: "search_files".into(), args: r#"{ "pattern": "createBrowserRouter" }"#.into(), result: "src/main.tsx:5: import { createBrowserRouter } from \"react-router-dom\";\nsrc/main.tsx:8: const router = createBrowserRouter([".into() },
+                        ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "package.json" }"#.into(), result: "\"react-router-dom\": \"^6.22.0\"".into() },
+                    ] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("You're on React Router 6.22. The migration to v7 involves:\n\n1. Replace `react-router-dom` with `react-router` (single package)\n2. Update `createBrowserRouter` import path\n3. Migrate data loaders to the new `Route.LoaderArgs` type\n4. Update any `useLoaderData` calls to be type-safe\n\nLet me make these changes.".into()), date: None, tools: vec![] },
                 ],
             }),
             _ => None,
@@ -1166,7 +1352,7 @@ mod settings {
                 fields: vec![
                     SettingField { key: "org_name".into(), label: "Organization name".into(), value: "Acme Corp".into(), type_: SettingFieldType::Text, options: vec![], description: None },
                     SettingField { key: "default_branch".into(), label: "Default branch".into(), value: "main".into(), type_: SettingFieldType::Text, options: vec![], description: None },
-                    SettingField { key: "timezone".into(), label: "Timezone".into(), value: "America/New_York".into(), type_: SettingFieldType::Select, options: vec!["America/New_York".into(), "UTC".into(), "Europe/London".into()], description: None },
+                    SettingField { key: "timezone".into(), label: "Timezone".into(), value: "America/New_York".into(), type_: SettingFieldType::Select, options: vec!["America/New_York".into(), "America/Chicago".into(), "America/Denver".into(), "America/Los_Angeles".into(), "UTC".into(), "Europe/London".into(), "Europe/Berlin".into(), "Asia/Tokyo".into()], description: None },
                     SettingField { key: "auto_cancel".into(), label: "Auto-cancel superseded runs".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
                 ],
             },
@@ -1176,28 +1362,38 @@ mod settings {
                     SettingField { key: "github_org".into(), label: "GitHub organization".into(), value: "acme-corp".into(), type_: SettingFieldType::Text, options: vec![], description: None },
                     SettingField { key: "clone_protocol".into(), label: "Clone protocol".into(), value: "SSH".into(), type_: SettingFieldType::Select, options: vec!["SSH".into(), "HTTPS".into()], description: None },
                     SettingField { key: "auto_merge".into(), label: "Auto-merge when checks pass".into(), value: "false".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "delete_branch".into(), label: "Delete branch after merge".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "commit_signing".into(), label: "Require commit signing".into(), value: "false".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
                 ],
             },
             SettingGroup {
                 id: "compute".into(), name: "Compute".into(), description: "Resource allocation and execution environment.".into(),
                 fields: vec![
                     SettingField { key: "default_cpu".into(), label: "Default CPU".into(), value: "4".into(), type_: SettingFieldType::Select, options: vec!["2".into(), "4".into(), "8".into(), "16".into()], description: None },
-                    SettingField { key: "default_memory".into(), label: "Default memory".into(), value: "8 GB".into(), type_: SettingFieldType::Select, options: vec!["4 GB".into(), "8 GB".into(), "16 GB".into()], description: None },
+                    SettingField { key: "default_memory".into(), label: "Default memory".into(), value: "8 GB".into(), type_: SettingFieldType::Select, options: vec!["4 GB".into(), "8 GB".into(), "16 GB".into(), "32 GB".into()], description: None },
                     SettingField { key: "max_parallel".into(), label: "Max parallel runs".into(), value: "10".into(), type_: SettingFieldType::Text, options: vec![], description: None },
+                    SettingField { key: "timeout_minutes".into(), label: "Run timeout (minutes)".into(), value: "120".into(), type_: SettingFieldType::Text, options: vec![], description: None },
+                    SettingField { key: "gpu_enabled".into(), label: "GPU acceleration".into(), value: "false".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
                 ],
             },
             SettingGroup {
                 id: "notifications".into(), name: "Notifications".into(), description: "Alerts and notification delivery preferences.".into(),
                 fields: vec![
+                    SettingField { key: "slack_webhook".into(), label: "Slack webhook URL".into(), value: "https://hooks.slack.com/services/T00/B00/xxxx".into(), type_: SettingFieldType::Text, options: vec![], description: None },
                     SettingField { key: "notify_on_failure".into(), label: "Notify on failure".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
                     SettingField { key: "notify_on_success".into(), label: "Notify on success".into(), value: "false".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "notify_on_approval".into(), label: "Notify on approval needed".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "email_digest".into(), label: "Daily email digest".into(), value: "false".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
                 ],
             },
             SettingGroup {
                 id: "security".into(), name: "Security".into(), description: "Access control and security policies.".into(),
                 fields: vec![
-                    SettingField { key: "sso_provider".into(), label: "SSO provider".into(), value: "Okta".into(), type_: SettingFieldType::Select, options: vec!["None".into(), "Okta".into(), "Azure AD".into()], description: None },
+                    SettingField { key: "sso_provider".into(), label: "SSO provider".into(), value: "Okta".into(), type_: SettingFieldType::Select, options: vec!["None".into(), "Okta".into(), "Azure AD".into(), "Google Workspace".into(), "OneLogin".into()], description: None },
                     SettingField { key: "mfa_required".into(), label: "Require MFA".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "session_timeout".into(), label: "Session timeout".into(), value: "8 hours".into(), type_: SettingFieldType::Select, options: vec!["1 hour".into(), "4 hours".into(), "8 hours".into(), "24 hours".into(), "7 days".into()], description: None },
+                    SettingField { key: "audit_log".into(), label: "Audit logging".into(), value: "true".into(), type_: SettingFieldType::Toggle, options: vec![], description: None },
+                    SettingField { key: "ip_allowlist".into(), label: "IP allowlist".into(), value: "".into(), type_: SettingFieldType::Text, options: vec![], description: Some("Comma-separated CIDRs. Leave empty to allow all.".into()) },
                 ],
             },
         ]
