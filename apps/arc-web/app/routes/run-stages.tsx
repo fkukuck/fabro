@@ -3,8 +3,10 @@ import { Link, useParams } from "react-router";
 import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import { CheckCircleIcon, ArrowPathIcon, PauseCircleIcon, XCircleIcon } from "@heroicons/react/24/solid";
 import { DocumentTextIcon, MapIcon, CommandLineIcon, ChatBubbleLeftIcon, WrenchScrewdriverIcon } from "@heroicons/react/24/outline";
-import { findRun } from "../data/runs";
-import { workflowData } from "./workflow-detail";
+import { apiJson } from "../api-client";
+import { formatDurationSecs } from "../lib/format";
+import type { RunStage, StageTurn as ApiStageTurn } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-stages";
 
 export const handle = { wide: true };
 
@@ -17,12 +19,24 @@ interface Stage {
   duration: string;
 }
 
-const stages: Stage[] = [
-  { id: "detect-drift", name: "Detect Drift", status: "completed", duration: "1m 12s" },
-  { id: "propose-changes", name: "Propose Changes", status: "completed", duration: "2m 34s" },
-  { id: "review-changes", name: "Review Changes", status: "completed", duration: "0m 45s" },
-  { id: "apply-changes", name: "Apply Changes", status: "running", duration: "1m 58s" },
-];
+export async function loader({ params }: Route.LoaderArgs) {
+  const apiStages = await apiJson<RunStage[]>(`/runs/${params.id}/stages`);
+  const stages: Stage[] = apiStages.map((s) => ({
+    id: s.id,
+    name: s.name,
+    status: s.status as StageStatus,
+    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
+  }));
+
+  // Fetch turns for the selected stage (first stage if none specified)
+  const selectedStageId = params.stageId ?? stages[0]?.id;
+  let turns: ApiStageTurn[] = [];
+  if (selectedStageId) {
+    turns = await apiJson<ApiStageTurn[]>(`/runs/${params.id}/stages/${selectedStageId}/turns`);
+  }
+
+  return { stages, turns };
+}
 
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
@@ -43,41 +57,6 @@ type TurnType =
   | { kind: "tool"; tools: ToolUse[] };
 
 // selectedStage is resolved from the URL param in RunStages below
-
-const turns: TurnType[] = [
-  {
-    kind: "system",
-    content: `You are a drift detection agent. Compare the production and staging environments and identify any configuration or code drift.\n\nSource: production\nTarget: staging\nThreshold: warn`,
-  },
-  {
-    kind: "assistant",
-    content: "I'll start by loading the environment configurations for both production and staging to compare them.",
-  },
-  {
-    kind: "tool",
-    tools: [
-      {
-        toolName: "read_file",
-        args: `{ "path": "environments/production/config.toml" }`,
-        result: `[redis]\nhost = "redis-prod.internal"\nport = 6379\nmax_connections = 200\ntls = true\n\n[iam]\nrole_arn = "arn:aws:iam::123456:role/prod-api"\nsession_duration = 3600`,
-      },
-      {
-        toolName: "read_file",
-        args: `{ "path": "environments/staging/config.toml" }`,
-        result: `[redis]\nhost = "redis-staging.internal"\nport = 6379\nmax_connections = 100\ntls = false\n\n[iam]\nrole_arn = "arn:aws:iam::123456:role/staging-api"\nsession_duration = 1800`,
-      },
-      {
-        toolName: "diff_configs",
-        args: `{ "source": "environments/production/config.toml", "target": "environments/staging/config.toml" }`,
-        result: `3 differences found:\n  redis.max_connections: 200 → 100\n  redis.tls: true → false\n  iam.session_duration: 3600 → 1800`,
-      },
-    ],
-  },
-  {
-    kind: "assistant",
-    content: "I've detected drift in 3 resources between production and staging:\n\n1. **redis.max_connections** — production has 200, staging has 100\n2. **redis.tls** — enabled in production, disabled in staging\n3. **iam.session_duration** — production uses 3600s, staging uses 1800s\n\nThe TLS mismatch is the most critical — staging should match production's TLS configuration for accurate testing. The connection pool and session duration differences may be intentional for cost reasons but should be verified.",
-  },
-];
 
 function ToolRow({ tool }: { tool: ToolUse }) {
   const [open, setOpen] = useState(false);
@@ -148,10 +127,24 @@ function AssistantBlock({ content }: { content: string }) {
   );
 }
 
-export default function RunStages() {
+export default function RunStages({ loaderData }: Route.ComponentProps) {
   const { id, stageId } = useParams();
-  const run = findRun(id ?? "");
-  const workflow = run ? workflowData[run.workflow] : undefined;
+  const { stages, turns: apiTurns } = loaderData;
+
+  const mappedTurns: TurnType[] = apiTurns.map((t) => {
+    if (t.kind === "tool" && t.tools) {
+      return {
+        kind: "tool" as const,
+        tools: t.tools.map((tu) => ({
+          toolName: tu.tool_name,
+          args: tu.args,
+          result: tu.result,
+        })),
+      };
+    }
+    return { kind: t.kind as "system" | "assistant", content: t.content ?? "" };
+  });
+
   const selectedStage = stages.find((s) => s.id === stageId) ?? stages[0];
   const selectedConfig = statusConfig[selectedStage.status];
   const SelectedIcon = selectedConfig.icon;
@@ -186,31 +179,29 @@ export default function RunStages() {
           </ul>
         </div>
 
-        {workflow && (
-          <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
-            <ul className="mt-2 space-y-0.5">
-              <li>
-                <Link
-                  to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
-                >
-                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
-                  Run Configuration
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
-                >
-                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
-                  Workflow Graph
-                </Link>
-              </li>
-            </ul>
-          </div>
-        )}
+        <div>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
+          <ul className="mt-2 space-y-0.5">
+            <li>
+              <Link
+                to={`/runs/${id}/configuration`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
+              >
+                <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
+                Run Configuration
+              </Link>
+            </li>
+            <li>
+              <Link
+                to={`/runs/${id}/graph`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
+              >
+                <MapIcon className="size-4 shrink-0 text-fg-muted" />
+                Workflow Graph
+              </Link>
+            </li>
+          </ul>
+        </div>
       </nav>
 
       <div className="min-w-0 flex-1 space-y-3">
@@ -220,7 +211,7 @@ export default function RunStages() {
           <span className="font-mono text-xs text-fg-muted">{selectedStage.duration}</span>
         </div>
 
-        {turns.map((turn, i) => {
+        {mappedTurns.map((turn, i) => {
           switch (turn.kind) {
             case "system":
               return <SystemBlock key={i} content={turn.content} />;

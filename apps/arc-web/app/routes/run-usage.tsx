@@ -1,35 +1,40 @@
-const stages = [
-  { stage: "Detect Drift", model: "Opus 4.6", inputTokens: 12_480, outputTokens: 3_210, runtime: "1m 12s", cost: 0.48 },
-  { stage: "Propose Changes", model: "Gemini 3.1", inputTokens: 28_640, outputTokens: 8_750, runtime: "2m 34s", cost: 0.72 },
-  { stage: "Review Changes", model: "Codex 5.3", inputTokens: 9_120, outputTokens: 2_640, runtime: "0m 45s", cost: 0.19 },
-  { stage: "Apply Changes", model: "Opus 4.6", inputTokens: 21_300, outputTokens: 6_480, runtime: "1m 58s", cost: 0.87 },
-];
+import { apiJson } from "../api-client";
+import { formatDurationSecs } from "../lib/format";
+import type { RunUsage } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-usage";
 
-const totalRuntime = "6m 29s";
-const totalCost = stages.reduce((sum, s) => sum + s.cost, 0);
-const totalInput = stages.reduce((sum, s) => sum + s.inputTokens, 0);
-const totalOutput = stages.reduce((sum, s) => sum + s.outputTokens, 0);
-
-const modelBreakdown = Object.values(
-  stages.reduce<Record<string, { model: string; inputTokens: number; outputTokens: number; cost: number; stages: number }>>(
-    (acc, s) => {
-      const entry = acc[s.model] ?? { model: s.model, inputTokens: 0, outputTokens: 0, cost: 0, stages: 0 };
-      entry.inputTokens += s.inputTokens;
-      entry.outputTokens += s.outputTokens;
-      entry.cost += s.cost;
-      entry.stages += 1;
-      acc[s.model] = entry;
-      return acc;
-    },
-    {},
-  ),
-).sort((a, b) => b.cost - a.cost);
+export async function loader({ params }: Route.LoaderArgs) {
+  const usage = await apiJson<RunUsage>(`/runs/${params.id}/usage`);
+  const stages = usage.stages.map((s) => ({
+    stage: s.stage,
+    model: s.model,
+    inputTokens: s.input_tokens,
+    outputTokens: s.output_tokens,
+    runtime: formatDurationSecs(s.runtime_secs),
+    cost: s.cost,
+  }));
+  const totalRuntime = formatDurationSecs(usage.totals.runtime_secs);
+  const totalCost = usage.totals.cost;
+  const totalInput = usage.totals.input_tokens;
+  const totalOutput = usage.totals.output_tokens;
+  const modelBreakdown = usage.by_model
+    .map((m) => ({
+      model: m.model,
+      stages: m.stages,
+      inputTokens: m.input_tokens,
+      outputTokens: m.output_tokens,
+      cost: m.cost,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+  return { stages, totalRuntime, totalCost, totalInput, totalOutput, modelBreakdown };
+}
 
 function formatTokens(n: number) {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-export default function RunUsage() {
+export default function RunUsage({ loaderData }: Route.ComponentProps) {
+  const { stages, totalRuntime, totalCost, totalInput, totalOutput, modelBreakdown } = loaderData;
   return (
     <div className="space-y-6">
       <div className="rounded-md border border-line overflow-hidden">

@@ -28,11 +28,27 @@ import type { CancelRun200Response } from '../models';
 // @ts-ignore
 import type { ErrorResponse } from '../models';
 // @ts-ignore
+import type { RunFiles } from '../models';
+// @ts-ignore
+import type { RunListItem } from '../models';
+// @ts-ignore
+import type { RunStage } from '../models';
+// @ts-ignore
 import type { RunStatusResponse } from '../models';
+// @ts-ignore
+import type { RunUsage } from '../models';
+// @ts-ignore
+import type { RunVerification } from '../models';
+// @ts-ignore
+import type { StageTurn } from '../models';
 // @ts-ignore
 import type { StartRunRequest } from '../models';
 // @ts-ignore
 import type { StartRunResponse } from '../models';
+// @ts-ignore
+import type { SteerRequest } from '../models';
+// @ts-ignore
+import type { SteerRun200Response } from '../models';
 // @ts-ignore
 import type { SubmitAnswerRequest } from '../models';
 // @ts-ignore
@@ -282,6 +298,113 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
         },
         /**
          * 
+         * @summary Run configuration (TOML)
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunConfiguration: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getRunConfiguration', 'id', id)
+            const localVarPath = `/runs/{id}/configuration`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'text/plain';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary File diffs grouped by checkpoint
+         * @param {string} id 
+         * @param {string} [checkpoint] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunFiles: async (id: string, checkpoint?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getRunFiles', 'id', id)
+            const localVarPath = `/runs/{id}/files`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (checkpoint !== undefined) {
+                localVarQueryParameter['checkpoint'] = checkpoint;
+            }
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary List stages with status and duration
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunStages: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getRunStages', 'id', id)
+            const localVarPath = `/runs/{id}/stages`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @summary Get run status
          * @param {string} id 
          * @param {*} [options] Override http request option.
@@ -316,7 +439,113 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
         },
         /**
          * 
-         * @summary List all runs
+         * @summary Token and cost breakdown by stage and model
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunUsage: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getRunUsage', 'id', id)
+            const localVarPath = `/runs/{id}/usage`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Verification results for this run
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunVerifications: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getRunVerifications', 'id', id)
+            const localVarPath = `/runs/{id}/verifications`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Conversation transcript for a stage
+         * @param {string} id 
+         * @param {string} stageId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getStageTurns: async (id: string, stageId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getStageTurns', 'id', id)
+            // verify required parameter 'stageId' is not null or undefined
+            assertParamExists('getStageTurns', 'stageId', stageId)
+            const localVarPath = `/runs/{id}/stages/{stageId}/turns`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)))
+                .replace(`{${"stageId"}}`, encodeURIComponent(String(stageId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary List all runs (board view)
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -373,6 +602,45 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
             localVarRequestOptions.data = serializeDataIfNeeded(startRunRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Submit steering guidance on a file line
+         * @param {string} id 
+         * @param {SteerRequest} steerRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        steerRun: async (id: string, steerRequest: SteerRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('steerRun', 'id', id)
+            // verify required parameter 'steerRequest' is not null or undefined
+            assertParamExists('steerRun', 'steerRequest', steerRequest)
+            const localVarPath = `/runs/{id}/steer`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(steerRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -524,6 +792,46 @@ export const RunsApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @summary Run configuration (TOML)
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getRunConfiguration(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getRunConfiguration(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getRunConfiguration']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary File diffs grouped by checkpoint
+         * @param {string} id 
+         * @param {string} [checkpoint] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<RunFiles>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getRunFiles(id, checkpoint, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getRunFiles']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary List stages with status and duration
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getRunStages(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunStage>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getRunStages(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getRunStages']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @summary Get run status
          * @param {string} id 
          * @param {*} [options] Override http request option.
@@ -537,11 +845,51 @@ export const RunsApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary List all runs
+         * @summary Token and cost breakdown by stage and model
+         * @param {string} id 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listRuns(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunStatusResponse>>> {
+        async getRunUsage(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<RunUsage>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getRunUsage(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getRunUsage']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Verification results for this run
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getRunVerifications(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunVerification>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getRunVerifications(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getRunVerifications']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Conversation transcript for a stage
+         * @param {string} id 
+         * @param {string} stageId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getStageTurns(id: string, stageId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<StageTurn>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getStageTurns(id, stageId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.getStageTurns']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary List all runs (board view)
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async listRuns(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunListItem>>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.listRuns(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunsApi.listRuns']?.[localVarOperationServerIndex]?.url;
@@ -558,6 +906,20 @@ export const RunsApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.startRun(startRunRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunsApi.startRun']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Submit steering guidance on a file line
+         * @param {string} id 
+         * @param {SteerRequest} steerRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async steerRun(id: string, steerRequest: SteerRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SteerRun200Response>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.steerRun(id, steerRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.steerRun']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -656,6 +1018,37 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         },
         /**
          * 
+         * @summary Run configuration (TOML)
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunConfiguration(id: string, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+            return localVarFp.getRunConfiguration(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary File diffs grouped by checkpoint
+         * @param {string} id 
+         * @param {string} [checkpoint] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig): AxiosPromise<RunFiles> {
+            return localVarFp.getRunFiles(id, checkpoint, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary List stages with status and duration
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunStages(id: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<RunStage>> {
+            return localVarFp.getRunStages(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @summary Get run status
          * @param {string} id 
          * @param {*} [options] Override http request option.
@@ -666,11 +1059,42 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         },
         /**
          * 
-         * @summary List all runs
+         * @summary Token and cost breakdown by stage and model
+         * @param {string} id 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listRuns(options?: RawAxiosRequestConfig): AxiosPromise<Array<RunStatusResponse>> {
+        getRunUsage(id: string, options?: RawAxiosRequestConfig): AxiosPromise<RunUsage> {
+            return localVarFp.getRunUsage(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Verification results for this run
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getRunVerifications(id: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<RunVerification>> {
+            return localVarFp.getRunVerifications(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Conversation transcript for a stage
+         * @param {string} id 
+         * @param {string} stageId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getStageTurns(id: string, stageId: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<StageTurn>> {
+            return localVarFp.getStageTurns(id, stageId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary List all runs (board view)
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listRuns(options?: RawAxiosRequestConfig): AxiosPromise<Array<RunListItem>> {
             return localVarFp.listRuns(options).then((request) => request(axios, basePath));
         },
         /**
@@ -682,6 +1106,17 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
          */
         startRun(startRunRequest: StartRunRequest, options?: RawAxiosRequestConfig): AxiosPromise<StartRunResponse> {
             return localVarFp.startRun(startRunRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Submit steering guidance on a file line
+         * @param {string} id 
+         * @param {SteerRequest} steerRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        steerRun(id: string, steerRequest: SteerRequest, options?: RawAxiosRequestConfig): AxiosPromise<SteerRun200Response> {
+            return localVarFp.steerRun(id, steerRequest, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -781,6 +1216,40 @@ export class RunsApi extends BaseAPI {
 
     /**
      * 
+     * @summary Run configuration (TOML)
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getRunConfiguration(id: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getRunConfiguration(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary File diffs grouped by checkpoint
+     * @param {string} id 
+     * @param {string} [checkpoint] 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getRunFiles(id, checkpoint, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary List stages with status and duration
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getRunStages(id: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getRunStages(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @summary Get run status
      * @param {string} id 
      * @param {*} [options] Override http request option.
@@ -792,7 +1261,41 @@ export class RunsApi extends BaseAPI {
 
     /**
      * 
-     * @summary List all runs
+     * @summary Token and cost breakdown by stage and model
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getRunUsage(id: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getRunUsage(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Verification results for this run
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getRunVerifications(id: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getRunVerifications(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Conversation transcript for a stage
+     * @param {string} id 
+     * @param {string} stageId 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getStageTurns(id: string, stageId: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).getStageTurns(id, stageId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary List all runs (board view)
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
@@ -809,6 +1312,18 @@ export class RunsApi extends BaseAPI {
      */
     public startRun(startRunRequest: StartRunRequest, options?: RawAxiosRequestConfig) {
         return RunsApiFp(this.configuration).startRun(startRunRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Submit steering guidance on a file line
+     * @param {string} id 
+     * @param {SteerRequest} steerRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public steerRun(id: string, steerRequest: SteerRequest, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).steerRun(id, steerRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

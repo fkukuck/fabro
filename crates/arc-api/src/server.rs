@@ -6,7 +6,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
@@ -30,6 +30,7 @@ pub use arc_types::{
     StartRunResponse, SubmitAnswerRequest, SubmitAnswerResponse,
 };
 
+
 /// Snapshot of a managed run.
 struct ManagedRun {
     dot_source: String,
@@ -49,27 +50,97 @@ pub struct AppState {
     runs: Mutex<HashMap<String, ManagedRun>>,
     registry_factory: Box<dyn Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync>,
     dry_run: bool,
+    pub is_demo: bool,
     pub db: sqlx::SqlitePool,
 }
 
 /// Build the axum Router with all run endpoints.
 pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
-    Router::new()
-        .route("/runs", get(list_runs).post(start_run))
-        .route("/runs/{id}", get(get_run_status))
-        .route("/runs/{id}/questions", get(get_questions))
-        .route(
-            "/runs/{id}/questions/{qid}/answer",
-            post(submit_answer),
-        )
-        .route("/runs/{id}/events", get(get_events))
-        .route("/runs/{id}/checkpoint", get(get_checkpoint))
-        .route("/runs/{id}/context", get(get_context))
-        .route("/runs/{id}/cancel", post(cancel_run))
-        .route("/runs/{id}/graph", get(get_graph))
-        .route("/runs/{id}/retro", get(get_retro))
+    let is_demo = state.is_demo;
+
+    let mut router = Router::new();
+
+    if is_demo {
+        router = router
+            .route("/runs", get(crate::demo::list_runs).post(crate::demo::start_run_stub))
+            .route("/runs/{id}", get(crate::demo::get_run_status))
+            .route("/runs/{id}/questions", get(crate::demo::get_questions_stub))
+            .route("/runs/{id}/questions/{qid}/answer", post(crate::demo::answer_stub))
+            .route("/runs/{id}/events", get(crate::demo::run_events_stub))
+            .route("/runs/{id}/checkpoint", get(crate::demo::checkpoint_stub))
+            .route("/runs/{id}/context", get(crate::demo::context_stub))
+            .route("/runs/{id}/cancel", post(crate::demo::cancel_stub))
+            .route("/runs/{id}/graph", get(crate::demo::get_run_graph))
+            .route("/runs/{id}/retro", get(crate::demo::get_run_retro))
+            .route("/runs/{id}/stages", get(crate::demo::get_run_stages))
+            .route("/runs/{id}/stages/{stageId}/turns", get(crate::demo::get_stage_turns))
+            .route("/runs/{id}/files", get(crate::demo::get_run_files))
+            .route("/runs/{id}/usage", get(crate::demo::get_run_usage))
+            .route("/runs/{id}/verifications", get(crate::demo::get_run_verifications))
+            .route("/runs/{id}/configuration", get(crate::demo::get_run_configuration))
+            .route("/runs/{id}/steer", post(crate::demo::steer_run_stub))
+            .route("/workflows", get(crate::demo::list_workflows))
+            .route("/workflows/{name}", get(crate::demo::get_workflow))
+            .route("/workflows/{name}/runs", get(crate::demo::list_workflow_runs).post(crate::demo::trigger_workflow_run_stub))
+            .route("/verifications", get(crate::demo::list_verifications))
+            .route("/verifications/{slug}", get(crate::demo::get_verification_detail))
+            .route("/retros", get(crate::demo::list_retros))
+            .route("/sessions", get(crate::demo::list_sessions).post(crate::demo::create_session_stub))
+            .route("/sessions/{id}", get(crate::demo::get_session))
+            .route("/sessions/{id}/messages", post(crate::demo::send_message_stub))
+            .route("/sessions/{id}/events", get(crate::demo::session_events_stub))
+            .route("/insights/queries", get(crate::demo::list_saved_queries).post(crate::demo::save_query_stub))
+            .route("/insights/queries/{id}", put(crate::demo::update_query_stub).delete(crate::demo::delete_query_stub))
+            .route("/insights/execute", post(crate::demo::execute_query_stub))
+            .route("/insights/history", get(crate::demo::list_query_history))
+            .route("/settings", get(crate::demo::get_settings))
+            .route("/projects", get(crate::demo::list_projects))
+            .route("/projects/{id}/branches", get(crate::demo::list_branches));
+    } else {
+        router = router
+            .route("/runs", get(list_runs).post(start_run))
+            .route("/runs/{id}", get(get_run_status))
+            .route("/runs/{id}/questions", get(get_questions))
+            .route("/runs/{id}/questions/{qid}/answer", post(submit_answer))
+            .route("/runs/{id}/events", get(get_events))
+            .route("/runs/{id}/checkpoint", get(get_checkpoint))
+            .route("/runs/{id}/context", get(get_context))
+            .route("/runs/{id}/cancel", post(cancel_run))
+            .route("/runs/{id}/graph", get(get_graph))
+            .route("/runs/{id}/retro", get(get_retro))
+            .route("/runs/{id}/stages", get(not_implemented))
+            .route("/runs/{id}/stages/{stageId}/turns", get(not_implemented))
+            .route("/runs/{id}/files", get(not_implemented))
+            .route("/runs/{id}/usage", get(not_implemented))
+            .route("/runs/{id}/verifications", get(not_implemented))
+            .route("/runs/{id}/configuration", get(not_implemented))
+            .route("/runs/{id}/steer", post(not_implemented))
+            .route("/workflows", get(not_implemented))
+            .route("/workflows/{name}", get(not_implemented))
+            .route("/workflows/{name}/runs", get(not_implemented).post(not_implemented))
+            .route("/verifications", get(not_implemented))
+            .route("/verifications/{slug}", get(not_implemented))
+            .route("/retros", get(not_implemented))
+            .route("/sessions", get(not_implemented).post(not_implemented))
+            .route("/sessions/{id}", get(not_implemented))
+            .route("/sessions/{id}/messages", post(not_implemented))
+            .route("/sessions/{id}/events", get(not_implemented))
+            .route("/insights/queries", get(not_implemented).post(not_implemented))
+            .route("/insights/queries/{id}", put(not_implemented).delete(not_implemented))
+            .route("/insights/execute", post(not_implemented))
+            .route("/insights/history", get(not_implemented))
+            .route("/settings", get(not_implemented))
+            .route("/projects", get(not_implemented))
+            .route("/projects/{id}/branches", get(not_implemented));
+    }
+
+    router
         .layer(axum::Extension(auth_mode))
         .with_state(state)
+}
+
+async fn not_implemented() -> Response {
+    StatusCode::NOT_IMPLEMENTED.into_response()
 }
 
 /// Create an `AppState` with the given registry factory and database pool.
@@ -80,19 +151,21 @@ pub fn create_app_state(
     db: sqlx::SqlitePool,
     registry_factory: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
-    create_app_state_with_options(db, registry_factory, false)
+    create_app_state_with_options(db, registry_factory, false, false)
 }
 
-/// Create an `AppState` with the given database pool, registry factory, and dry-run flag.
+/// Create an `AppState` with the given database pool, registry factory, dry-run flag, and demo flag.
 pub fn create_app_state_with_options(
     db: sqlx::SqlitePool,
     registry_factory: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
     dry_run: bool,
+    is_demo: bool,
 ) -> Arc<AppState> {
     Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
         registry_factory: Box::new(registry_factory),
         dry_run,
+        is_demo,
         db,
     })
 }

@@ -9,12 +9,51 @@ import {
   UserIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
+import { apiJson } from "../api-client";
+import type { SessionDetail as ApiSessionDetail, SessionGroup } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/session-detail";
 
 export const handle = { hideHeader: true, wide: true };
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Session — Arc" }];
+}
+
+export async function loader({ params }: Route.LoaderArgs) {
+  const [apiSession, apiGroups] = await Promise.all([
+    apiJson<ApiSessionDetail>(`/sessions/${params.sessionId}`),
+    apiJson<SessionGroup[]>("/sessions"),
+  ]);
+  const session: Session = {
+    id: apiSession.id,
+    title: apiSession.title,
+    repo: apiSession.repo,
+    model: apiSession.model,
+    time: "",
+    turns: apiSession.turns.map((t) => {
+      if (t.kind === "tool" && t.tools) {
+        return {
+          kind: "tool" as const,
+          tools: t.tools.map((tu) => ({
+            toolName: tu.tool_name,
+            args: tu.args,
+            result: tu.result,
+          })),
+        };
+      }
+      return { kind: t.kind as "user" | "assistant", content: t.content ?? "", date: t.date };
+    }),
+  };
+  const sessionGroups = apiGroups.map((g) => ({
+    label: g.label,
+    sessions: g.sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      repo: s.repo,
+      time: s.time,
+    })),
+  }));
+  return { session, sessionGroups };
 }
 
 interface ToolUse {
@@ -37,6 +76,7 @@ interface Session {
   turns: Turn[];
 }
 
+// Keep hardcoded sessions as fallback
 const sessions: Record<string, Session> = {
   s1: {
     id: "s1",
@@ -191,7 +231,7 @@ function makeFallbackSession(id: string): Session {
   };
 }
 
-interface SessionGroup {
+interface SessionGroupType {
   label: string;
   sessions: { id: string; title: string; repo: string; time: string }[];
 }
@@ -326,7 +366,7 @@ function AssistantBlock({ content, showCopy }: { content: string; showCopy: bool
   );
 }
 
-function SessionSidebar({ activeId }: { activeId: string }) {
+function SessionSidebar({ activeId, groups }: { activeId: string; groups: SessionGroupType[] }) {
   return (
     <aside className="w-64 shrink-0 border-r border-line flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-3">
@@ -339,26 +379,26 @@ function SessionSidebar({ activeId }: { activeId: string }) {
         </Link>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
-        {sessionGroups.map((group) => (
+        {groups.map((group) => (
           <div key={group.label} className="mt-4 first:mt-1">
             <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
               {group.label}
             </p>
             <ul className="space-y-0.5">
-              {group.sessions.map((session) => (
-                <li key={session.id}>
+              {group.sessions.map((s) => (
+                <li key={s.id}>
                   <Link
-                    to={`/sessions/${session.id}`}
+                    to={`/sessions/${s.id}`}
                     className={`flex w-full flex-col rounded-lg px-2.5 py-2 text-left transition-colors ${
-                      activeId === session.id
+                      activeId === s.id
                         ? "bg-overlay text-fg-2"
                         : "text-fg-3 hover:bg-overlay"
                     }`}
                   >
-                    <span className="truncate text-sm">{session.title}</span>
+                    <span className="truncate text-sm">{s.title}</span>
                     <span className="flex items-center gap-1.5 mt-0.5">
-                      <span className="font-mono text-[11px] text-teal-500">{session.repo}</span>
-                      <span className="text-[11px] text-fg-muted">{session.time}</span>
+                      <span className="font-mono text-[11px] text-teal-500">{s.repo}</span>
+                      <span className="text-[11px] text-fg-muted">{s.time}</span>
                     </span>
                   </Link>
                 </li>
@@ -371,13 +411,12 @@ function SessionSidebar({ activeId }: { activeId: string }) {
   );
 }
 
-export default function SessionDetail() {
-  const { sessionId } = useParams();
-  const session = sessions[sessionId ?? ""] ?? makeFallbackSession(sessionId ?? "");
+export default function SessionDetail({ loaderData }: Route.ComponentProps) {
+  const { session, sessionGroups: loaderGroups } = loaderData;
 
   return (
     <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-6">
-      <SessionSidebar activeId={session.id} />
+      <SessionSidebar activeId={session.id} groups={loaderGroups} />
 
       <div className="flex-1 flex flex-col min-h-[calc(100vh-4rem)]">
         <div className="border-b border-line px-6 py-3 flex items-center gap-3">

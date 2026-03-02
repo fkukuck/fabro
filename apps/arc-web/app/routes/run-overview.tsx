@@ -3,10 +3,12 @@ import { Link, useParams } from "react-router";
 import { ArrowDownIcon, ArrowRightIcon, MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { CheckCircleIcon, ArrowPathIcon, PauseCircleIcon, XCircleIcon } from "@heroicons/react/24/solid";
 import { DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
-import { findRun } from "../data/runs";
-import { workflowData } from "./workflow-detail";
 import { useTheme } from "../lib/theme";
 import { getGraphTheme } from "../lib/graph-theme";
+import { apiJson } from "../api-client";
+import { formatDurationSecs } from "../lib/format";
+import type { RunStage, RunListItem, WorkflowDetail } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-overview";
 
 export const handle = { wide: true };
 
@@ -19,12 +21,29 @@ interface Stage {
   duration: string;
 }
 
-const stages: Stage[] = [
-  { id: "detect-drift", name: "Detect Drift", status: "completed", duration: "1m 12s" },
-  { id: "propose-changes", name: "Propose Changes", status: "completed", duration: "2m 34s" },
-  { id: "review-changes", name: "Review Changes", status: "completed", duration: "0m 45s" },
-  { id: "apply-changes", name: "Apply Changes", status: "running", duration: "1m 58s" },
-];
+export async function loader({ params }: Route.LoaderArgs) {
+  const [apiStages, runs] = await Promise.all([
+    apiJson<RunStage[]>(`/runs/${params.id}/stages`),
+    apiJson<RunListItem[]>("/runs"),
+  ]);
+  const stages: Stage[] = apiStages.map((s) => ({
+    id: s.id,
+    name: s.name,
+    status: s.status as StageStatus,
+    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
+  }));
+  const run = runs.find((r) => r.id === params.id);
+  let graphDot: string | null = null;
+  if (run) {
+    try {
+      const workflow = await apiJson<WorkflowDetail>(`/workflows/${run.workflow}`);
+      graphDot = workflow.graph;
+    } catch {
+      // workflow not found — leave graphDot null
+    }
+  }
+  return { stages, graphDot };
+}
 
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
@@ -35,6 +54,7 @@ const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: s
 
 function buildThemeAttrs(gt: ReturnType<typeof getGraphTheme>) {
   return `
+    rankdir=LR
     bgcolor="transparent"
     pad=0.5
     fontname="ui-monospace, monospace"
@@ -265,10 +285,9 @@ function DotDiagram({ dot }: { dot: string }) {
   );
 }
 
-export default function RunOverview() {
+export default function RunOverview({ loaderData }: Route.ComponentProps) {
   const { id } = useParams();
-  const run = findRun(id ?? "");
-  const workflow = run ? workflowData[run.workflow] : undefined;
+  const { stages, graphDot } = loaderData;
 
   return (
     <div className="flex gap-6">
@@ -295,37 +314,35 @@ export default function RunOverview() {
           </ul>
         </div>
 
-        {workflow && (
-          <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
-            <ul className="mt-2 space-y-0.5">
-              <li>
-                <Link
-                  to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
-                >
-                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
-                  Run Configuration
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
-                >
-                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
-                  Workflow Graph
-                </Link>
-              </li>
-            </ul>
-          </div>
-        )}
+        <div>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
+          <ul className="mt-2 space-y-0.5">
+            <li>
+              <Link
+                to={`/runs/${id}/configuration`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
+              >
+                <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
+                Run Configuration
+              </Link>
+            </li>
+            <li>
+              <Link
+                to={`/runs/${id}/graph`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
+              >
+                <MapIcon className="size-4 shrink-0 text-fg-muted" />
+                Workflow Graph
+              </Link>
+            </li>
+          </ul>
+        </div>
       </nav>
 
       <div className="min-w-0 flex-1">
-        {workflow ? (
+        {graphDot ? (
           <div className="rounded-md border border-line bg-panel-alt/40 overflow-hidden">
-            <DotDiagram dot={workflow.graph} />
+            <DotDiagram dot={graphDot} />
           </div>
         ) : (
           <p className="text-sm text-fg-muted">No workflow graph available.</p>

@@ -1,4 +1,5 @@
 pub mod app_config;
+mod demo;
 pub mod jwt_auth;
 pub mod serve;
 pub mod server;

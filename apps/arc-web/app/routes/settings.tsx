@@ -6,6 +6,8 @@ import {
   BellIcon,
   ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
+import { apiJson } from "../api-client";
+import type { SettingGroup as ApiSettingGroup } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/settings";
 
 export function meta({}: Route.MetaArgs) {
@@ -13,6 +15,59 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export const handle = { hideHeader: true };
+
+function getGroupIcon(id: string): React.ComponentType<{ className?: string }> {
+  return groupIcons[id] ?? Cog6ToothIcon;
+}
+
+const groupIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  general: Cog6ToothIcon,
+  git: CodeBracketIcon,
+  models: CpuChipIcon,
+  notifications: BellIcon,
+  security: ShieldCheckIcon,
+};
+
+const groupAccentColors: Record<string, string> = {
+  general: "teal",
+  git: "mint",
+  models: "amber",
+  notifications: "teal",
+  security: "coral",
+};
+
+interface SettingGroupData {
+  id: string;
+  name: string;
+  description: string;
+  fields: SettingField[];
+}
+
+export async function loader() {
+  const apiGroups = await apiJson<ApiSettingGroup[]>("/settings");
+  const settingGroups: SettingGroupData[] = apiGroups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    description: g.description,
+    fields: g.fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      value: f.value,
+      type: f.type as "text" | "select" | "toggle",
+      options: f.options,
+      description: f.description,
+    })),
+  }));
+  return { settingGroups };
+}
+
+function enrichGroups(data: SettingGroupData[]): SettingGroup[] {
+  return data.map((g) => ({
+    ...g,
+    icon: getGroupIcon(g.id),
+    accentColor: groupAccentColors[g.id] ?? "teal",
+  }));
+}
 
 interface SettingField {
   key: string;
@@ -226,14 +281,14 @@ function SettingsSection({ group, isActive, onVisible }: { group: SettingGroup; 
   );
 }
 
-function SidebarNav({ activeId }: { activeId: string }) {
+function SidebarNav({ activeId, groups }: { activeId: string; groups: SettingGroup[] }) {
   return (
     <nav className="sticky top-8 w-44 shrink-0 hidden lg:block">
       <p className="px-3 mb-3 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
         Settings
       </p>
       <ul className="space-y-0.5">
-        {settingGroups.map((group) => {
+        {groups.map((group) => {
           const colors = accentMap[group.accentColor];
           const Icon = group.icon;
           const active = activeId === group.id;
@@ -262,12 +317,13 @@ function SidebarNav({ activeId }: { activeId: string }) {
   );
 }
 
-export default function Settings() {
+export default function Settings({ loaderData }: Route.ComponentProps) {
+  const settingGroups = enrichGroups(loaderData.settingGroups);
   const [activeSection, setActiveSection] = useState(settingGroups[0].id);
 
   return (
     <div className="flex gap-10 items-start">
-      <SidebarNav activeId={activeSection} />
+      <SidebarNav activeId={activeSection} groups={settingGroups} />
       <div className="flex-1 min-w-0 space-y-5">
         {settingGroups.map((group) => (
           <SettingsSection

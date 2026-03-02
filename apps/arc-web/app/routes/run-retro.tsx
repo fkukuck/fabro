@@ -1,16 +1,22 @@
 import { Link } from "react-router";
 import {
-  findRetro,
   smoothnessConfig,
   learningCategoryConfig,
   frictionKindConfig,
   openItemKindConfig,
   formatDuration,
 } from "../data/retros";
+import type { Retro } from "../data/retros";
+import { apiJson } from "../api-client";
 import type { Route } from "./+types/run-retro";
 
-export function meta({ params }: Route.MetaArgs) {
-  const retro = findRetro(params.id);
+export async function loader({ params }: Route.LoaderArgs) {
+  const retro = await apiJson<Retro>(`/runs/${params.id}/retro`);
+  return { retro };
+}
+
+export function meta({ data }: Route.MetaArgs) {
+  const retro = data?.retro;
   return [{ title: retro ? `Retro: ${retro.goal} \u2014 Arc` : "Retro \u2014 Arc" }];
 }
 
@@ -19,8 +25,8 @@ function formatCost(cost: number | undefined): string {
   return `$${cost.toFixed(2)}`;
 }
 
-export default function RunRetro({ params }: Route.ComponentProps) {
-  const retro = findRetro(params.id);
+export default function RunRetro({ loaderData }: Route.ComponentProps) {
+  const { retro } = loaderData;
 
   if (!retro) {
     return <p className="py-8 text-center text-sm text-fg-muted">No retrospective found for this run.</p>;

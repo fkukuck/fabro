@@ -1,14 +1,17 @@
 import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import { Link, Outlet, useLocation } from "react-router";
-import { findRun, statusColors } from "../data/runs";
-import { workflowData } from "./workflow-detail";
+import { statusColors } from "../data/runs";
+import type { ColumnStatus } from "../data/runs";
+import { apiJson } from "../api-client";
+import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
+import type { RunListItem } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/run-detail";
 
 const tabs = [
   { name: "Overview", path: "", count: null },
-  { name: "Stages", path: "/stages/detect-drift", count: 4 },
-  { name: "Files Changed", path: "/files", count: 3 },
+  { name: "Stages", path: "/stages/detect-drift", count: null },
+  { name: "Files Changed", path: "/files", count: null },
   { name: "Verifications", path: "/verifications", count: null },
   { name: "Retro", path: "/retro", count: null },
   { name: "Usage", path: "/usage", count: null },
@@ -16,13 +19,32 @@ const tabs = [
 
 export const handle = { hideHeader: true };
 
-export function meta({ params }: Route.MetaArgs) {
-  const run = findRun(params.id);
+export async function loader({ params }: Route.LoaderArgs) {
+  const apiRuns = await apiJson<RunListItem[]>("/runs");
+  const apiRun = apiRuns.find((r) => r.id === params.id);
+  if (!apiRun) return { run: null };
+  return {
+    run: {
+      id: apiRun.id,
+      repo: apiRun.repo,
+      title: apiRun.title,
+      workflow: apiRun.workflow,
+      status: apiRun.status as ColumnStatus,
+      statusLabel: apiRun.status === "working" ? "Working" : apiRun.status === "pending" ? "Pending" : apiRun.status === "review" ? "Verify" : "Merge",
+      elapsed: apiRun.elapsed_secs != null ? formatElapsedSecs(apiRun.elapsed_secs) : undefined,
+      elapsedWarning: apiRun.elapsed_warning,
+      sandboxId: apiRun.sandbox_id,
+    },
+  };
+}
+
+export function meta({ data }: Route.MetaArgs) {
+  const run = data?.run;
   return [{ title: run ? `${run.title} — Arc` : "Run — Arc" }];
 }
 
-export default function RunDetail({ params }: Route.ComponentProps) {
-  const run = findRun(params.id);
+export default function RunDetail({ loaderData, params }: Route.ComponentProps) {
+  const { run } = loaderData;
   const { pathname } = useLocation();
   const basePath = `/runs/${params.id}`;
 
@@ -38,7 +60,7 @@ export default function RunDetail({ params }: Route.ComponentProps) {
         <Link to="/runs" className="text-fg-3 hover:text-fg">Runs</Link>
         <ChevronRightIcon className="size-3" />
         <Link to={`/workflows/${run.workflow}`} className="text-fg-3 hover:text-fg">
-          {workflowData[run.workflow]?.title ?? run.workflow}
+          {run.workflow}
         </Link>
         <ChevronRightIcon className="size-3" />
         <span>{run.title}</span>

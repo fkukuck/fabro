@@ -10,7 +10,6 @@ import {
   ChevronRightIcon,
 } from "@heroicons/react/20/solid";
 import {
-  verificationCategories,
   statusConfig,
   typeConfig,
   getCriteriaSummary,
@@ -20,6 +19,25 @@ import type {
   VerificationType,
   VerificationCategory,
 } from "../data/verifications";
+import { apiJson } from "../api-client";
+import type { RunVerification } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-verifications";
+
+export async function loader({ params }: Route.LoaderArgs) {
+  const apiCategories = await apiJson<RunVerification[]>(`/runs/${params.id}/verifications`);
+  const categories: VerificationCategory[] = apiCategories.map((cat) => ({
+    name: cat.name,
+    question: cat.question,
+    status: cat.status as VerificationStatus,
+    criteria: cat.controls.map((c) => ({
+      name: c.name,
+      description: c.description,
+      type: (c.type ?? null) as VerificationType | null,
+      status: c.status as VerificationStatus,
+    })),
+  }));
+  return { categories };
+}
 
 function StatusIcon({
   status,
@@ -117,10 +135,11 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
   );
 }
 
-export default function RunVerifications() {
+export default function RunVerifications({ loaderData }: Route.ComponentProps) {
+  const { categories } = loaderData;
   return (
     <div className="space-y-3">
-      {verificationCategories.map((category) => (
+      {categories.map((category) => (
         <CategoryCard key={category.name} category={category} />
       ))}
     </div>

@@ -1,18 +1,24 @@
 import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link, Outlet, useLocation, useParams } from "react-router";
+import { apiJson } from "../api-client";
+import type { WorkflowDetail as ApiWorkflowDetail } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/workflow-detail";
 
-interface WorkflowEntry {
+export interface WorkflowEntry {
   title: string;
+  slug: string;
   description: string;
   filename: string;
   config: string;
   graph: string;
 }
 
+// Keep this exported for backward compatibility with other routes that import it.
+// It will be populated by the loader, but the static version is kept as fallback.
 export const workflowData: Record<string, WorkflowEntry> = {
   fix_build: {
     title: "Fix Build",
+    slug: "fix_build",
     filename: "fix_build.dot",
     description: "Automatically diagnoses and fixes CI build failures by analyzing error logs, identifying root causes, and applying targeted code changes.",
     config: `version = 1
@@ -64,6 +70,7 @@ disk = 10
   },
   implement: {
     title: "Implement Feature",
+    slug: "implement",
     filename: "implement.dot",
     description: "Generates production-ready code from a technical blueprint, including tests, documentation, and a pull request ready for review.",
     config: `version = 1
@@ -134,6 +141,7 @@ disk = 20
   },
   sync_drift: {
     title: "Sync Drift",
+    slug: "sync_drift",
     filename: "sync_drift.dot",
     description: "Detects configuration and code drift between environments, then generates reconciliation patches to bring everything back in sync.",
     config: `version = 1
@@ -200,6 +208,7 @@ WORKDIR /home/daytona
   },
   expand: {
     title: "Expand Product",
+    slug: "expand",
     filename: "expand.dot",
     description: "Evolves the product by analyzing usage patterns and specifications to propose and implement incremental improvements.",
     config: `version = 1
@@ -260,21 +269,29 @@ const tabs = [
 
 export const handle = { hideHeader: true };
 
-export function meta({ params }: Route.MetaArgs) {
-  const workflow = workflowData[params.name ?? ""];
-  const title = workflow?.title ?? params.name;
+export async function loader({ params }: Route.LoaderArgs) {
+  const apiWorkflow = await apiJson<ApiWorkflowDetail>(`/workflows/${params.name}`);
+  const workflow: WorkflowEntry = {
+    title: apiWorkflow.title,
+    slug: apiWorkflow.slug,
+    description: apiWorkflow.description,
+    filename: apiWorkflow.filename,
+    config: apiWorkflow.config,
+    graph: apiWorkflow.graph,
+  };
+  return { workflow };
+}
+
+export function meta({ data }: Route.MetaArgs) {
+  const title = data?.workflow?.title ?? "Workflow";
   return [{ title: `${title} — Arc` }];
 }
 
-export default function WorkflowDetail() {
+export default function WorkflowDetail({ loaderData }: Route.ComponentProps) {
   const { name } = useParams();
   const { pathname } = useLocation();
-  const workflow = workflowData[name ?? ""];
+  const workflow = loaderData.workflow;
   const basePath = `/workflows/${name}`;
-
-  if (workflow == null) {
-    return <p className="text-sm text-fg-3">Workflow not found.</p>;
-  }
 
   return (
     <div>

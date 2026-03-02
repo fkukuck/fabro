@@ -1,10 +1,44 @@
 import { useState } from "react";
 import { ChevronDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { Link } from "react-router";
-import { allRunsFlat, ciConfig, columns, deriveCiStatus, statusColors } from "../data/runs";
+import { Link, useParams } from "react-router";
+import { ciConfig, deriveCiStatus, statusColors } from "../data/runs";
 import type { ColumnStatus, RunWithStatus } from "../data/runs";
+import { apiJson } from "../api-client";
+import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
+import type { RunListItem } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/workflow-runs";
 
-const runs = allRunsFlat();
+const columnNames: Record<ColumnStatus, string> = {
+  working: "Working",
+  pending: "Pending",
+  review: "Verify",
+  merge: "Merge",
+};
+
+export async function loader({ params }: Route.LoaderArgs) {
+  const apiRuns = await apiJson<RunListItem[]>(`/workflows/${params.name}/runs`);
+  const runs: RunWithStatus[] = apiRuns.map((r) => ({
+    id: r.id,
+    repo: r.repo,
+    title: r.title,
+    workflow: r.workflow,
+    number: r.number,
+    additions: r.additions,
+    deletions: r.deletions,
+    checks: r.checks?.map((c) => ({
+      name: c.name,
+      status: c.status,
+      duration: c.duration_secs != null ? formatDurationSecs(c.duration_secs) : undefined,
+    })),
+    elapsed: r.elapsed_secs != null ? formatElapsedSecs(r.elapsed_secs) : undefined,
+    elapsedWarning: r.elapsed_warning,
+    comments: r.comments,
+    sandboxId: r.sandbox_id,
+    status: r.status as ColumnStatus,
+    statusLabel: columnNames[r.status as ColumnStatus] ?? r.status,
+  }));
+  return { runs };
+}
 
 function GitPullRequestIcon({ className }: { className?: string }) {
   return (
@@ -57,7 +91,8 @@ function RunRow({ run }: { run: RunWithStatus }) {
   );
 }
 
-export default function WorkflowRuns() {
+export default function WorkflowRuns({ loaderData }: Route.ComponentProps) {
+  const { runs } = loaderData;
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ColumnStatus | "all">("all");
   const filtered = runs.filter(
@@ -88,8 +123,8 @@ export default function WorkflowRuns() {
             className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
           >
             <option value="all">All statuses</option>
-            {columns.map((col) => (
-              <option key={col.id} value={col.id}>{col.name}</option>
+            {(Object.entries(columnNames) as [ColumnStatus, string][]).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
             ))}
           </select>
           <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />

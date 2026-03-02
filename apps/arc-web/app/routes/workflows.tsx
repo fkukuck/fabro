@@ -13,6 +13,8 @@ import {
   WrenchIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router";
+import { apiJson } from "../api-client";
+import type { WorkflowListItem } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/workflows";
 
 export function meta({}: Route.MetaArgs) {
@@ -70,14 +72,58 @@ interface Workflow {
   nextRun?: string;
 }
 
-const workflows: Workflow[] = [
-  { name: "Fix Build", slug: "fix_build", filename: "fix_build.dot", lastRun: "2 hours ago", icon: WrenchIcon, color: "var(--color-amber)" },
-  { name: "Implement Feature", slug: "implement", filename: "implement.dot", lastRun: "4 days ago", icon: CodeBracketIcon, color: "var(--color-teal-500)" },
-  { name: "Sync Drift", slug: "sync_drift", filename: "sync_drift.dot", lastRun: "1 day ago", icon: ArrowsRightLeftIcon, color: "var(--color-mint)" },
-  { name: "Expand Product", slug: "expand", filename: "expand.dot", lastRun: "2 weeks ago", icon: RocketLaunchIcon, color: "var(--color-coral)" },
-  { name: "Security Scan", slug: "security_scan", filename: "security_scan.dot", lastRun: "9 hours ago", icon: ShieldCheckIcon, color: "var(--color-teal-500)", schedule: "Daily at 09:00", nextRun: "Starts in 3 hours" },
-  { name: "Dependency Audit", slug: "dep_audit", filename: "dep_audit.dot", lastRun: "1 day ago", icon: ClockIcon, color: "var(--color-amber)", schedule: "Weekly on Mon 08:00", nextRun: "Starts in 2 days" },
-];
+function getSlugIcon(slug: string): ComponentType<{ className?: string }> {
+  return slugIconMap[slug] ?? CodeBracketIcon;
+}
+
+const slugIconMap: Record<string, ComponentType<{ className?: string }>> = {
+  fix_build: WrenchIcon,
+  implement: CodeBracketIcon,
+  sync_drift: ArrowsRightLeftIcon,
+  expand: RocketLaunchIcon,
+  security_scan: ShieldCheckIcon,
+  dep_audit: ClockIcon,
+};
+
+const slugColorMap: Record<string, string> = {
+  fix_build: "var(--color-amber)",
+  implement: "var(--color-teal-500)",
+  sync_drift: "var(--color-mint)",
+  expand: "var(--color-coral)",
+  security_scan: "var(--color-teal-500)",
+  dep_audit: "var(--color-amber)",
+};
+
+interface WorkflowData {
+  name: string;
+  slug: string;
+  filename: string;
+  lastRun: string;
+  color: string;
+  schedule?: string;
+  nextRun?: string;
+}
+
+export async function loader() {
+  const apiWorkflows = await apiJson<WorkflowListItem[]>("/workflows");
+  const workflows: WorkflowData[] = apiWorkflows.map((w) => ({
+    name: w.name,
+    slug: w.slug,
+    filename: w.filename,
+    lastRun: w.last_run ?? "never",
+    color: slugColorMap[w.slug] ?? "var(--color-teal-500)",
+    schedule: w.schedule,
+    nextRun: w.next_run,
+  }));
+  return { workflows };
+}
+
+function enrichWorkflows(data: WorkflowData[]): Workflow[] {
+  return data.map((w) => ({
+    ...w,
+    icon: getSlugIcon(w.slug),
+  }));
+}
 
 function PlayIcon({ className }: { className?: string }) {
   return (
@@ -155,7 +201,8 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
 
 type TriggerFilter = "all" | "scheduled" | "manual";
 
-export default function Workflows() {
+export default function Workflows({ loaderData }: Route.ComponentProps) {
+  const workflows = enrichWorkflows(loaderData.workflows);
   const [query, setQuery] = useState("");
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>("all");
   const filtered = workflows.filter(

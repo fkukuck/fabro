@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router";
 import { ChevronDownIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
 import {
   MultiFileDiff,
@@ -6,18 +7,18 @@ import {
   type DiffLineAnnotation,
 } from "@pierre/diffs/react";
 import { useTheme } from "../lib/theme";
+import { apiJson } from "../api-client";
+import type { RunFiles } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-files-changed";
 
 export const handle = { wide: true };
 
-const checkpoints = [
-  { id: "all", label: "All changes" },
-  { id: "cp-4", label: "Checkpoint 4 — Apply Changes" },
-  { id: "cp-3", label: "Checkpoint 3 — Review Changes" },
-  { id: "cp-2", label: "Checkpoint 2 — Propose Changes" },
-  { id: "cp-1", label: "Checkpoint 1 — Detect Drift" },
-];
+export async function loader({ params }: Route.LoaderArgs) {
+  const data = await apiJson<RunFiles>(`/runs/${params.id}/files?checkpoint=all`);
+  return data;
+}
 
-const files = [
+const fallbackFiles = [
   {
     oldFile: {
       name: "src/commands/run.ts",
@@ -507,7 +508,20 @@ function buildAnnotationsForFile(
   return annotations;
 }
 
-export default function RunFilesChanged() {
+export default function RunFilesChanged({ loaderData }: Route.ComponentProps) {
+  const runFiles = loaderData;
+  const checkpoints = [
+    { id: "all", label: "All changes" },
+    ...runFiles.checkpoints.map((cp) => ({ id: cp.id, label: cp.label })),
+  ];
+  const files = runFiles.files.length > 0
+    ? runFiles.files.map((f) => ({
+        oldFile: { name: f.old_file.name, contents: f.old_file.contents },
+        newFile: { name: f.new_file.name, contents: f.new_file.contents },
+      }))
+    : fallbackFiles;
+  const diffStats = runFiles.stats;
+
   const [checkpoint, setCheckpoint] = useState(checkpoints[0].id);
   const [openSteers, setOpenSteers] = useState(
     () => new Map<string, SteerAnnotation>(),
@@ -560,7 +574,7 @@ export default function RunFilesChanged() {
           <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <DiffStat additions={567} deletions={234} />
+          <DiffStat additions={diffStats.additions} deletions={diffStats.deletions} />
           <button
             type="button"
             title="Settings"

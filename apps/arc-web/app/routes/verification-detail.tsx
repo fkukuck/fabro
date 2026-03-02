@@ -44,14 +44,10 @@ import {
   MinusCircleIcon,
 } from "@heroicons/react/20/solid";
 import {
-  findCriterionBySlug,
   slugify,
   typeConfig,
   modeConfig,
   statusConfig,
-  criterionPerformance,
-  controlDetails,
-  getRecentResults,
 } from "../data/verifications";
 import type {
   VerificationType,
@@ -59,13 +55,19 @@ import type {
   EvaluationResult,
   VerificationStatus,
 } from "../data/verifications";
+import { apiJson } from "../api-client";
+import type { VerificationDetailResponse } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/verification-detail";
 
 export const handle = { hideHeader: true };
 
-export function meta({ params }: Route.MetaArgs) {
-  const match = findCriterionBySlug(params.slug ?? "");
-  const name = match?.criterion.name ?? "Verification";
+export async function loader({ params }: Route.LoaderArgs) {
+  const data = await apiJson<VerificationDetailResponse>(`/verifications/${params.slug}`);
+  return { data };
+}
+
+export function meta({ data }: Route.MetaArgs) {
+  const name = data?.data?.control?.name ?? "Verification";
   return [{ title: `${name} — Verifications — Arc` }];
 }
 
@@ -202,20 +204,44 @@ function ResultIcon({ result }: { result: VerificationStatus }) {
   return <MinusCircleIcon className={`size-4 ${config.color}`} />;
 }
 
-export default function VerificationDetail() {
-  const { slug } = useParams();
-  const match = findCriterionBySlug(slug ?? "");
+export default function VerificationDetail({ loaderData }: Route.ComponentProps) {
+  const { data } = loaderData;
+  const { control: controlInfo, performance: apiPerf, control_detail: apiDetail, recent_results: apiRecentResults, siblings: apiSiblings } = data;
 
-  if (!match) {
-    return <p className="py-8 text-center text-sm text-fg-muted">Verification not found.</p>;
-  }
+  const criterion = {
+    name: controlInfo.name,
+    description: controlInfo.description,
+    type: (controlInfo.type ?? null) as VerificationType | null,
+  };
+  const categoryName = controlInfo.category;
+  const performance = {
+    f1: apiPerf.f1 ?? null,
+    passAt1: apiPerf.pass_at_1 ?? null,
+    mode: apiPerf.mode as VerificationMode,
+    evaluations: apiPerf.evaluations as EvaluationResult[],
+  };
+  const detail = apiDetail ? {
+    description: apiDetail.description,
+    checks: apiDetail.checks,
+    passExample: apiDetail.pass_example,
+    failExample: apiDetail.fail_example,
+  } : null;
+  const recentResults = apiRecentResults.map((r) => ({
+    runId: r.run_id,
+    runTitle: r.run_title,
+    workflow: r.workflow,
+    result: r.result as VerificationStatus,
+    timestamp: r.timestamp,
+  }));
+  const siblings = apiSiblings.map((s) => ({
+    name: s.name,
+    slug: s.slug,
+    type: (s.type ?? null) as VerificationType | null,
+    mode: (s.mode ?? "disabled") as VerificationMode,
+  }));
 
-  const { criterion, category, performance } = match;
   const Icon = criterionIcons[criterion.name];
-  const CatIcon = categoryIcons[category.name];
-  const detail = controlDetails[criterion.name];
-  const recentResults = getRecentResults(criterion.name);
-  const siblings = category.criteria.filter((c) => c.name !== criterion.name);
+  const CatIcon = categoryIcons[categoryName];
 
   const passRate = performance.evaluations.length > 0
     ? (performance.evaluations.filter((e) => e === "pass").length / performance.evaluations.length * 100).toFixed(0)
@@ -227,7 +253,7 @@ export default function VerificationDetail() {
       <nav className="flex items-center gap-1 text-sm text-fg-muted">
         <Link to="/verifications" className="text-fg-3 hover:text-fg">Verifications</Link>
         <ChevronRightIcon className="size-3" />
-        <span className="text-fg-3">{category.name}</span>
+        <span className="text-fg-3">{categoryName}</span>
         <ChevronRightIcon className="size-3" />
         <span>{criterion.name}</span>
       </nav>
@@ -331,14 +357,13 @@ export default function VerificationDetail() {
         <div>
           <h3 className="mb-3 text-sm font-semibold text-fg">
             {CatIcon && <CatIcon className="mr-1.5 inline size-4 text-fg-3" />}
-            Other {category.name} Controls
+            Other {categoryName} Controls
           </h3>
           <div className="rounded-md border border-line overflow-hidden">
             <table className="w-full text-sm">
               <tbody>
                 {siblings.map((sibling) => {
                   const SibIcon = criterionIcons[sibling.name];
-                  const sibPerf = criterionPerformance[sibling.name];
                   return (
                     <tr key={sibling.name} className="border-b border-line last:border-b-0 cursor-pointer transition-colors hover:bg-overlay">
                       <td className="w-8 py-2.5 pl-4 pr-0">
@@ -346,20 +371,18 @@ export default function VerificationDetail() {
                       </td>
                       <td className="py-2.5 pl-2 pr-3">
                         <Link
-                          to={`/verifications/${slugify(sibling.name)}`}
+                          to={`/verifications/${sibling.slug}`}
                           className="font-medium text-fg-2 hover:text-fg"
                         >
                           {sibling.name}
                         </Link>
                       </td>
-                      <td className="py-2.5 px-3 text-fg-muted">
-                        {sibling.description || <span className="italic">Not configured</span>}
-                      </td>
+                      <td className="py-2.5 px-3 text-fg-muted" />
                       <td className="whitespace-nowrap py-2.5 px-3 text-right">
                         <TypeBadge type={sibling.type} />
                       </td>
                       <td className="whitespace-nowrap py-2.5 pl-3 pr-4">
-                        {sibPerf && <ModeBadge mode={sibPerf.mode} />}
+                        <ModeBadge mode={sibling.mode} />
                       </td>
                     </tr>
                   );

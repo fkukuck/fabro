@@ -18,12 +18,75 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { columns as staticColumns, ciConfig, statusColors, deriveCiStatus } from "../data/runs";
-import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus } from "../data/runs";
+import { ciConfig, statusColors, deriveCiStatus } from "../data/runs";
+import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
+import { apiJson } from "../api-client";
+import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
+import type { RunListItem } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/runs";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Runs — Arc" }];
+}
+
+function mapRunListItem(item: RunListItem): RunItem {
+  return {
+    id: item.id,
+    repo: item.repo,
+    title: item.title,
+    workflow: item.workflow,
+    number: item.number,
+    additions: item.additions,
+    deletions: item.deletions,
+    checks: item.checks?.map((c) => ({
+      name: c.name,
+      status: c.status,
+      duration: c.duration_secs != null ? formatDurationSecs(c.duration_secs) : undefined,
+    })),
+    elapsed: item.elapsed_secs != null ? formatElapsedSecs(item.elapsed_secs) : undefined,
+    elapsedWarning: item.elapsed_warning,
+    resources: item.resources,
+    comments: item.comments,
+    question: item.question,
+    sandboxId: item.sandbox_id,
+  };
+}
+
+const columnConfig: {
+  id: ColumnStatus;
+  name: string;
+  accent: string;
+  iconColor: string;
+  iconType: "branch" | "pr";
+  actions: string[];
+}[] = [
+  { id: "working", name: "Working", accent: "bg-teal-500", iconColor: "text-teal-500", iconType: "branch", actions: ["Watch", "Steer"] },
+  { id: "pending", name: "Pending", accent: "bg-amber", iconColor: "text-amber", iconType: "branch", actions: ["Answer Question"] },
+  { id: "review", name: "Verify", accent: "bg-mint", iconColor: "text-mint", iconType: "pr", actions: ["Resolve"] },
+  { id: "merge", name: "Merge", accent: "bg-teal-300", iconColor: "text-teal-300", iconType: "pr", actions: ["Merge"] },
+];
+
+export async function loader() {
+  const apiRuns = await apiJson<RunListItem[]>("/runs");
+  const items = apiRuns.map(mapRunListItem);
+
+  const grouped = new Map<ColumnStatus, RunItem[]>();
+  for (const cfg of columnConfig) {
+    grouped.set(cfg.id, []);
+  }
+  for (const item of items) {
+    const status = apiRuns.find((r) => r.id === item.id)?.status;
+    if (status && grouped.has(status)) {
+      grouped.get(status)?.push(item);
+    }
+  }
+
+  const columns = columnConfig.map((cfg) => ({
+    ...cfg,
+    items: grouped.get(cfg.id) ?? [],
+  }));
+
+  return { columns };
 }
 
 
@@ -186,24 +249,8 @@ function ChecksStatus({ checks }: { checks: CheckRun[] }) {
   );
 }
 
-const totalCards = staticColumns.reduce((sum, col) => sum + col.items.length, 0);
-const totalPrs = staticColumns.reduce(
-  (sum, col) => sum + col.items.filter((item) => item.number != null).length,
-  0,
-);
-
 export const handle = {
   wide: true,
-  headerExtra: (
-    <div className="flex items-center gap-4 font-mono text-xs text-fg-3">
-      <span>
-        <span className="text-fg">{totalCards}</span> runs
-      </span>
-      <span>
-        <span className="text-fg">{totalPrs}</span> PRs
-      </span>
-    </div>
-  ),
 };
 
 function PrCard({
@@ -359,7 +406,17 @@ function SortablePrCard({
   );
 }
 
-function BoardColumn({ column }: { column: (typeof staticColumns)[number] }) {
+type Column = {
+  id: ColumnStatus;
+  name: string;
+  accent: string;
+  iconColor: string;
+  iconType: "branch" | "pr";
+  actions: string[];
+  items: RunItem[];
+};
+
+function BoardColumn({ column }: { column: Column }) {
   const Icon = iconMap[column.iconType];
   return (
     <div className="flex min-w-[280px] flex-1 flex-col">
@@ -463,14 +520,14 @@ function SortableRunRow({ run }: { run: RunWithStatus }) {
   );
 }
 
-const allRepos = [...new Set(staticColumns.flatMap((col) => col.items.map((item) => item.repo)))].sort();
-
-export default function Runs() {
+export default function Runs({ loaderData }: Route.ComponentProps) {
+  const initialColumns = loaderData.columns;
+  const allRepos = [...new Set(initialColumns.flatMap((col: Column) => col.items.map((item: RunItem) => item.repo)))].sort();
   const [query, setQuery] = useState("");
   const [repoFilter, setRepoFilter] = useState("all");
   const [view, setView] = useState<ViewMode>("columns");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [columns, setColumns] = useState(staticColumns);
+  const [columns, setColumns] = useState(initialColumns);
   const lowerQuery = query.toLowerCase();
 
   const sensors = useSensors(

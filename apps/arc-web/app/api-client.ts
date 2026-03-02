@@ -34,12 +34,23 @@ export async function apiFetch(
     throw new Error("ARC_API_BASE_URL environment variable is not set");
   }
 
-  const token = await signToken();
   const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
+  if (ARC_JWT_PRIVATE_KEY) {
+    const token = await signToken();
+    headers.set("Authorization", `Bearer ${token}`);
+  }
 
   return fetch(`${ARC_API_BASE_URL}${path}`, {
     ...init,
     headers,
   });
+}
+
+/**
+ * Typed JSON fetch helper. Calls apiFetch and parses the JSON response.
+ */
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init);
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
 }

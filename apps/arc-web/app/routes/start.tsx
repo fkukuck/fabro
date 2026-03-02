@@ -20,6 +20,8 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router";
+import { apiJson } from "../api-client";
+import type { Project, SessionGroup } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/start";
 
 export const handle = { hideHeader: true, wide: true };
@@ -28,42 +30,28 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Start — Arc" }];
 }
 
-const projects = [
-  { id: "arc-web", name: "arc-web" },
-  { id: "arc-workflows", name: "arc-workflows" },
-  { id: "arc-cli", name: "arc-cli" },
-];
+export async function loader() {
+  const [apiProjects, apiSessions] = await Promise.all([
+    apiJson<Project[]>("/projects"),
+    apiJson<SessionGroup[]>("/sessions"),
+  ]);
+  const projects = apiProjects.map((p) => ({ id: p.id, name: p.name }));
+  const sessionGroups = apiSessions.map((g) => ({
+    label: g.label,
+    sessions: g.sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      repo: s.repo,
+      time: s.time,
+    })),
+  }));
+  return { projects, sessionGroups };
+}
 
 const branches = [
   { id: "main", name: "main" },
   { id: "develop", name: "develop" },
   { id: "feature/start-page", name: "feature/start-page" },
-];
-
-const sessionGroups = [
-  {
-    label: "Today",
-    sessions: [
-      { id: "s1", title: "Add rate limiting to auth endpoints", repo: "api-server", time: "2h ago" },
-      { id: "s2", title: "Fix config parsing for nested values", repo: "cli-tools", time: "4h ago" },
-    ],
-  },
-  {
-    label: "Yesterday",
-    sessions: [
-      { id: "s3", title: "Migrate to React Router v7", repo: "web-dashboard", time: "1d ago" },
-      { id: "s4", title: "Add dark mode toggle", repo: "web-dashboard", time: "1d ago" },
-      { id: "s5", title: "Update OpenAPI spec for v3", repo: "api-server", time: "1d ago" },
-    ],
-  },
-  {
-    label: "Previous 7 days",
-    sessions: [
-      { id: "s6", title: "Terraform module for Redis cluster", repo: "infrastructure", time: "3d ago" },
-      { id: "s7", title: "Add workflow run event types", repo: "shared-types", time: "5d ago" },
-      { id: "s8", title: "Implement webhook retry logic", repo: "api-server", time: "6d ago" },
-    ],
-  },
 ];
 
 function BranchIcon({ className }: { className?: string }) {
@@ -74,7 +62,7 @@ function BranchIcon({ className }: { className?: string }) {
   );
 }
 
-function SessionSidebar() {
+function SessionSidebar({ groups }: { groups: { label: string; sessions: { id: string; title: string; repo: string; time: string }[] }[] }) {
   return (
     <aside className="w-64 shrink-0 border-r border-line flex flex-col h-[calc(100vh-4rem)]">
       <div className="p-3">
@@ -84,7 +72,7 @@ function SessionSidebar() {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
-        {sessionGroups.map((group) => (
+        {groups.map((group) => (
           <div key={group.label} className="mt-4 first:mt-1">
             <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
               {group.label}
@@ -112,7 +100,8 @@ function SessionSidebar() {
   );
 }
 
-export default function Start() {
+export default function Start({ loaderData }: Route.ComponentProps) {
+  const { projects, sessionGroups } = loaderData;
   const [prompt, setPrompt] = useState("");
   const [project, setProject] = useState(projects[0]);
   const [branch, setBranch] = useState(branches[0]);
@@ -144,7 +133,7 @@ export default function Start() {
 
   return (
     <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-6">
-      <SessionSidebar />
+      <SessionSidebar groups={sessionGroups} />
 
       <div className="flex-1 flex flex-col items-center pt-[12vh] px-4">
         <div className="w-full max-w-2xl">

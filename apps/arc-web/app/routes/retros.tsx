@@ -1,9 +1,35 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { MagnifyingGlassIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
-import { allRetros, smoothnessConfig, formatDuration } from "../data/retros";
-import type { Retro, SmoothnessRating } from "../data/retros";
+import { smoothnessConfig, formatDuration } from "../data/retros";
+import type { SmoothnessRating } from "../data/retros";
+import { apiJson } from "../api-client";
+import type { RetroListItem } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/retros";
+
+interface RetroRow {
+  run_id: string;
+  workflow_name: string;
+  goal: string;
+  timestamp: string;
+  smoothness?: SmoothnessRating;
+  total_duration_ms: number;
+  friction_point_count: number;
+}
+
+export async function loader() {
+  const apiRetros = await apiJson<RetroListItem[]>("/retros");
+  const retros: RetroRow[] = apiRetros.map((r) => ({
+    run_id: r.run_id,
+    workflow_name: r.workflow_name,
+    goal: r.goal,
+    timestamp: r.timestamp,
+    smoothness: r.smoothness as SmoothnessRating | undefined,
+    total_duration_ms: r.stats.total_duration_ms,
+    friction_point_count: r.friction_point_count,
+  }));
+  return { retros };
+}
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Retros \u2014 Arc" }];
@@ -17,7 +43,7 @@ const smoothnessOptions: Array<{ value: SmoothnessRating; label: string }> = [
   { value: "failed", label: "Failed" },
 ];
 
-function SmoothnesssBadge({ smoothness }: { smoothness: Retro["smoothness"] }) {
+function SmoothnesssBadge({ smoothness }: { smoothness: SmoothnessRating | undefined }) {
   if (!smoothness) {
     return <span className="text-xs text-fg-muted">--</span>;
   }
@@ -45,8 +71,8 @@ function truncate(text: string, maxLength: number): string {
   return text.slice(0, maxLength) + "\u2026";
 }
 
-export default function Retros() {
-  const retros = allRetros();
+export default function Retros({ loaderData }: Route.ComponentProps) {
+  const { retros } = loaderData;
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [smoothnessFilter, setSmoothnessFilter] = useState<SmoothnessRating | "all">("all");
@@ -116,10 +142,10 @@ export default function Retros() {
                 <SmoothnesssBadge smoothness={retro.smoothness} />
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
-                {formatDuration(retro.stats.total_duration_ms)}
+                {formatDuration(retro.total_duration_ms)}
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
-                {retro.friction_points?.length ?? 0}
+                {retro.friction_point_count}
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs text-fg-muted">
                 {formatTimestamp(retro.timestamp)}

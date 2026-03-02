@@ -1,5 +1,7 @@
 import { Link, Outlet, useNavigate } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
+import { apiJson } from "../api-client";
+import type { SavedQuery as ApiSavedQuery, HistoryEntry as ApiHistoryEntry } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/insights";
 
 export function meta({}: Route.MetaArgs) {
@@ -26,35 +28,28 @@ export interface HistoryEntry {
   rowsReturned: number;
 }
 
-// ── Mock data ──
+export async function loader() {
+  const [apiQueries, apiHistory] = await Promise.all([
+    apiJson<ApiSavedQuery[]>("/insights/queries"),
+    apiJson<ApiHistoryEntry[]>("/insights/history"),
+  ]);
+  const savedQueries: SavedQuery[] = apiQueries.map((q) => ({
+    id: q.id,
+    name: q.name,
+    sql: q.sql,
+  }));
+  const historyEntries: HistoryEntry[] = apiHistory.map((h) => ({
+    id: h.id,
+    sql: h.sql,
+    timestamp: h.timestamp,
+    elapsed: h.elapsed,
+    rowsReturned: h.row_count,
+  }));
+  return { savedQueries, historyEntries };
+}
 
-export const savedQueries: SavedQuery[] = [
-  {
-    id: "1",
-    name: "Run duration by workflow",
-    sql: "SELECT workflow_name, AVG(duration_seconds) as avg_duration,\n       COUNT(*) as run_count\nFROM runs\nGROUP BY workflow_name\nORDER BY avg_duration DESC\nLIMIT 20",
-  },
-  {
-    id: "2",
-    name: "Daily failure rate",
-    sql: "SELECT date_trunc('day', created_at) as day,\n       COUNT(*) FILTER (WHERE status = 'failed') as failures,\n       COUNT(*) as total,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'failed') / COUNT(*), 1) as failure_rate\nFROM runs\nGROUP BY 1\nORDER BY 1 DESC\nLIMIT 30",
-  },
-  {
-    id: "3",
-    name: "Top repos by activity",
-    sql: "SELECT repo, COUNT(*) as runs, SUM(additions) as total_additions,\n       SUM(deletions) as total_deletions\nFROM runs\nGROUP BY repo\nORDER BY runs DESC",
-  },
-];
-
-export const historyEntries: HistoryEntry[] = [
-  { id: "h1", sql: "SELECT workflow_name, COUNT(*) FROM runs GROUP BY 1", timestamp: "2 min ago", elapsed: 0.342, rowsReturned: 6 },
-  { id: "h2", sql: "SELECT * FROM runs WHERE status = 'failed' LIMIT 100", timestamp: "8 min ago", elapsed: 0.127, rowsReturned: 23 },
-  { id: "h3", sql: "SELECT date_trunc('day', created_at) as d, COUNT(*) FROM runs GROUP BY 1 ORDER BY 1", timestamp: "15 min ago", elapsed: 0.531, rowsReturned: 30 },
-  { id: "h4", sql: "SELECT repo, AVG(duration_seconds) FROM runs GROUP BY repo", timestamp: "1 hr ago", elapsed: 0.089, rowsReturned: 12 },
-  { id: "h5", sql: "DESCRIBE runs", timestamp: "1 hr ago", elapsed: 0.003, rowsReturned: 18 },
-];
-
-export default function InsightsLayout() {
+export default function InsightsLayout({ loaderData }: Route.ComponentProps) {
+  const { savedQueries, historyEntries } = loaderData;
   const navigate = useNavigate();
 
   return (

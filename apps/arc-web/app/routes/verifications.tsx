@@ -51,10 +51,8 @@ import {
   ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import {
-  verificationCategories,
   typeConfig,
   modeConfig,
-  criterionPerformance,
   slugify,
 } from "../data/verifications";
 import type {
@@ -62,8 +60,39 @@ import type {
   VerificationMode,
   EvaluationResult,
   VerificationCategory,
+  CriterionPerformance,
 } from "../data/verifications";
+import { apiJson } from "../api-client";
+import type { VerificationCategory as ApiVerificationCategory } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/verifications";
+
+export async function loader() {
+  const apiCategories = await apiJson<ApiVerificationCategory[]>("/verifications");
+  const categories: VerificationCategory[] = apiCategories.map((cat) => ({
+    name: cat.name,
+    question: cat.question,
+    status: "pass" as const,
+    criteria: cat.controls.map((c) => ({
+      name: c.name,
+      description: c.description,
+      type: (c.type ?? null) as VerificationType | null,
+      status: "pass" as const,
+    })),
+  }));
+  // Build a performance map from API data
+  const criterionPerformance: Record<string, CriterionPerformance> = {};
+  for (const cat of apiCategories) {
+    for (const ctrl of cat.controls) {
+      criterionPerformance[ctrl.name] = {
+        f1: ctrl.f1 ?? null,
+        passAt1: ctrl.pass_at_1 ?? null,
+        mode: (ctrl.mode ?? "disabled") as VerificationMode,
+        evaluations: (ctrl.evaluations ?? []) as EvaluationResult[],
+      };
+    }
+  }
+  return { categories, criterionPerformance };
+}
 
 export const handle = { wide: true };
 
@@ -156,7 +185,7 @@ function CriterionRow({ slug, children }: { slug: string; children: React.ReactN
   );
 }
 
-function CategoryCard({ category }: { category: VerificationCategory }) {
+function CategoryCard({ category, perfMap }: { category: VerificationCategory; perfMap: Record<string, CriterionPerformance> }) {
   return (
     <Disclosure
       as="div"
@@ -192,7 +221,7 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
             <tbody>
               {category.criteria.map((criterion) => {
                 const Icon = criterionIcons[criterion.name];
-                const perf = criterionPerformance[criterion.name];
+                const perf = perfMap[criterion.name];
                 return (
                   <CriterionRow key={criterion.name} slug={slugify(criterion.name)}>
                     <td className="w-8 py-2.5 pl-5 pr-0">
@@ -226,11 +255,11 @@ function CategoryCard({ category }: { category: VerificationCategory }) {
   );
 }
 
-function GroupedView({ categories }: { categories: readonly VerificationCategory[] }) {
+function GroupedView({ categories, perfMap }: { categories: readonly VerificationCategory[]; perfMap: Record<string, CriterionPerformance> }) {
   return (
     <div className="space-y-3">
       {categories.map((category) => (
-        <CategoryCard key={category.name} category={category} />
+        <CategoryCard key={category.name} category={category} perfMap={perfMap} />
       ))}
     </div>
   );
@@ -269,7 +298,7 @@ function EvaluationDots({ evaluations }: { evaluations: readonly EvaluationResul
   );
 }
 
-function UngroupedView({ categories }: { categories: readonly VerificationCategory[] }) {
+function UngroupedView({ categories, perfMap }: { categories: readonly VerificationCategory[]; perfMap: Record<string, CriterionPerformance> }) {
   return (
     <div className="rounded-md border border-line overflow-hidden">
       <table className="w-full text-sm">
@@ -290,7 +319,7 @@ function UngroupedView({ categories }: { categories: readonly VerificationCatego
           {categories.flatMap((category) =>
             category.criteria.map((criterion) => {
               const Icon = criterionIcons[criterion.name];
-              const perf = criterionPerformance[criterion.name];
+              const perf = perfMap[criterion.name];
               return (
                 <CriterionRow key={`${category.name}-${criterion.name}`} slug={slugify(criterion.name)}>
                   <td className="w-8 py-2.5 pl-4 pr-0">
@@ -336,12 +365,13 @@ function filterCategories(
   categories: readonly VerificationCategory[],
   query: string,
   modeFilter: VerificationMode | "all",
+  perfMap: Record<string, CriterionPerformance>,
 ): VerificationCategory[] {
   const lowerQuery = query.toLowerCase();
   return categories
     .map((category) => {
       const filtered = category.criteria.filter((c) => {
-        const perf = criterionPerformance[c.name];
+        const perf = perfMap[c.name];
         const matchesMode = modeFilter === "all" || perf?.mode === modeFilter;
         const matchesQuery =
           lowerQuery === "" ||
@@ -355,12 +385,13 @@ function filterCategories(
     .filter((category) => category.criteria.length > 0);
 }
 
-export default function Verifications() {
+export default function Verifications({ loaderData }: Route.ComponentProps) {
+  const { categories: verificationCategories, criterionPerformance } = loaderData;
   const [view, setView] = useState<ViewMode>("grouped");
   const [query, setQuery] = useState("");
   const [modeFilter, setModeFilter] = useState<VerificationMode | "all">("all");
 
-  const filtered = filterCategories(verificationCategories, query, modeFilter);
+  const filtered = filterCategories(verificationCategories, query, modeFilter, criterionPerformance);
 
   return (
     <div className="space-y-4">
@@ -413,7 +444,7 @@ export default function Verifications() {
         </div>
       </div>
 
-      {view === "grouped" ? <GroupedView categories={filtered} /> : <UngroupedView categories={filtered} />}
+      {view === "grouped" ? <GroupedView categories={filtered} perfMap={criterionPerformance} /> : <UngroupedView categories={filtered} perfMap={criterionPerformance} />}
     </div>
   );
 }

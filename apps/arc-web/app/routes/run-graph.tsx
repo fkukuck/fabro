@@ -3,10 +3,12 @@ import { Link, useParams } from "react-router";
 import { ArrowDownIcon, ArrowRightIcon, MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { CheckCircleIcon, ArrowPathIcon, PauseCircleIcon, XCircleIcon } from "@heroicons/react/24/solid";
 import { DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
-import { findRun } from "../data/runs";
-import { workflowData } from "./workflow-detail";
 import { useTheme } from "../lib/theme";
 import { getGraphTheme } from "../lib/graph-theme";
+import { apiFetch, apiJson } from "../api-client";
+import { formatDurationSecs } from "../lib/format";
+import type { RunStage } from "@qltysh/arc-api-client";
+import type { Route } from "./+types/run-graph";
 
 export const handle = { wide: true };
 
@@ -20,12 +22,21 @@ interface Stage {
   duration: string;
 }
 
-const stages: Stage[] = [
-  { id: "detect-drift", name: "Detect Drift", dotId: "detect", status: "completed", duration: "1m 12s" },
-  { id: "propose-changes", name: "Propose Changes", dotId: "propose", status: "completed", duration: "2m 34s" },
-  { id: "review-changes", name: "Review Changes", dotId: "review", status: "completed", duration: "0m 45s" },
-  { id: "apply-changes", name: "Apply Changes", dotId: "apply", status: "running", duration: "1m 58s" },
-];
+export async function loader({ params }: Route.LoaderArgs) {
+  const [apiStages, graphRes] = await Promise.all([
+    apiJson<RunStage[]>(`/runs/${params.id}/stages`),
+    apiFetch(`/runs/${params.id}/graph`),
+  ]);
+  const stages: Stage[] = apiStages.map((s) => ({
+    id: s.id,
+    name: s.name,
+    dotId: s.dot_id ?? s.id,
+    status: s.status as StageStatus,
+    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
+  }));
+  const graphSvg = graphRes.ok ? await graphRes.text() : null;
+  return { stages, graphSvg };
+}
 
 const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; color: string }> = {
   completed: { icon: CheckCircleIcon, color: "text-mint" },
@@ -91,12 +102,12 @@ function stripGraphTitle(svg: SVGSVGElement) {
   title.remove();
 }
 
-function annotateRunningNodes(svg: SVGSVGElement, gt: ReturnType<typeof getGraphTheme>) {
+function annotateRunningNodes(svg: SVGSVGElement, gt: ReturnType<typeof getGraphTheme>, stageList: Stage[]) {
   const runningDotIds = new Set(
-    stages.filter((s) => s.status === "running").map((s) => s.dotId),
+    stageList.filter((s) => s.status === "running").map((s) => s.dotId),
   );
   const completedDotIds = new Set(
-    stages.filter((s) => s.status === "completed").map((s) => s.dotId),
+    stageList.filter((s) => s.status === "completed").map((s) => s.dotId),
   );
 
   const nodeGroups = svg.querySelectorAll(".node");
@@ -178,10 +189,9 @@ function annotateRunningNodes(svg: SVGSVGElement, gt: ReturnType<typeof getGraph
 const ZOOM_STEPS = [25, 50, 75, 100, 150, 200];
 const DEFAULT_ZOOM_INDEX = 2;
 
-export default function RunGraph() {
+export default function RunGraph({ loaderData }: Route.ComponentProps) {
   const { id } = useParams();
-  const run = findRun(id ?? "");
-  const workflow = run ? workflowData[run.workflow] : undefined;
+  const { stages, graphSvg } = loaderData;
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -205,7 +215,7 @@ export default function RunGraph() {
       try {
         const svg = viz.renderSVGElement(buildDot(direction, graphTheme));
         stripGraphTitle(svg);
-        annotateRunningNodes(svg, graphTheme);
+        annotateRunningNodes(svg, graphTheme, stages);
 
         svgRef.current = svg;
         if (innerRef.current) {
@@ -289,31 +299,29 @@ export default function RunGraph() {
           </ul>
         </div>
 
-        {workflow && (
-          <div>
-            <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
-            <ul className="mt-2 space-y-0.5">
-              <li>
-                <Link
-                  to={`/runs/${id}/configuration`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
-                >
-                  <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
-                  Run Configuration
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to={`/runs/${id}/graph`}
-                  className="flex items-center gap-2 rounded-md bg-overlay px-2 py-1.5 text-sm text-fg transition-colors"
-                >
-                  <MapIcon className="size-4 shrink-0 text-fg-muted" />
-                  Workflow Graph
-                </Link>
-              </li>
-            </ul>
-          </div>
-        )}
+        <div>
+          <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">Workflow</h3>
+          <ul className="mt-2 space-y-0.5">
+            <li>
+              <Link
+                to={`/runs/${id}/configuration`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 transition-colors hover:bg-overlay hover:text-fg"
+              >
+                <DocumentTextIcon className="size-4 shrink-0 text-fg-muted" />
+                Run Configuration
+              </Link>
+            </li>
+            <li>
+              <Link
+                to={`/runs/${id}/graph`}
+                className="flex items-center gap-2 rounded-md bg-overlay px-2 py-1.5 text-sm text-fg transition-colors"
+              >
+                <MapIcon className="size-4 shrink-0 text-fg-muted" />
+                Workflow Graph
+              </Link>
+            </li>
+          </ul>
+        </div>
       </nav>
 
       <div className="min-w-0 flex-1">

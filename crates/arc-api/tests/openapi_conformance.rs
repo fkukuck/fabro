@@ -39,6 +39,9 @@ fn load_spec() -> openapiv3::OpenAPI {
 fn resolve_path(path: &str) -> String {
     path.replace("{id}", "test-id")
         .replace("{qid}", "test-qid")
+        .replace("{stageId}", "test-stage")
+        .replace("{name}", "test-name")
+        .replace("{slug}", "test-slug")
 }
 
 fn methods_for_path_item(item: &openapiv3::PathItem) -> Vec<Method> {

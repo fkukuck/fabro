@@ -38,6 +38,10 @@ pub struct ServeArgs {
     /// Execution environment for agent tools
     #[arg(long, value_enum)]
     pub execution_env: Option<ExecutionEnvKind>,
+
+    /// Serve static demo data (disables auth, read-only)
+    #[arg(long)]
+    pub demo: bool,
 }
 
 /// Start the HTTP API server.
@@ -116,9 +120,13 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
     let db = arc_db::connect(&data_dir.join("arc.db")).await?;
     arc_db::initialize_db(&db).await?;
 
-    let auth_mode = crate::jwt_auth::resolve_auth_mode();
+    let auth_mode = if args.demo {
+        crate::jwt_auth::AuthMode::Disabled
+    } else {
+        crate::jwt_auth::resolve_auth_mode()
+    };
 
-    let state = create_app_state_with_options(db, factory, dry_run_mode);
+    let state = create_app_state_with_options(db, factory, dry_run_mode, args.demo);
     let router = build_router(state, auth_mode);
 
     let addr = format!("{}:{}", args.host, args.port);
