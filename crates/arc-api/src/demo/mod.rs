@@ -99,6 +99,14 @@ pub async fn steer_run_stub(
     (StatusCode::OK, Json(serde_json::json!({"accepted": true}))).into_response()
 }
 
+pub async fn generate_preview_url_stub(
+    _auth: AuthenticatedService,
+    State(_state): State<Arc<AppState>>,
+    Path(_id): Path<String>,
+) -> Response {
+    (StatusCode::OK, Json(serde_json::json!({"url": "https://google.com"}))).into_response()
+}
+
 pub async fn get_run_status(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,

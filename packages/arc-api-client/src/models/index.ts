@@ -18,6 +18,8 @@ export * from './execute-query-response';
 export * from './file-checkpoint';
 export * from './file-diff';
 export * from './history-entry';
+export * from './preview-url-request';
+export * from './preview-url-response';
 export * from './project';
 export * from './recent-control-result';
 export * from './retro-list-item';

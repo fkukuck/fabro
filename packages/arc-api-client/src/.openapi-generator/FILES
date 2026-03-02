@@ -32,6 +32,8 @@ models/file-checkpoint.ts
 models/file-diff.ts
 models/history-entry.ts
 models/index.ts
+models/preview-url-request.ts
+models/preview-url-response.ts
 models/project.ts
 models/recent-control-result.ts
 models/retro-list-item.ts

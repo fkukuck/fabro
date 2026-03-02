@@ -1,11 +1,12 @@
+import { useEffect } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useFetcher, useLocation } from "react-router";
 import { statusColors } from "../data/runs";
 import type { ColumnStatus } from "../data/runs";
 import { apiJson } from "../api-client";
 import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
-import type { RunListItem } from "@qltysh/arc-api-client";
+import type { RunListItem, PreviewUrlResponse } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/run-detail";
 
 const tabs = [
@@ -38,6 +39,18 @@ export async function loader({ params }: Route.LoaderArgs) {
   };
 }
 
+export async function action({ params, request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const port = formData.get("port");
+  const expiresInSecs = formData.get("expires_in_secs");
+  const result = await apiJson<PreviewUrlResponse>(`/runs/${params.id}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ port: Number(port), expires_in_secs: Number(expiresInSecs) }),
+  });
+  return result;
+}
+
 export function meta({ data }: Route.MetaArgs) {
   const run = data?.run;
   return [{ title: run ? `${run.title} — Arc` : "Run — Arc" }];
@@ -47,6 +60,13 @@ export default function RunDetail({ loaderData, params }: Route.ComponentProps) 
   const { run } = loaderData;
   const { pathname } = useLocation();
   const basePath = `/runs/${params.id}`;
+  const previewFetcher = useFetcher<PreviewUrlResponse>();
+
+  useEffect(() => {
+    if (previewFetcher.data?.url) {
+      window.open(previewFetcher.data.url, "_blank");
+    }
+  }, [previewFetcher.data]);
 
   if (!run) {
     return <p className="py-8 text-center text-sm text-fg-muted">Run not found.</p>;
@@ -90,6 +110,23 @@ export default function RunDetail({ loaderData, params }: Route.ComponentProps) 
           </svg>
           Open PR
         </button>
+        {run.sandboxId && (
+          <previewFetcher.Form method="post">
+            <input type="hidden" name="port" value="3000" />
+            <input type="hidden" name="expires_in_secs" value="3600" />
+            <button
+              type="submit"
+              disabled={previewFetcher.state !== "idle"}
+              className="flex shrink-0 items-center gap-1.5 rounded-md border border-teal-500/20 px-3 py-1.5 text-sm font-medium text-teal-500 transition-colors hover:border-teal-500/50 hover:bg-teal-500/10 hover:text-fg disabled:opacity-50"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="size-3.5" aria-hidden="true">
+                <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+                <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clipRule="evenodd" />
+              </svg>
+              {previewFetcher.state !== "idle" ? "Opening..." : "Preview"}
+            </button>
+          </previewFetcher.Form>
+        )}
         {run.sandboxId && (
           <Menu as="div" className="relative">
             <MenuButton className="flex shrink-0 items-center gap-1.5 rounded-md border border-teal-500/20 px-3 py-1.5 text-sm font-medium text-teal-500 transition-colors hover:border-teal-500/50 hover:bg-teal-500/10 hover:text-fg">
