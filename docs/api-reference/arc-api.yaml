@@ -140,7 +140,7 @@ paths:
   /runs/{id}/checkpoint:
     get:
       operationId: retrieveRunCheckpoint
-      tags: [Runs]
+      tags: [Run Internals]
       summary: Retrieve Run Checkpoint
       parameters:
         - $ref: "#/components/parameters/RunId"
@@ -401,6 +401,29 @@ paths:
                     type: boolean
                 required:
                   - accepted
+        "404":
+          description: Run not found
+
+  /runs/{id}/preview:
+    post:
+      operationId: generatePreviewUrl
+      tags: [Runs]
+      summary: Generate a sandbox preview URL
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewUrlRequest"
+      responses:
+        "200":
+          description: Preview URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewUrlResponse"
         "404":
           description: Run not found
 
@@ -1256,6 +1279,25 @@ components:
         line:
           type: integer
         guidance:
+          type: string
+
+    PreviewUrlRequest:
+      type: object
+      required:
+        - port
+        - expires_in_secs
+      properties:
+        port:
+          type: integer
+        expires_in_secs:
+          type: integer
+
+    PreviewUrlResponse:
+      type: object
+      required:
+        - url
+      properties:
+        url:
           type: string
 
     # ── Workflow Schemas ─────────────────────────────────────────────────
