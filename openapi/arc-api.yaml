@@ -1,0 +1,356 @@
+openapi: "3.1.0"
+info:
+  title: Arc Pipeline API
+  version: "0.1.0"
+  description: HTTP API for managing Arc pipeline executions.
+
+paths:
+  /pipelines:
+    get:
+      operationId: listPipelines
+      summary: List all pipelines
+      responses:
+        "200":
+          description: Array of pipeline statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PipelineStatusResponse"
+    post:
+      operationId: startPipeline
+      summary: Start a new pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartPipelineRequest"
+      responses:
+        "201":
+          description: Pipeline created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartPipelineResponse"
+        "400":
+          description: Invalid DOT source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pipelines/{id}:
+    get:
+      operationId: getPipelineStatus
+      summary: Get pipeline status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pipeline status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineStatusResponse"
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{id}/cancel:
+    post:
+      operationId: cancelPipeline
+      summary: Cancel a running pipeline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pipeline cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: boolean
+                required:
+                  - cancelled
+        "404":
+          description: Pipeline not found
+        "409":
+          description: Pipeline is not running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pipelines/{id}/graph:
+    get:
+      operationId: getGraph
+      summary: Get pipeline graph as SVG
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SVG image of the pipeline graph
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        "404":
+          description: Pipeline not found
+        "502":
+          description: Graphviz not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pipelines/{id}/checkpoint:
+    get:
+      operationId: getCheckpoint
+      summary: Get pipeline checkpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Checkpoint data (null if not yet available)
+          content:
+            application/json:
+              schema: {}
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{id}/context:
+    get:
+      operationId: getContext
+      summary: Get pipeline context
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Context key-value map
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{id}/events:
+    get:
+      operationId: getEvents
+      summary: Subscribe to pipeline events via SSE
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server-sent event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Pipeline not found
+        "410":
+          description: Event stream closed
+
+  /pipelines/{id}/questions:
+    get:
+      operationId: getQuestions
+      summary: Get pending questions for a pipeline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of pending questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiQuestion"
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{id}/questions/{qid}/answer:
+    post:
+      operationId: submitAnswer
+      summary: Submit an answer to a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: qid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitAnswerRequest"
+      responses:
+        "200":
+          description: Answer accepted or rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitAnswerResponse"
+        "400":
+          description: Invalid option key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{id}/retro:
+    get:
+      operationId: getRetro
+      summary: Get pipeline retrospective
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Retro data (null if not yet available)
+          content:
+            application/json:
+              schema: {}
+        "404":
+          description: Pipeline not found
+
+components:
+  schemas:
+    PipelineStatus:
+      type: string
+      enum:
+        - running
+        - completed
+        - failed
+        - cancelled
+
+    StartPipelineRequest:
+      type: object
+      required:
+        - dot_source
+      properties:
+        dot_source:
+          type: string
+
+    StartPipelineResponse:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+
+    PipelineStatusResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/PipelineStatus"
+        error:
+          type: string
+
+    ApiQuestionOption:
+      type: object
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+
+    ApiQuestion:
+      type: object
+      required:
+        - id
+        - text
+        - question_type
+        - options
+        - allow_freeform
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        question_type:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiQuestionOption"
+        allow_freeform:
+          type: boolean
+
+    SubmitAnswerRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+        selected_option_key:
+          type: string
+
+    SubmitAnswerResponse:
+      type: object
+      required:
+        - accepted
+      properties:
+        accepted:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string

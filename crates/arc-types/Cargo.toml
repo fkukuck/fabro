@@ -1,0 +1,21 @@
+[package]
+name = "arc-types"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Generated Rust types from the Arc API OpenAPI spec"
+
+[lib]
+doctest = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+typify = { version = "0.6", default-features = false }
+schemars = "0.8"
+serde_json = "1"
+serde_yaml = "0.9"
+prettyplease = "0.2"
+syn = "2"

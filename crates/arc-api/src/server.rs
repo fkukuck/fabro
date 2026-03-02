@@ -8,7 +8,6 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
@@ -26,32 +25,10 @@ use arc_workflows::handler::HandlerRegistry;
 use arc_workflows::interviewer::web::WebInterviewer;
 use arc_workflows::interviewer::{Answer, Interviewer};
 
-/// Status of a managed pipeline.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PipelineStatus {
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-/// An option for a multiple-choice question exposed via the API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiQuestionOption {
-    pub key: String,
-    pub label: String,
-}
-
-/// A pending question exposed via the API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiQuestion {
-    pub id: String,
-    pub text: String,
-    pub question_type: String,
-    pub options: Vec<ApiQuestionOption>,
-    pub allow_freeform: bool,
-}
+pub use arc_types::{
+    ApiQuestion, ApiQuestionOption, PipelineStatus, PipelineStatusResponse, StartPipelineRequest,
+    StartPipelineResponse, SubmitAnswerRequest, SubmitAnswerResponse,
+};
 
 /// Snapshot of a managed pipeline.
 struct ManagedPipeline {
@@ -73,40 +50,6 @@ pub struct AppState {
     registry_factory: Box<dyn Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync>,
     dry_run: bool,
     pub db: sqlx::SqlitePool,
-}
-
-/// Request body for POST /pipelines.
-#[derive(Debug, Deserialize)]
-pub struct StartPipelineRequest {
-    pub dot_source: String,
-}
-
-/// Response body for POST /pipelines.
-#[derive(Debug, Serialize)]
-pub struct StartPipelineResponse {
-    pub id: String,
-}
-
-/// Response body for GET /pipelines/{id}.
-#[derive(Debug, Serialize)]
-pub struct PipelineStatusResponse {
-    pub id: String,
-    pub status: PipelineStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Request body for POST /pipelines/{id}/questions/{qid}/answer.
-#[derive(Debug, Deserialize)]
-pub struct SubmitAnswerRequest {
-    pub value: String,
-    pub selected_option_key: Option<String>,
-}
-
-/// Response for answer submission.
-#[derive(Debug, Serialize)]
-pub struct SubmitAnswerResponse {
-    pub accepted: bool,
 }
 
 /// Build the axum Router with all pipeline endpoints.

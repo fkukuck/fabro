@@ -14,6 +14,7 @@ arc-agent = { path = "../arc-agent" }
 arc-llm = { path = "../arc-llm" }
 arc-util = { path = "../arc-util" }
 arc-db = { path = "../arc-db" }
+arc-types = { path = "../arc-types" }
 axum = "0.8"
 dirs.workspace = true
 sqlx.workspace = true
@@ -35,3 +36,5 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 tower = "0.5"
 http-body-util = "0.1"
 tempfile = "3"
+openapiv3 = "2"
+serde_yaml = "0.9"
