@@ -118,7 +118,7 @@ paths:
     get:
       operationId: retrieveRunSvg
       tags: [Runs]
-      summary: Retrieve Run SVG
+      summary: Render SVG
       parameters:
         - $ref: "#/components/parameters/RunId"
       responses:
@@ -304,7 +304,7 @@ paths:
   /runs/{id}/files:
     get:
       operationId: listRunFiles
-      tags: [Runs]
+      tags: [Run Outputs]
       summary: List Run Files
       parameters:
         - $ref: "#/components/parameters/RunId"
@@ -343,7 +343,7 @@ paths:
   /runs/{id}/verifications:
     get:
       operationId: listRunVerifications
-      tags: [Runs]
+      tags: [Run Outputs]
       summary: List Run Verifications
       parameters:
         - $ref: "#/components/parameters/RunId"

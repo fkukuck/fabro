@@ -26,13 +26,9 @@ import type { CancelRun200Response } from '../models';
 // @ts-ignore
 import type { ErrorResponse } from '../models';
 // @ts-ignore
-import type { RunFiles } from '../models';
-// @ts-ignore
 import type { RunListItem } from '../models';
 // @ts-ignore
 import type { RunStatusResponse } from '../models';
-// @ts-ignore
-import type { RunVerification } from '../models';
 // @ts-ignore
 import type { StartRunRequest } from '../models';
 // @ts-ignore
@@ -62,79 +58,6 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             }
 
             const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            localVarHeaderParameter['Accept'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @summary List Run Files
-         * @param {string} id 
-         * @param {string} [checkpoint] 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        listRunFiles: async (id: string, checkpoint?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'id' is not null or undefined
-            assertParamExists('listRunFiles', 'id', id)
-            const localVarPath = `/runs/{id}/files`
-                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            if (checkpoint !== undefined) {
-                localVarQueryParameter['checkpoint'] = checkpoint;
-            }
-
-            localVarHeaderParameter['Accept'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @summary List Run Verifications
-         * @param {string} id 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        listRunVerifications: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'id' is not null or undefined
-            assertParamExists('listRunVerifications', 'id', id)
-            const localVarPath = `/runs/{id}/verifications`
-                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
 
@@ -215,7 +138,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
         },
         /**
          * 
-         * @summary Retrieve Run SVG
+         * @summary Render SVG
          * @param {string} id 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -340,33 +263,6 @@ export const RunsApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary List Run Files
-         * @param {string} id 
-         * @param {string} [checkpoint] 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async listRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<RunFiles>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listRunFiles(id, checkpoint, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['RunsApi.listRunFiles']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @summary List Run Verifications
-         * @param {string} id 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async listRunVerifications(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunVerification>>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listRunVerifications(id, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['RunsApi.listRunVerifications']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
          * @summary List Runs
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -392,7 +288,7 @@ export const RunsApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary Retrieve Run SVG
+         * @summary Render SVG
          * @param {string} id 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -450,27 +346,6 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         },
         /**
          * 
-         * @summary List Run Files
-         * @param {string} id 
-         * @param {string} [checkpoint] 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        listRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig): AxiosPromise<RunFiles> {
-            return localVarFp.listRunFiles(id, checkpoint, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @summary List Run Verifications
-         * @param {string} id 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        listRunVerifications(id: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<RunVerification>> {
-            return localVarFp.listRunVerifications(id, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
          * @summary List Runs
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -490,7 +365,7 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         },
         /**
          * 
-         * @summary Retrieve Run SVG
+         * @summary Render SVG
          * @param {string} id 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -538,29 +413,6 @@ export class RunsApi extends BaseAPI {
 
     /**
      * 
-     * @summary List Run Files
-     * @param {string} id 
-     * @param {string} [checkpoint] 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    public listRunFiles(id: string, checkpoint?: string, options?: RawAxiosRequestConfig) {
-        return RunsApiFp(this.configuration).listRunFiles(id, checkpoint, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @summary List Run Verifications
-     * @param {string} id 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    public listRunVerifications(id: string, options?: RawAxiosRequestConfig) {
-        return RunsApiFp(this.configuration).listRunVerifications(id, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
      * @summary List Runs
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -582,7 +434,7 @@ export class RunsApi extends BaseAPI {
 
     /**
      * 
-     * @summary Retrieve Run SVG
+     * @summary Render SVG
      * @param {string} id 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
