@@ -17,8 +17,6 @@ tags:
     description: Workflow definitions and execution
   - name: Verifications
     description: Verification categories and controls
-  - name: Sandbox
-    description: Sandbox preview URLs
   - name: Usage
     description: Token and cost usage
   - name: Insights
@@ -330,7 +328,7 @@ paths:
   /runs/{id}/usage:
     get:
       operationId: retrieveRunUsage
-      tags: [Usage]
+      tags: [Run Outputs]
       summary: Retrieve Run Usage
       parameters:
         - $ref: "#/components/parameters/RunId"
@@ -411,7 +409,7 @@ paths:
   /runs/{id}/preview:
     post:
       operationId: generatePreviewUrl
-      tags: [Sandbox]
+      tags: [Human-in-the-Loop]
       summary: Preview URL
       parameters:
         - $ref: "#/components/parameters/RunId"

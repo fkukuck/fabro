@@ -6,10 +6,8 @@ api/retros-api.ts
 api/run-internals-api.ts
 api/run-outputs-api.ts
 api/runs-api.ts
-api/sandbox-api.ts
 api/sessions-api.ts
 api/settings-api.ts
-api/usage-api.ts
 api/verifications-api.ts
 api/workflows-api.ts
 base.ts
