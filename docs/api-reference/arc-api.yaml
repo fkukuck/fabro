@@ -7,12 +7,12 @@ info:
 tags:
   - name: Runs
     description: Run management operations
+  - name: Human-in-the-Loop
+    description: Questions, answers, and steering for runs
   - name: Run Outputs
     description: Files and verifications produced by runs
   - name: Run Internals
     description: Internal run details (stages, turns, context, configuration)
-  - name: Human-in-the-Loop
-    description: Questions, answers, and steering for runs
   - name: Workflows
     description: Workflow definitions and execution
   - name: Verifications
@@ -23,12 +23,12 @@ tags:
     description: SQL query editor and history
   - name: Sessions
     description: Interactive chat sessions
+  - name: Retros
+    description: Run retrospectives
   - name: Projects
     description: Project and branch management
   - name: Settings
     description: Platform configuration
-  - name: Retros
-    description: Run retrospectives
 
 paths:
   # ── Runs ──────────────────────────────────────────────────────────────
