@@ -60,7 +60,7 @@ const sessionGroups = [
     label: "Previous 7 days",
     sessions: [
       { id: "s6", title: "Terraform module for Redis cluster", repo: "infrastructure", time: "3d ago" },
-      { id: "s7", title: "Add pipeline event types", repo: "shared-types", time: "5d ago" },
+      { id: "s7", title: "Add workflow run event types", repo: "shared-types", time: "5d ago" },
       { id: "s8", title: "Implement webhook retry logic", repo: "api-server", time: "6d ago" },
     ],
   },

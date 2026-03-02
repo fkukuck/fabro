@@ -45,7 +45,7 @@ export interface AggregateStats {
 
 export interface Retro {
   run_id: string;
-  pipeline_name: string;
+  workflow_name: string;
   goal: string;
   timestamp: string;
   smoothness?: SmoothnessRating;
@@ -91,7 +91,7 @@ export const openItemKindConfig: Record<OpenItemKind, { label: string; text: str
 const mockRetros: Retro[] = [
   {
     run_id: "run-1",
-    pipeline_name: "implement",
+    workflow_name: "implement",
     goal: "Add rate limiting to auth endpoints",
     timestamp: "2026-02-28T14:32:00Z",
     smoothness: "smooth",
@@ -154,7 +154,7 @@ const mockRetros: Retro[] = [
   },
   {
     run_id: "run-2",
-    pipeline_name: "implement",
+    workflow_name: "implement",
     goal: "Migrate to React Router v7",
     timestamp: "2026-02-28T10:15:00Z",
     smoothness: "bumpy",
@@ -224,7 +224,7 @@ const mockRetros: Retro[] = [
   },
   {
     run_id: "run-6",
-    pipeline_name: "implement",
+    workflow_name: "implement",
     goal: "Add dark mode toggle",
     timestamp: "2026-02-27T16:45:00Z",
     smoothness: "effortless",
@@ -275,7 +275,7 @@ const mockRetros: Retro[] = [
   },
   {
     run_id: "run-3",
-    pipeline_name: "fix_build",
+    workflow_name: "fix_build",
     goal: "Fix config parsing for nested values",
     timestamp: "2026-02-27T09:20:00Z",
     smoothness: "struggled",
@@ -347,7 +347,7 @@ const mockRetros: Retro[] = [
   },
   {
     run_id: "run-8",
-    pipeline_name: "implement",
+    workflow_name: "implement",
     goal: "Implement webhook retry logic",
     timestamp: "2026-02-26T11:00:00Z",
     smoothness: "smooth",

@@ -60,7 +60,7 @@ export default function Retros() {
     (r) =>
       (smoothnessFilter === "all" || r.smoothness === smoothnessFilter) &&
       (r.goal.toLowerCase().includes(lowerQuery) ||
-        r.pipeline_name.toLowerCase().includes(lowerQuery)),
+        r.workflow_name.toLowerCase().includes(lowerQuery)),
   );
 
   return (
@@ -95,7 +95,7 @@ export default function Retros() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
-            <th className="px-4 py-2.5 font-medium">Pipeline</th>
+            <th className="px-4 py-2.5 font-medium">Workflow</th>
             <th className="px-4 py-2.5 font-medium">Goal</th>
             <th className="px-4 py-2.5 font-medium">Smoothness</th>
             <th className="px-4 py-2.5 font-medium text-right">Duration</th>
@@ -107,7 +107,7 @@ export default function Retros() {
           {filtered.map((retro) => (
             <tr key={retro.run_id} className="border-b border-line last:border-b-0 transition-colors hover:bg-overlay cursor-pointer" onClick={() => navigate(`/runs/${retro.run_id}/retro`)}>
               <td className="px-4 py-3 font-mono text-xs font-medium text-teal-500">
-                {retro.pipeline_name}
+                {retro.workflow_name}
               </td>
               <td className="px-4 py-3 text-fg-2">
                 {truncate(retro.goal, 60)}

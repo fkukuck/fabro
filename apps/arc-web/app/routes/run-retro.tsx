@@ -41,7 +41,7 @@ export default function RunRetro({ params }: Route.ComponentProps) {
         <div className="min-w-0 flex-1">
           <p className="text-sm text-fg-3">{retro.goal}</p>
           <p className="mt-1 font-mono text-xs text-fg-muted">
-            {retro.pipeline_name} &middot; {new Date(retro.timestamp).toLocaleString()}
+            {retro.workflow_name} &middot; {new Date(retro.timestamp).toLocaleString()}
           </p>
         </div>
       </div>

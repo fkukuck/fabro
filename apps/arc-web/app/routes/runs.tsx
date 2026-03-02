@@ -20,7 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { columns as staticColumns, ciConfig, statusColors, deriveCiStatus } from "../data/runs";
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus } from "../data/runs";
-import type { Route } from "./+types/pipelines";
+import type { Route } from "./+types/runs";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Runs — Arc" }];
@@ -465,7 +465,7 @@ function SortableRunRow({ run }: { run: RunWithStatus }) {
 
 const allRepos = [...new Set(staticColumns.flatMap((col) => col.items.map((item) => item.repo)))].sort();
 
-export default function Pipelines() {
+export default function Runs() {
   const [query, setQuery] = useState("");
   const [repoFilter, setRepoFilter] = useState("all");
   const [view, setView] = useState<ViewMode>("columns");

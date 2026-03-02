@@ -16,7 +16,7 @@ export default [
       route("diagram", "routes/workflow-diagram.tsx"),
       route("runs", "routes/workflow-runs.tsx"),
     ]),
-    route("runs", "routes/pipelines.tsx"),
+    route("runs", "routes/runs.tsx"),
     route("runs/:id", "routes/run-detail.tsx", [
       index("routes/run-overview.tsx"),
       route("stages/:stageId", "routes/run-stages.tsx"),
