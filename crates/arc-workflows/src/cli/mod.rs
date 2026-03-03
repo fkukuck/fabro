@@ -571,6 +571,9 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
         WorkflowRunEvent::StallWatchdogTimeout { node, idle_seconds } => {
             format!("[STALL_WATCHDOG_TIMEOUT] node={node} idle_seconds={idle_seconds}")
         }
+        WorkflowRunEvent::AssetsCaptured { node_id, files_copied, total_bytes, files_skipped } => {
+            format!("[ASSETS_CAPTURED] node={node_id} files_copied={files_copied} total_bytes={total_bytes} files_skipped={files_skipped}")
+        }
     };
     format!("{dim}{body}{reset}", dim = styles.dim, reset = styles.reset)
 }

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
+use std::path::Path;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -58,6 +59,14 @@ macro_rules! delegate_sandbox {
 
             async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
                 self.$field.glob(pattern, path).await
+            }
+
+            async fn download_file_to_local(
+                &self,
+                remote_path: &str,
+                local_path: &std::path::Path,
+            ) -> Result<(), String> {
+                self.$field.download_file_to_local(remote_path, local_path).await
             }
 
             async fn initialize(&self) -> Result<(), String> {
@@ -290,6 +299,13 @@ pub trait Sandbox: Send + Sync {
         options: &GrepOptions,
     ) -> Result<Vec<String>, String>;
     async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String>;
+    /// Copy a file from the sandbox to a local filesystem path.
+    /// Handles binary files correctly across all sandbox types.
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> Result<(), String>;
     async fn initialize(&self) -> Result<(), String>;
     async fn cleanup(&self) -> Result<(), String>;
     fn working_directory(&self) -> &str;

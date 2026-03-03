@@ -263,6 +263,36 @@ pub fn get_gh_token() -> Result<String, String> {
 
 #[async_trait]
 impl Sandbox for DaytonaSandbox {
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> Result<(), String> {
+        let sandbox = self.sandbox()?;
+        let resolved = self.resolve_path(remote_path);
+
+        let fs_svc = sandbox
+            .fs()
+            .await
+            .map_err(|e| format!("Failed to get fs service: {e}"))?;
+
+        let bytes = fs_svc
+            .download_file(&resolved)
+            .await
+            .map_err(|e| format!("Failed to download file {resolved}: {e}"))?;
+
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+        }
+        tokio::fs::write(local_path, &bytes)
+            .await
+            .map_err(|e| format!("Failed to write {}: {e}", local_path.display()))?;
+
+        Ok(())
+    }
+
     async fn initialize(&self) -> Result<(), String> {
         self.emit(SandboxEvent::Initializing {
             provider: "daytona".into(),

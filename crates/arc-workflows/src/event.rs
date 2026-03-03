@@ -181,6 +181,12 @@ pub enum WorkflowRunEvent {
         node: String,
         idle_seconds: u64,
     },
+    AssetsCaptured {
+        node_id: String,
+        files_copied: usize,
+        total_bytes: u64,
+        files_skipped: usize,
+    },
 }
 
 impl WorkflowRunEvent {
@@ -446,6 +452,20 @@ impl WorkflowRunEvent {
                 idle_seconds,
             } => {
                 warn!(node, idle_seconds, "Stall watchdog timeout");
+            }
+            Self::AssetsCaptured {
+                node_id,
+                files_copied,
+                total_bytes,
+                files_skipped,
+            } => {
+                debug!(
+                    node_id,
+                    files_copied,
+                    total_bytes,
+                    files_skipped,
+                    "Assets captured"
+                );
             }
         }
     }

@@ -1,4 +1,5 @@
 pub mod artifact;
+pub mod asset_snapshot;
 pub mod checkpoint;
 pub mod cli;
 pub mod condition;

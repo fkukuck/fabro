@@ -270,6 +270,42 @@ impl DockerSandbox {
 
 #[async_trait]
 impl Sandbox for DockerSandbox {
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> Result<(), String> {
+        // Docker bind-mounts host_working_directory -> container_mount_point.
+        // Resolve the container path to the corresponding host path.
+        let container_path = self.resolve_container_path(remote_path);
+        let host_path = if container_path.starts_with(&self.config.container_mount_point) {
+            let relative = &container_path[self.config.container_mount_point.len()..];
+            let relative = relative.strip_prefix('/').unwrap_or(relative);
+            std::path::PathBuf::from(&self.config.host_working_directory).join(relative)
+        } else {
+            return Err(format!(
+                "Path {container_path} is outside the bind-mounted directory {}",
+                self.config.container_mount_point
+            ));
+        };
+
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+        }
+        tokio::fs::copy(&host_path, local_path)
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed to copy {} to {}: {e}",
+                    host_path.display(),
+                    local_path.display()
+                )
+            })?;
+        Ok(())
+    }
+
     async fn initialize(&self) -> Result<(), String> {
         self.emit(SandboxEvent::Initializing {
             provider: "docker".into(),

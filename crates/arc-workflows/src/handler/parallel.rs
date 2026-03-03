@@ -77,6 +77,13 @@ impl Sandbox for WorktreeSandbox {
     async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
         self.inner.glob(pattern, path).await
     }
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.download_file_to_local(remote_path, local_path).await
+    }
     async fn initialize(&self) -> Result<(), String> {
         self.inner.initialize().await
     }

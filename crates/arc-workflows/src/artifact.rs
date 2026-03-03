@@ -574,6 +574,14 @@ mod tests {
             Err("not implemented".to_string())
         }
 
+        async fn download_file_to_local(
+            &self,
+            _remote_path: &str,
+            _local_path: &std::path::Path,
+        ) -> std::result::Result<(), String> {
+            Err("not implemented".to_string())
+        }
+
         async fn initialize(&self) -> std::result::Result<(), String> {
             Ok(())
         }

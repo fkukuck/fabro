@@ -7698,6 +7698,10 @@ impl arc_agent::Sandbox for RemoteMockEnv {
         Ok(())
     }
 
+    async fn download_file_to_local(&self, _: &str, _: &std::path::Path) -> std::result::Result<(), String> {
+        Err("not implemented".to_string())
+    }
+
     fn working_directory(&self) -> &str {
         &self.working_dir
     }
@@ -8061,6 +8065,10 @@ impl arc_agent::Sandbox for CliTestEnv {
         Ok(())
     }
 
+    async fn download_file_to_local(&self, _: &str, _: &std::path::Path) -> Result<(), String> {
+        Err("not implemented".to_string())
+    }
+
     fn working_directory(&self) -> &str {
         "/tmp/test"
     }
@@ -8298,6 +8306,9 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
         }
         async fn cleanup(&self) -> Result<(), String> {
             Ok(())
+        }
+        async fn download_file_to_local(&self, _: &str, _: &std::path::Path) -> Result<(), String> {
+            Err("not implemented".to_string())
         }
         fn working_directory(&self) -> &str {
             "/tmp"
@@ -11153,3 +11164,328 @@ async fn e2e_stall_watchdog_with_explicit_timeout_override() {
 }
 
 // Daytona parallel git branching test is in daytona_integration.rs
+
+// ---------------------------------------------------------------------------
+// Asset collection e2e tests
+// ---------------------------------------------------------------------------
+
+/// Handler that creates asset files in the sandbox working directory via exec_command.
+struct AssetCreatorHandler {
+    should_fail: bool,
+}
+
+impl AssetCreatorHandler {
+    fn success() -> Self {
+        Self { should_fail: false }
+    }
+
+    fn failing() -> Self {
+        Self { should_fail: true }
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler for AssetCreatorHandler {
+    async fn execute(
+        &self,
+        _node: &Node,
+        _context: &Context,
+        _graph: &Graph,
+        _logs_root: &Path,
+        services: &arc_workflows::handler::EngineServices,
+    ) -> Result<Outcome, ArcError> {
+        // Create asset files via the sandbox's exec_command
+        let script = concat!(
+            "mkdir -p test-results && ",
+            "echo '<testsuites><testsuite name=\"example\"/></testsuites>' > test-results/report.xml && ",
+            "echo 'test output' > test-results/output.txt"
+        );
+        services
+            .sandbox
+            .exec_command(script, 30_000, None, None, None)
+            .await
+            .map_err(|e| ArcError::Handler(format!("exec failed: {e}")))?;
+
+        if self.should_fail {
+            Ok(Outcome::fail("intentional failure"))
+        } else {
+            Ok(Outcome::success())
+        }
+    }
+}
+
+/// Local sandbox: asset collection discovers and downloads files created by a handler.
+#[tokio::test]
+async fn asset_collection_local_sandbox_success() {
+    let work_dir = tempfile::tempdir().unwrap();
+    let logs_dir = tempfile::tempdir().unwrap();
+
+    let sandbox: Arc<dyn arc_agent::Sandbox> =
+        Arc::new(arc_agent::LocalSandbox::new(work_dir.path().to_path_buf()));
+    sandbox.initialize().await.unwrap();
+
+    let mut registry = HandlerRegistry::new(Box::new(AssetCreatorHandler::success()));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let mut emitter = EventEmitter::new();
+    let events = collect_events(&mut emitter);
+
+    let engine = WorkflowRunEngine::new(registry, Arc::new(emitter), sandbox.clone());
+
+    let mut graph = Graph::new("AssetCollectionTest");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Test asset collection".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start
+        .attrs
+        .insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut create_assets = Node::new("create_assets");
+    create_assets
+        .attrs
+        .insert("label".to_string(), AttrValue::String("Create Assets".to_string()));
+    graph
+        .nodes
+        .insert("create_assets".to_string(), create_assets);
+
+    let mut exit = Node::new("exit");
+    exit.attrs
+        .insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+
+    graph.edges.push(Edge::new("start", "create_assets"));
+    graph.edges.push(Edge::new("create_assets", "exit"));
+
+    let config = RunConfig {
+        logs_root: logs_dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: "asset-test-local".into(),
+        git_checkpoint: None,
+        base_sha: None,
+        run_branch: None,
+        meta_branch: None,
+        labels: std::collections::HashMap::new(),
+    };
+
+    let outcome = engine.run(&graph, &config).await.expect("run should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    // Check that asset files were collected into the stage directory
+    let assets_dir = logs_dir
+        .path()
+        .join("nodes")
+        .join("create_assets")
+        .join("assets")
+        .join("attempt_1");
+
+    let report_path = assets_dir.join("test-results/report.xml");
+    assert!(
+        report_path.exists(),
+        "report.xml should be collected at {}",
+        report_path.display()
+    );
+    let report_content = std::fs::read_to_string(&report_path).unwrap();
+    assert!(report_content.contains("testsuites"));
+
+    // Check manifest.json was written
+    let manifest_path = assets_dir.join("manifest.json");
+    assert!(
+        manifest_path.exists(),
+        "manifest.json should exist at {}",
+        manifest_path.display()
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    assert!(manifest["files_copied"].as_u64().unwrap() >= 1);
+
+    // Check that AssetsCaptured event was emitted
+    let captured_events = events.lock().unwrap();
+    let assets_events: Vec<&WorkflowRunEvent> = captured_events
+        .iter()
+        .filter(|e| matches!(e, WorkflowRunEvent::AssetsCaptured { .. }))
+        .collect();
+    assert!(
+        !assets_events.is_empty(),
+        "should emit at least one AssetsCaptured event"
+    );
+}
+
+/// Local sandbox: assets are still collected even when the handler fails.
+#[tokio::test]
+async fn asset_collection_local_sandbox_on_failure() {
+    let work_dir = tempfile::tempdir().unwrap();
+    let logs_dir = tempfile::tempdir().unwrap();
+
+    let sandbox: Arc<dyn arc_agent::Sandbox> =
+        Arc::new(arc_agent::LocalSandbox::new(work_dir.path().to_path_buf()));
+    sandbox.initialize().await.unwrap();
+
+    let mut registry = HandlerRegistry::new(Box::new(AssetCreatorHandler::failing()));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let engine = WorkflowRunEngine::new(
+        registry,
+        Arc::new(EventEmitter::new()),
+        sandbox.clone(),
+    );
+
+    let mut graph = Graph::new("AssetCollectionFailTest");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Test asset collection on failure".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start
+        .attrs
+        .insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut create_assets = Node::new("create_assets");
+    create_assets
+        .attrs
+        .insert("label".to_string(), AttrValue::String("Create Assets".to_string()));
+    graph
+        .nodes
+        .insert("create_assets".to_string(), create_assets);
+
+    let mut exit = Node::new("exit");
+    exit.attrs
+        .insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+
+    graph.edges.push(Edge::new("start", "create_assets"));
+    graph.edges.push(Edge::new("create_assets", "exit"));
+
+    let config = RunConfig {
+        logs_root: logs_dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: "asset-test-fail".into(),
+        git_checkpoint: None,
+        base_sha: None,
+        run_branch: None,
+        meta_branch: None,
+        labels: std::collections::HashMap::new(),
+    };
+
+    let outcome = engine.run(&graph, &config).await.expect("run should succeed");
+    // The pipeline completes (handler returned Fail, not an error), but assets should still be collected
+    assert_eq!(outcome.status, StageStatus::Fail);
+
+    let assets_dir = logs_dir
+        .path()
+        .join("nodes")
+        .join("create_assets")
+        .join("assets")
+        .join("attempt_1");
+
+    let report_path = assets_dir.join("test-results/report.xml");
+    assert!(
+        report_path.exists(),
+        "report.xml should still be collected after handler failure, at {}",
+        report_path.display()
+    );
+}
+
+/// Docker sandbox: asset collection works across the bind-mount boundary.
+/// Requires Docker with `arc-agent:latest` image available locally.
+#[tokio::test]
+#[ignore]
+async fn asset_collection_docker_sandbox() {
+    let host_dir = tempfile::tempdir().unwrap();
+    let logs_dir = tempfile::tempdir().unwrap();
+
+    let config = arc_agent::DockerSandboxConfig {
+        host_working_directory: host_dir.path().to_str().unwrap().to_string(),
+        auto_pull: false,
+        ..Default::default()
+    };
+    let sandbox: Arc<dyn arc_agent::Sandbox> =
+        Arc::new(arc_agent::DockerSandbox::new(config).expect("Docker not available"));
+    sandbox.initialize().await.expect("Docker init failed");
+
+    let mut registry = HandlerRegistry::new(Box::new(AssetCreatorHandler::success()));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let engine = WorkflowRunEngine::new(
+        registry,
+        Arc::new(EventEmitter::new()),
+        sandbox.clone(),
+    );
+
+    let mut graph = Graph::new("DockerAssetTest");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Test asset collection in Docker".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start
+        .attrs
+        .insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut create_assets = Node::new("create_assets");
+    create_assets
+        .attrs
+        .insert("label".to_string(), AttrValue::String("Create Assets".to_string()));
+    graph
+        .nodes
+        .insert("create_assets".to_string(), create_assets);
+
+    let mut exit = Node::new("exit");
+    exit.attrs
+        .insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+
+    graph.edges.push(Edge::new("start", "create_assets"));
+    graph.edges.push(Edge::new("create_assets", "exit"));
+
+    let run_config = RunConfig {
+        logs_root: logs_dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: "asset-test-docker".into(),
+        git_checkpoint: None,
+        base_sha: None,
+        run_branch: None,
+        meta_branch: None,
+        labels: std::collections::HashMap::new(),
+    };
+
+    let outcome = engine
+        .run(&graph, &run_config)
+        .await
+        .expect("pipeline should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    let assets_dir = logs_dir
+        .path()
+        .join("nodes")
+        .join("create_assets")
+        .join("assets")
+        .join("attempt_1");
+
+    let report_path = assets_dir.join("test-results/report.xml");
+    assert!(
+        report_path.exists(),
+        "report.xml should be collected from Docker container at {}",
+        report_path.display()
+    );
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    assert!(content.contains("testsuites"));
+
+    let manifest_path = assets_dir.join("manifest.json");
+    assert!(manifest_path.exists(), "manifest.json should exist");
+
+    sandbox.cleanup().await.unwrap();
+}

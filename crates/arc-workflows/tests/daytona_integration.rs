@@ -1025,3 +1025,119 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
 
     env.cleanup().await.unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// Asset collection e2e — Daytona sandbox
+// ---------------------------------------------------------------------------
+
+/// Handler that creates asset files via exec_command on the sandbox.
+struct AssetCreatorHandler;
+
+#[async_trait::async_trait]
+impl Handler for AssetCreatorHandler {
+    async fn execute(
+        &self,
+        _node: &Node,
+        _context: &Context,
+        _graph: &Graph,
+        _logs_root: &Path,
+        services: &arc_workflows::handler::EngineServices,
+    ) -> Result<Outcome, ArcError> {
+        let script = concat!(
+            "mkdir -p test-results && ",
+            "echo '<testsuites><testsuite name=\"example\"/></testsuites>' > test-results/report.xml && ",
+            "echo 'test output' > test-results/output.txt"
+        );
+        services
+            .sandbox
+            .exec_command(script, 30_000, None, None, None)
+            .await
+            .map_err(|e| ArcError::Handler(format!("exec failed: {e}")))?;
+        Ok(Outcome::success())
+    }
+}
+
+/// Daytona sandbox: asset collection discovers files on the remote sandbox and
+/// downloads them to the local logs directory.
+#[tokio::test]
+#[ignore]
+async fn daytona_asset_collection() {
+    let env = create_env().await;
+    env.initialize().await.unwrap();
+    let env: Arc<dyn Sandbox> = Arc::new(env);
+
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut registry = HandlerRegistry::new(Box::new(AssetCreatorHandler));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let engine = WorkflowRunEngine::new(registry, Arc::new(EventEmitter::new()), env.clone());
+
+    let mut graph = Graph::new("DaytonaAssetTest");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Test asset collection on Daytona".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start
+        .attrs
+        .insert("shape".to_string(), AttrValue::String("Mdiamond".to_string()));
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut create_assets = Node::new("create_assets");
+    create_assets
+        .attrs
+        .insert("label".to_string(), AttrValue::String("Create Assets".to_string()));
+    graph
+        .nodes
+        .insert("create_assets".to_string(), create_assets);
+
+    let mut exit = Node::new("exit");
+    exit.attrs
+        .insert("shape".to_string(), AttrValue::String("Msquare".to_string()));
+    graph.nodes.insert("exit".to_string(), exit);
+
+    graph.edges.push(Edge::new("start", "create_assets"));
+    graph.edges.push(Edge::new("create_assets", "exit"));
+
+    let config = RunConfig {
+        logs_root: dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: "asset-test-daytona".into(),
+        git_checkpoint: None,
+        base_sha: None,
+        run_branch: None,
+        meta_branch: None,
+        labels: std::collections::HashMap::new(),
+    };
+
+    let outcome = engine
+        .run(&graph, &config)
+        .await
+        .expect("pipeline should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    let assets_dir = dir
+        .path()
+        .join("nodes")
+        .join("create_assets")
+        .join("assets")
+        .join("attempt_1");
+
+    let report_path = assets_dir.join("test-results/report.xml");
+    assert!(
+        report_path.exists(),
+        "report.xml should be collected from Daytona sandbox at {}",
+        report_path.display()
+    );
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    assert!(content.contains("testsuites"));
+
+    let manifest_path = assets_dir.join("manifest.json");
+    assert!(manifest_path.exists(), "manifest.json should exist");
+
+    env.cleanup().await.unwrap();
+}

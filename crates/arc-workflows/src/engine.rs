@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 use arc_git_storage::trailerlink::{self, Trailer};
 
 use crate::artifact::{offload_large_values, sync_artifacts_to_env, ArtifactStore};
+use crate::asset_snapshot;
 use crate::checkpoint::Checkpoint;
 use crate::condition::evaluate_condition;
 use crate::context::Context;
@@ -844,6 +845,21 @@ impl WorkflowRunEngine {
         let node_timeout = node.timeout();
 
         for attempt in 1..=policy.max_attempts {
+            // Take baseline asset snapshot before handler execution
+            let baseline = match asset_snapshot::snapshot(self.services.sandbox.as_ref()).await {
+                Ok(fp) => fp,
+                Err(e) => {
+                    tracing::warn!(node = %node.id, error = %e, "Asset baseline snapshot failed");
+                    std::collections::HashMap::new()
+                }
+            };
+            // Floor to integer seconds: macOS stat reports mtime as integer seconds,
+            // so a fractional epoch would reject files created in the same second.
+            let command_start_epoch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as f64)
+                .unwrap_or(0.0);
+
             // Gap #11: Panic safety -- catch panics from handler execution
             let result = {
                 let future = handler.execute(node, context, graph, logs_root, &self.services);
@@ -877,6 +893,40 @@ impl WorkflowRunEngine {
                     }
                 }
             };
+
+            // Collect assets after handler completes (both success and error)
+            {
+                let assets_dir = node_dir(logs_root, &node.id, visit)
+                    .join("assets")
+                    .join(format!("attempt_{attempt}"));
+                match asset_snapshot::collect_assets(
+                    self.services.sandbox.as_ref(),
+                    &assets_dir,
+                    &baseline,
+                    command_start_epoch,
+                )
+                .await
+                {
+                    Ok(summary) if summary.files_copied > 0 => {
+                        self.services
+                            .emitter
+                            .emit(&WorkflowRunEvent::AssetsCaptured {
+                                node_id: node.id.clone(),
+                                files_copied: summary.files_copied,
+                                total_bytes: summary.total_bytes,
+                                files_skipped: summary.files_skipped,
+                            });
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!(
+                            node = %node.id,
+                            error = %e,
+                            "Asset collection failed"
+                        );
+                    }
+                }
+            }
 
             let outcome = match result {
                 Ok(o) => o,

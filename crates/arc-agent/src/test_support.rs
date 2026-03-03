@@ -162,6 +162,26 @@ impl Sandbox for MockSandbox {
         Ok(self.glob_results.clone())
     }
 
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> Result<(), String> {
+        let content = self
+            .files
+            .get(remote_path)
+            .ok_or_else(|| format!("File not found: {remote_path}"))?;
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+        }
+        tokio::fs::write(local_path, content.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write {}: {e}", local_path.display()))?;
+        Ok(())
+    }
+
     async fn initialize(&self) -> Result<(), String> {
         self.emit(crate::sandbox::SandboxEvent::Initializing {
             provider: "mock".into(),
@@ -286,6 +306,29 @@ impl Sandbox for MutableMockSandbox {
 
     async fn glob(&self, _pattern: &str, _path: Option<&str>) -> Result<Vec<String>, String> {
         Ok(vec![])
+    }
+
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> Result<(), String> {
+        let content = self
+            .files
+            .lock()
+            .expect("files lock poisoned")
+            .get(remote_path)
+            .cloned()
+            .ok_or_else(|| format!("File not found: {remote_path}"))?;
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+        }
+        tokio::fs::write(local_path, content.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write {}: {e}", local_path.display()))?;
+        Ok(())
     }
 
     async fn initialize(&self) -> Result<(), String> {

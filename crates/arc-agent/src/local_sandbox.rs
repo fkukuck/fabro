@@ -345,6 +345,23 @@ impl Sandbox for LocalSandbox {
         Ok(results)
     }
 
+    async fn download_file_to_local(
+        &self,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> Result<(), String> {
+        let full_path = self.resolve_path(remote_path);
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+        }
+        tokio::fs::copy(&full_path, local_path)
+            .await
+            .map_err(|e| format!("Failed to copy {} to {}: {e}", full_path.display(), local_path.display()))?;
+        Ok(())
+    }
+
     async fn initialize(&self) -> Result<(), String> {
         self.emit(SandboxEvent::Initializing {
             provider: "local".into(),
@@ -796,6 +813,52 @@ mod tests {
         let results = env.glob("*.rs", None).await.unwrap();
 
         assert_eq!(results.len(), 2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_sandbox_download_file_to_local() {
+        let dir = temp_dir();
+        std::fs::write(dir.join("source.txt"), "hello download").unwrap();
+
+        let env = LocalSandbox::new(dir.clone());
+        let dest = dir.join("output/downloaded.txt");
+        env.download_file_to_local("source.txt", &dest)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "hello download");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_sandbox_download_file_to_local_creates_parent_dirs() {
+        let dir = temp_dir();
+        std::fs::write(dir.join("data.bin"), "binary-ish").unwrap();
+
+        let env = LocalSandbox::new(dir.clone());
+        let dest = dir.join("deep/nested/dir/data.bin");
+        env.download_file_to_local("data.bin", &dest)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "binary-ish");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_sandbox_download_file_to_local_binary() {
+        let dir = temp_dir();
+        let binary_data: Vec<u8> = (0u8..=255).collect();
+        std::fs::write(dir.join("binary.bin"), &binary_data).unwrap();
+
+        let env = LocalSandbox::new(dir.clone());
+        let dest = dir.join("out/binary.bin");
+        env.download_file_to_local("binary.bin", &dest)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), binary_data);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
