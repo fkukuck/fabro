@@ -3,17 +3,12 @@ use std::path::PathBuf;
 use arc_workflows::cli::run_config::RunDefaults;
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthProvider {
+    #[default]
     Github,
     InsecureDisabled,
-}
-
-impl Default for AuthProvider {
-    fn default() -> Self {
-        Self::Github
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
@@ -24,17 +19,12 @@ pub struct AuthConfig {
     pub allowed_usernames: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiAuthenticationStrategy {
+    #[default]
     Jwt,
     InsecureDisabled,
-}
-
-impl Default for ApiAuthenticationStrategy {
-    fn default() -> Self {
-        Self::Jwt
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -58,16 +48,11 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum GitProvider {
+    #[default]
     Github,
-}
-
-impl Default for GitProvider {
-    fn default() -> Self {
-        Self::Github
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]

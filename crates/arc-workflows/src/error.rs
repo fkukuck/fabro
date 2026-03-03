@@ -1648,7 +1648,6 @@ mod tests {
     #[test]
     fn e2e_llm_error_to_outcome_to_event_preserves_classification() {
         use crate::event::WorkflowRunEvent;
-        use crate::outcome::FailureDetail;
 
         // 1. Create SdkError → ArcError
         let sdk_err = SdkError::Provider {
@@ -1736,7 +1735,7 @@ mod tests {
 
     #[test]
     fn e2e_failure_detail_in_outcome_serde_roundtrip() {
-        use crate::outcome::{FailureDetail, Outcome};
+        use crate::outcome::Outcome;
 
         let outcome = Outcome::fail_classify("rate limit exceeded")
             .with_signature(Some("api_transient|openai|rate_limited"));

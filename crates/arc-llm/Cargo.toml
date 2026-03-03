@@ -29,6 +29,7 @@ bytes.workspace = true
 tokio-util.workspace = true
 clap.workspace = true
 tracing.workspace = true
+arc-util = { path = "../arc-util" }
 
 [dev-dependencies]
 http = "1"

@@ -49,6 +49,14 @@ impl Styles {
         let use_color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
         Self::new(use_color)
     }
+
+    /// Create styles based on whether stdout is a TTY.
+    /// Respects `NO_COLOR` environment variable.
+    #[must_use]
+    pub fn detect_stdout() -> Self {
+        let use_color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+        Self::new(use_color)
+    }
 }
 
 #[cfg(test)]

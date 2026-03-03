@@ -227,6 +227,7 @@ name = "arc-llm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-util",
  "async-trait",
  "base64",
  "bytes",

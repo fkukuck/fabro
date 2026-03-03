@@ -5,6 +5,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use futures::StreamExt;
 
+use arc_util::terminal::Styles;
+
 use crate::catalog;
 use crate::generate::{self, GenerateParams};
 use crate::types::Message;
@@ -96,22 +98,24 @@ fn format_speed(tps: Option<f64>) -> String {
     }
 }
 
-fn print_models_table(models: &[crate::types::ModelInfo]) {
+fn print_models_table(models: &[crate::types::ModelInfo], s: &Styles) {
     println!(
-        "{:<24} {:<12} {:<24} {:>10}  {:>7} {:>7}   {:>10}",
-        "MODEL", "PROVIDER", "ALIASES", "CONTEXT", "COST", "", "SPEED"
+        "{b}{d}{:<24} {:<12} {:<24} {:>10}  {:>7} {:>7}   {:>10}{r}",
+        "MODEL", "PROVIDER", "ALIASES", "CONTEXT", "COST", "", "SPEED",
+        b = s.bold, d = s.dim, r = s.reset,
     );
     for model in models {
         let aliases = model.aliases.join(", ");
         println!(
-            "{:<24} {:<12} {:<24} {:>10}  {:>7} / {:<7}  {:>10}",
+            "{b}{:<24}{r} {d}{:<12}{r} {d}{:<24}{r} {:>10}  {:>7} / {:<7}  {c}{:>10}{r}",
             model.id,
             model.provider,
             aliases,
             format_context_window(model.context_window),
             format_cost(model.input_cost_per_million),
             format_cost(model.output_cost_per_million),
-            format_speed(model.estimated_output_tps)
+            format_speed(model.estimated_output_tps),
+            b = s.bold, d = s.dim, c = s.cyan, r = s.reset,
         );
     }
 }
@@ -334,6 +338,8 @@ pub async fn run_models(command: Option<ModelsCommand>) -> Result<()> {
         query: None,
     });
 
+    let styles = Styles::detect_stdout();
+
     match command {
         ModelsCommand::List { provider, query } => {
             let mut models = catalog::list_models(provider.as_deref());
@@ -349,17 +355,17 @@ pub async fn run_models(command: Option<ModelsCommand>) -> Result<()> {
                 });
             }
 
-            print_models_table(&models);
+            print_models_table(&models, &styles);
         }
         ModelsCommand::Test { provider, model } => {
-            test_models(provider.as_deref(), model.as_deref()).await?;
+            test_models(provider.as_deref(), model.as_deref(), &styles).await?;
         }
     }
 
     Ok(())
 }
 
-async fn test_models(provider: Option<&str>, model: Option<&str>) -> Result<()> {
+async fn test_models(provider: Option<&str>, model: Option<&str>, s: &Styles) -> Result<()> {
     let models_to_test = if let Some(model_id) = model {
         match catalog::get_model_info(model_id) {
             Some(info) => vec![info],
@@ -374,8 +380,9 @@ async fn test_models(provider: Option<&str>, model: Option<&str>) -> Result<()> 
     }
 
     println!(
-        "{:<24} {:<12} {:>10}  {:>7}   {:>7}  {:>10}  {}",
-        "MODEL", "PROVIDER", "CONTEXT", "COST", "", "SPEED", "RESULT"
+        "{b}{d}{:<24} {:<12} {:>10}  {:>7}   {:>7}  {:>10}  RESULT{r}",
+        "MODEL", "PROVIDER", "CONTEXT", "COST", "", "SPEED",
+        b = s.bold, d = s.dim, r = s.reset,
     );
 
     let mut failures = 0u32;
@@ -388,26 +395,27 @@ async fn test_models(provider: Option<&str>, model: Option<&str>) -> Result<()> 
         let result =
             tokio::time::timeout(Duration::from_secs(30), generate::generate(params)).await;
 
-        let status = match result {
-            Ok(Ok(_)) => "ok".to_string(),
+        let (status_color, status) = match result {
+            Ok(Ok(_)) => (s.green, "ok".to_string()),
             Ok(Err(e)) => {
                 failures += 1;
-                format!("error: {e}")
+                (s.red, format!("error: {e}"))
             }
             Err(_) => {
                 failures += 1;
-                "error: timeout (30s)".to_string()
+                (s.red, "error: timeout (30s)".to_string())
             }
         };
 
         println!(
-            "{:<24} {:<12} {:>10}  {:>7} / {:<7}  {:>10}  {status}",
+            "{b}{:<24}{r} {d}{:<12}{r} {:>10}  {:>7} / {:<7}  {c}{:>10}{r}  {sc}{status}{r}",
             info.id,
             info.provider,
             format_context_window(info.context_window),
             format_cost(info.input_cost_per_million),
             format_cost(info.output_cost_per_million),
-            format_speed(info.estimated_output_tps)
+            format_speed(info.estimated_output_tps),
+            b = s.bold, d = s.dim, c = s.cyan, r = s.reset, sc = status_color,
         );
     }
 
