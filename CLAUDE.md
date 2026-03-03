@@ -1,5 +1,10 @@
 # Arc
 
+## Dev servers
+
+1. `arc serve --demo` — starts the Rust API server in demo mode
+2. `cd apps/arc-web && bun run dev` — starts the React dev server
+
 ## API workflow
 
 The OpenAPI spec at `openapi/arc-api.yaml` is the source of truth for the arc-api HTTP interface.
