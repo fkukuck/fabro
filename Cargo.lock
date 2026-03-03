@@ -178,6 +178,7 @@ dependencies = [
  "daytona-sdk",
  "dirs",
  "dotenvy",
+ "futures",
  "httpmock",
  "predicates",
  "reqwest 0.12.28",

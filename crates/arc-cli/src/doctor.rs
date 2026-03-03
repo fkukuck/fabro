@@ -32,7 +32,6 @@ pub struct CheckResult {
 
 pub struct DoctorReport {
     pub checks: Vec<CheckResult>,
-    pub live: bool,
 }
 
 impl DoctorReport {
@@ -49,7 +48,7 @@ impl DoctorReport {
             .count()
     }
 
-    pub fn render(&self, s: &Styles, verbose: bool) -> String {
+    pub fn render(&self, s: &Styles, verbose: bool, live: bool) -> String {
         let mut out = String::new();
 
         writeln!(out, "{}", s.bold.apply_to("Arc Doctor")).unwrap();
@@ -126,7 +125,7 @@ impl DoctorReport {
             }
         }
 
-        if !self.live {
+        if !live {
             writeln!(out).unwrap();
             writeln!(out, "Run with --live to probe service connectivity.").unwrap();
         }
@@ -138,6 +137,28 @@ impl DoctorReport {
 // ---------------------------------------------------------------------------
 // Check functions (pure, testable)
 // ---------------------------------------------------------------------------
+
+fn apply_live_result(
+    live_result: Option<&Result<(), String>>,
+    details: &mut Vec<CheckDetail>,
+    remediation_msg: &str,
+) -> (CheckStatus, Option<String>) {
+    match live_result {
+        Some(Ok(())) => {
+            details.push(CheckDetail {
+                text: "Connectivity: OK".to_string(),
+            });
+            (CheckStatus::Pass, None)
+        }
+        Some(Err(e)) => {
+            details.push(CheckDetail {
+                text: format!("Connectivity: {e}"),
+            });
+            (CheckStatus::Warning, Some(remediation_msg.to_string()))
+        }
+        None => (CheckStatus::Pass, None),
+    }
+}
 
 pub fn check_config(path: Option<PathBuf>) -> CheckResult {
     match path {
@@ -236,29 +257,24 @@ pub fn check_brave_search(
         ),
     }];
 
-    let mut status = if api_key_set {
-        CheckStatus::Pass
+    let (mut status, mut remediation) = if api_key_set {
+        (CheckStatus::Pass, None)
     } else {
-        CheckStatus::Warning
-    };
-    let mut remediation: Option<String> = if api_key_set {
-        None
-    } else {
-        Some("Set BRAVE_SEARCH_API_KEY to enable web search".to_string())
+        (
+            CheckStatus::Warning,
+            Some("Set BRAVE_SEARCH_API_KEY to enable web search".to_string()),
+        )
     };
 
-    if let Some(result) = live_result {
-        match result {
-            Ok(()) => details.push(CheckDetail {
-                text: "Connectivity: OK".to_string(),
-            }),
-            Err(e) => {
-                status = CheckStatus::Warning;
-                details.push(CheckDetail {
-                    text: format!("Connectivity: {e}"),
-                });
-                remediation = Some("Check BRAVE_SEARCH_API_KEY and network connectivity".to_string());
-            }
+    if api_key_set {
+        let (live_status, live_remediation) = apply_live_result(
+            live_result,
+            &mut details,
+            "Check BRAVE_SEARCH_API_KEY and network connectivity",
+        );
+        if live_status == CheckStatus::Warning {
+            status = live_status;
+            remediation = live_remediation;
         }
     }
 
@@ -468,24 +484,11 @@ pub fn check_api(
         },
     ];
 
-    let mut check_status = CheckStatus::Pass;
-    let mut remediation = None;
-
-    if let Some(result) = live_result {
-        match result {
-            Ok(()) => details.push(CheckDetail {
-                text: "Connectivity: OK".to_string(),
-            }),
-            Err(e) => {
-                check_status = CheckStatus::Warning;
-                details.push(CheckDetail {
-                    text: format!("Connectivity: {e}"),
-                });
-                remediation =
-                    Some("Check that the API server is running and reachable".to_string());
-            }
-        }
-    }
+    let (check_status, remediation) = apply_live_result(
+        live_result,
+        &mut details,
+        "Check that the API server is running and reachable",
+    );
 
     CheckResult {
         name: "Arc API".to_string(),
@@ -518,24 +521,11 @@ pub fn check_web(
         },
     ];
 
-    let mut check_status = CheckStatus::Pass;
-    let mut remediation = None;
-
-    if let Some(result) = live_result {
-        match result {
-            Ok(()) => details.push(CheckDetail {
-                text: "Connectivity: OK".to_string(),
-            }),
-            Err(e) => {
-                check_status = CheckStatus::Warning;
-                details.push(CheckDetail {
-                    text: format!("Connectivity: {e}"),
-                });
-                remediation =
-                    Some("Check that the web app is running and reachable".to_string());
-            }
-        }
-    }
+    let (check_status, remediation) = apply_live_result(
+        live_result,
+        &mut details,
+        "Check that the web app is running and reachable",
+    );
 
     CheckResult {
         name: "Arc Web".to_string(),
@@ -605,11 +595,10 @@ async fn probe_llm_provider(
     (provider, result)
 }
 
-async fn probe_brave_search() -> Result<(), String> {
+async fn probe_brave_search(http: &reqwest::Client) -> Result<(), String> {
     let api_key = std::env::var("BRAVE_SEARCH_API_KEY")
         .map_err(|_| "BRAVE_SEARCH_API_KEY not set".to_string())?;
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = http
         .get("https://api.search.brave.com/res/v1/web/search?q=test&count=1")
         .header("X-Subscription-Token", api_key)
         .send()
@@ -622,20 +611,8 @@ async fn probe_brave_search() -> Result<(), String> {
     }
 }
 
-async fn probe_api(base_url: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
-    client
-        .get(format!("{base_url}/runs"))
-        .send()
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-async fn probe_web(url: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
-    client
-        .get(url)
+async fn probe_url(http: &reqwest::Client, url: &str) -> Result<(), String> {
+    http.get(url)
         .send()
         .await
         .map(|_| ())
@@ -686,6 +663,8 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         private_key: std::env::var("GITHUB_APP_PRIVATE_KEY").is_ok(),
     };
 
+    let daytona_configured = std::env::var("DAYTONA_API_KEY").is_ok();
+
     // Live probes (only when --live is set)
     let sandbox_status;
     let llm_live_results: Option<Vec<(Provider, Result<(), String>)>>;
@@ -694,6 +673,8 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
     let web_live_result: Option<Result<(), String>>;
 
     if live {
+        let http = reqwest::Client::new();
+
         // Build LLM client — may fail if no keys are set
         let llm_client = arc_llm::client::Client::from_env().await.ok();
 
@@ -705,17 +686,16 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
 
         let llm_fut = async {
             if let Some(client) = &llm_client {
-                let mut results = Vec::new();
-                for provider in &configured_providers {
-                    results.push(probe_llm_provider(client, *provider).await);
-                }
-                Some(results)
+                let futures: Vec<_> = configured_providers
+                    .iter()
+                    .map(|p| probe_llm_provider(client, *p))
+                    .collect();
+                Some(futures::future::join_all(futures).await)
             } else {
                 None
             }
         };
 
-        let daytona_configured = std::env::var("DAYTONA_API_KEY").is_ok();
         let sandbox_fut = async {
             let (daytona_probe, docker_probe) = tokio::join!(probe_daytona(), probe_docker());
             SandboxStatus {
@@ -724,9 +704,10 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
                 docker_probe,
             }
         };
-        let brave_fut = probe_brave_search();
-        let api_fut = probe_api(&server_config.api.base_url);
-        let web_fut = probe_web(&server_config.web.url);
+        let brave_fut = probe_brave_search(&http);
+        let api_url = format!("{}/runs", server_config.api.base_url);
+        let api_fut = probe_url(&http, &api_url);
+        let web_fut = probe_url(&http, &server_config.web.url);
 
         let (sandbox, llm, brave, api, web) =
             tokio::join!(sandbox_fut, llm_fut, brave_fut, api_fut, web_fut);
@@ -738,7 +719,7 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         web_live_result = Some(web);
     } else {
         sandbox_status = SandboxStatus {
-            daytona_configured: std::env::var("DAYTONA_API_KEY").is_ok(),
+            daytona_configured,
             daytona_probe: None,
             docker_probe: None,
         };
@@ -750,7 +731,6 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
 
     // Run pure checks
     let report = DoctorReport {
-        live,
         checks: vec![
             check_config(if config_exists { config_path } else { None }),
             check_api(&api_status, api_live_result.as_ref()),
@@ -762,7 +742,7 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         ],
     };
 
-    print!("{}", report.render(&styles, verbose));
+    print!("{}", report.render(&styles, verbose, live));
 
     if report.has_errors() { 1 } else { 0 }
 }
@@ -816,10 +796,9 @@ mod tests {
     #[test]
     fn render_all_pass_no_color() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("Test")],
         };
-        let out = report.render(&Styles::new(false), false);
+        let out = report.render(&Styles::new(false), false, false);
         assert!(out.contains("[✓]"));
         assert!(out.contains("All checks passed."));
         assert!(out.contains("Arc Doctor"));
@@ -830,10 +809,9 @@ mod tests {
     #[test]
     fn render_warning_footer() {
         let report = DoctorReport {
-            live: false,
             checks: vec![warning_check("Optional")],
         };
-        let out = report.render(&Styles::new(false), false);
+        let out = report.render(&Styles::new(false), false, false);
         assert!(out.contains("[!]"));
         assert!(out.contains("Doctor found issues in 1 category."));
         assert!(out.contains("Warnings:"));
@@ -845,10 +823,9 @@ mod tests {
     #[test]
     fn render_error_footer() {
         let report = DoctorReport {
-            live: false,
             checks: vec![error_check("Broken")],
         };
-        let out = report.render(&Styles::new(false), false);
+        let out = report.render(&Styles::new(false), false, false);
         assert!(out.contains("[✗]"));
         assert!(out.contains("Errors:"));
         assert!(out.contains("repair it"));
@@ -859,10 +836,9 @@ mod tests {
     #[test]
     fn render_verbose_shows_details() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("Verbose")],
         };
-        let out = report.render(&Styles::new(false), true);
+        let out = report.render(&Styles::new(false), true, false);
         assert!(out.contains("•"));
         assert!(out.contains("everything is fine"));
     }
@@ -870,10 +846,9 @@ mod tests {
     #[test]
     fn render_default_hides_details() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("Verbose")],
         };
-        let out = report.render(&Styles::new(false), false);
+        let out = report.render(&Styles::new(false), false, false);
         assert!(!out.contains("everything is fine"));
     }
 
@@ -882,30 +857,27 @@ mod tests {
     #[test]
     fn render_color_pass_green() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("Color")],
         };
-        let out = report.render(&Styles::new(true), false);
+        let out = report.render(&Styles::new(true), false, false);
         assert!(out.contains("\x1b[32m")); // green
     }
 
     #[test]
     fn render_color_warning_yellow() {
         let report = DoctorReport {
-            live: false,
             checks: vec![warning_check("Color")],
         };
-        let out = report.render(&Styles::new(true), false);
+        let out = report.render(&Styles::new(true), false, false);
         assert!(out.contains("\x1b[33m")); // yellow
     }
 
     #[test]
     fn render_color_error_red() {
         let report = DoctorReport {
-            live: false,
             checks: vec![error_check("Color")],
         };
-        let out = report.render(&Styles::new(true), false);
+        let out = report.render(&Styles::new(true), false, false);
         assert!(out.contains("\x1b[31m")); // red
     }
 
@@ -914,7 +886,6 @@ mod tests {
     #[test]
     fn has_errors_false_for_warnings_only() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("OK"), warning_check("Warn")],
         };
         assert!(!report.has_errors());
@@ -923,7 +894,6 @@ mod tests {
     #[test]
     fn has_errors_true_when_error_present() {
         let report = DoctorReport {
-            live: false,
             checks: vec![pass_check("OK"), error_check("Broken")],
         };
         assert!(report.has_errors());
@@ -932,7 +902,6 @@ mod tests {
     #[test]
     fn issue_count_counts_warnings_and_errors() {
         let report = DoctorReport {
-            live: false,
             checks: vec![
                 pass_check("OK"),
                 warning_check("Warn"),
@@ -1275,10 +1244,9 @@ mod tests {
     #[test]
     fn render_multiple_issues_pluralizes() {
         let report = DoctorReport {
-            live: false,
             checks: vec![warning_check("A"), error_check("B")],
         };
-        let out = report.render(&Styles::new(false), false);
+        let out = report.render(&Styles::new(false), false, false);
         assert!(out.contains("2 categories"));
     }
 }

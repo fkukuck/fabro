@@ -26,6 +26,7 @@ tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 chrono.workspace = true
 dirs.workspace = true
+futures.workspace = true
 reqwest.workspace = true
 
 [dev-dependencies]
