@@ -34,7 +34,7 @@ impl Handler for ScriptHandler {
             .unwrap_or("");
 
         if script.is_empty() {
-            return Ok(Outcome::fail("No script specified"));
+            return Ok(Outcome::fail_classify("No script specified"));
         }
 
         let language = node
@@ -44,7 +44,7 @@ impl Handler for ScriptHandler {
             .unwrap_or("shell");
 
         if language != "shell" && language != "python" {
-            return Ok(Outcome::fail(format!(
+            return Ok(Outcome::fail_classify(format!(
                 "Invalid language: {language:?} (expected \"shell\" or \"python\")"
             )));
         }
@@ -94,7 +94,7 @@ impl Handler for ScriptHandler {
                     )
                     .await?;
 
-                    return Err(ArcError::Handler(format!(
+                    return Err(ArcError::handler(format!(
                         "Script timed out after {}ms: {script}",
                         timeout_dur.as_millis()
                     )));
@@ -148,7 +148,7 @@ impl Handler for ScriptHandler {
                         reason.push_str("\n\n## stderr\n");
                         reason.push_str(&stderr);
                     }
-                    let mut outcome = Outcome::fail(reason);
+                    let mut outcome = Outcome::fail_classify(reason);
                     outcome
                         .context_updates
                         .insert("script.output".to_string(), serde_json::json!(stdout));
@@ -158,7 +158,7 @@ impl Handler for ScriptHandler {
                     Ok(outcome)
                 }
             }
-            Err(e) => Err(ArcError::Handler(format!("Failed to spawn script: {e}"))),
+            Err(e) => Err(ArcError::handler(format!("Failed to spawn script: {e}"))),
         }
     }
 }
@@ -198,7 +198,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert_eq!(
-            outcome.failure_reason.as_deref(),
+            outcome.failure_reason(),
             Some("No script specified")
         );
     }
@@ -540,8 +540,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert!(outcome
-            .failure_reason
-            .as_deref()
+            .failure_reason()
             .unwrap()
             .contains("Invalid language"));
     }
@@ -633,7 +632,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
-        let reason = outcome.failure_reason.as_deref().unwrap();
+        let reason = outcome.failure_reason().unwrap();
         assert!(
             reason.contains("build output"),
             "failure_reason should contain stdout, got: {reason}"
@@ -659,7 +658,7 @@ mod tests {
         //
         // Pragmatic approach: verify the error construction matches what the
         // handler produces. The timeout test covers the other Err path.
-        let err = ArcError::Handler(format!("Failed to spawn script: {}", "No such file"));
+        let err = ArcError::handler(format!("Failed to spawn script: {}", "No such file"));
         assert!(err.to_string().contains("Failed to spawn script"));
     }
 

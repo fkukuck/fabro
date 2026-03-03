@@ -127,7 +127,7 @@ impl Handler for WaitHumanHandler {
         }
 
         if choices.is_empty() && freeform_target.is_none() {
-            return Ok(Outcome::fail("No outgoing edges for human gate"));
+            return Ok(Outcome::fail_deterministic("No outgoing edges for human gate"));
         }
 
         // 2. Build question
@@ -172,12 +172,12 @@ impl Handler for WaitHumanHandler {
                     default_target,
                 ));
             }
-            return Ok(Outcome::retry("human gate timeout, no default"));
+            return Ok(Outcome::retry_classify("human gate timeout, no default"));
         }
 
         // 5. Handle skipped
         if answer.value == AnswerValue::Skipped {
-            return Ok(Outcome::fail("human skipped interaction"));
+            return Ok(Outcome::fail_deterministic("human skipped interaction"));
         }
 
         // Emit interview completed for successful interactions
@@ -219,7 +219,7 @@ impl Handler for WaitHumanHandler {
             return Ok(make_choice_outcome(&first.key, &first.label, &first.to));
         }
 
-        Ok(Outcome::fail("No matching choice"))
+        Ok(Outcome::fail_deterministic("No matching choice"))
     }
 }
 

@@ -71,7 +71,7 @@ impl ArtifactStore {
         let id = id.into();
         let name = name.into();
         let serialized = serde_json::to_string(&data)
-            .map_err(|e| ArcError::Engine(format!("artifact serialize failed: {e}")))?;
+            .map_err(|e| ArcError::engine(format!("artifact serialize failed: {e}")))?;
         let size_bytes = serialized.len();
 
         let is_file_backed = size_bytes > FILE_BACKING_THRESHOLD && self.base_dir.is_some();
@@ -117,7 +117,7 @@ impl ArtifactStore {
         let guard = self.artifacts.read().expect("artifact lock poisoned");
         let (_, stored) = guard
             .get(id)
-            .ok_or_else(|| ArcError::Engine(format!("artifact not found: {id}")))?;
+            .ok_or_else(|| ArcError::engine(format!("artifact not found: {id}")))?;
 
         match stored {
             StoredData::InMemory(v) => Ok(v.clone()),
@@ -125,10 +125,10 @@ impl ArtifactStore {
                 let path = path.clone();
                 drop(guard);
                 let data = std::fs::read_to_string(&path).map_err(|e| {
-                    ArcError::Engine(format!("failed to read file-backed artifact {id}: {e}"))
+                    ArcError::engine(format!("failed to read file-backed artifact {id}: {e}"))
                 })?;
                 serde_json::from_str(&data).map_err(|e| {
-                    ArcError::Engine(format!(
+                    ArcError::engine(format!(
                         "failed to deserialize file-backed artifact {id}: {e}"
                     ))
                 })
@@ -275,14 +275,14 @@ pub async fn sync_artifacts_to_env(
             Ok(true) => continue,
             Ok(false) => {}
             Err(e) => {
-                return Err(ArcError::Engine(format!(
+                return Err(ArcError::engine(format!(
                     "failed to check artifact existence: {e}"
                 )));
             }
         }
 
         let content = std::fs::read_to_string(&local_path).map_err(|e| {
-            ArcError::Engine(format!("failed to read local artifact {local_path}: {e}"))
+            ArcError::engine(format!("failed to read local artifact {local_path}: {e}"))
         })?;
 
         let filename = std::path::Path::new(&local_path)
@@ -293,7 +293,7 @@ pub async fn sync_artifacts_to_env(
         let remote_path = format!("{}/.arc/artifacts/{filename}", env.working_directory());
 
         env.write_file(&remote_path, &content).await.map_err(|e| {
-            ArcError::Engine(format!("failed to write artifact to remote env: {e}"))
+            ArcError::engine(format!("failed to write artifact to remote env: {e}"))
         })?;
 
         *value = Value::String(format!("{ARTIFACT_POINTER_PREFIX}{remote_path}"));

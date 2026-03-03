@@ -49,7 +49,7 @@ impl AgentApiBackend {
     ) -> Result<Session, ArcError> {
         let client = Client::from_env()
             .await
-            .map_err(|e| ArcError::Handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("Failed to create LLM client: {e}")))?;
 
         let mut profile = self.build_profile();
 
@@ -122,7 +122,7 @@ impl CodergenBackend for AgentApiBackend {
     ) -> Result<CodergenResult, ArcError> {
         let client = Client::from_env()
             .await
-            .map_err(|e| ArcError::Handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("Failed to create LLM client: {e}")))?;
 
         let model = node.llm_model().unwrap_or(&self.model);
         let provider = node
@@ -331,7 +331,7 @@ impl CodergenBackend for AgentApiBackend {
             match e {
                 AgentError::Llm(sdk_err) => ArcError::Llm(sdk_err),
                 AgentError::Aborted => ArcError::Cancelled,
-                other => ArcError::Handler(format!("Agent session failed: {other}")),
+                other => ArcError::handler(format!("Agent session failed: {other}")),
             }
         });
 

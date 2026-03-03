@@ -240,12 +240,11 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
             preferred_label,
             suggested_next_ids,
             usage,
-            failure_reason,
+            failure,
             notes,
             files_touched,
             attempt,
             max_attempts,
-            failure_class,
         } => {
             let mut s = format!("[STAGE_COMPLETED] node_id={node_id} name={name} index={index} duration={duration_ms}ms status={status}");
             if let Some(label) = preferred_label {
@@ -266,8 +265,9 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
                     s.push_str(&format!(" tokens={tokens_str}"));
                 }
             }
-            if let Some(reason) = failure_reason {
-                s.push_str(&format!(" failure_reason=\"{reason}\""));
+            if let Some(ref f) = failure {
+                s.push_str(&format!(" failure_reason=\"{}\"", f.message));
+                s.push_str(&format!(" failure_class={}", f.failure_class));
             }
             if let Some(n) = notes {
                 s.push_str(&format!(" notes=\"{n}\""));
@@ -276,30 +276,19 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
                 s.push_str(&format!(" files_touched={}", files_touched.len()));
             }
             s.push_str(&format!(" attempt={attempt}/{max_attempts}"));
-            if let Some(fc) = failure_class {
-                s.push_str(&format!(" failure_class={fc}"));
-            }
             s
         }
         WorkflowRunEvent::StageFailed {
             node_id,
             name,
             index,
-            error,
+            failure,
             will_retry,
-            failure_reason,
-            failure_class,
         } => {
-            let mut s = format!(
-                "[STAGE_FAILED] node_id={node_id} name={name} index={index} error=\"{error}\" will_retry={will_retry}"
-            );
-            if let Some(reason) = failure_reason {
-                s.push_str(&format!(" failure_reason=\"{reason}\""));
-            }
-            if let Some(fc) = failure_class {
-                s.push_str(&format!(" failure_class={fc}"));
-            }
-            s
+            format!(
+                "[STAGE_FAILED] node_id={node_id} name={name} index={index} error=\"{}\" will_retry={will_retry} failure_class={}",
+                failure.message, failure.failure_class
+            )
         }
         WorkflowRunEvent::StageRetrying {
             node_id,

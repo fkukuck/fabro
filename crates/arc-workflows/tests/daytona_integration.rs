@@ -664,7 +664,7 @@ async fn daytona_parallel_git_branching_e2e() {
         outcome.status,
         StageStatus::Success,
         "pipeline failed: {:?}",
-        outcome.failure_reason
+        outcome.failure_reason()
     );
 
     // Verify parallel.results has head_sha for each branch
@@ -1052,7 +1052,7 @@ impl Handler for AssetCreatorHandler {
             .sandbox
             .exec_command(script, 30_000, None, None, None)
             .await
-            .map_err(|e| ArcError::Handler(format!("exec failed: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("exec failed: {e}")))?;
         Ok(Outcome::success())
     }
 }

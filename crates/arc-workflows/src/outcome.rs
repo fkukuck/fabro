@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::{classify_failure_reason, FailureClass};
+
 /// Status of a pipeline stage execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,6 +61,25 @@ pub struct StageUsage {
     pub cost: Option<f64>,
 }
 
+/// Structured failure information carried through the pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailureDetail {
+    pub message: String,
+    pub failure_class: FailureClass,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_signature: Option<String>,
+}
+
+impl FailureDetail {
+    pub fn new(message: impl Into<String>, failure_class: FailureClass) -> Self {
+        Self {
+            message: message.into(),
+            failure_class,
+            failure_signature: None,
+        }
+    }
+}
+
 /// The result of executing a node handler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Outcome {
@@ -72,7 +93,7 @@ pub struct Outcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_reason: Option<String>,
+    pub failure: Option<FailureDetail>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<StageUsage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -88,36 +109,65 @@ impl Outcome {
             suggested_next_ids: Vec::new(),
             context_updates: HashMap::new(),
             notes: None,
-            failure_reason: None,
+            failure: None,
             usage: None,
             files_touched: Vec::new(),
         }
     }
 
-    pub fn fail(reason: impl Into<String>) -> Self {
+    /// Create a failed outcome with a deterministic failure class.
+    pub fn fail_deterministic(reason: impl Into<String>) -> Self {
         Self {
             status: StageStatus::Fail,
             preferred_label: None,
             suggested_next_ids: Vec::new(),
             context_updates: HashMap::new(),
             notes: None,
-            failure_reason: Some(reason.into()),
+            failure: Some(FailureDetail::new(reason, FailureClass::Deterministic)),
             usage: None,
             files_touched: Vec::new(),
         }
     }
 
-    pub fn retry(reason: impl Into<String>) -> Self {
+    /// Create a failed outcome with the failure class inferred from the message via heuristics.
+    pub fn fail_classify(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        let failure_class = classify_failure_reason(&reason);
+        Self {
+            status: StageStatus::Fail,
+            preferred_label: None,
+            suggested_next_ids: Vec::new(),
+            context_updates: HashMap::new(),
+            notes: None,
+            failure: Some(FailureDetail::new(reason, failure_class)),
+            usage: None,
+            files_touched: Vec::new(),
+        }
+    }
+
+    /// Create a retry outcome with the failure class inferred from the message via heuristics.
+    pub fn retry_classify(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        let failure_class = classify_failure_reason(&reason);
         Self {
             status: StageStatus::Retry,
             preferred_label: None,
             suggested_next_ids: Vec::new(),
             context_updates: HashMap::new(),
             notes: None,
-            failure_reason: Some(reason.into()),
+            failure: Some(FailureDetail::new(reason, failure_class)),
             usage: None,
             files_touched: Vec::new(),
         }
+    }
+
+    /// Set the failure signature on this outcome. Returns self for chaining.
+    #[must_use]
+    pub fn with_signature(mut self, sig: Option<impl Into<String>>) -> Self {
+        if let Some(ref mut f) = self.failure {
+            f.failure_signature = sig.map(Into::into);
+        }
+        self
     }
 
     #[must_use]
@@ -128,10 +178,20 @@ impl Outcome {
             suggested_next_ids: Vec::new(),
             context_updates: HashMap::new(),
             notes: None,
-            failure_reason: None,
+            failure: None,
             usage: None,
             files_touched: Vec::new(),
         }
+    }
+
+    /// Get the failure reason message, if any.
+    pub fn failure_reason(&self) -> Option<&str> {
+        self.failure.as_ref().map(|f| f.message.as_str())
+    }
+
+    /// Get the failure class, if this is a failed outcome.
+    pub fn failure_class(&self) -> Option<FailureClass> {
+        self.failure.as_ref().map(|f| f.failure_class)
     }
 }
 
@@ -179,28 +239,94 @@ mod tests {
         assert!(o.suggested_next_ids.is_empty());
         assert!(o.context_updates.is_empty());
         assert!(o.notes.is_none());
-        assert!(o.failure_reason.is_none());
+        assert!(o.failure.is_none());
     }
 
     #[test]
-    fn outcome_fail_factory() {
-        let o = Outcome::fail("something broke");
+    fn outcome_fail_deterministic_factory() {
+        let o = Outcome::fail_deterministic("something broke");
         assert_eq!(o.status, StageStatus::Fail);
-        assert_eq!(o.failure_reason.as_deref(), Some("something broke"));
+        assert_eq!(o.failure_reason(), Some("something broke"));
+        assert_eq!(o.failure_class(), Some(FailureClass::Deterministic));
     }
 
     #[test]
-    fn outcome_retry_factory() {
-        let o = Outcome::retry("try again");
+    fn outcome_fail_classify_factory() {
+        let o = Outcome::fail_classify("connection refused");
+        assert_eq!(o.status, StageStatus::Fail);
+        assert_eq!(o.failure_reason(), Some("connection refused"));
+        assert_eq!(o.failure_class(), Some(FailureClass::TransientInfra));
+    }
+
+    #[test]
+    fn outcome_retry_classify_factory() {
+        let o = Outcome::retry_classify("try again");
         assert_eq!(o.status, StageStatus::Retry);
-        assert_eq!(o.failure_reason.as_deref(), Some("try again"));
+        assert_eq!(o.failure_reason(), Some("try again"));
     }
 
     #[test]
     fn outcome_skipped_factory() {
         let o = Outcome::skipped();
         assert_eq!(o.status, StageStatus::Skipped);
-        assert!(o.failure_reason.is_none());
+        assert!(o.failure.is_none());
+    }
+
+    #[test]
+    fn failure_detail_construction() {
+        let fd = FailureDetail::new("timeout", FailureClass::TransientInfra);
+        assert_eq!(fd.message, "timeout");
+        assert_eq!(fd.failure_class, FailureClass::TransientInfra);
+        assert!(fd.failure_signature.is_none());
+    }
+
+    #[test]
+    fn failure_detail_serde_roundtrip() {
+        let fd = FailureDetail {
+            message: "timeout".into(),
+            failure_class: FailureClass::TransientInfra,
+            failure_signature: Some("sig".into()),
+        };
+        let json = serde_json::to_string(&fd).unwrap();
+        let deserialized: FailureDetail = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.message, "timeout");
+        assert_eq!(deserialized.failure_class, FailureClass::TransientInfra);
+        assert_eq!(deserialized.failure_signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn fail_classify_known_patterns() {
+        assert_eq!(
+            Outcome::fail_classify("timeout").failure_class(),
+            Some(FailureClass::TransientInfra)
+        );
+        assert_eq!(
+            Outcome::fail_classify("context length exceeded").failure_class(),
+            Some(FailureClass::BudgetExhausted)
+        );
+        assert_eq!(
+            Outcome::fail_classify("cancel").failure_class(),
+            Some(FailureClass::Canceled)
+        );
+    }
+
+    #[test]
+    fn failure_field_is_some_for_failures() {
+        assert!(Outcome::fail_deterministic("x").failure.is_some());
+    }
+
+    #[test]
+    fn failure_field_is_none_for_success() {
+        assert!(Outcome::success().failure.is_none());
+    }
+
+    #[test]
+    fn with_signature_builder() {
+        let o = Outcome::fail_deterministic("x").with_signature(Some("sig"));
+        assert_eq!(
+            o.failure.as_ref().unwrap().failure_signature.as_deref(),
+            Some("sig")
+        );
     }
 
     #[test]

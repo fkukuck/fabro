@@ -681,7 +681,7 @@ mod tests {
                 _stage_dir: &Path,
                 _sandbox: &Arc<dyn Sandbox>,
             ) -> Result<CodergenResult, ArcError> {
-                Err(ArcError::Handler("Request timed out".to_string()))
+                Err(ArcError::handler("Request timed out".to_string()))
             }
         }
 
@@ -927,7 +927,7 @@ Some text in between.
             .await
             .unwrap();
         assert_eq!(outcome.status, crate::outcome::StageStatus::Fail);
-        assert!(outcome.failure_reason.unwrap().contains("bad config"));
+        assert!(outcome.failure_reason().unwrap().contains("bad config"));
     }
 
     #[tokio::test]

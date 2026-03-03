@@ -1,6 +1,7 @@
 use arc_llm::error::SdkError;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, thiserror::Error)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AgentError {
     #[error("LLM error: {0}")]
     Llm(#[from] SdkError),
@@ -21,6 +22,7 @@ pub enum AgentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arc_llm::error::{ProviderErrorDetail, ProviderErrorKind};
 
     #[test]
     fn agent_error_from_sdk_error() {
@@ -54,5 +56,129 @@ mod tests {
     fn aborted_display() {
         let err = AgentError::Aborted;
         assert_eq!(err.to_string(), "Aborted");
+    }
+
+    // --- Serde roundtrip tests ---
+
+    #[test]
+    fn serde_roundtrip_llm_network() {
+        let err = AgentError::Llm(SdkError::Network {
+            message: "connection refused".into(),
+        });
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn serde_roundtrip_llm_provider() {
+        let err = AgentError::Llm(SdkError::Provider {
+            kind: ProviderErrorKind::RateLimit,
+            detail: Box::new(ProviderErrorDetail {
+                message: "too fast".into(),
+                provider: "openai".into(),
+                status_code: Some(429),
+                error_code: None,
+                retry_after: Some(2.0),
+                raw: None,
+            }),
+        });
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn serde_roundtrip_session_closed() {
+        let err = AgentError::SessionClosed;
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn serde_roundtrip_invalid_state() {
+        let err = AgentError::InvalidState("bad".into());
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn serde_roundtrip_tool_execution() {
+        let err = AgentError::ToolExecution("cmd failed".into());
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn serde_roundtrip_aborted() {
+        let err = AgentError::Aborted;
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    // --- Clone tests ---
+
+    #[test]
+    fn clone_all_variants() {
+        let errors: Vec<AgentError> = vec![
+            AgentError::Llm(SdkError::Network {
+                message: "refused".into(),
+            }),
+            AgentError::SessionClosed,
+            AgentError::InvalidState("reason".into()),
+            AgentError::ToolExecution("reason".into()),
+            AgentError::Aborted,
+        ];
+        for err in &errors {
+            assert_eq!(err.to_string(), err.clone().to_string());
+        }
+    }
+
+    // --- Serde tag format tests ---
+
+    #[test]
+    fn serde_tag_format_llm() {
+        let err = AgentError::Llm(SdkError::Network {
+            message: "refused".into(),
+        });
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "llm");
+    }
+
+    #[test]
+    fn serde_tag_format_session_closed() {
+        let err = AgentError::SessionClosed;
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "session_closed");
+    }
+
+    #[test]
+    fn serde_tag_format_invalid_state() {
+        let err = AgentError::InvalidState("x".into());
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "invalid_state");
+    }
+
+    #[test]
+    fn serde_tag_format_tool_execution() {
+        let err = AgentError::ToolExecution("x".into());
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "tool_execution");
+    }
+
+    #[test]
+    fn serde_tag_format_aborted() {
+        let err = AgentError::Aborted;
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "aborted");
     }
 }

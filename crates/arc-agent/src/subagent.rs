@@ -167,18 +167,18 @@ impl SubAgentManager {
                     self.emit_event(AgentEvent::SubAgentFailed {
                         agent_id: agent_id.to_string(),
                         depth,
-                        error: e.to_string(),
+                        error: e.clone(),
                     });
                     Err(e)
                 }
                 Err(e) => {
-                    let error = format!("Agent task panicked: {e}");
+                    let error_msg = format!("Agent task panicked: {e}");
                     self.emit_event(AgentEvent::SubAgentFailed {
                         agent_id: agent_id.to_string(),
                         depth,
-                        error: error.clone(),
+                        error: AgentError::InvalidState(error_msg.clone()),
                     });
-                    Err(AgentError::InvalidState(error))
+                    Err(AgentError::InvalidState(error_msg))
                 }
             },
             None => Err(AgentError::InvalidState(format!(

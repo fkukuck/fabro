@@ -49,9 +49,9 @@ fn read_child_dot(node: &Node) -> Result<String, ArcError> {
     }
     if let Some(path) = node.attrs.get("stack.child_dotfile").and_then(|v| v.as_str()) {
         return std::fs::read_to_string(path)
-            .map_err(|e| ArcError::Handler(format!("Failed to read child dotfile {path}: {e}")));
+            .map_err(|e| ArcError::handler(format!("Failed to read child dotfile {path}: {e}")));
     }
-    Err(ArcError::Handler("No child DOT source".to_string()))
+    Err(ArcError::handler("No child DOT source".to_string()))
 }
 
 /// Compute the context diff: keys that changed or were added relative to `before`.
@@ -107,13 +107,13 @@ impl Handler for SubWorkflowHandler {
         // Read and parse child DOT source
         let dot_source = match read_child_dot(node) {
             Ok(s) => s,
-            Err(e) => return Ok(Outcome::fail(e.to_string())),
+            Err(e) => return Ok(Outcome::fail_classify(e.to_string())),
         };
 
         let child_graph = match prepare_workflow(&dot_source) {
             Ok(g) => g,
             Err(e) => {
-                return Ok(Outcome::fail(format!(
+                return Ok(Outcome::fail_classify(format!(
                     "Failed to parse child pipeline: {e}"
                 )))
             }
@@ -164,8 +164,8 @@ impl Handler for SubWorkflowHandler {
                     // Child finished
                     let (child_outcome, child_final_context) = match result {
                         Ok(Ok(pair)) => pair,
-                        Ok(Err(e)) => return Ok(Outcome::fail(format!("Child engine error: {e}"))),
-                        Err(e) => return Ok(Outcome::fail(format!("Child task panicked: {e}"))),
+                        Ok(Err(e)) => return Ok(Outcome::fail_classify(format!("Child engine error: {e}"))),
+                        Err(e) => return Ok(Outcome::fail_classify(format!("Child task panicked: {e}"))),
                     };
 
                     // Compute context diff
@@ -180,7 +180,7 @@ impl Handler for SubWorkflowHandler {
                     };
 
                     if child_outcome.status == StageStatus::Fail {
-                        outcome.failure_reason = child_outcome.failure_reason;
+                        outcome.failure = child_outcome.failure.clone();
                     }
 
                     return Ok(outcome);
@@ -211,7 +211,7 @@ impl Handler for SubWorkflowHandler {
         child_cancel.store(true, Ordering::Relaxed);
         let _ = tokio::time::timeout(Duration::from_millis(100), &mut child_handle).await;
 
-        Ok(Outcome::fail(format!(
+        Ok(Outcome::fail_classify(format!(
             "Max cycles ({max_cycles}) exceeded for manager loop node: {}",
             node.id
         )))
@@ -293,8 +293,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert!(outcome
-            .failure_reason
-            .as_deref()
+            .failure_reason()
             .unwrap()
             .contains("No child DOT source"));
     }
@@ -324,8 +323,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert!(outcome
-            .failure_reason
-            .as_deref()
+            .failure_reason()
             .unwrap()
             .contains("Failed to parse child pipeline"));
     }
@@ -503,8 +501,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert!(outcome
-            .failure_reason
-            .as_deref()
+            .failure_reason()
             .unwrap()
             .contains("Max cycles"));
     }

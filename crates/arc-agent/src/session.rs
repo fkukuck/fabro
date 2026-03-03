@@ -429,7 +429,7 @@ impl Session {
                             model: retry_model.clone(),
                             attempt: attempt as usize,
                             delay_secs: delay,
-                            error: err.to_string(),
+                            error: err.clone(),
                         },
                     );
                 })),
@@ -448,7 +448,7 @@ impl Session {
                     self.event_emitter.emit(
                         self.id.clone(),
                         AgentEvent::Error {
-                            error: err.to_string(),
+                            error: AgentError::Llm(err.clone()),
                         },
                     );
                     if is_auth_error(&err) {
@@ -477,7 +477,7 @@ impl Session {
                         self.event_emitter.emit(
                             self.id.clone(),
                             AgentEvent::Error {
-                                error: err.to_string(),
+                                error: AgentError::Llm(err.clone()),
                             },
                         );
                         return Err(AgentError::Llm(err));
@@ -567,7 +567,7 @@ impl Session {
                     self.event_emitter.emit(
                         self.id.clone(),
                         AgentEvent::Error {
-                            error: format!("Context compaction failed: {e}"),
+                            error: AgentError::InvalidState(format!("Context compaction failed: {e}")),
                         },
                     );
                 }
@@ -1793,7 +1793,8 @@ mod tests {
         let mut found_error = false;
         while let Ok(event) = rx.try_recv() {
             if let AgentEvent::Error { error } = &event.event {
-                if error.contains("compaction") || error.contains("summarization") {
+                let msg = error.to_string();
+                if msg.contains("compaction") || msg.contains("summarization") {
                     found_error = true;
                 }
             }

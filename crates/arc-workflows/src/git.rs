@@ -10,7 +10,7 @@ use crate::checkpoint::Checkpoint;
 use crate::error::{ArcError, Result};
 
 fn git_error(msg: impl Into<String>) -> ArcError {
-    ArcError::Engine(msg.into())
+    ArcError::engine(msg.into())
 }
 
 /// Return a pre-configured `git` command with auto-maintenance disabled.

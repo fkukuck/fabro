@@ -603,7 +603,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
 
     {
         let (status, failure_reason) = match &engine_result {
-            Ok(o) => (o.status.to_string(), o.failure_reason.clone()),
+            Ok(o) => (o.status.to_string(), o.failure_reason().map(String::from)),
             Err(e) => ("fail".to_string(), Some(e.to_string())),
         };
         let mut final_json = serde_json::json!({
@@ -623,7 +623,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     // Auto-derive retro (always, cheap) and optionally run retro agent
     {
         let (failed, failure_reason) = match &engine_result {
-            Ok(o) => (o.status == StageStatus::Fail, o.failure_reason.clone()),
+            Ok(o) => (o.status == StageStatus::Fail, o.failure_reason().map(String::from)),
             Err(e) => (true, Some(e.to_string())),
         };
         generate_retro(
@@ -699,7 +699,7 @@ pub async fn run_command(args: RunArgs, styles: &'static Styles) -> anyhow::Resu
     if let Some(notes) = &outcome.notes {
         eprintln!("Notes: {notes}");
     }
-    if let Some(failure) = &outcome.failure_reason {
+    if let Some(failure) = outcome.failure_reason() {
         eprintln!(
             "{red}Failure: {failure}{reset}",
             red = styles.red,
@@ -944,7 +944,7 @@ async fn run_from_branch(
     // Auto-derive retro
     {
         let (failed, failure_reason) = match &engine_result {
-            Ok(o) => (o.status == StageStatus::Fail, o.failure_reason.clone()),
+            Ok(o) => (o.status == StageStatus::Fail, o.failure_reason().map(String::from)),
             Err(e) => (true, Some(e.to_string())),
         };
 

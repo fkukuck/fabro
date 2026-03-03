@@ -254,7 +254,7 @@ pub fn derive_retro(
             retries,
             cost,
             notes: outcome.and_then(|o| o.notes.clone()),
-            failure_reason: outcome.and_then(|o| o.failure_reason.clone()),
+            failure_reason: outcome.and_then(|o| o.failure_reason().map(String::from)),
             files_touched: files,
         });
     }

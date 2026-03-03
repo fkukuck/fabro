@@ -37,7 +37,7 @@ impl Handler for FanInHandler {
     ) -> Result<Outcome, ArcError> {
         let results = context.get("parallel.results");
         let Some(results) = results else {
-            return Ok(Outcome::fail("No parallel results to evaluate"));
+            return Ok(Outcome::fail_deterministic("No parallel results to evaluate"));
         };
 
         let prompt = node.prompt().filter(|p| !p.is_empty());
@@ -69,7 +69,7 @@ impl Handler for FanInHandler {
         };
 
         if all_failed {
-            return Ok(Outcome::fail("all candidates failed"));
+            return Ok(Outcome::fail_deterministic("all candidates failed"));
         }
 
         // --- Fast-forward to winner's HEAD when git isolation is active ---
@@ -502,8 +502,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome.status, StageStatus::Fail);
         assert!(outcome
-            .failure_reason
-            .as_deref()
+            .failure_reason()
             .unwrap()
             .contains("all candidates failed"));
     }

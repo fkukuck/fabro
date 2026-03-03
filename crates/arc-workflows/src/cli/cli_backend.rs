@@ -299,7 +299,7 @@ impl CodergenBackend for AgentCliBackend {
         sandbox
             .write_file(prompt_path, prompt)
             .await
-            .map_err(|e| ArcError::Handler(format!("Failed to write prompt file: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("Failed to write prompt file: {e}")))?;
 
         // 3. Build and execute CLI command
         let model = node.llm_model().unwrap_or(&self.model);
@@ -323,7 +323,7 @@ impl CodergenBackend for AgentCliBackend {
         let result = sandbox
             .exec_command(&command, 600_000, None, None, None)
             .await
-            .map_err(|e| ArcError::Handler(format!("CLI command failed: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("CLI command failed: {e}")))?;
 
         if let Ok(json) = serde_json::to_string_pretty(&serde_json::json!({
             "exit_code": result.exit_code,
@@ -335,7 +335,7 @@ impl CodergenBackend for AgentCliBackend {
         }
 
         if result.exit_code != 0 {
-            return Err(ArcError::Handler(format!(
+            return Err(ArcError::handler(format!(
                 "CLI command exited with code {}: {}",
                 result.exit_code,
                 result.stderr.chars().take(500).collect::<String>()
@@ -344,7 +344,7 @@ impl CodergenBackend for AgentCliBackend {
 
         // 4. Parse the CLI output
         let parsed = parse_cli_response(provider, &result.stdout)
-            .ok_or_else(|| ArcError::Handler("Failed to parse CLI output".to_string()))?;
+            .ok_or_else(|| ArcError::handler("Failed to parse CLI output".to_string()))?;
 
         // 5. Detect changed files
         let files_after = self.detect_changed_files(sandbox).await;

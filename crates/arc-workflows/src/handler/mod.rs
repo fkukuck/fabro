@@ -225,7 +225,7 @@ mod tests {
         let handler = TestHandler {
             _name: "test".to_string(),
         };
-        assert!(handler.should_retry(&ArcError::Handler("timeout".to_string())));
+        assert!(handler.should_retry(&ArcError::handler("timeout".to_string())));
         assert!(!handler.should_retry(&ArcError::Parse("bad".to_string())));
     }
 
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn custom_should_retry_override() {
         let handler = NeverRetryHandler;
-        assert!(!handler.should_retry(&ArcError::Handler("timeout".to_string())));
+        assert!(!handler.should_retry(&ArcError::handler("timeout".to_string())));
         assert!(!handler.should_retry(&ArcError::Io("connection reset".to_string())));
     }
 

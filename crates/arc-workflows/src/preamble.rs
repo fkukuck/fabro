@@ -270,7 +270,7 @@ fn render_summary_high_stage_section(
             if let Some(notes) = outcome.notes.as_deref() {
                 lines.push(format!("- Notes: {notes}"));
             }
-            if let Some(reason) = outcome.failure_reason.as_deref() {
+            if let Some(reason) = outcome.failure_reason() {
                 lines.push(format!("- Failure reason: {reason}"));
             }
         }
@@ -435,7 +435,7 @@ fn build_summary_preamble(
                         if let Some(notes) = outcome.notes.as_deref() {
                             line.push_str(&format!(" ({notes})"));
                         }
-                        if let Some(reason) = outcome.failure_reason.as_deref() {
+                        if let Some(reason) = outcome.failure_reason() {
                             line.push_str(&format!(" [reason: {reason}]"));
                         }
                         parts.push(line);
@@ -475,7 +475,7 @@ fn build_summary_preamble(
                         if let Some(notes) = outcome.notes.as_deref() {
                             line.push_str(&format!(" ({notes})"));
                         }
-                        if let Some(reason) = outcome.failure_reason.as_deref() {
+                        if let Some(reason) = outcome.failure_reason() {
                             line.push_str(&format!(" [reason: {reason}]"));
                         }
                         parts.push(line);
@@ -601,7 +601,7 @@ mod tests {
         let completed_nodes = vec!["plan".to_string(), "code".to_string()];
         let mut node_outcomes: HashMap<String, Outcome> = HashMap::new();
         node_outcomes.insert("plan".to_string(), Outcome::success());
-        node_outcomes.insert("code".to_string(), Outcome::fail("compilation error"));
+        node_outcomes.insert("code".to_string(), Outcome::fail_classify("compilation error"));
 
         let preamble = build_preamble(
             "compact",
@@ -952,7 +952,7 @@ mod tests {
         let mut node_outcomes: HashMap<String, Outcome> = HashMap::new();
         node_outcomes.insert("plan".to_string(), Outcome::success());
         node_outcomes.insert("code".to_string(), Outcome::success());
-        node_outcomes.insert("test".to_string(), Outcome::fail("test failure"));
+        node_outcomes.insert("test".to_string(), Outcome::fail_classify("test failure"));
 
         let preamble = build_preamble(
             "summary:low",
@@ -990,7 +990,7 @@ mod tests {
         node_outcomes.insert("step1".to_string(), Outcome::success());
         node_outcomes.insert("step2".to_string(), Outcome::success());
         node_outcomes.insert("step3".to_string(), Outcome::success());
-        node_outcomes.insert("step4".to_string(), Outcome::fail("error"));
+        node_outcomes.insert("step4".to_string(), Outcome::fail_classify("error"));
 
         let preamble = build_preamble(
             "summary:low",
@@ -1033,7 +1033,7 @@ mod tests {
         let context = Context::new();
         let completed_nodes = vec!["run_tests".to_string()];
         let mut node_outcomes: HashMap<String, Outcome> = HashMap::new();
-        let mut outcome = Outcome::fail("exit code 1");
+        let mut outcome = Outcome::fail_classify("exit code 1");
         outcome.context_updates.insert(
             "script.output".to_string(),
             serde_json::json!("test failed"),
@@ -1330,7 +1330,7 @@ mod tests {
         let context = Context::new();
         let completed_nodes = vec!["work".to_string()];
         let mut node_outcomes: HashMap<String, Outcome> = HashMap::new();
-        node_outcomes.insert("work".to_string(), Outcome::fail("connection timeout"));
+        node_outcomes.insert("work".to_string(), Outcome::fail_classify("connection timeout"));
 
         let preamble = build_preamble(
             "summary:high",

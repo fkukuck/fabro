@@ -61,13 +61,13 @@ mod tests {
         emitter.emit(
             "sess-2".into(),
             AgentEvent::Error {
-                error: "something went wrong".into(),
+                error: crate::error::AgentError::ToolExecution("something went wrong".into()),
             },
         );
 
         let event = receiver.recv().await.unwrap();
         assert!(
-            matches!(&event.event, AgentEvent::Error { error } if error == "something went wrong")
+            matches!(&event.event, AgentEvent::Error { error } if error.to_string().contains("something went wrong"))
         );
     }
 
@@ -93,7 +93,7 @@ mod tests {
         emitter.emit(
             "sess-4".into(),
             AgentEvent::Error {
-                error: "test".into(),
+                error: crate::error::AgentError::ToolExecution("test".into()),
             },
         );
     }

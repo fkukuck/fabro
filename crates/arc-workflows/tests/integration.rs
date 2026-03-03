@@ -492,7 +492,7 @@ impl Handler for AlwaysFailHandler {
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
     ) -> Result<Outcome, arc_workflows::error::ArcError> {
-        Ok(Outcome::fail(format!("forced failure for {}", node.id)))
+        Ok(Outcome::fail_classify(format!("forced failure for {}", node.id)))
     }
 }
 
@@ -575,7 +575,7 @@ async fn goal_gate_routes_to_retry_target_on_failure() {
         StageStatus::Fail,
         "pipeline outcome should be 'fail' when goal gate unsatisfied"
     );
-    let failure_reason = outcome.failure_reason.unwrap_or_default();
+    let failure_reason = outcome.failure_reason().unwrap_or_default();
     assert!(
         failure_reason.contains("goal gate unsatisfied"),
         "failure_reason should mention goal gate, got: {failure_reason}"
@@ -616,7 +616,7 @@ async fn goal_gate_routes_to_retry_target_when_present() {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
-                Ok(Outcome::fail("first attempt fails"))
+                Ok(Outcome::fail_classify("first attempt fails"))
             } else {
                 Ok(Outcome::success())
             }
@@ -929,7 +929,7 @@ async fn retry_on_failure_then_succeed() {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
-                Ok(Outcome::retry("transient failure"))
+                Ok(Outcome::retry_classify("transient failure"))
             } else {
                 Ok(Outcome::success())
             }
@@ -1179,12 +1179,8 @@ impl Handler for CounterHandler {
             .call_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if count == 0 {
-            let mut outcome = Outcome::fail("first call fails");
-            outcome.context_updates.insert(
-                "failure_class".to_string(),
-                serde_json::json!("transient_infra"),
-            );
-            Ok(outcome)
+            // Use a message that heuristics classify as transient_infra
+            Ok(Outcome::fail_classify("connection refused"))
         } else {
             Ok(Outcome::success())
         }
@@ -2037,7 +2033,7 @@ async fn branching_loop_back_on_failure() {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
-                Ok(Outcome::fail("first attempt fails"))
+                Ok(Outcome::fail_classify("first attempt fails"))
             } else {
                 Ok(Outcome::success())
             }
@@ -2354,7 +2350,7 @@ async fn scenario_node_retries_on_retry_status() {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
-                Ok(Outcome::retry("transient failure"))
+                Ok(Outcome::retry_classify("transient failure"))
             } else {
                 Ok(Outcome::success())
             }
@@ -2761,8 +2757,7 @@ async fn manager_loop_max_cycles_exceeded_e2e() {
     let manager_outcome = cp.node_outcomes.get("manager").expect("manager outcome");
     assert_eq!(manager_outcome.status, StageStatus::Fail);
     assert!(manager_outcome
-        .failure_reason
-        .as_deref()
+        .failure_reason()
         .unwrap()
         .contains("Max cycles"));
     // Overall pipeline outcome is from last completed node (manager) = Fail
@@ -5518,7 +5513,7 @@ mod real_llm {
                 .client
                 .complete(&request)
                 .await
-                .map_err(|e| ArcError::Handler(e.to_string()))?;
+                .map_err(|e| ArcError::handler(e.to_string()))?;
             Ok(CodergenResult::Text {
                 text: response.text(),
                 usage: None,
@@ -7813,7 +7808,7 @@ async fn node_dir_uses_visit_count_on_revisit() {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if n == 0 {
-                Ok(Outcome::fail("first attempt fails"))
+                Ok(Outcome::fail_classify("first attempt fails"))
             } else {
                 Ok(Outcome::success())
             }
@@ -8998,7 +8993,7 @@ impl Handler for FileWriterHandler {
             .sandbox
             .write_file(&file_path, &format!("written by {}", node.id))
             .await
-            .map_err(|e| ArcError::Handler(format!("write_file failed: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("write_file failed: {e}")))?;
         Ok(Outcome::success())
     }
 }
@@ -9488,7 +9483,7 @@ async fn parallel_git_branching_host_e2e() {
         outcome.status,
         StageStatus::Success,
         "pipeline failed: {:?}",
-        outcome.failure_reason
+        outcome.failure_reason()
     );
 
     // 6. Verify parallel.results has head_sha for each branch
@@ -9671,11 +9666,11 @@ impl Handler for DeterministicFailHandler {
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
     ) -> Result<Outcome, ArcError> {
-        Ok(Outcome::fail(&self.reason))
+        Ok(Outcome::fail_classify(&self.reason))
     }
 }
 
-/// Handler that always fails with a transient_infra classification hint.
+/// Handler that always fails with a transient_infra classification.
 struct TransientInfraFailHandler;
 
 #[async_trait::async_trait]
@@ -9688,16 +9683,11 @@ impl Handler for TransientInfraFailHandler {
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
     ) -> Result<Outcome, ArcError> {
-        let mut outcome = Outcome::fail("connection refused");
-        outcome.context_updates.insert(
-            "failure_class".to_string(),
-            serde_json::json!("transient_infra"),
-        );
-        Ok(outcome)
+        Ok(Outcome::fail_classify("connection refused"))
     }
 }
 
-/// Handler that provides an explicit `failure_signature` hint in context_updates.
+/// Handler that provides an explicit `failure_signature` hint via FailureDetail.
 struct SignatureHintHandler;
 
 #[async_trait::async_trait]
@@ -9710,12 +9700,8 @@ impl Handler for SignatureHintHandler {
         _logs_root: &Path,
         _services: &arc_workflows::handler::EngineServices,
     ) -> Result<Outcome, ArcError> {
-        let mut outcome = Outcome::fail("error at line 42 in commit abc123def0");
-        outcome.context_updates.insert(
-            "failure_signature".to_string(),
-            serde_json::json!("custom-grouping-key"),
-        );
-        Ok(outcome)
+        Ok(Outcome::fail_classify("error at line 42 in commit abc123def0")
+            .with_signature(Some("custom-grouping-key")))
     }
 }
 
@@ -9750,7 +9736,7 @@ impl Handler for VaryingReasonFailHandler {
         let n = self
             .counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst) as usize;
-        Ok(Outcome::fail(
+        Ok(Outcome::fail_classify(
             E2E_VARYING_REASONS[n % E2E_VARYING_REASONS.len()],
         ))
     }
@@ -9778,7 +9764,7 @@ impl Handler for SucceedOnNthHandler {
         if n >= self.succeed_on {
             Ok(Outcome::success())
         } else {
-            Ok(Outcome::fail("not yet ready"))
+            Ok(Outcome::fail_classify("not yet ready"))
         }
     }
 }
@@ -10683,11 +10669,12 @@ impl Handler for ClassifiedFailHandler {
         if n >= self.succeed_on {
             return Ok(Outcome::success());
         }
-        let mut outcome = Outcome::fail("classified failure");
-        outcome.context_updates.insert(
-            "failure_class".to_string(),
-            serde_json::json!(self.failure_class),
-        );
+        let failure_class: arc_workflows::error::FailureClass =
+            self.failure_class.parse().unwrap();
+        let mut outcome = Outcome::fail_classify("classified failure");
+        if let Some(ref mut f) = outcome.failure {
+            f.failure_class = failure_class;
+        }
         Ok(outcome)
     }
 }
@@ -11205,10 +11192,10 @@ impl Handler for AssetCreatorHandler {
             .sandbox
             .exec_command(script, 30_000, None, None, None)
             .await
-            .map_err(|e| ArcError::Handler(format!("exec failed: {e}")))?;
+            .map_err(|e| ArcError::handler(format!("exec failed: {e}")))?;
 
         if self.should_fail {
-            Ok(Outcome::fail("intentional failure"))
+            Ok(Outcome::fail_classify("intentional failure"))
         } else {
             Ok(Outcome::success())
         }

@@ -199,7 +199,7 @@ impl Handler for ParallelHandler {
         let parallel_start = Instant::now();
         let branches = graph.outgoing_edges(&node.id);
         if branches.is_empty() {
-            return Ok(Outcome::fail("No branches for parallel node"));
+            return Ok(Outcome::fail_classify("No branches for parallel node"));
         }
 
         let join_policy = parse_join_policy(
@@ -306,7 +306,7 @@ impl Handler for ParallelHandler {
                             })
                             .await
                             .map_err(|e| {
-                                ArcError::Handler(format!("worktree setup join error: {e}"))
+                                ArcError::handler(format!("worktree setup join error: {e}"))
                             })??;
                             branch_context.set(
                                 "internal.work_dir",
@@ -332,7 +332,7 @@ impl Handler for ParallelHandler {
                             )
                             .await;
                             if !ok {
-                                return Err(ArcError::Handler(format!(
+                                return Err(ArcError::handler(format!(
                                     "failed to create remote branch {branch_name}"
                                 )));
                             }
@@ -343,7 +343,7 @@ impl Handler for ParallelHandler {
                             )
                             .await;
                             if !ok {
-                                return Err(ArcError::Handler(format!(
+                                return Err(ArcError::handler(format!(
                                     "failed to add remote worktree {wt_path_str}"
                                 )));
                             }
@@ -355,7 +355,7 @@ impl Handler for ParallelHandler {
                                 .exec_command(&reset_cmd, 30_000, Some(&wt_path_str), None, None)
                                 .await;
                             if !matches!(reset_result, Ok(ref r) if r.exit_code == 0) {
-                                return Err(ArcError::Handler(format!(
+                                return Err(ArcError::handler(format!(
                                     "failed to reset remote worktree {wt_path_str}"
                                 )));
                             }
@@ -396,7 +396,7 @@ impl Handler for ParallelHandler {
                 let _permit = sem
                     .acquire()
                     .await
-                    .map_err(|e| ArcError::Handler(format!("semaphore error: {e}")))?;
+                    .map_err(|e| ArcError::handler(format!("semaphore error: {e}")))?;
 
                 emitter.emit(&WorkflowRunEvent::ParallelBranchStarted {
                     branch: setup.target_id.clone(),
@@ -406,7 +406,7 @@ impl Handler for ParallelHandler {
 
                 let Some(target_node) = graph.nodes.get(&setup.target_id) else {
                     let outcome =
-                        Outcome::fail(format!("branch target node not found: {}", setup.target_id));
+                        Outcome::fail_classify(format!("branch target node not found: {}", setup.target_id));
                     emitter.emit(&WorkflowRunEvent::ParallelBranchCompleted {
                         branch: setup.target_id.clone(),
                         index: setup.branch_index,
@@ -534,7 +534,7 @@ impl Handler for ParallelHandler {
                 Err(join_err) => {
                     let result = BranchResult {
                         id: String::new(),
-                        outcome: Outcome::fail(format!("task join error: {join_err}")),
+                        outcome: Outcome::fail_classify(format!("task join error: {join_err}")),
                         head_sha: None,
                         worktree_path: None,
                     };
@@ -694,8 +694,11 @@ impl Handler for ParallelHandler {
             notes: Some(format!(
                 "Parallel node dispatched {total} branches ({success_count} succeeded, {fail_count} failed)"
             )),
-            failure_reason: if is_fail {
-                Some(format!("Join policy not satisfied: {success_count}/{total} succeeded"))
+            failure: if is_fail {
+                Some(crate::outcome::FailureDetail::new(
+                    format!("Join policy not satisfied: {success_count}/{total} succeeded"),
+                    crate::error::FailureClass::Deterministic,
+                ))
             } else {
                 None
             },

@@ -149,7 +149,7 @@ mod tests {
             suggested_next_ids: Vec::new(),
             context_updates: std::collections::HashMap::new(),
             notes: None,
-            failure_reason: None,
+            failure: None,
             usage: None,
             files_touched: Vec::new(),
         }

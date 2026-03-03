@@ -288,7 +288,8 @@ impl FailureClass {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ArcError {
     #[error("Parse error: {0}")]
     Parse(String),
@@ -296,11 +297,17 @@ pub enum ArcError {
     #[error("Validation error: {0}")]
     Validation(String),
 
-    #[error("Engine error: {0}")]
-    Engine(String),
+    #[error("Engine error: {message}")]
+    Engine {
+        message: String,
+        failure_class: FailureClass,
+    },
 
-    #[error("Handler error: {0}")]
-    Handler(String),
+    #[error("Handler error: {message}")]
+    Handler {
+        message: String,
+        failure_class: FailureClass,
+    },
 
     #[error("LLM error: {0}")]
     Llm(SdkError),
@@ -319,6 +326,26 @@ pub enum ArcError {
 }
 
 impl ArcError {
+    /// Smart constructor for Handler errors. Classifies the failure reason eagerly.
+    pub fn handler(message: impl Into<String>) -> Self {
+        let message = message.into();
+        let failure_class = classify_failure_reason(&message);
+        Self::Handler {
+            message,
+            failure_class,
+        }
+    }
+
+    /// Smart constructor for Engine errors. Classifies the failure reason eagerly.
+    pub fn engine(message: impl Into<String>) -> Self {
+        let message = message.into();
+        let failure_class = classify_failure_reason(&message);
+        Self::Engine {
+            message,
+            failure_class,
+        }
+    }
+
     /// Whether this error category is retryable (transient) or terminal.
     ///
     /// Retryable: Handler (transient handler failures), Engine (could be transient),
@@ -328,7 +355,7 @@ impl ArcError {
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::Handler(_) | Self::Engine(_) | Self::Io(_) => true,
+            Self::Handler { .. } | Self::Engine { .. } | Self::Io(_) => true,
             Self::Llm(sdk_err) => sdk_err.retryable(),
             Self::Parse(_)
             | Self::Validation(_)
@@ -348,7 +375,9 @@ impl ArcError {
             Self::Parse(_) | Self::Validation(_) | Self::Stylesheet(_) | Self::Checkpoint(_) => {
                 FailureClass::Deterministic
             }
-            Self::Handler(msg) | Self::Engine(msg) => classify_failure_reason(msg),
+            Self::Handler { failure_class, .. } | Self::Engine { failure_class, .. } => {
+                *failure_class
+            }
         }
     }
 
@@ -361,21 +390,23 @@ impl ArcError {
         }
     }
 
-    /// Build an `Outcome::fail` with `failure_class` and optional `failure_signature`
-    /// populated in `context_updates`.
+    /// Build a fail `Outcome` with structured `FailureDetail`.
     pub fn to_fail_outcome(&self) -> crate::outcome::Outcome {
-        let mut outcome = crate::outcome::Outcome::fail(self.to_string());
-        outcome.context_updates.insert(
-            "failure_class".to_string(),
-            serde_json::json!(self.failure_class().to_string()),
-        );
-        if let Some(sig) = self.failure_signature_hint() {
-            outcome.context_updates.insert(
-                "failure_signature".to_string(),
-                serde_json::json!(sig),
-            );
+        let failure = crate::outcome::FailureDetail {
+            message: self.to_string(),
+            failure_class: self.failure_class(),
+            failure_signature: self.failure_signature_hint(),
+        };
+        crate::outcome::Outcome {
+            status: crate::outcome::StageStatus::Fail,
+            preferred_label: None,
+            suggested_next_ids: Vec::new(),
+            context_updates: std::collections::HashMap::new(),
+            notes: None,
+            failure: Some(failure),
+            usage: None,
+            files_touched: Vec::new(),
         }
-        outcome
     }
 }
 
@@ -412,13 +443,13 @@ mod tests {
 
     #[test]
     fn engine_error_display() {
-        let err = ArcError::Engine("no outgoing edge".to_string());
+        let err = ArcError::engine("no outgoing edge");
         assert_eq!(err.to_string(), "Engine error: no outgoing edge");
     }
 
     #[test]
     fn handler_error_display() {
-        let err = ArcError::Handler("LLM call failed".to_string());
+        let err = ArcError::handler("LLM call failed");
         assert_eq!(err.to_string(), "Handler error: LLM call failed");
     }
 
@@ -472,8 +503,8 @@ mod tests {
 
     #[test]
     fn is_retryable_transient_errors() {
-        assert!(ArcError::Handler("timeout".to_string()).is_retryable());
-        assert!(ArcError::Engine("transient".to_string()).is_retryable());
+        assert!(ArcError::handler("timeout").is_retryable());
+        assert!(ArcError::engine("transient").is_retryable());
         assert!(ArcError::Io("connection reset".to_string()).is_retryable());
     }
 
@@ -698,7 +729,7 @@ mod tests {
     #[test]
     fn failure_class_handler_with_timeout() {
         assert_eq!(
-            ArcError::Handler("request timed out".into()).failure_class(),
+            ArcError::handler("request timed out").failure_class(),
             FailureClass::TransientInfra
         );
     }
@@ -706,7 +737,7 @@ mod tests {
     #[test]
     fn failure_class_handler_deterministic() {
         assert_eq!(
-            ArcError::Handler("invalid configuration".into()).failure_class(),
+            ArcError::handler("invalid configuration").failure_class(),
             FailureClass::Deterministic
         );
     }
@@ -1460,13 +1491,13 @@ mod tests {
 
     #[test]
     fn failure_signature_hint_handler_returns_none() {
-        let err = ArcError::Handler("something failed".to_string());
+        let err = ArcError::handler("something failed");
         assert_eq!(err.failure_signature_hint(), None);
     }
 
     #[test]
     fn failure_signature_hint_engine_returns_none() {
-        let err = ArcError::Engine("engine error".to_string());
+        let err = ArcError::engine("engine error");
         assert_eq!(err.failure_signature_hint(), None);
     }
 
@@ -1480,26 +1511,22 @@ mod tests {
         });
         let outcome = err.to_fail_outcome();
         assert_eq!(outcome.status, crate::outcome::StageStatus::Fail);
+        let failure = outcome.failure.as_ref().unwrap();
+        assert_eq!(failure.failure_class, FailureClass::Deterministic);
         assert_eq!(
-            outcome.context_updates.get("failure_class"),
-            Some(&serde_json::json!("deterministic"))
-        );
-        assert_eq!(
-            outcome.context_updates.get("failure_signature"),
-            Some(&serde_json::json!("api_deterministic|openai|authentication"))
+            failure.failure_signature.as_deref(),
+            Some("api_deterministic|openai|authentication")
         );
     }
 
     #[test]
     fn to_fail_outcome_handler_has_class_but_no_signature() {
-        let err = ArcError::Handler("connection refused".to_string());
+        let err = ArcError::handler("connection refused");
         let outcome = err.to_fail_outcome();
         assert_eq!(outcome.status, crate::outcome::StageStatus::Fail);
-        assert_eq!(
-            outcome.context_updates.get("failure_class"),
-            Some(&serde_json::json!("transient_infra"))
-        );
-        assert!(!outcome.context_updates.contains_key("failure_signature"));
+        let failure = outcome.failure.as_ref().unwrap();
+        assert_eq!(failure.failure_class, FailureClass::TransientInfra);
+        assert!(failure.failure_signature.is_none());
     }
 
     #[test]
@@ -1508,10 +1535,221 @@ mod tests {
             message: "connection refused".into(),
         });
         let outcome = err.to_fail_outcome();
-        assert!(outcome
-            .failure_reason
-            .as_ref()
-            .unwrap()
-            .contains("connection refused"));
+        assert!(outcome.failure_reason().unwrap().contains("connection refused"));
+    }
+
+    #[test]
+    fn to_fail_outcome_no_context_updates() {
+        let err = ArcError::Llm(SdkError::Network {
+            message: "refused".into(),
+        });
+        let outcome = err.to_fail_outcome();
+        assert!(outcome.context_updates.is_empty());
+    }
+
+    // --- Phase 2: Eager classification tests ---
+
+    #[test]
+    fn handler_eager_classification() {
+        let err = ArcError::handler("connection refused");
+        assert_eq!(err.failure_class(), FailureClass::TransientInfra);
+    }
+
+    #[test]
+    fn handler_eager_classification_roundtrip() {
+        let err = ArcError::handler("connection refused");
+        let json = serde_json::to_string(&err).unwrap();
+        let deserialized: ArcError = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.failure_class(), FailureClass::TransientInfra);
+    }
+
+    #[test]
+    fn handler_smart_constructor_preserves_message() {
+        let err = ArcError::handler("some error");
+        assert!(err.to_string().contains("some error"));
+    }
+
+    #[test]
+    fn engine_eager_classification() {
+        let err = ArcError::engine("rate limit exceeded");
+        assert_eq!(err.failure_class(), FailureClass::TransientInfra);
+    }
+
+    #[test]
+    fn arc_error_serde_roundtrip_all_variants() {
+        let errors: Vec<ArcError> = vec![
+            ArcError::Parse("bad".into()),
+            ArcError::Validation("bad".into()),
+            ArcError::engine("engine err"),
+            ArcError::handler("handler err"),
+            ArcError::Llm(SdkError::Network {
+                message: "refused".into(),
+            }),
+            ArcError::Checkpoint("cp err".into()),
+            ArcError::Stylesheet("style err".into()),
+            ArcError::Io("io err".into()),
+            ArcError::Cancelled,
+        ];
+        for err in &errors {
+            let json = serde_json::to_string(err).unwrap();
+            let deserialized: ArcError = serde_json::from_str(&json).unwrap();
+            assert_eq!(err.to_string(), deserialized.to_string());
+        }
+    }
+
+    #[test]
+    fn handler_display_unchanged() {
+        assert_eq!(
+            ArcError::handler("LLM call failed").to_string(),
+            "Handler error: LLM call failed"
+        );
+    }
+
+    #[test]
+    fn engine_display_unchanged() {
+        assert_eq!(
+            ArcError::engine("no outgoing edge").to_string(),
+            "Engine error: no outgoing edge"
+        );
+    }
+
+    #[test]
+    fn failure_class_stability() {
+        let messages = [
+            "connection refused",
+            "timeout",
+            "rate limit",
+            "context length exceeded",
+            "cancel",
+            "invalid configuration",
+            "write_scope_violation",
+        ];
+        for msg in messages {
+            assert_eq!(
+                ArcError::handler(msg).failure_class(),
+                classify_failure_reason(msg),
+                "mismatch for message: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn to_fail_outcome_preserves_class() {
+        let err = ArcError::handler("timeout");
+        let outcome = err.to_fail_outcome();
+        assert_eq!(
+            outcome.failure_class(),
+            Some(FailureClass::TransientInfra)
+        );
+    }
+
+    // --- E2E error pipeline tests ---
+
+    #[test]
+    fn e2e_llm_error_to_outcome_to_event_preserves_classification() {
+        use crate::event::WorkflowRunEvent;
+        use crate::outcome::FailureDetail;
+
+        // 1. Create SdkError → ArcError
+        let sdk_err = SdkError::Provider {
+            kind: ProviderErrorKind::RateLimit,
+            detail: Box::new(ProviderErrorDetail::new("too fast", "openai")),
+        };
+        let arc_err = ArcError::Llm(sdk_err);
+        assert_eq!(arc_err.failure_class(), FailureClass::TransientInfra);
+
+        // 2. ArcError → Outcome
+        let outcome = arc_err.to_fail_outcome();
+        assert_eq!(outcome.failure_class(), Some(FailureClass::TransientInfra));
+
+        // 3. Outcome → StageFailed event
+        let failure = outcome.failure.clone().unwrap();
+        let event = WorkflowRunEvent::StageFailed {
+            node_id: "code".into(),
+            name: "code".into(),
+            index: 0,
+            failure: failure.clone(),
+            will_retry: false,
+        };
+
+        // 4. Verify classification survived all the way through
+        match &event {
+            WorkflowRunEvent::StageFailed { failure, .. } => {
+                assert_eq!(failure.failure_class, FailureClass::TransientInfra);
+            }
+            _ => panic!("expected StageFailed"),
+        }
+    }
+
+    #[test]
+    fn e2e_handler_error_classified_at_edge() {
+        // handler smart constructor classifies eagerly
+        let err = ArcError::handler("connection refused");
+        assert_eq!(err.failure_class(), FailureClass::TransientInfra);
+
+        // to_fail_outcome preserves
+        let outcome = err.to_fail_outcome();
+        assert_eq!(outcome.failure_class(), Some(FailureClass::TransientInfra));
+
+        // event preserves
+        let failure = outcome.failure.unwrap();
+        assert_eq!(failure.failure_class, FailureClass::TransientInfra);
+    }
+
+    #[test]
+    fn e2e_handler_retryable_checks() {
+        assert!(ArcError::handler("timeout").is_retryable());
+        assert!(ArcError::handler("auth error").is_retryable());
+    }
+
+    #[test]
+    fn e2e_serde_stability_arc_error() {
+        let err = ArcError::handler("connection refused");
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Verify wire format
+        assert_eq!(v["type"], "handler");
+        assert!(v["data"]["message"].as_str().unwrap().contains("connection refused"));
+        assert_eq!(v["data"]["failure_class"], "transient_infra");
+
+        // Round-trip
+        let deserialized: ArcError = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.failure_class(), FailureClass::TransientInfra);
+    }
+
+    #[test]
+    fn e2e_serde_stability_agent_error() {
+        use arc_agent::error::AgentError;
+
+        let err = AgentError::Llm(SdkError::Provider {
+            kind: ProviderErrorKind::RateLimit,
+            detail: Box::new(ProviderErrorDetail::new("too fast", "openai")),
+        });
+        let json = serde_json::to_string(&err).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "llm");
+
+        let deserialized: AgentError = serde_json::from_str(&json).unwrap();
+        assert_eq!(err.to_string(), deserialized.to_string());
+    }
+
+    #[test]
+    fn e2e_failure_detail_in_outcome_serde_roundtrip() {
+        use crate::outcome::{FailureDetail, Outcome};
+
+        let outcome = Outcome::fail_classify("rate limit exceeded")
+            .with_signature(Some("api_transient|openai|rate_limited"));
+
+        let json = serde_json::to_string(&outcome).unwrap();
+        let deserialized: Outcome = serde_json::from_str(&json).unwrap();
+
+        let failure = deserialized.failure.unwrap();
+        assert_eq!(failure.message, "rate limit exceeded");
+        assert_eq!(failure.failure_class, FailureClass::TransientInfra);
+        assert_eq!(
+            failure.failure_signature.as_deref(),
+            Some("api_transient|openai|rate_limited")
+        );
     }
 }

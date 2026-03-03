@@ -118,7 +118,7 @@ pub enum AgentEvent {
         is_error: bool,
     },
     Error {
-        error: String,
+        error: crate::error::AgentError,
     },
     ContextWindowWarning {
         estimated_tokens: usize,
@@ -150,7 +150,7 @@ pub enum AgentEvent {
         model: String,
         attempt: usize,
         delay_secs: f64,
-        error: String,
+        error: arc_llm::error::SdkError,
     },
     SubAgentSpawned {
         agent_id: String,
@@ -166,7 +166,7 @@ pub enum AgentEvent {
     SubAgentFailed {
         agent_id: String,
         depth: usize,
-        error: String,
+        error: crate::error::AgentError,
     },
     SubAgentClosed {
         agent_id: String,
@@ -247,7 +247,7 @@ impl AgentEvent {
                 );
             }
             Self::Error { error } => {
-                error!(session_id, error, "Agent error");
+                error!(session_id, error = %error, "Agent error");
             }
             Self::ContextWindowWarning {
                 estimated_tokens,
@@ -313,7 +313,7 @@ impl AgentEvent {
                     model,
                     attempt,
                     delay_secs,
-                    error,
+                    error = %error,
                     "LLM request failed, retrying"
                 );
             }
@@ -354,7 +354,7 @@ impl AgentEvent {
                     session_id,
                     agent_id,
                     depth,
-                    error,
+                    error = %error,
                     "Sub-agent failed"
                 );
             }
@@ -483,7 +483,7 @@ mod tests {
         let event = AgentEvent::SubAgentFailed {
             agent_id: "sa-1".into(),
             depth: 0,
-            error: "timeout".into(),
+            error: crate::error::AgentError::ToolExecution("timeout".into()),
         };
         assert!(matches!(event, AgentEvent::SubAgentFailed { depth: 0, .. }));
     }
@@ -529,7 +529,7 @@ mod tests {
             AgentEvent::SubAgentFailed {
                 agent_id: "sa-1".into(),
                 depth: 0,
-                error: "oops".into(),
+                error: crate::error::AgentError::ToolExecution("oops".into()),
             },
             AgentEvent::SubAgentClosed {
                 agent_id: "sa-1".into(),
@@ -645,6 +645,100 @@ mod tests {
                 assert_eq!(usage.reasoning_tokens, Some(20));
             }
             _ => panic!("expected AssistantMessage"),
+        }
+    }
+
+    // --- Phase 4: Typed error event tests ---
+
+    #[test]
+    fn error_event_serde_roundtrip_with_agent_error() {
+        let event = AgentEvent::Error {
+            error: crate::error::AgentError::Llm(arc_llm::error::SdkError::Network {
+                message: "refused".into(),
+            }),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentEvent::Error { error } => {
+                assert!(error.to_string().contains("refused"));
+            }
+            _ => panic!("expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn llm_retry_event_carries_sdk_error() {
+        use arc_llm::error::{ProviderErrorDetail, ProviderErrorKind};
+        let event = AgentEvent::LlmRetry {
+            provider: "openai".into(),
+            model: "gpt-4".into(),
+            attempt: 1,
+            delay_secs: 2.0,
+            error: arc_llm::error::SdkError::Provider {
+                kind: ProviderErrorKind::RateLimit,
+                detail: Box::new(ProviderErrorDetail {
+                    message: "too fast".into(),
+                    provider: "openai".into(),
+                    status_code: Some(429),
+                    error_code: None,
+                    retry_after: Some(2.0),
+                    raw: None,
+                }),
+            },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentEvent::LlmRetry { error, .. } => {
+                assert!(error.retryable());
+                assert_eq!(error.retry_after(), Some(2.0));
+            }
+            _ => panic!("expected LlmRetry variant"),
+        }
+    }
+
+    #[test]
+    fn subagent_failed_carries_agent_error() {
+        let event = AgentEvent::SubAgentFailed {
+            agent_id: "sa-1".into(),
+            depth: 0,
+            error: crate::error::AgentError::ToolExecution("cmd failed".into()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentEvent::SubAgentFailed { error, .. } => {
+                assert!(error.to_string().contains("cmd failed"));
+            }
+            _ => panic!("expected SubAgentFailed variant"),
+        }
+    }
+
+    #[test]
+    fn error_event_preserves_error_type_through_json() {
+        let event = AgentEvent::Error {
+            error: crate::error::AgentError::ToolExecution("cmd failed".into()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // The error field should contain the AgentError's tagged type
+        assert_eq!(v["Error"]["error"]["type"], "tool_execution");
+    }
+
+    #[test]
+    fn mcp_server_failed_still_string() {
+        let event = AgentEvent::McpServerFailed {
+            server_name: "broken".into(),
+            error: "connection refused".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentEvent::McpServerFailed { error, .. } => {
+                assert_eq!(error, "connection refused");
+            }
+            _ => panic!("expected McpServerFailed variant"),
         }
     }
 }

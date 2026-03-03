@@ -27,7 +27,7 @@ pub enum WorkflowRunEvent {
         final_git_commit_sha: Option<String>,
     },
     WorkflowRunFailed {
-        error: String,
+        error: crate::error::ArcError,
         duration_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         git_commit_sha: Option<String>,
@@ -49,21 +49,19 @@ pub enum WorkflowRunEvent {
         preferred_label: Option<String>,
         suggested_next_ids: Vec<String>,
         usage: Option<StageUsage>,
-        failure_reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<crate::outcome::FailureDetail>,
         notes: Option<String>,
         files_touched: Vec<String>,
         attempt: usize,
         max_attempts: usize,
-        failure_class: Option<String>,
     },
     StageFailed {
         node_id: String,
         name: String,
         index: usize,
-        error: String,
+        failure: crate::outcome::FailureDetail,
         will_retry: bool,
-        failure_reason: Option<String>,
-        failure_class: Option<String>,
     },
     StageRetrying {
         node_id: String,
@@ -206,7 +204,7 @@ impl WorkflowRunEvent {
             Self::WorkflowRunFailed {
                 error, duration_ms, ..
             } => {
-                error!(error, duration_ms, "Workflow run failed");
+                error!(error = %error, duration_ms, "Workflow run failed");
             }
             Self::StageStarted {
                 node_id,
@@ -251,16 +249,16 @@ impl WorkflowRunEvent {
                 node_id,
                 name,
                 index,
-                error,
+                failure,
                 will_retry,
-                ..
             } => {
+                let error_msg = &failure.message;
                 if *will_retry {
                     warn!(
                         node_id,
                         stage = name.as_str(),
                         index,
-                        error,
+                        error = error_msg.as_str(),
                         will_retry,
                         "Stage failed"
                     );
@@ -269,7 +267,7 @@ impl WorkflowRunEvent {
                         node_id,
                         stage = name.as_str(),
                         index,
-                        error,
+                        error = error_msg.as_str(),
                         will_retry,
                         "Stage failed"
                     );
@@ -640,7 +638,41 @@ fn rename_fields(event_name: &str, fields: &mut serde_json::Map<String, serde_js
         // name → node_label, index → stage_index, node_id stays
         rename(fields, "name", "node_label");
         rename(fields, "index", "stage_index");
+        // Flatten FailureDetail into top-level fields for backward compat
+        if let Some(serde_json::Value::Object(failure)) = fields.remove("failure") {
+            if let Some(msg) = failure.get("message") {
+                fields.insert("error".to_string(), msg.clone());
+                fields.insert("failure_reason".to_string(), msg.clone());
+            }
+            if let Some(fc) = failure.get("failure_class") {
+                fields.insert("failure_class".to_string(), fc.clone());
+            }
+            if let Some(sig) = failure.get("failure_signature") {
+                if !sig.is_null() {
+                    fields.insert("failure_signature".to_string(), sig.clone());
+                }
+            }
+        }
         // node_id already present from Rust enum
+    } else if event_name == "WorkflowRunFailed" {
+        // Flatten ArcError to a string for backward compat in progress.jsonl
+        if let Some(error_val) = fields.get("error") {
+            if error_val.is_object() {
+                // Extract the display message from the ArcError serde format
+                let display = error_val
+                    .get("data")
+                    .and_then(|d| {
+                        // For struct variants (Handler/Engine): { "data": { "message": "..." } }
+                        d.get("message").and_then(|m| m.as_str().map(String::from))
+                    })
+                    .or_else(|| {
+                        // For newtype string variants: { "data": "..." }
+                        error_val.get("data").and_then(|d| d.as_str().map(String::from))
+                    })
+                    .unwrap_or_else(|| error_val.to_string());
+                fields.insert("error".to_string(), serde_json::Value::String(display));
+            }
+        }
     } else if event_name == "WorkflowRunStarted" {
         rename(fields, "name", "workflow_name");
     } else if event_name.starts_with("Agent.") || event_name == "Agent" {
@@ -904,6 +936,9 @@ mod tests {
 
     #[test]
     fn stage_completed_event_serialization_with_new_fields() {
+        use crate::error::FailureClass;
+        use crate::outcome::FailureDetail;
+
         let event = WorkflowRunEvent::StageCompleted {
             node_id: "plan".to_string(),
             name: "plan".to_string(),
@@ -913,20 +948,18 @@ mod tests {
             preferred_label: None,
             suggested_next_ids: vec![],
             usage: None,
-            failure_reason: Some("lint errors remain".to_string()),
+            failure: Some(FailureDetail::new("lint errors remain", FailureClass::Deterministic)),
             notes: Some("fixed 3 of 5 issues".to_string()),
             files_touched: vec!["src/main.rs".to_string()],
             attempt: 2,
             max_attempts: 3,
-            failure_class: None,
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"failure_reason\":\"lint errors remain\""));
+        assert!(json.contains("lint errors remain"));
         assert!(json.contains("\"notes\":\"fixed 3 of 5 issues\""));
         assert!(json.contains("src/main.rs"));
         assert!(json.contains("\"attempt\":2"));
         assert!(json.contains("\"max_attempts\":3"));
-        assert!(json.contains("\"failure_class\":null"));
 
         let event_none = WorkflowRunEvent::StageCompleted {
             node_id: "plan".to_string(),
@@ -937,50 +970,51 @@ mod tests {
             preferred_label: None,
             suggested_next_ids: vec![],
             usage: None,
-            failure_reason: None,
+            failure: None,
             notes: None,
             files_touched: vec![],
             attempt: 1,
             max_attempts: 1,
-            failure_class: None,
         };
         let json_none = serde_json::to_string(&event_none).unwrap();
-        assert!(json_none.contains("\"failure_reason\":null"));
         assert!(json_none.contains("\"notes\":null"));
     }
 
     #[test]
     fn stage_failed_event_serialization() {
+        use crate::error::FailureClass;
+        use crate::outcome::FailureDetail;
+
         let event = WorkflowRunEvent::StageFailed {
             node_id: "plan".to_string(),
             name: "plan".to_string(),
             index: 0,
-            error: "timeout".to_string(),
+            failure: FailureDetail {
+                message: "LLM request timed out".to_string(),
+                failure_class: FailureClass::TransientInfra,
+                failure_signature: None,
+            },
             will_retry: true,
-            failure_reason: Some("LLM request timed out".to_string()),
-            failure_class: Some("transient".to_string()),
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"failure_reason\":\"LLM request timed out\""));
-        assert!(json.contains("\"failure_class\":\"transient\""));
+        assert!(json.contains("LLM request timed out"));
+        assert!(json.contains("transient_infra"));
 
         let deserialized: WorkflowRunEvent = serde_json::from_str(&json).unwrap();
-        assert!(
-            matches!(deserialized, WorkflowRunEvent::StageFailed { failure_class: Some(fc), .. } if fc == "transient")
-        );
+        assert!(matches!(
+            deserialized,
+            WorkflowRunEvent::StageFailed { failure, .. } if failure.failure_class == FailureClass::TransientInfra
+        ));
 
-        let event_none = WorkflowRunEvent::StageFailed {
+        let event_terminal = WorkflowRunEvent::StageFailed {
             node_id: "plan".to_string(),
             name: "plan".to_string(),
             index: 0,
-            error: "timeout".to_string(),
+            failure: FailureDetail::new("timeout", FailureClass::Deterministic),
             will_retry: false,
-            failure_reason: None,
-            failure_class: Some("terminal".to_string()),
         };
-        let json_none = serde_json::to_string(&event_none).unwrap();
-        assert!(json_none.contains("\"failure_reason\":null"));
-        assert!(json_none.contains("\"failure_class\":\"terminal\""));
+        let json_terminal = serde_json::to_string(&event_terminal).unwrap();
+        assert!(json_terminal.contains("deterministic"));
     }
 
     #[test]
@@ -1147,7 +1181,9 @@ mod tests {
                 model: "claude-opus-4-6".to_string(),
                 attempt: 2,
                 delay_secs: 1.5,
-                error: "rate limited".to_string(),
+                error: arc_llm::error::SdkError::Network {
+                    message: "rate limited".to_string(),
+                },
             },
         };
         let json = serde_json::to_string(&event).unwrap();

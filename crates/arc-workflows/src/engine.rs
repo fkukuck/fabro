@@ -18,7 +18,7 @@ use crate::asset_snapshot;
 use crate::checkpoint::Checkpoint;
 use crate::condition::evaluate_condition;
 use crate::context::Context;
-use crate::error::{classify_failure_reason, ArcError, FailureClass, FailureSignature, Result};
+use crate::error::{ArcError, FailureClass, FailureSignature, Result};
 use crate::event::{EventEmitter, WorkflowRunEvent};
 use crate::graph::{Edge, Graph, Node};
 use crate::handler::{EngineServices, HandlerRegistry};
@@ -43,20 +43,7 @@ fn classify_outcome(outcome: &Outcome) -> Option<FailureClass> {
     match outcome.status {
         StageStatus::Success | StageStatus::PartialSuccess | StageStatus::Skipped => None,
         StageStatus::Fail | StageStatus::Retry => {
-            // Check handler hint in context_updates
-            if let Some(hint) = outcome.context_updates.get("failure_class") {
-                if let Some(s) = hint.as_str() {
-                    let fc: FailureClass = s.parse().unwrap();
-                    return Some(fc);
-                }
-            }
-
-            // Fall back to string heuristics on failure_reason
-            if let Some(ref reason) = outcome.failure_reason {
-                return Some(classify_failure_reason(reason));
-            }
-
-            Some(FailureClass::Deterministic)
+            outcome.failure_class().or(Some(FailureClass::Deterministic))
         }
     }
 }
@@ -344,7 +331,7 @@ fn write_node_status(logs_root: &Path, node_id: &str, visit: usize, outcome: &Ou
     let status = serde_json::json!({
         "status": outcome.status.to_string(),
         "notes": outcome.notes,
-        "failure_reason": outcome.failure_reason,
+        "failure_reason": outcome.failure_reason(),
         "timestamp": Utc::now().to_rfc3339(),
     });
     if let Ok(json) = serde_json::to_string_pretty(&status) {
@@ -868,7 +855,7 @@ impl WorkflowRunEngine {
                 let timed_result = if let Some(duration) = node_timeout {
                     match tokio::time::timeout(duration, panic_safe).await {
                         Ok(inner) => inner,
-                        Err(_elapsed) => Ok(Ok(Outcome::fail(format!(
+                        Err(_elapsed) => Ok(Ok(Outcome::fail_classify(format!(
                             "handler timed out after {}ms",
                             duration.as_millis()
                         )))),
@@ -889,7 +876,7 @@ impl WorkflowRunEngine {
                         let panic_dir = node_dir(logs_root, &node.id, visit);
                         let _ = std::fs::create_dir_all(&panic_dir);
                         let _ = std::fs::write(panic_dir.join("panic.txt"), &msg);
-                        Err(ArcError::Handler(msg))
+                        Err(ArcError::handler(msg))
                     }
                 }
             };
@@ -945,10 +932,12 @@ impl WorkflowRunEngine {
                             node_id: node.id.clone(),
                             name: node.label().to_string(),
                             index: stage_index,
-                            error: e.to_string(),
+                            failure: crate::outcome::FailureDetail {
+                                message: e.to_string(),
+                                failure_class: e.failure_class(),
+                                failure_signature: e.failure_signature_hint(),
+                            },
                             will_retry: true,
-                            failure_reason: None,
-                            failure_class: Some(e.failure_class().to_string()),
                         });
                         self.services.emitter.emit(&WorkflowRunEvent::StageRetrying {
                             node_id: node.id.clone(),
@@ -998,12 +987,12 @@ impl WorkflowRunEngine {
                             attempt,
                         ));
                     }
-                    return Ok((Outcome::fail("max retries exceeded"), attempt));
+                    return Ok((Outcome::fail_classify("max retries exceeded"), attempt));
                 }
             }
         }
 
-        Ok((Outcome::fail("max retries exceeded"), policy.max_attempts))
+        Ok((Outcome::fail_classify("max retries exceeded"), policy.max_attempts))
     }
 
     /// Run the workflow. Returns the final outcome.
@@ -1194,7 +1183,7 @@ impl WorkflowRunEngine {
 
             let start_node = graph
                 .find_start_node()
-                .ok_or_else(|| ArcError::Engine("no start node found".to_string()))?;
+                .ok_or_else(|| ArcError::engine("no start node found".to_string()))?;
             current_node_id = start_node.id.clone();
         }
 
@@ -1256,7 +1245,7 @@ impl WorkflowRunEngine {
             let node = graph
                 .nodes
                 .get(&current_node_id)
-                .ok_or_else(|| ArcError::Engine(format!("node not found: {current_node_id}")))?;
+                .ok_or_else(|| ArcError::engine(format!("node not found: {current_node_id}")))?;
 
             // Always track visit count (used for stage directory naming)
             let count = loop_state
@@ -1266,7 +1255,7 @@ impl WorkflowRunEngine {
             *count += 1;
             if max_node_visits > 0 && *count >= max_node_visits {
                 tracing::warn!(node = %current_node_id, visits = *count, limit = max_node_visits, "Node visit limit exceeded, run stuck in cycle");
-                return Err(ArcError::Engine(format!(
+                return Err(ArcError::engine(format!(
                     "node \"{}\" visited {count} times (limit {max_node_visits}); run is stuck in a cycle",
                     current_node_id
                 )));
@@ -1282,15 +1271,15 @@ impl WorkflowRunEngine {
                             continue;
                         }
                         let duration_ms = millis_u64(run_start.elapsed());
-                        let error_msg = format!(
-                            "goal gate unsatisfied for node {failed_node_id} and no retry target"
+                        let error = ArcError::engine(
+                            format!("goal gate unsatisfied for node {failed_node_id} and no retry target")
                         );
                         self.services.emitter.emit(&WorkflowRunEvent::WorkflowRunFailed {
-                            error: error_msg.clone(),
+                            error: error.clone(),
                             duration_ms,
                             git_commit_sha: last_git_sha.clone(),
                         });
-                        return Ok((Outcome::fail(error_msg), context));
+                        return Ok((error.to_fail_outcome(), context));
                     }
                 }
             }
@@ -1357,7 +1346,7 @@ impl WorkflowRunEngine {
                             node: node.id.clone(),
                             idle_seconds: idle_secs,
                         });
-                        return Err(ArcError::Engine(format!(
+                        return Err(ArcError::engine(format!(
                             "stall watchdog: node \"{}\" had no activity for {}s",
                             node.id, idle_secs,
                         )));
@@ -1394,14 +1383,14 @@ impl WorkflowRunEngine {
             // Circuit breaker: track deterministic/structural failure signatures
             let failure_sig = if let Some(fc) = outcome_failure_class {
                 let sig_hint = outcome
-                    .context_updates
-                    .get("failure_signature")
-                    .and_then(|v| v.as_str());
+                    .failure
+                    .as_ref()
+                    .and_then(|f| f.failure_signature.as_deref());
                 let sig = FailureSignature::new(
                     &node.id,
                     fc,
                     sig_hint,
-                    outcome.failure_reason.as_deref(),
+                    outcome.failure_reason(),
                 );
                 if fc.is_signature_tracked() {
                     let count = loop_state
@@ -1411,7 +1400,7 @@ impl WorkflowRunEngine {
                     *count += 1;
                     let limit = graph.loop_restart_signature_limit();
                     if *count >= limit {
-                        return Err(ArcError::Engine(format!(
+                        return Err(ArcError::engine(format!(
                             "deterministic failure cycle detected: signature {sig} repeated {count} times (limit {limit})"
                         )));
                     }
@@ -1426,14 +1415,10 @@ impl WorkflowRunEngine {
                     node_id: node.id.clone(),
                     name: node.label().to_string(),
                     index: stage_index,
-                    error: outcome
-                        .failure_reason
-                        .as_deref()
-                        .unwrap_or("unknown")
-                        .to_string(),
+                    failure: outcome.failure.clone().unwrap_or_else(|| {
+                        crate::outcome::FailureDetail::new("unknown", FailureClass::Deterministic)
+                    }),
                     will_retry: false,
-                    failure_reason: outcome.failure_reason.clone(),
-                    failure_class: outcome_failure_class.map(|fc| fc.to_string()),
                 });
             } else {
                 self.services.emitter.emit(&WorkflowRunEvent::StageCompleted {
@@ -1445,12 +1430,11 @@ impl WorkflowRunEngine {
                     preferred_label: outcome.preferred_label.clone(),
                     suggested_next_ids: outcome.suggested_next_ids.clone(),
                     usage: outcome.usage.clone(),
-                    failure_reason: outcome.failure_reason.clone(),
+                    failure: outcome.failure.clone(),
                     notes: outcome.notes.clone(),
                     files_touched: outcome.files_touched.clone(),
                     attempt: usize::try_from(attempts_used).unwrap_or(usize::MAX),
                     max_attempts: usize::try_from(retry_policy.max_attempts).unwrap_or(usize::MAX),
-                    failure_class: outcome_failure_class.map(|fc| fc.to_string()),
                 });
                 self.inform(&format!("Stage completed: {}", node.label()), &node.id);
             }
@@ -1648,14 +1632,15 @@ impl WorkflowRunEngine {
                             continue;
                         }
                         let duration_ms = millis_u64(run_start.elapsed());
-                        let error_msg =
-                            format!("stage {} failed with no outgoing fail edge", node.id);
+                        let error = ArcError::engine(
+                            format!("stage {} failed with no outgoing fail edge", node.id)
+                        );
                         self.services.emitter.emit(&WorkflowRunEvent::WorkflowRunFailed {
-                            error: error_msg.clone(),
+                            error: error.clone(),
                             duration_ms,
                             git_commit_sha: last_git_sha.clone(),
                         });
-                        return Err(ArcError::Engine(error_msg));
+                        return Err(error);
                     }
                     break;
                 }
@@ -1667,10 +1652,10 @@ impl WorkflowRunEngine {
                         // Guard: only transient_infra failures may loop_restart (matches Kilroy)
                         if let Some(fc) = outcome_failure_class {
                             if fc != FailureClass::TransientInfra {
-                                return Err(ArcError::Engine(format!(
+                                return Err(ArcError::engine(format!(
                                     "loop_restart blocked: failure_class={fc} (requires transient_infra), node={}, failure_reason={}",
                                     node.id,
-                                    outcome.failure_reason.as_deref().unwrap_or("none"),
+                                    outcome.failure_reason().unwrap_or("none"),
                                 )));
                             }
                         }
@@ -1683,7 +1668,7 @@ impl WorkflowRunEngine {
                             *count += 1;
                             let limit = graph.loop_restart_signature_limit();
                             if *count >= limit {
-                                return Err(ArcError::Engine(format!(
+                                return Err(ArcError::engine(format!(
                                     "loop_restart circuit breaker: signature {sig} repeated {count} times (limit {limit})"
                                 )));
                             }
@@ -1787,7 +1772,7 @@ mod tests {
             _logs_root: &Path,
             _services: &crate::handler::EngineServices,
         ) -> std::result::Result<Outcome, ArcError> {
-            Ok(Outcome::fail("always fails"))
+            Ok(Outcome::fail_classify("always fails"))
         }
     }
 
@@ -2258,7 +2243,7 @@ mod tests {
         g.nodes.insert("work".to_string(), n);
 
         let mut outcomes = HashMap::new();
-        outcomes.insert("work".to_string(), Outcome::fail("test"));
+        outcomes.insert("work".to_string(), Outcome::fail_classify("test"));
 
         assert_eq!(check_goal_gates(&g, &outcomes), Err("work".to_string()));
     }
@@ -2269,7 +2254,7 @@ mod tests {
         g.nodes.insert("work".to_string(), Node::new("work"));
 
         let mut outcomes = HashMap::new();
-        outcomes.insert("work".to_string(), Outcome::fail("test"));
+        outcomes.insert("work".to_string(), Outcome::fail_classify("test"));
 
         assert!(check_goal_gates(&g, &outcomes).is_ok());
     }
@@ -3732,12 +3717,10 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_respects_handler_hint() {
-        let mut outcome = Outcome::fail("some error");
-        outcome.context_updates.insert(
-            "failure_class".to_string(),
-            serde_json::json!("budget_exhausted"),
-        );
+    fn classify_outcome_reads_failure_detail() {
+        let mut outcome = Outcome::fail_classify("some error");
+        // Override the FailureDetail's class directly
+        outcome.failure.as_mut().unwrap().failure_class = FailureClass::BudgetExhausted;
         assert_eq!(
             classify_outcome(&outcome),
             Some(FailureClass::BudgetExhausted)
@@ -3745,22 +3728,8 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_unknown_hint_defaults_to_deterministic() {
-        let mut outcome = Outcome::fail("timeout occurred");
-        outcome.context_updates.insert(
-            "failure_class".to_string(),
-            serde_json::json!("not_a_valid_class"),
-        );
-        // Unknown hint normalizes to Deterministic (fail-closed), taking priority over heuristics
-        assert_eq!(
-            classify_outcome(&outcome),
-            Some(FailureClass::Deterministic)
-        );
-    }
-
-    #[test]
     fn classify_outcome_uses_failure_reason_heuristics() {
-        let outcome = Outcome::fail("rate limited by provider");
+        let outcome = Outcome::fail_classify("rate limited by provider");
         assert_eq!(
             classify_outcome(&outcome),
             Some(FailureClass::TransientInfra)
@@ -3769,7 +3738,7 @@ mod tests {
 
     #[test]
     fn classify_outcome_defaults_to_deterministic() {
-        let outcome = Outcome::fail("something went wrong");
+        let outcome = Outcome::fail_classify("something went wrong");
         assert_eq!(
             classify_outcome(&outcome),
             Some(FailureClass::Deterministic)
@@ -3780,7 +3749,7 @@ mod tests {
     fn classify_outcome_fail_no_reason_is_deterministic() {
         let outcome = Outcome {
             status: StageStatus::Fail,
-            failure_reason: None,
+            failure: None,
             ..Outcome::success()
         };
         assert_eq!(
@@ -3791,7 +3760,7 @@ mod tests {
 
     #[test]
     fn classify_outcome_retry_status_uses_heuristics() {
-        let outcome = Outcome::retry("connection refused");
+        let outcome = Outcome::retry_classify("connection refused");
         assert_eq!(
             classify_outcome(&outcome),
             Some(FailureClass::TransientInfra)
@@ -3863,12 +3832,7 @@ mod tests {
             _logs_root: &Path,
             _services: &crate::handler::EngineServices,
         ) -> std::result::Result<Outcome, ArcError> {
-            let mut outcome = Outcome::fail("connection refused");
-            outcome.context_updates.insert(
-                "failure_class".to_string(),
-                serde_json::json!("transient_infra"),
-            );
-            Ok(outcome)
+            Ok(Outcome::fail_classify("connection refused"))
         }
     }
 
@@ -3898,7 +3862,7 @@ mod tests {
         ) -> std::result::Result<Outcome, ArcError> {
             let n = self.counter.fetch_add(1, Ordering::Relaxed);
             let reason = VARYING_REASONS[n % VARYING_REASONS.len()];
-            Ok(Outcome::fail(reason))
+            Ok(Outcome::fail_classify(reason))
         }
     }
 
