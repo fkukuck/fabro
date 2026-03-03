@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "almond",
   "name": "Arc",
   "colors": {
     "primary": "#16A34A",
@@ -11,38 +11,105 @@
   "navigation": {
     "tabs": [
       {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/overview",
+              "getting-started/quick-start",
+              "getting-started/workflows"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/how-arc-works",
+              "core-concepts/workflows",
+              "core-concepts/agents"
+            ]
+          },
+          {
+            "group": "Defining Workflows",
+            "pages": [
+              "workflows/ingestion",
+              "workflows/stages-and-nodes",
+              "workflows/transitions",
+              "workflows/variables",
+              "workflows/human-in-the-loop",
+              "workflows/stylesheets",
+              "workflows/best-practices"
+            ]
+          },
+          {
+            "group": "Executing Workflows",
+            "pages": [
+              "execution/run-configuration",
+              "execution/environments",
+              "execution/context",
+              "execution/checkpoints",
+              "execution/interviews",
+              "execution/failures",
+              "execution/insights",
+              "execution/compounding"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "agents/prompts",
+              "agents/skills",
+              "agents/tools",
+              "agents/mcp",
+              "agents/hooks",
+              "agents/subagents",
+              "agents/permissions",
+              "agents/outputs"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "administration/advanced-setup",
+              "administration/bring-your-own-key",
+              "administration/sandboxing",
+              "administration/security",
+              "administration/usage",
+              "administration/monitoring",
+              "administration/costs"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/deploying-to-aws",
+              "deployment/environments"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/dot-language",
+              "reference/cli",
+              "reference/hooks",
+              "reference/extensions",
+              "reference/llms",
+              "reference/architecture"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Guides",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Example Workflows",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
-            ]
-          },
-          {
-            "group": "Customization",
-            "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "examples/implement-feature",
+              "examples/semantic-port",
+              "examples/nlspec-convergence",
+              "examples/investigate-alert"
             ]
           }
         ]
@@ -158,38 +225,29 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Changelog",
+            "pages": [
+              "changelog"
+            ]
+          }
+        ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
+    ]
   },
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
+      "label": "Get Started",
+      "href": "/getting-started/quick-start"
     }
   },
   "contextual": {
