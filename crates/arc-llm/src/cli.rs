@@ -71,16 +71,39 @@ fn parse_option(s: &str) -> Result<(String, String), String> {
     Ok((key.to_string(), value.to_string()))
 }
 
+fn format_context_window(tokens: i64) -> String {
+    let rounded = ((tokens + 500) / 1_000) * 1_000;
+    if rounded >= 1_000_000 {
+        format!("{}m", rounded / 1_000_000)
+    } else if rounded >= 1_000 {
+        format!("{}k", rounded / 1_000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn format_cost(cost: Option<f64>) -> String {
+    match cost {
+        None => "-".to_string(),
+        Some(c) => format!("${c:.1}"),
+    }
+}
+
 fn print_models_table(models: &[crate::types::ModelInfo]) {
     println!(
-        "{:<30} {:<12} {:<30} {:>14}",
-        "ID", "PROVIDER", "ALIASES", "CONTEXT"
+        "{:<30} {:<12} {:<30} {:>10}  {:>7} {:>7}",
+        "ID", "PROVIDER", "ALIASES", "CONTEXT", "COST", ""
     );
     for model in models {
         let aliases = model.aliases.join(", ");
         println!(
-            "{:<30} {:<12} {:<30} {:>14}",
-            model.id, model.provider, aliases, model.context_window
+            "{:<30} {:<12} {:<30} {:>10}  {:>7} / {:<7}",
+            model.id,
+            model.provider,
+            aliases,
+            format_context_window(model.context_window),
+            format_cost(model.input_cost_per_million),
+            format_cost(model.output_cost_per_million)
         );
     }
 }
