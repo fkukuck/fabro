@@ -25,9 +25,17 @@ struct Claims {
 pub enum AuthStrategy {
     Jwt {
         key: Arc<DecodingKey>,
+        validation: Arc<Validation>,
         allowed_usernames: Vec<String>,
     },
     Mtls,
+}
+
+pub fn jwt_validation() -> Validation {
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.set_required_spec_claims(&["iss", "iat", "exp"]);
+    validation.set_issuer(&["arc-web"]);
+    validation
 }
 
 /// Authentication mode resolved at startup.
@@ -83,6 +91,7 @@ pub fn resolve_auth_mode(
                     .expect("ARC_JWT_PUBLIC_KEY contains an invalid Ed25519 PEM public key");
                 AuthStrategy::Jwt {
                     key: Arc::new(key),
+                    validation: Arc::new(jwt_validation()),
                     allowed_usernames: allowed_usernames.clone(),
                 }
             }
@@ -99,12 +108,13 @@ pub fn resolve_auth_mode(
     AuthMode::Strategies(strategies)
 }
 
-/// Try to authenticate via JWT. Returns the subject (username) on success.
+/// Try to authenticate via JWT.
 fn try_jwt(
     parts: &Parts,
     key: &DecodingKey,
+    validation: &Validation,
     allowed_usernames: &[String],
-) -> Result<String, StatusCode> {
+) -> Result<(), StatusCode> {
     let header = parts
         .headers
         .get("authorization")
@@ -115,11 +125,7 @@ fn try_jwt(
         .strip_prefix("Bearer ")
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_required_spec_claims(&["iss", "iat", "exp"]);
-    validation.set_issuer(&["arc-web"]);
-
-    let token_data = jsonwebtoken::decode::<Claims>(token, key, &validation)
+    let token_data = jsonwebtoken::decode::<Claims>(token, key, validation)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // Fail closed: if no usernames are allowed, reject all requests
@@ -139,11 +145,11 @@ fn try_jwt(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    Ok(username.to_string())
+    Ok(())
 }
 
-/// Try to authenticate via mTLS peer certificates. Returns the CN on success.
-fn try_mtls(parts: &Parts) -> Result<String, StatusCode> {
+/// Try to authenticate via mTLS peer certificates.
+fn try_mtls(parts: &Parts) -> Result<(), StatusCode> {
     let peer_certs = parts
         .extensions
         .get::<PeerCertificates>()
@@ -154,19 +160,19 @@ fn try_mtls(parts: &Parts) -> Result<String, StatusCode> {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Extract CN from the first (leaf) certificate
+    // Verify we can parse the leaf certificate and extract a CN
     let cert = &peer_certs[0];
     let (_, parsed) = x509_parser::parse_x509_certificate(cert)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let cn = parsed
+    parsed
         .subject()
         .iter_common_name()
         .next()
         .and_then(|cn| cn.as_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    Ok(cn.to_string())
+    Ok(())
 }
 
 /// Axum extractor that enforces authentication on a route.
@@ -197,18 +203,17 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
         let mut last_err = StatusCode::UNAUTHORIZED;
 
         for strategy in strategies {
-            match strategy {
-                AuthStrategy::Mtls => match try_mtls(parts) {
-                    Ok(_subject) => return Ok(AuthenticatedService),
-                    Err(e) => last_err = e,
-                },
+            let result = match strategy {
+                AuthStrategy::Mtls => try_mtls(parts),
                 AuthStrategy::Jwt {
                     key,
+                    validation,
                     allowed_usernames,
-                } => match try_jwt(parts, key, allowed_usernames) {
-                    Ok(_subject) => return Ok(AuthenticatedService),
-                    Err(e) => last_err = e,
-                },
+                } => try_jwt(parts, key, validation, allowed_usernames),
+            };
+            match result {
+                Ok(()) => return Ok(AuthenticatedService),
+                Err(e) => last_err = e,
             }
         }
 
@@ -287,6 +292,7 @@ mod tests {
     fn jwt_mode(decoding: DecodingKey, allowed_usernames: Vec<&str>) -> AuthMode {
         AuthMode::Strategies(vec![AuthStrategy::Jwt {
             key: Arc::new(decoding),
+            validation: Arc::new(jwt_validation()),
             allowed_usernames: allowed_usernames.into_iter().map(String::from).collect(),
         }])
     }
@@ -619,6 +625,7 @@ mod tests {
         let mode = AuthMode::Strategies(vec![
             AuthStrategy::Jwt {
                 key: Arc::new(decoding),
+                validation: Arc::new(jwt_validation()),
                 allowed_usernames: vec!["brynary".to_string()],
             },
             AuthStrategy::Mtls,
@@ -639,6 +646,7 @@ mod tests {
             AuthStrategy::Mtls,
             AuthStrategy::Jwt {
                 key: Arc::new(decoding),
+                validation: Arc::new(jwt_validation()),
                 allowed_usernames: vec!["brynary".to_string()],
             },
         ]);

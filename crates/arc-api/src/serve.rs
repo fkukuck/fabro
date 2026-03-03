@@ -3,13 +3,13 @@ use std::sync::Arc;
 use arc_llm::provider::Provider;
 use arc_util::terminal::Styles;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::info;
 
 use clap::Args;
 
-use crate::jwt_auth::PeerCertificates;
+use crate::jwt_auth::{AuthMode, AuthStrategy};
 use crate::server::{build_router, create_app_state_with_options};
-use crate::server_config::ApiAuthStrategy;
+use crate::tls::ClientAuth;
 use arc_workflows::cli::backend::AgentApiBackend;
 use arc_workflows::cli::SandboxProvider;
 use arc_workflows::handler::default_registry;
@@ -130,6 +130,13 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         )
     };
 
+    // Derive client auth mode before auth_mode is moved into the router
+    let client_auth = server_config
+        .api
+        .tls
+        .as_ref()
+        .map(|_| client_auth_from_mode(&auth_mode));
+
     let state = create_app_state_with_options(db, factory, dry_run_mode, args.demo);
     let router = build_router(state, auth_mode);
 
@@ -151,19 +158,14 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
 
     // Branch: TLS or plain HTTP
     if let Some(ref tls_config) = server_config.api.tls {
-        let mtls_enabled = server_config
-            .api
-            .authentication_strategies
-            .contains(&ApiAuthStrategy::Mtls);
-        let mtls_optional = mtls_enabled && server_config.api.authentication_strategies.len() > 1;
+        let client_auth = client_auth.unwrap();
 
-        let rustls_config =
-            crate::tls::build_rustls_config(tls_config, mtls_enabled, mtls_optional);
+        let rustls_config = crate::tls::build_rustls_config(tls_config, client_auth);
         let tls_acceptor = tokio_rustls::TlsAcceptor::from(rustls_config);
 
-        info!("TLS enabled (mTLS {})", if mtls_enabled { "on" } else { "off" });
+        info!("TLS enabled");
 
-        serve_tls(listener, tls_acceptor, router).await?;
+        crate::tls::serve_tls(listener, tls_acceptor, router).await?;
     } else {
         axum::serve(listener, router).await?;
     }
@@ -171,55 +173,21 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
     Ok(())
 }
 
-/// Serve requests over TLS, extracting peer certificates into request extensions.
-async fn serve_tls(
-    listener: TcpListener,
-    tls_acceptor: tokio_rustls::TlsAcceptor,
-    router: axum::Router,
-) -> anyhow::Result<()> {
-    use hyper_util::rt::{TokioExecutor, TokioIo};
-    use hyper_util::server::conn::auto::Builder;
-    use tower_service::Service;
+/// Derive client certificate verification mode from the resolved auth strategies.
+fn client_auth_from_mode(auth_mode: &AuthMode) -> ClientAuth {
+    let strategies = match auth_mode {
+        AuthMode::Strategies(s) => s,
+        AuthMode::Disabled => return ClientAuth::None,
+    };
 
-    let builder = Builder::new(TokioExecutor::new());
+    let has_mtls = strategies.iter().any(|s| matches!(s, AuthStrategy::Mtls));
+    if !has_mtls {
+        return ClientAuth::None;
+    }
 
-    loop {
-        let (tcp_stream, remote_addr) = listener.accept().await?;
-
-        let tls_acceptor = tls_acceptor.clone();
-        let router = router.clone();
-        let builder = builder.clone();
-
-        tokio::spawn(async move {
-            let tls_stream = match tls_acceptor.accept(tcp_stream).await {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(%remote_addr, "TLS handshake failed: {e}");
-                    return;
-                }
-            };
-
-            // Extract peer certificates from the TLS connection
-            let peer_certs = tls_stream
-                .get_ref()
-                .1
-                .peer_certificates()
-                .map(|certs| certs.to_vec());
-
-            let io = TokioIo::new(tls_stream);
-
-            let service = hyper::service::service_fn(move |mut req: hyper::Request<hyper::body::Incoming>| {
-                // Insert peer certificates into request extensions
-                req.extensions_mut()
-                    .insert(PeerCertificates(peer_certs.clone()));
-
-                let mut router = router.clone();
-                async move { router.call(req).await }
-            });
-
-            if let Err(e) = builder.serve_connection(io, service).await {
-                error!(%remote_addr, "connection error: {e}");
-            }
-        });
+    if strategies.len() > 1 {
+        ClientAuth::Optional
+    } else {
+        ClientAuth::Required
     }
 }

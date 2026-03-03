@@ -7,10 +7,10 @@ mod mtls_e2e {
     use std::process::{Command, Stdio};
     use std::sync::Arc;
 
-    use arc_api::jwt_auth::{AuthMode, AuthStrategy, PeerCertificates};
+    use arc_api::jwt_auth::{AuthMode, AuthStrategy};
     use arc_api::server::{build_router, create_app_state};
     use arc_api::server_config::TlsConfig;
-    use arc_api::tls::build_rustls_config;
+    use arc_api::tls::{build_rustls_config, ClientAuth};
     use arc_workflows::handler::codergen::CodergenHandler;
     use arc_workflows::handler::exit::ExitHandler;
     use arc_workflows::handler::start::StartHandler;
@@ -128,65 +128,22 @@ mod mtls_e2e {
     }
 
     /// Start a TLS server on a random port, returning the bound address.
-    /// `mtls_optional`: if true, client certs are requested but not required (for multi-strategy).
-    /// `auth_mode`: the authentication mode to use for the router.
     async fn start_tls_server(
         tls_config: &TlsConfig,
-        mtls_optional: bool,
+        client_auth: ClientAuth,
         auth_mode: AuthMode,
     ) -> std::net::SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
-        let rustls_config = build_rustls_config(tls_config, true, mtls_optional);
+        let rustls_config = build_rustls_config(tls_config, client_auth);
         let tls_acceptor = tokio_rustls::TlsAcceptor::from(rustls_config);
 
         let state = create_app_state(test_db().await, simple_registry);
         let router = build_router(state, auth_mode);
 
         tokio::spawn(async move {
-            use hyper_util::rt::{TokioExecutor, TokioIo};
-            use hyper_util::server::conn::auto::Builder;
-            use tower_service::Service;
-
-            let builder = Builder::new(TokioExecutor::new());
-
-            loop {
-                let (tcp_stream, _remote_addr) = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(_) => return,
-                };
-
-                let tls_acceptor = tls_acceptor.clone();
-                let router = router.clone();
-                let builder = builder.clone();
-
-                tokio::spawn(async move {
-                    let tls_stream = match tls_acceptor.accept(tcp_stream).await {
-                        Ok(s) => s,
-                        Err(_) => return,
-                    };
-
-                    let peer_certs = tls_stream
-                        .get_ref()
-                        .1
-                        .peer_certificates()
-                        .map(|certs| certs.to_vec());
-
-                    let io = TokioIo::new(tls_stream);
-
-                    let service = hyper::service::service_fn(
-                        move |mut req: hyper::Request<hyper::body::Incoming>| {
-                            req.extensions_mut()
-                                .insert(PeerCertificates(peer_certs.clone()));
-                            let mut router = router.clone();
-                            async move { router.call(req).await }
-                        },
-                    );
-
-                    let _ = builder.serve_connection(io, service).await;
-                });
-            }
+            let _ = arc_api::tls::serve_tls(listener, tls_acceptor, router).await;
         });
 
         addr
@@ -234,7 +191,7 @@ mod mtls_e2e {
         };
 
         let auth_mode = AuthMode::Strategies(vec![AuthStrategy::Mtls]);
-        let addr = start_tls_server(&tls_config, false, auth_mode).await;
+        let addr = start_tls_server(&tls_config, ClientAuth::Required, auth_mode).await;
 
         let client = build_client(
             &pki.ca_cert,
@@ -264,7 +221,7 @@ mod mtls_e2e {
         };
 
         let auth_mode = AuthMode::Strategies(vec![AuthStrategy::Mtls]);
-        let addr = start_tls_server(&tls_config, false, auth_mode).await;
+        let addr = start_tls_server(&tls_config, ClientAuth::Required, auth_mode).await;
 
         // Generate a DIFFERENT CA and client cert signed by it
         let wrong_dir = dir.path().join("wrong_ca");
@@ -306,7 +263,7 @@ mod mtls_e2e {
 
         // mTLS is the ONLY strategy → client cert is required at TLS level
         let auth_mode = AuthMode::Strategies(vec![AuthStrategy::Mtls]);
-        let addr = start_tls_server(&tls_config, false, auth_mode).await;
+        let addr = start_tls_server(&tls_config, ClientAuth::Required, auth_mode).await;
 
         // Client trusts the server CA but presents NO client cert
         let client = build_client(&pki.ca_cert, None, None);
@@ -386,10 +343,11 @@ mod mtls_e2e {
             AuthStrategy::Mtls,
             AuthStrategy::Jwt {
                 key: Arc::new(decoding_key),
+                validation: Arc::new(arc_api::jwt_auth::jwt_validation()),
                 allowed_usernames: vec!["brynary".to_string()],
             },
         ]);
-        let addr = start_tls_server(&tls_config, true, auth_mode).await;
+        let addr = start_tls_server(&tls_config, ClientAuth::Optional, auth_mode).await;
 
         // Client trusts the server CA but presents NO client cert
         let client = build_client(&pki.ca_cert, None, None);

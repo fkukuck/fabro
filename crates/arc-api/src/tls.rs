@@ -1,60 +1,125 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustls::server::WebPkiClientVerifier;
 use rustls::ServerConfig;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::net::TcpListener;
+use tracing::error;
 
+use crate::jwt_auth::PeerCertificates;
 use crate::server_config::TlsConfig;
 
+/// How client certificates should be verified.
+pub enum ClientAuth {
+    /// No client certificates requested (TLS encryption only).
+    None,
+    /// Client certificates required; reject connections without one.
+    Required,
+    /// Client certificates requested but not required (multi-strategy fallback).
+    Optional,
+}
+
 /// Build a rustls `ServerConfig` from the `[api.tls]` configuration.
-///
-/// - `mtls_enabled`: whether mTLS is listed as an authentication strategy.
-/// - `mtls_optional`: whether other strategies (e.g. JWT) are also present,
-///   meaning client certs should be requested but not required.
-pub fn build_rustls_config(
-    tls_config: &TlsConfig,
-    mtls_enabled: bool,
-    mtls_optional: bool,
-) -> Arc<ServerConfig> {
+pub fn build_rustls_config(tls_config: &TlsConfig, client_auth: ClientAuth) -> Arc<ServerConfig> {
     let certs = load_certs(&tls_config.cert);
     let key = load_private_key(&tls_config.key);
 
-    let config = if mtls_enabled {
-        let ca_certs = load_certs(&tls_config.ca);
-        let mut root_store = rustls::RootCertStore::empty();
-        for cert in ca_certs {
-            root_store.add(cert).expect("failed to add CA certificate to root store");
-        }
-
-        let verifier = if mtls_optional {
-            WebPkiClientVerifier::builder(Arc::new(root_store))
-                .allow_unauthenticated()
-                .build()
-                .expect("failed to build optional client verifier")
-        } else {
-            WebPkiClientVerifier::builder(Arc::new(root_store))
-                .build()
-                .expect("failed to build required client verifier")
-        };
-
-        ServerConfig::builder()
-            .with_client_cert_verifier(verifier)
-            .with_single_cert(certs, key)
-            .expect("invalid server certificate or key")
-    } else {
-        // TLS for encryption only, no client cert verification
-        ServerConfig::builder()
+    let config = match client_auth {
+        ClientAuth::None => ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .expect("invalid server certificate or key")
+            .expect("invalid server certificate or key"),
+        ClientAuth::Required | ClientAuth::Optional => {
+            let ca_certs = load_certs(&tls_config.ca);
+            let mut root_store = rustls::RootCertStore::empty();
+            for cert in ca_certs {
+                root_store.add(cert).expect("failed to add CA certificate to root store");
+            }
+
+            let builder = WebPkiClientVerifier::builder(Arc::new(root_store));
+            let verifier = if matches!(client_auth, ClientAuth::Optional) {
+                builder.allow_unauthenticated()
+            } else {
+                builder
+            }
+            .build()
+            .expect("failed to build client verifier");
+
+            ServerConfig::builder()
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(certs, key)
+                .expect("invalid server certificate or key")
+        }
     };
 
     Arc::new(config)
 }
 
+/// Serve requests over TLS, extracting peer certificates into request extensions.
+pub async fn serve_tls(
+    listener: TcpListener,
+    tls_acceptor: tokio_rustls::TlsAcceptor,
+    router: axum::Router,
+) -> anyhow::Result<()> {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use tower_service::Service;
+
+    let builder = Builder::new(TokioExecutor::new());
+
+    loop {
+        let (tcp_stream, remote_addr) = listener.accept().await?;
+
+        let tls_acceptor = tls_acceptor.clone();
+        let router = router.clone();
+        let builder = builder.clone();
+
+        tokio::spawn(async move {
+            let tls_stream = match tls_acceptor.accept(tcp_stream).await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!(%remote_addr, "TLS handshake failed: {e}");
+                    return;
+                }
+            };
+
+            // Extract peer certificates once per connection (not per request)
+            let (_, server_conn) = tls_stream.get_ref();
+            let peer_certs = PeerCertificates(
+                server_conn.peer_certificates().map(|certs| certs.to_vec()),
+            );
+
+            let io = TokioIo::new(tls_stream);
+
+            let service = hyper::service::service_fn(
+                move |mut req: hyper::Request<hyper::body::Incoming>| {
+                    req.extensions_mut().insert(peer_certs.clone());
+                    let mut router = router.clone();
+                    async move { router.call(req).await }
+                },
+            );
+
+            if let Err(e) = builder.serve_connection(io, service).await {
+                error!(%remote_addr, "connection error: {e}");
+            }
+        });
+    }
+}
+
+/// Expand `~/` prefix to the user's home directory.
+fn expand_tilde(path: &Path) -> PathBuf {
+    if let Ok(rest) = path.strip_prefix("~") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
 fn load_certs(path: &Path) -> Vec<CertificateDer<'static>> {
-    let file = std::fs::File::open(path)
+    let path = expand_tilde(path);
+    let file = std::fs::File::open(&path)
         .unwrap_or_else(|e| panic!("failed to open certificate file {}: {e}", path.display()));
     let mut reader = std::io::BufReader::new(file);
     rustls_pemfile::certs(&mut reader)
@@ -63,7 +128,8 @@ fn load_certs(path: &Path) -> Vec<CertificateDer<'static>> {
 }
 
 fn load_private_key(path: &Path) -> PrivateKeyDer<'static> {
-    let file = std::fs::File::open(path)
+    let path = expand_tilde(path);
+    let file = std::fs::File::open(&path)
         .unwrap_or_else(|e| panic!("failed to open private key file {}: {e}", path.display()));
     let mut reader = std::io::BufReader::new(file);
     rustls_pemfile::private_key(&mut reader)
