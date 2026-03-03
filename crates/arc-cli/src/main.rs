@@ -1,3 +1,4 @@
+mod doctor;
 mod logging;
 
 use anyhow::Result;
@@ -42,6 +43,12 @@ enum Command {
     },
     /// Start the HTTP API server
     Serve(arc_api::serve::ServeArgs),
+    /// Check environment and integration health
+    Doctor {
+        /// Show detailed information for each check
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -80,6 +87,7 @@ async fn main() -> Result<()> {
         Command::Validate(_) => "validate",
         Command::Models { .. } => "models",
         Command::Serve(_) => "serve",
+        Command::Doctor { .. } => "doctor",
     };
     debug!(command = %command_name, "CLI command started");
 
@@ -113,6 +121,10 @@ async fn main() -> Result<()> {
             let styles: &'static arc_util::terminal::Styles =
                 Box::leak(Box::new(arc_util::terminal::Styles::detect_stderr()));
             arc_api::serve::serve_command(args, styles).await?;
+        }
+        Command::Doctor { verbose } => {
+            let exit_code = doctor::run_doctor(verbose).await;
+            std::process::exit(exit_code);
         }
     }
 

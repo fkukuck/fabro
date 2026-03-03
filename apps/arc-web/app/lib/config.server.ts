@@ -19,8 +19,13 @@ interface GitConfig {
   client_id: string | null;
 }
 
-export interface AppConfig {
+interface WebConfig {
+  url: string;
   auth: AuthConfig;
+}
+
+export interface AppConfig {
+  web: WebConfig;
   api: ApiConfig;
   git: GitConfig;
 }
@@ -28,6 +33,11 @@ export interface AppConfig {
 const AUTH_DEFAULTS: AuthConfig = {
   provider: "github",
   allowed_usernames: [],
+};
+
+const WEB_DEFAULTS: WebConfig = {
+  url: "http://localhost:5173",
+  auth: AUTH_DEFAULTS,
 };
 
 const API_DEFAULTS: ApiConfig = {
@@ -53,12 +63,17 @@ function loadAppConfig(): AppConfig {
     // File doesn't exist or is unreadable — use defaults
   }
 
-  const rawAuth = (raw.auth ?? {}) as Partial<AuthConfig>;
+  const rawWeb = (raw.web ?? {}) as Record<string, unknown>;
+  const rawWebAuth = (rawWeb.auth ?? {}) as Partial<AuthConfig>;
   const rawApi = (raw.api ?? {}) as Partial<ApiConfig>;
   const rawGit = (raw.git ?? {}) as Partial<GitConfig>;
 
   return {
-    auth: { ...AUTH_DEFAULTS, ...rawAuth },
+    web: {
+      ...WEB_DEFAULTS,
+      url: (rawWeb.url as string) ?? WEB_DEFAULTS.url,
+      auth: { ...AUTH_DEFAULTS, ...rawWebAuth },
+    },
     api: { ...API_DEFAULTS, ...rawApi },
     git: { ...GIT_DEFAULTS, ...rawGit },
   };

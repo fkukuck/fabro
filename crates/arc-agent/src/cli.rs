@@ -191,20 +191,6 @@ fn build_profile(
     }
 }
 
-fn validate_api_key(provider: Provider) -> bool {
-    match provider {
-        Provider::Anthropic => std::env::var("ANTHROPIC_API_KEY").is_ok(),
-        Provider::OpenAi => std::env::var("OPENAI_API_KEY").is_ok(),
-        Provider::Gemini => {
-            std::env::var("GEMINI_API_KEY").is_ok() || std::env::var("GOOGLE_API_KEY").is_ok()
-        }
-        Provider::Kimi => std::env::var("KIMI_API_KEY").is_ok(),
-        Provider::Zai => std::env::var("ZAI_API_KEY").is_ok(),
-        Provider::Minimax => std::env::var("MINIMAX_API_KEY").is_ok(),
-        Provider::Inception => std::env::var("INCEPTION_API_KEY").is_ok(),
-    }
-}
-
 fn format_tool_args(args: &serde_json::Value, cwd: &str) -> String {
     let cwd_prefix = if cwd.ends_with('/') {
         cwd.to_string()
@@ -359,7 +345,7 @@ pub async fn run_with_args(args: AgentArgs) -> anyhow::Result<()> {
         .map_err(|e: String| anyhow::anyhow!("{e}"))?;
 
     // Validate provider API key
-    if !validate_api_key(provider) {
+    if !provider.has_api_key() {
         anyhow::bail!("API key not set for provider '{provider}'");
     }
 

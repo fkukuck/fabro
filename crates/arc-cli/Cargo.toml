@@ -15,7 +15,9 @@ arc-agent = { path = "../arc-agent" }
 arc-workflows = { path = "../arc-workflows" }
 arc-api = { path = "../arc-api" }
 arc-util = { path = "../arc-util" }
+bollard.workspace = true
 clap.workspace = true
+daytona-sdk.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true
 tokio.workspace = true

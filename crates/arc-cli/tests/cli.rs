@@ -498,6 +498,63 @@ fn dry_run_legacy_tool() {
         .success();
 }
 
+// == Doctor ===================================================================
+
+#[test]
+fn doctor_runs_and_prints_header() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .env_clear()
+        .assert()
+        .stdout(predicate::str::contains("Arc Doctor"));
+}
+
+#[test]
+fn doctor_verbose_runs_and_prints_header() {
+    arc()
+        .args(["--no-dotenv", "doctor", "-v"])
+        .env_clear()
+        .assert()
+        .stdout(predicate::str::contains("Arc Doctor"));
+}
+
+#[test]
+fn doctor_no_color_when_no_color_set() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .env_clear()
+        .env("NO_COLOR", "1")
+        .assert()
+        .stdout(predicate::str::contains("\x1b[").not());
+}
+
+#[test]
+fn doctor_checks_llm_providers() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .env_clear()
+        .assert()
+        .stdout(predicate::str::contains("LLM providers"));
+}
+
+#[test]
+fn doctor_checks_arc_api() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .env_clear()
+        .assert()
+        .stdout(predicate::str::contains("Arc API"));
+}
+
+#[test]
+fn doctor_checks_arc_web() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .env_clear()
+        .assert()
+        .stdout(predicate::str::contains("Arc Web"));
+}
+
 // == JSONL logging ============================================================
 
 #[test]

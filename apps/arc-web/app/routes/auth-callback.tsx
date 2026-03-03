@@ -43,7 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }>;
   const primaryEmail = emails.find((e) => e.primary && e.verified)?.email ?? "";
 
-  const { allowed_usernames } = getAppConfig().auth;
+  const { allowed_usernames } = getAppConfig().web.auth;
   if (allowed_usernames.length > 0 && !allowed_usernames.includes(profile.login)) {
     throw redirect("/auth/login?error=unauthorized");
   }

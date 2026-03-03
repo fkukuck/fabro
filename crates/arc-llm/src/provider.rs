@@ -35,6 +35,29 @@ impl Provider {
         Provider::Inception,
     ];
 
+    /// Environment variable names that can provide the API key for this provider.
+    /// Gemini accepts either `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+    #[must_use]
+    pub fn api_key_env_vars(self) -> &'static [&'static str] {
+        match self {
+            Self::Anthropic => &["ANTHROPIC_API_KEY"],
+            Self::OpenAi => &["OPENAI_API_KEY"],
+            Self::Gemini => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            Self::Kimi => &["KIMI_API_KEY"],
+            Self::Zai => &["ZAI_API_KEY"],
+            Self::Minimax => &["MINIMAX_API_KEY"],
+            Self::Inception => &["INCEPTION_API_KEY"],
+        }
+    }
+
+    /// Returns `true` if at least one of the provider's API key env vars is set.
+    #[must_use]
+    pub fn has_api_key(self) -> bool {
+        self.api_key_env_vars()
+            .iter()
+            .any(|var| std::env::var(var).is_ok())
+    }
+
     /// Stable lowercase string representation used in `Request.provider`,
     /// adapter names, and other serialization boundaries.
     #[must_use]
@@ -211,5 +234,55 @@ mod tests {
     #[test]
     fn inception_as_str() {
         assert_eq!(Provider::Inception.as_str(), "inception");
+    }
+
+    #[test]
+    fn api_key_env_vars_anthropic() {
+        assert_eq!(
+            Provider::Anthropic.api_key_env_vars(),
+            &["ANTHROPIC_API_KEY"]
+        );
+    }
+
+    #[test]
+    fn api_key_env_vars_openai() {
+        assert_eq!(Provider::OpenAi.api_key_env_vars(), &["OPENAI_API_KEY"]);
+    }
+
+    #[test]
+    fn api_key_env_vars_gemini_has_two() {
+        let vars = Provider::Gemini.api_key_env_vars();
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars, &["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+    }
+
+    #[test]
+    fn api_key_env_vars_kimi() {
+        assert_eq!(Provider::Kimi.api_key_env_vars(), &["KIMI_API_KEY"]);
+    }
+
+    #[test]
+    fn api_key_env_vars_zai() {
+        assert_eq!(Provider::Zai.api_key_env_vars(), &["ZAI_API_KEY"]);
+    }
+
+    #[test]
+    fn api_key_env_vars_minimax() {
+        assert_eq!(Provider::Minimax.api_key_env_vars(), &["MINIMAX_API_KEY"]);
+    }
+
+    #[test]
+    fn api_key_env_vars_inception() {
+        assert_eq!(
+            Provider::Inception.api_key_env_vars(),
+            &["INCEPTION_API_KEY"]
+        );
+    }
+
+    #[test]
+    fn every_provider_has_at_least_one_env_var() {
+        assert!(Provider::ALL
+            .iter()
+            .all(|p| !p.api_key_env_vars().is_empty()));
     }
 }

@@ -63,11 +63,32 @@ pub struct GitConfig {
     pub client_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct WebConfig {
+    #[serde(default = "default_web_url")]
+    pub url: String,
+    #[serde(default)]
+    pub auth: AuthConfig,
+}
+
+fn default_web_url() -> String {
+    "http://localhost:5173".to_string()
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            url: default_web_url(),
+            auth: AuthConfig::default(),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct ServerConfig {
     pub data_dir: Option<PathBuf>,
     #[serde(default)]
-    pub auth: AuthConfig,
+    pub web: WebConfig,
     #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
@@ -141,7 +162,10 @@ mod tests {
     #[test]
     fn parse_full_config() {
         let toml = r#"
-[auth]
+[web]
+url = "https://arc.example.com"
+
+[web.auth]
 provider = "github"
 allowed_usernames = ["brynary", "alice"]
 
@@ -155,8 +179,9 @@ app_id = "12345"
 client_id = "Iv1.abc123"
 "#;
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.auth.provider, AuthProvider::Github);
-        assert_eq!(config.auth.allowed_usernames, vec!["brynary", "alice"]);
+        assert_eq!(config.web.url, "https://arc.example.com");
+        assert_eq!(config.web.auth.provider, AuthProvider::Github);
+        assert_eq!(config.web.auth.allowed_usernames, vec!["brynary", "alice"]);
         assert_eq!(config.api.base_url, "http://example.com:8080");
         assert_eq!(
             config.api.authentication_strategy,
@@ -168,11 +193,12 @@ client_id = "Iv1.abc123"
     }
 
     #[test]
-    fn parse_auth_defaults() {
+    fn parse_web_defaults() {
         let toml = "";
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.auth.provider, AuthProvider::Github);
-        assert!(config.auth.allowed_usernames.is_empty());
+        assert_eq!(config.web.url, "http://localhost:5173");
+        assert_eq!(config.web.auth.provider, AuthProvider::Github);
+        assert!(config.web.auth.allowed_usernames.is_empty());
     }
 
     #[test]
@@ -235,7 +261,7 @@ repo_url = "https://github.com/org/repo"
     #[test]
     fn parse_config_server_and_run_defaults_together() {
         let toml = r#"
-[auth]
+[web.auth]
 provider = "github"
 
 [git]
@@ -246,7 +272,7 @@ app_id = "123"
 model = "gpt-4"
 "#;
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.auth.provider, AuthProvider::Github);
+        assert_eq!(config.web.auth.provider, AuthProvider::Github);
         assert_eq!(config.git.app_id.as_deref(), Some("123"));
         let llm = config.run_defaults.llm.unwrap();
         assert_eq!(llm.model.as_deref(), Some("gpt-4"));
@@ -255,14 +281,14 @@ model = "gpt-4"
     #[test]
     fn parse_insecure_disabled_values() {
         let toml = r#"
-[auth]
+[web.auth]
 provider = "insecure_disabled"
 
 [api]
 authentication_strategy = "insecure_disabled"
 "#;
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.auth.provider, AuthProvider::InsecureDisabled);
+        assert_eq!(config.web.auth.provider, AuthProvider::InsecureDisabled);
         assert_eq!(
             config.api.authentication_strategy,
             ApiAuthenticationStrategy::InsecureDisabled
