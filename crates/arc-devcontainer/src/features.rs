@@ -170,7 +170,7 @@ async fn fetch_feature(
     Ok(metadata)
 }
 
-/// Topological sort of features based on `installsAfter` dependencies.
+/// Topological sort of features based on `installsAfter` and `dependsOn` dependencies.
 /// Uses Kahn's algorithm. Features without ordering constraints maintain input order.
 fn topo_sort(
     feature_ids: &[String],
@@ -184,9 +184,11 @@ fn topo_sort(
 
     // Build adjacency list and in-degree count.
     // An edge from A -> B means "A must be installed before B".
-    // If B has installsAfter containing a reference matching A, then A -> B.
+    // Use a set of (from, to) pairs to deduplicate edges when the same dep
+    // appears in both installsAfter and dependsOn.
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
     let mut edges: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut edge_set: HashSet<(&str, &str)> = HashSet::new();
 
     for id in feature_ids {
         in_degree.entry(id.as_str()).or_insert(0);
@@ -195,18 +197,23 @@ fn topo_sort(
 
     for id in feature_ids {
         if let Some(meta) = metadata_map.get(id) {
-            for dep in &meta.installs_after {
-                // Find matching feature in our set
-                // installsAfter may use short IDs or full IDs, match by dir name or full ID
+            // Collect dependency refs from both installsAfter and dependsOn
+            let mut dep_refs: Vec<&str> = meta.installs_after.iter().map(|s| s.as_str()).collect();
+            for dep_id in meta.depends_on.keys() {
+                dep_refs.push(dep_id.as_str());
+            }
+
+            for dep in dep_refs {
                 let dep_dir = dir_name_from_id(dep);
                 for candidate in feature_ids {
-                    if candidate == dep
-                        || dir_name_from_id(candidate) == dep_dir
-                    {
+                    if candidate == dep || dir_name_from_id(candidate) == dep_dir {
                         if id_set.contains(candidate.as_str()) {
                             // candidate -> id (candidate must come before id)
-                            edges.entry(candidate.as_str()).or_default().push(id.as_str());
-                            *in_degree.entry(id.as_str()).or_insert(0) += 1;
+                            let edge = (candidate.as_str(), id.as_str());
+                            if edge_set.insert(edge) {
+                                edges.entry(candidate.as_str()).or_default().push(id.as_str());
+                                *in_degree.entry(id.as_str()).or_insert(0) += 1;
+                            }
                         }
                     }
                 }
@@ -339,13 +346,42 @@ pub async fn resolve_features(
     })?;
 
     // Collect feature IDs in a stable order
-    let feature_ids: Vec<String> = features.keys().cloned().collect();
+    let mut feature_ids: Vec<String> = features.keys().cloned().collect();
+
+    // Track options for each feature (including auto-injected ones)
+    let mut all_options: HashMap<String, serde_json::Value> = features.clone();
 
     // Fetch all features and collect metadata
     let mut metadata_map: HashMap<String, FeatureMetadata> = HashMap::new();
     for feature_id in &feature_ids {
         let metadata = fetch_feature(feature_id, &tmp_dir).await?;
         metadata_map.insert(feature_id.clone(), metadata);
+    }
+
+    // Auto-inject missing dependsOn targets
+    let mut injected = true;
+    while injected {
+        injected = false;
+        let current_ids: Vec<String> = feature_ids.clone();
+        for id in &current_ids {
+            if let Some(meta) = metadata_map.get(id).cloned() {
+                for (dep_id, dep_options) in &meta.depends_on {
+                    // Check if dep is already present (by full ID or dir name)
+                    let dep_dir = dir_name_from_id(dep_id);
+                    let already_present = feature_ids.iter().any(|existing| {
+                        existing == dep_id || dir_name_from_id(existing) == dep_dir
+                    });
+                    if !already_present {
+                        info!(dep_id, "auto-injecting missing dependsOn target");
+                        let dep_metadata = fetch_feature(dep_id, &tmp_dir).await?;
+                        metadata_map.insert(dep_id.clone(), dep_metadata);
+                        feature_ids.push(dep_id.clone());
+                        all_options.insert(dep_id.clone(), dep_options.clone());
+                        injected = true;
+                    }
+                }
+            }
+        }
     }
 
     // Topologically sort features
@@ -355,7 +391,7 @@ pub async fn resolve_features(
     let mut layers = Vec::new();
     for id in &sorted_ids {
         let dir_name = dir_name_from_id(id);
-        let options = features.get(id).cloned().unwrap_or(serde_json::Value::Object(
+        let options = all_options.get(id).cloned().unwrap_or(serde_json::Value::Object(
             serde_json::Map::new(),
         ));
         let metadata = metadata_map
@@ -367,6 +403,7 @@ pub async fn resolve_features(
                 version: None,
                 options: HashMap::new(),
                 installs_after: Vec::new(),
+                depends_on: HashMap::new(),
             });
 
         let dockerfile_snippet = generate_layer(id, &dir_name, &options, &metadata);
@@ -420,6 +457,7 @@ mod tests {
                         version: None,
                         options: HashMap::new(),
                         installs_after: Vec::new(),
+                    depends_on: HashMap::new(),
                     },
                 )
             })
@@ -442,6 +480,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: vec!["b".to_string()],
+                depends_on: HashMap::new(),
             },
         );
         metadata.insert(
@@ -452,6 +491,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: Vec::new(),
+                depends_on: HashMap::new(),
             },
         );
 
@@ -478,6 +518,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: Vec::new(),
+                depends_on: HashMap::new(),
             },
         );
         metadata.insert(
@@ -488,6 +529,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: vec!["a".to_string()],
+                depends_on: HashMap::new(),
             },
         );
         metadata.insert(
@@ -498,6 +540,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: vec!["a".to_string()],
+                depends_on: HashMap::new(),
             },
         );
         metadata.insert(
@@ -508,6 +551,7 @@ mod tests {
                 version: None,
                 options: HashMap::new(),
                 installs_after: vec!["b".to_string(), "c".to_string()],
+                depends_on: HashMap::new(),
             },
         );
 
@@ -541,6 +585,7 @@ mod tests {
             version: Some("1.0.0".to_string()),
             options: meta_options,
             installs_after: Vec::new(),
+            depends_on: HashMap::new(),
         };
 
         let snippet = generate_layer(
@@ -575,6 +620,7 @@ mod tests {
             version: None,
             options: meta_options,
             installs_after: Vec::new(),
+            depends_on: HashMap::new(),
         };
 
         let snippet = generate_layer(
@@ -597,6 +643,7 @@ mod tests {
             version: None,
             options: HashMap::new(),
             installs_after: Vec::new(),
+            depends_on: HashMap::new(),
         };
 
         let snippet = generate_layer(
@@ -610,6 +657,74 @@ mod tests {
         assert!(snippet.contains("COPY common-utils/ /tmp/devcontainer-features/common-utils/"));
         assert!(snippet.contains("chmod +x install.sh"));
         assert!(!snippet.contains("export "));
+    }
+
+    #[test]
+    fn topo_sort_depends_on_present() {
+        // A dependsOn B, both present → B before A
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let mut metadata: HashMap<String, FeatureMetadata> = HashMap::new();
+        let mut depends = HashMap::new();
+        depends.insert("b".to_string(), serde_json::json!({}));
+        metadata.insert(
+            "a".to_string(),
+            FeatureMetadata {
+                id: Some("a".to_string()),
+                name: None,
+                version: None,
+                options: HashMap::new(),
+                installs_after: Vec::new(),
+                depends_on: depends,
+            },
+        );
+        metadata.insert(
+            "b".to_string(),
+            FeatureMetadata {
+                id: Some("b".to_string()),
+                name: None,
+                version: None,
+                options: HashMap::new(),
+                installs_after: Vec::new(),
+                depends_on: HashMap::new(),
+            },
+        );
+
+        let sorted = topo_sort(&ids, &metadata);
+        assert_eq!(sorted, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn topo_sort_depends_on_and_installs_after_deduped() {
+        // A has both dependsOn B and installsAfter B — should not double-count
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let mut metadata: HashMap<String, FeatureMetadata> = HashMap::new();
+        let mut depends = HashMap::new();
+        depends.insert("b".to_string(), serde_json::json!({}));
+        metadata.insert(
+            "a".to_string(),
+            FeatureMetadata {
+                id: Some("a".to_string()),
+                name: None,
+                version: None,
+                options: HashMap::new(),
+                installs_after: vec!["b".to_string()],
+                depends_on: depends,
+            },
+        );
+        metadata.insert(
+            "b".to_string(),
+            FeatureMetadata {
+                id: Some("b".to_string()),
+                name: None,
+                version: None,
+                options: HashMap::new(),
+                installs_after: Vec::new(),
+                depends_on: HashMap::new(),
+            },
+        );
+
+        let sorted = topo_sort(&ids, &metadata);
+        assert_eq!(sorted, vec!["b", "a"]);
     }
 
     #[tokio::test]

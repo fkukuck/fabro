@@ -118,6 +118,10 @@ pub struct FeatureMetadata {
     /// Feature IDs that this feature should be installed after
     #[serde(default)]
     pub installs_after: Vec<String>,
+
+    /// Hard dependencies: feature IDs that must be present (auto-installed if missing)
+    #[serde(default)]
+    pub depends_on: HashMap<String, serde_json::Value>,
 }
 
 /// A single option for a devcontainer feature.
@@ -238,6 +242,24 @@ mod tests {
         let json = r#"{"image": "ubuntu", "unknownField": true, "customizations": {}}"#;
         let config: DevcontainerJson = serde_json::from_str(json).unwrap();
         assert_eq!(config.image.as_deref(), Some("ubuntu"));
+    }
+
+    #[test]
+    fn parse_feature_metadata_depends_on() {
+        let json = r#"{
+            "id": "python",
+            "dependsOn": {
+                "ghcr.io/devcontainers/features/common-utils:1": {},
+                "ghcr.io/devcontainers/features/node:1": {"version": "20"}
+            }
+        }"#;
+        let meta: FeatureMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.depends_on.len(), 2);
+        assert!(meta.depends_on.contains_key("ghcr.io/devcontainers/features/common-utils:1"));
+        assert_eq!(
+            meta.depends_on.get("ghcr.io/devcontainers/features/node:1"),
+            Some(&serde_json::json!({"version": "20"}))
+        );
     }
 
     #[test]
