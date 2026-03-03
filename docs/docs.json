@@ -15,6 +15,7 @@
         "groups": [
           {
             "group": "Getting Started",
+            "icon": "rocket",
             "pages": [
               "getting-started/overview",
               "getting-started/quick-start",
@@ -23,6 +24,7 @@
           },
           {
             "group": "Core Concepts",
+            "icon": "lightbulb",
             "pages": [
               "core-concepts/how-arc-works",
               "core-concepts/workflows",
@@ -31,6 +33,7 @@
           },
           {
             "group": "Defining Workflows",
+            "icon": "diagram-project",
             "pages": [
               "workflows/ingestion",
               "workflows/stages-and-nodes",
@@ -43,6 +46,7 @@
           },
           {
             "group": "Executing Workflows",
+            "icon": "play",
             "pages": [
               "execution/run-configuration",
               "execution/environments",
@@ -56,6 +60,7 @@
           },
           {
             "group": "Agents",
+            "icon": "robot",
             "pages": [
               "agents/prompts",
               "agents/skills",
@@ -69,6 +74,7 @@
           },
           {
             "group": "Administration",
+            "icon": "sliders",
             "pages": [
               "administration/advanced-setup",
               "administration/bring-your-own-key",
@@ -80,15 +86,8 @@
             ]
           },
           {
-            "group": "Deployment",
-            "pages": [
-              "deployment/overview",
-              "deployment/deploying-to-aws",
-              "deployment/environments"
-            ]
-          },
-          {
             "group": "Reference",
+            "icon": "book",
             "pages": [
               "reference/dot-language",
               "reference/cli",
@@ -105,11 +104,21 @@
         "groups": [
           {
             "group": "Example Workflows",
+            "icon": "flask",
             "pages": [
               "examples/implement-feature",
               "examples/semantic-port",
               "examples/nlspec-convergence",
               "examples/investigate-alert"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "icon": "cloud-arrow-up",
+            "pages": [
+              "deployment/overview",
+              "deployment/deploying-to-aws",
+              "deployment/environments"
             ]
           }
         ]
@@ -231,6 +240,7 @@
         "groups": [
           {
             "group": "Changelog",
+            "icon": "clock-rotate-left",
             "pages": [
               "changelog"
             ]
