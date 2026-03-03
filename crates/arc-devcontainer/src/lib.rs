@@ -25,21 +25,27 @@ pub struct DevcontainerConfig {
     pub dockerfile: String,
     /// Directory for docker build context
     pub build_context: PathBuf,
+    /// Build arguments (docker build --build-arg)
+    pub build_args: HashMap<String, String>,
     /// Run on host before build
     pub initialize_commands: Vec<Command>,
+    /// Run in container after first creation (before updateContentCommand)
+    pub on_create_commands: Vec<Command>,
     /// Run in container after creation
     pub post_create_commands: Vec<Command>,
     /// Run in container on each start
     pub post_start_commands: Vec<Command>,
     /// remoteEnv merged
     pub environment: HashMap<String, String>,
+    /// containerEnv — baked into Dockerfile as ENV directives
+    pub container_env: HashMap<String, String>,
     pub remote_user: Option<String>,
     /// default: /workspaces/{repo-name}
     pub workspace_folder: String,
     /// first = default preview port
     pub forwarded_ports: Vec<u16>,
-    /// if dockerComposeFile mode
-    pub compose_file: Option<PathBuf>,
+    /// Compose file paths (empty if not in compose mode)
+    pub compose_files: Vec<PathBuf>,
     pub compose_service: Option<String>,
 }
 
@@ -113,7 +119,11 @@ impl DevcontainerResolver {
 
         // Handle compose mode
         if let Some(compose_ref) = &devcontainer.docker_compose_file {
-            let compose_path = base_dir.join(variables::substitute(compose_ref, &vars));
+            let compose_paths: Vec<PathBuf> = compose_ref
+                .paths()
+                .iter()
+                .map(|p| base_dir.join(variables::substitute(p, &vars)))
+                .collect();
             let service_name = devcontainer
                 .service
                 .as_ref()
@@ -125,8 +135,8 @@ impl DevcontainerResolver {
                 .clone();
 
             let compose_config =
-                compose::parse_compose(&compose_path, &service_name).map_err(|e| {
-                    DevcontainerError::Compose(format!("{}: {e}", compose_path.display()))
+                compose::parse_compose_multi(&compose_paths, &service_name).map_err(|e| {
+                    DevcontainerError::Compose(e)
                 })?;
 
             let mut environment = HashMap::new();
@@ -139,10 +149,14 @@ impl DevcontainerResolver {
                 }
             }
 
+            // Use the first compose file's parent as build context base
+            let compose_base_dir = compose_paths
+                .first()
+                .and_then(|p| p.parent())
+                .unwrap_or(base_dir);
+
             let dockerfile = if let Some(build) = &compose_config.build {
-                let df_path = compose_path
-                    .parent()
-                    .unwrap_or(base_dir)
+                let df_path = compose_base_dir
                     .join(&build.context)
                     .join(build.dockerfile.as_deref().unwrap_or("Dockerfile"));
                 std::fs::read_to_string(&df_path).map_err(|source| {
@@ -157,11 +171,13 @@ impl DevcontainerResolver {
 
             return Ok(DevcontainerConfig {
                 dockerfile,
-                build_context: compose_path
-                    .parent()
-                    .unwrap_or(base_dir)
-                    .to_path_buf(),
+                build_context: compose_base_dir.to_path_buf(),
+                build_args: HashMap::new(),
                 initialize_commands: Self::collect_commands(&devcontainer.initialize_command, &vars),
+                on_create_commands: Self::collect_commands(
+                    &devcontainer.on_create_command,
+                    &vars,
+                ),
                 post_create_commands: Self::collect_commands(
                     &devcontainer.post_create_command,
                     &vars,
@@ -171,19 +187,22 @@ impl DevcontainerResolver {
                     &vars,
                 ),
                 environment,
+                container_env: Self::collect_container_env(&devcontainer.container_env, &vars),
                 remote_user: devcontainer
                     .remote_user
                     .clone()
                     .or(compose_config.user),
                 workspace_folder,
                 forwarded_ports: compose_config.ports,
-                compose_file: Some(compose_path),
+                compose_files: compose_paths,
                 compose_service: Some(service_name),
             });
         }
 
         // Image or Dockerfile mode
-        let (base_dockerfile, build_context) = if let Some(build) = &devcontainer.build {
+        let (base_dockerfile, build_context, build_args) = if let Some(build) =
+            &devcontainer.build
+        {
             let context_dir = build
                 .context
                 .as_ref()
@@ -193,20 +212,24 @@ impl DevcontainerResolver {
                 build.dockerfile.as_deref().unwrap_or("Dockerfile"),
                 &vars,
             ));
-            let content =
-                std::fs::read_to_string(&df_path).map_err(|source| {
-                    DevcontainerError::ReadFile {
-                        path: df_path,
-                        source,
-                    }
-                })?;
-            (content, context_dir)
+            let content = std::fs::read_to_string(&df_path).map_err(|source| {
+                DevcontainerError::ReadFile {
+                    path: df_path,
+                    source,
+                }
+            })?;
+            let args: HashMap<String, String> = build
+                .args
+                .iter()
+                .map(|(k, v)| (k.clone(), variables::substitute(v, &vars)))
+                .collect();
+            (content, context_dir, args)
         } else {
             let image = devcontainer
                 .image
                 .as_deref()
                 .unwrap_or("mcr.microsoft.com/devcontainers/base:ubuntu");
-            (format!("FROM {image}"), base_dir.to_path_buf())
+            (format!("FROM {image}"), base_dir.to_path_buf(), HashMap::new())
         };
 
         // Features
@@ -220,6 +243,7 @@ impl DevcontainerResolver {
         let dockerfile_content = dockerfile::generate(
             &base_dockerfile,
             &feature_layers,
+            &devcontainer.container_env,
             &devcontainer.remote_env,
             devcontainer.remote_user.as_deref(),
         );
@@ -243,14 +267,17 @@ impl DevcontainerResolver {
         Ok(DevcontainerConfig {
             dockerfile: dockerfile_content,
             build_context,
+            build_args,
             initialize_commands: Self::collect_commands(&devcontainer.initialize_command, &vars),
+            on_create_commands: Self::collect_commands(&devcontainer.on_create_command, &vars),
             post_create_commands: Self::collect_commands(&devcontainer.post_create_command, &vars),
             post_start_commands: Self::collect_commands(&devcontainer.post_start_command, &vars),
             environment,
+            container_env: Self::collect_container_env(&devcontainer.container_env, &vars),
             remote_user: devcontainer.remote_user.clone(),
             workspace_folder,
             forwarded_ports,
-            compose_file: None,
+            compose_files: Vec::new(),
             compose_service: None,
         })
     }
@@ -307,6 +334,19 @@ impl DevcontainerResolver {
             }
         }
         original_path
+    }
+
+    fn collect_container_env(
+        env: &Option<HashMap<String, String>>,
+        vars: &variables::VariableContext,
+    ) -> HashMap<String, String> {
+        match env {
+            None => HashMap::new(),
+            Some(map) => map
+                .iter()
+                .map(|(k, v)| (k.clone(), variables::substitute(v, vars)))
+                .collect(),
+        }
     }
 
     fn collect_commands(

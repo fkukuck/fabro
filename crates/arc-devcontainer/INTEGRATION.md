@@ -10,14 +10,17 @@ How to wire the parsed `DevcontainerConfig` into sandbox creation.
 pub struct DevcontainerConfig {
     pub dockerfile: String,            // Generated Dockerfile content
     pub build_context: PathBuf,        // Directory for docker build
-    pub initialize_commands: Vec<Command>,  // Host-side pre-build commands
-    pub post_create_commands: Vec<Command>, // Container post-creation setup
-    pub post_start_commands: Vec<Command>,  // Container on-each-start commands
-    pub environment: HashMap<String, String>, // remoteEnv merged
+    pub build_args: HashMap<String, String>, // docker build --build-arg flags
+    pub initialize_commands: Vec<Command>,   // Host-side pre-build commands
+    pub on_create_commands: Vec<Command>,    // Container after first creation
+    pub post_create_commands: Vec<Command>,  // Container post-creation setup
+    pub post_start_commands: Vec<Command>,   // Container on-each-start commands
+    pub environment: HashMap<String, String>,    // remoteEnv merged
+    pub container_env: HashMap<String, String>,  // containerEnv (also in Dockerfile)
     pub remote_user: Option<String>,   // Non-root user
     pub workspace_folder: String,      // Working directory inside container
     pub forwarded_ports: Vec<u16>,     // Ports to expose
-    pub compose_file: Option<PathBuf>, // Set when in compose mode
+    pub compose_files: Vec<PathBuf>,   // Compose file paths (empty if not compose mode)
     pub compose_service: Option<String>,
 }
 ```
@@ -33,10 +36,10 @@ pub struct DevcontainerConfig {
 
 ### Environment Variables
 
-`config.environment` contains the merged `remoteEnv` values (with variables already substituted).
+`config.environment` contains the merged `remoteEnv` values (with variables already substituted). `config.container_env` contains `containerEnv` values (also baked into the generated Dockerfile as `ENV` directives).
 
-- Pass these as environment variables when creating the sandbox.
-- `containerEnv` values (if supported in the future) would be baked into the Dockerfile via `ENV` directives.
+- Pass `config.environment` as environment variables when creating the sandbox.
+- `containerEnv` values are already in the Dockerfile; `config.container_env` is available for reference.
 
 ### Workspace Folder
 
@@ -61,7 +64,7 @@ pub struct DevcontainerConfig {
 
 ## Docker Compose DinD Flow
 
-When `config.compose_file` is `Some(path)`, the devcontainer uses Docker Compose mode.
+When `config.compose_files` is non-empty, the devcontainer uses Docker Compose mode.
 
 ### Strategy
 
@@ -85,7 +88,7 @@ The devcontainer spec defines this execution order:
 | Hook | Where | When | `DevcontainerConfig` field |
 |---|---|---|---|
 | `initializeCommand` | Host | Before build | `initialize_commands` |
-| `onCreateCommand` | Container | After first creation | Not captured (not parsed) |
+| `onCreateCommand` | Container | After first creation | `on_create_commands` |
 | `updateContentCommand` | Container | After create/content update | Not captured (not parsed) |
 | `postCreateCommand` | Container | After create/content update | `post_create_commands` |
 | `postStartCommand` | Container | On each start | `post_start_commands` |
@@ -111,10 +114,11 @@ pub enum Command {
 
 ```
 1. Run initialize_commands on HOST (before sandbox creation)
-2. Build image from config.dockerfile
+2. Build image from config.dockerfile (pass config.build_args as --build-arg flags)
 3. Create sandbox from image
-4. Run post_create_commands in sandbox (as remote_user if set)
-5. Run post_start_commands in sandbox (as remote_user if set)
+4. Run on_create_commands in sandbox (as remote_user if set)
+5. Run post_create_commands in sandbox (as remote_user if set)
+6. Run post_start_commands in sandbox (as remote_user if set)
 ```
 
 ## Example Integration Code
@@ -131,7 +135,7 @@ async fn create_sandbox_from_devcontainer(repo_path: &Path) -> Result<Sandbox> {
     }
 
     // 2. Build image and create sandbox
-    let sandbox = if config.compose_file.is_some() {
+    let sandbox = if !config.compose_files.is_empty() {
         // Compose mode: build from extracted service Dockerfile, then run compose inside
         let sandbox = daytona.create_from_dockerfile(
             &config.dockerfile,
@@ -158,6 +162,9 @@ async fn create_sandbox_from_devcontainer(repo_path: &Path) -> Result<Sandbox> {
 
     // 5. Run lifecycle hooks
     let user = config.remote_user.as_deref();
+    for cmd in &config.on_create_commands {
+        sandbox.exec_command(cmd, user).await?;
+    }
     for cmd in &config.post_create_commands {
         sandbox.exec_command(cmd, user).await?;
     }
@@ -177,10 +184,7 @@ async fn create_sandbox_from_devcontainer(repo_path: &Path) -> Result<Sandbox> {
 ## Edge Cases and Limitations
 
 - **Features require `oras`**: Feature resolution shells out to `oras` CLI for OCI registry pulls. The resolver attempts auto-install if `oras` is not on PATH.
-- **`build.args` not injected**: Build arguments are parsed but not passed to `docker build` via `--build-arg` or `ARG` directives.
-- **`containerEnv` not merged**: Only `remoteEnv` is included in `DevcontainerConfig::environment`. `containerEnv` is parsed but not forwarded.
-- **Single compose file only**: `dockerComposeFile` is treated as a single string path. The spec allows an array of paths for compose file merging.
-- **No `onCreateCommand` or `updateContentCommand`**: These lifecycle hooks are not parsed. For first-run setup, `postCreateCommand` serves as the primary hook.
+- **No `updateContentCommand`**: This lifecycle hook is not parsed.
 - **No `postAttachCommand`**: Not parsed. Attach-time hooks would need to run on each user session connection.
 - **`${containerEnv:VAR}` not supported**: Variable substitution only covers host-side variables. Container-side env vars require a running container.
 - **Port forwarding is numeric only**: String port formats (e.g., `"label:3000"`) in `forwardPorts` are filtered out; only numeric values are extracted.

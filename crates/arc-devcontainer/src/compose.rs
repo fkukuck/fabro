@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Extracted configuration from a Docker Compose service.
 #[derive(Debug, Clone, Default)]
@@ -152,6 +152,60 @@ fn parse_environment(service: &serde_yaml::Value) -> HashMap<String, String> {
     HashMap::new()
 }
 
+/// Parse multiple Docker Compose files and merge config for the named service.
+/// Later files override earlier files for image/build/user; ports accumulate (deduped);
+/// environment keys from later files override earlier ones.
+pub fn parse_compose_multi(
+    compose_paths: &[PathBuf],
+    service_name: &str,
+) -> Result<ComposeServiceConfig, String> {
+    let mut merged = ComposeServiceConfig::default();
+    let mut found_service = false;
+
+    for path in compose_paths {
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read compose file {}: {e}", path.display()))?;
+
+        let doc: serde_yaml::Value = serde_yaml::from_str(&contents)
+            .map_err(|e| format!("failed to parse YAML {}: {e}", path.display()))?;
+
+        let Some(service) = doc.get("services").and_then(|s| s.get(service_name)) else {
+            continue;
+        };
+        found_service = true;
+
+        if let Some(image) = service.get("image").and_then(|v| v.as_str()) {
+            merged.image = Some(image.to_string());
+        }
+
+        if let Some(build) = parse_build(service) {
+            merged.build = Some(build);
+        }
+
+        if let Some(user) = service.get("user").and_then(|v| v.as_str()) {
+            merged.user = Some(user.to_string());
+        }
+
+        for port in parse_ports(service) {
+            if !merged.ports.contains(&port) {
+                merged.ports.push(port);
+            }
+        }
+
+        for (k, v) in parse_environment(service) {
+            merged.environment.insert(k, v);
+        }
+    }
+
+    if !found_service {
+        return Err(format!(
+            "service '{service_name}' not found in any compose file"
+        ));
+    }
+
+    Ok(merged)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +354,73 @@ services:
         );
         let cfg = parse_compose(f.path(), "app").unwrap();
         assert_eq!(cfg.user.as_deref(), Some("1000:1000"));
+    }
+
+    #[test]
+    fn multi_compose_merge() {
+        let base = write_compose(
+            r#"
+services:
+  app:
+    image: node:20
+    ports:
+      - "3000:3000"
+    environment:
+      - "NODE_ENV=development"
+"#,
+        );
+        let over = write_compose(
+            r#"
+services:
+  app:
+    image: node:22
+    ports:
+      - "3000:3000"
+      - "9229:9229"
+    environment:
+      - "DEBUG=true"
+"#,
+        );
+        let paths = vec![base.path().to_path_buf(), over.path().to_path_buf()];
+        let cfg = parse_compose_multi(&paths, "app").unwrap();
+        assert_eq!(cfg.image.as_deref(), Some("node:22"));
+        assert_eq!(cfg.ports, vec![3000, 9229]);
+        assert_eq!(cfg.environment.get("NODE_ENV").unwrap(), "development");
+        assert_eq!(cfg.environment.get("DEBUG").unwrap(), "true");
+    }
+
+    #[test]
+    fn multi_compose_service_not_found() {
+        let f = write_compose(
+            r#"
+services:
+  web:
+    image: nginx
+"#,
+        );
+        let paths = vec![f.path().to_path_buf()];
+        let err = parse_compose_multi(&paths, "missing").unwrap_err();
+        assert!(err.contains("service 'missing' not found"));
+    }
+
+    #[test]
+    fn multi_compose_skips_file_without_service() {
+        let base = write_compose(
+            r#"
+services:
+  db:
+    image: postgres:15
+"#,
+        );
+        let over = write_compose(
+            r#"
+services:
+  app:
+    image: node:22
+"#,
+        );
+        let paths = vec![base.path().to_path_buf(), over.path().to_path_buf()];
+        let cfg = parse_compose_multi(&paths, "app").unwrap();
+        assert_eq!(cfg.image.as_deref(), Some("node:22"));
     }
 }

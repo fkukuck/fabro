@@ -18,11 +18,22 @@ async fn resolve_image_only() {
     assert_eq!(config.forwarded_ports, vec![3000, 8080]);
     assert_eq!(config.environment.get("EDITOR").map(String::as_str), Some("code"));
     assert_eq!(config.workspace_folder, "/workspaces/image-only");
-    assert!(config.compose_file.is_none());
+    assert!(config.compose_files.is_empty());
     assert!(config.compose_service.is_none());
 
     assert_eq!(config.post_create_commands.len(), 1);
     assert!(matches!(&config.post_create_commands[0], Command::Shell(s) if s == "echo hello"));
+
+    // onCreateCommand
+    assert_eq!(config.on_create_commands.len(), 1);
+    assert!(matches!(&config.on_create_commands[0], Command::Shell(s) if s == "setup.sh"));
+
+    // containerEnv baked into Dockerfile
+    assert!(config.dockerfile.contains("ENV DEBIAN_FRONTEND=noninteractive"));
+    assert_eq!(
+        config.container_env.get("DEBIAN_FRONTEND").map(String::as_str),
+        Some("noninteractive")
+    );
 }
 
 #[tokio::test]
@@ -39,6 +50,9 @@ async fn resolve_dockerfile_mode() {
 
     assert_eq!(config.post_create_commands.len(), 1);
     assert!(matches!(&config.post_create_commands[0], Command::Shell(s) if s == "npm install"));
+
+    // build.args
+    assert_eq!(config.build_args.get("NODE_VERSION").map(String::as_str), Some("20"));
 }
 
 #[tokio::test]
@@ -51,7 +65,7 @@ async fn resolve_compose_mode() {
     assert!(config.dockerfile.contains("FROM node:20"));
     assert_eq!(config.workspace_folder, "/workspace");
     assert_eq!(config.remote_user.as_deref(), Some("node"));
-    assert!(config.compose_file.is_some());
+    assert_eq!(config.compose_files.len(), 1);
     assert_eq!(config.compose_service.as_deref(), Some("app"));
 
     // Ports come from compose + remoteEnv merged
@@ -76,6 +90,28 @@ async fn resolve_variables() {
     assert_eq!(
         config.environment.get("PROJECT_NAME").map(String::as_str),
         Some("variables")
+    );
+}
+
+#[tokio::test]
+async fn resolve_compose_multi() {
+    let config = DevcontainerResolver::resolve(&fixture_path("compose-multi"))
+        .await
+        .unwrap();
+
+    // Override file wins for image
+    assert!(config.dockerfile.contains("FROM node:22"));
+    assert_eq!(config.workspace_folder, "/workspace");
+    assert_eq!(config.compose_files.len(), 2);
+    assert_eq!(config.compose_service.as_deref(), Some("app"));
+
+    // Port from base.yml
+    assert_eq!(config.forwarded_ports, vec![3000]);
+
+    // Environment from override.yml
+    assert_eq!(
+        config.environment.get("OVERRIDE_VAR").map(String::as_str),
+        Some("true")
     );
 }
 

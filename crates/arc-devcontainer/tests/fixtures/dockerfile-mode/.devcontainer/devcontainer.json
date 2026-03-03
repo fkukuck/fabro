@@ -2,7 +2,8 @@
   // This is a JSONC file with comments
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".."
+    "context": "..",
+    "args": {"NODE_VERSION": "20"}
   },
   "remoteUser": "developer",
   "postCreateCommand": "npm install",

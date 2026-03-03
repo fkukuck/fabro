@@ -11,8 +11,8 @@ pub struct DevcontainerJson {
     /// Dockerfile build config
     pub build: Option<BuildConfig>,
 
-    /// Docker Compose file path (compose mode)
-    pub docker_compose_file: Option<String>,
+    /// Docker Compose file path(s) (compose mode)
+    pub docker_compose_file: Option<ComposeFileRef>,
 
     /// Service name for compose mode
     pub service: Option<String>,
@@ -48,7 +48,10 @@ pub struct DevcontainerJson {
     /// Run on host before anything else
     pub initialize_command: Option<LifecycleCommand>,
 
-    /// Run in container after first creation
+    /// Run in container after first creation (before updateContentCommand)
+    pub on_create_command: Option<LifecycleCommand>,
+
+    /// Run in container after creation
     pub post_create_command: Option<LifecycleCommand>,
 
     /// Run in container on every start
@@ -70,6 +73,23 @@ pub struct BuildConfig {
     /// Build arguments
     #[serde(default)]
     pub args: HashMap<String, String>,
+}
+
+/// A reference to one or more Docker Compose files.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ComposeFileRef {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl ComposeFileRef {
+    pub fn paths(&self) -> Vec<&str> {
+        match self {
+            Self::Single(s) => vec![s.as_str()],
+            Self::Multiple(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
 }
 
 /// A lifecycle command can be a string, array of strings, or object of named commands.
@@ -188,11 +208,24 @@ mod tests {
         }"#;
         let config: DevcontainerJson = serde_json::from_str(json).unwrap();
         assert_eq!(
-            config.docker_compose_file.as_deref(),
-            Some("docker-compose.yml")
+            config.docker_compose_file.as_ref().unwrap().paths(),
+            vec!["docker-compose.yml"]
         );
         assert_eq!(config.service.as_deref(), Some("app"));
         assert_eq!(config.workspace_folder.as_deref(), Some("/workspace"));
+    }
+
+    #[test]
+    fn parse_compose_mode_array() {
+        let json = r#"{
+            "dockerComposeFile": ["docker-compose.yml", "docker-compose.override.yml"],
+            "service": "app"
+        }"#;
+        let config: DevcontainerJson = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.docker_compose_file.as_ref().unwrap().paths(),
+            vec!["docker-compose.yml", "docker-compose.override.yml"]
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ Compatibility of `arc-devcontainer` with the [devcontainer.json reference](https
 | `portsAttributes` | No | Not parsed |
 | `otherPortsAttributes` | No | Not parsed |
 | `updateRemoteUserUID` | No | Not parsed |
-| `containerEnv` | Partial | Parsed in `DevcontainerJson::container_env` but not merged into `DevcontainerConfig::environment` |
+| `containerEnv` | Yes | Baked into generated Dockerfile as `ENV` directives; also exposed in `DevcontainerConfig::container_env` |
 | `remoteEnv` | Yes | Merged into `DevcontainerConfig::environment` with variable substitution |
 | `containerUser` | Partial | Parsed in `DevcontainerJson::container_user` but not exposed in `DevcontainerConfig` |
 | `remoteUser` | Yes | Exposed as `DevcontainerConfig::remote_user` |
@@ -33,7 +33,7 @@ Compatibility of `arc-devcontainer` with the [devcontainer.json reference](https
 |---|---|---|
 | `build.dockerfile` | Yes | Resolved relative to devcontainer.json; content read and used as base Dockerfile |
 | `build.context` | Yes | Resolved with variable substitution; passed as `DevcontainerConfig::build_context` |
-| `build.args` | Partial | Parsed in `BuildConfig::args` but not injected into generated Dockerfile |
+| `build.args` | Yes | Parsed and exposed in `DevcontainerConfig::build_args` for passing to `docker build --build-arg` |
 | `build.target` | No | Not parsed |
 | `build.cacheFrom` | No | Not parsed |
 | `build.options` | No | Not parsed |
@@ -42,7 +42,7 @@ Compatibility of `arc-devcontainer` with the [devcontainer.json reference](https
 
 | Property | Status | Notes |
 |---|---|---|
-| `dockerComposeFile` | Partial | Single file path supported; array of paths not supported |
+| `dockerComposeFile` | Yes | Single path and array of paths supported; multiple files are merged (last wins for image/build/user; ports accumulate; environment overrides) |
 | `service` | Yes | Required when `dockerComposeFile` is set; used to extract service config |
 | `runServices` | No | Not parsed; all services assumed |
 | `shutdownAction` | No | Not parsed |
@@ -62,7 +62,7 @@ Compatibility of `arc-devcontainer` with the [devcontainer.json reference](https
 | Property | Status | Notes |
 |---|---|---|
 | `initializeCommand` | Yes | All three forms supported: string, array, object (parallel). Exposed as `DevcontainerConfig::initialize_commands` |
-| `onCreateCommand` | No | Not parsed |
+| `onCreateCommand` | Yes | All three forms supported. Exposed as `DevcontainerConfig::on_create_commands` |
 | `updateContentCommand` | No | Not parsed |
 | `postCreateCommand` | Yes | All three forms supported. Exposed as `DevcontainerConfig::post_create_commands` |
 | `postStartCommand` | Yes | All three forms supported. Exposed as `DevcontainerConfig::post_start_commands` |
