@@ -1107,7 +1107,7 @@ fn print_final_output(logs_dir: &std::path::Path, styles: &Styles) {
 ///
 /// Boots the sandbox (init + cleanup), checks LLM provider availability,
 /// resolves the model/provider through the full precedence chain, and prints
-/// a structured report.
+/// a styled check report.
 async fn run_preflight(
     graph: &crate::graph::types::Graph,
     run_cfg: &Option<run_config::WorkflowRunConfig>,
@@ -1117,9 +1117,41 @@ async fn run_preflight(
     sandbox_provider: SandboxProvider,
     styles: &'static Styles,
 ) -> anyhow::Result<()> {
-    let mut errors: Vec<String> = Vec::new();
+    use arc_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckStatus};
 
-    // 1. Sandbox boot check
+    let mut checks: Vec<CheckResult> = Vec::new();
+
+    // 1. Workflow metadata (always Pass)
+    let setup_command_count = run_cfg
+        .as_ref()
+        .and_then(|c| c.setup.as_ref())
+        .map_or(0, |s| s.commands.len());
+
+    let (model, provider) = resolve_model_provider(
+        args.model.as_deref(),
+        args.provider.as_deref(),
+        run_cfg.as_ref(),
+        run_defaults,
+        graph,
+    );
+
+    checks.push(CheckResult {
+        name: "Workflow".into(),
+        status: CheckStatus::Pass,
+        summary: graph.name.clone(),
+        details: vec![
+            CheckDetail { text: format!("Nodes: {}", graph.nodes.len()) },
+            CheckDetail { text: format!("Edges: {}", graph.edges.len()) },
+            CheckDetail { text: format!("Goal: {}", graph.goal()) },
+            CheckDetail { text: format!("Model: {model}") },
+            CheckDetail { text: format!("Provider: {}", provider.as_deref().unwrap_or("anthropic")) },
+            CheckDetail { text: format!("Setup commands: {setup_command_count}") },
+            CheckDetail { text: format!("Git clean: {git_clean}") },
+        ],
+        remediation: None,
+    });
+
+    // 2. Sandbox boot check
     let original_cwd = std::env::current_dir()?;
     let daytona_config = resolve_daytona_config(run_cfg.as_ref(), run_defaults);
 
@@ -1146,100 +1178,132 @@ async fn run_preflight(
         }
     };
 
-    let sandbox_ready = match sandbox_result {
+    let sandbox_ok = match sandbox_result {
         Ok(sandbox) => match sandbox.initialize().await {
             Ok(()) => {
                 let _ = sandbox.cleanup().await;
                 true
             }
             Err(e) => {
-                errors.push(format!("Sandbox init failed: {e}"));
                 let _ = sandbox.cleanup().await;
+                checks.push(CheckResult {
+                    name: "Sandbox".into(),
+                    status: CheckStatus::Error,
+                    summary: "failed".into(),
+                    details: vec![CheckDetail { text: format!("Provider: {sandbox_provider}") }],
+                    remediation: Some(format!("Sandbox init failed: {e}")),
+                });
                 false
             }
         },
         Err(e) => {
-            errors.push(e);
+            checks.push(CheckResult {
+                name: "Sandbox".into(),
+                status: CheckStatus::Error,
+                summary: "failed".into(),
+                details: vec![CheckDetail { text: format!("Provider: {sandbox_provider}") }],
+                remediation: Some(e),
+            });
             false
         }
     };
 
-    // 2. LLM client check
-    let (llm_available, llm_providers) = match arc_llm::client::Client::from_env().await {
+    if sandbox_ok {
+        checks.push(CheckResult {
+            name: "Sandbox".into(),
+            status: CheckStatus::Pass,
+            summary: sandbox_provider.to_string(),
+            details: vec![CheckDetail { text: format!("Provider: {sandbox_provider}") }],
+            remediation: None,
+        });
+    }
+
+    // 3. LLM client check
+    let llm_ok = match arc_llm::client::Client::from_env().await {
         Ok(c) => {
-            let names = c
+            let names: Vec<String> = c
                 .provider_names()
                 .iter()
                 .map(|s| s.to_string())
-                .collect::<Vec<_>>();
+                .collect();
             if names.is_empty() {
-                errors.push("No LLM providers configured (no API keys found)".to_string());
-                (false, names)
+                checks.push(CheckResult {
+                    name: "LLM providers".into(),
+                    status: CheckStatus::Error,
+                    summary: "no API keys".into(),
+                    details: vec![],
+                    remediation: Some("Set at least one LLM provider API key".into()),
+                });
+                false
             } else {
-                (true, names)
+                checks.push(CheckResult {
+                    name: "LLM providers".into(),
+                    status: CheckStatus::Pass,
+                    summary: names.join(", "),
+                    details: vec![],
+                    remediation: None,
+                });
+                true
             }
         }
         Err(e) => {
-            errors.push(format!("LLM client init failed: {e}"));
-            (false, Vec::new())
+            checks.push(CheckResult {
+                name: "LLM providers".into(),
+                status: CheckStatus::Error,
+                summary: "initialization failed".into(),
+                details: vec![],
+                remediation: Some(format!("LLM client init failed: {e}")),
+            });
+            false
         }
     };
 
-    // 3. Model/provider resolution
-    let (model, provider) = resolve_model_provider(
-        args.model.as_deref(),
-        args.provider.as_deref(),
-        run_cfg.as_ref(),
-        run_defaults,
-        graph,
-    );
-
     // 4. Provider parse check
-    let provider_valid = if let Some(ref p) = provider {
+    let provider_ok = if let Some(ref p) = provider {
         match p.parse::<Provider>() {
-            Ok(_) => true,
+            Ok(_) => {
+                checks.push(CheckResult {
+                    name: "Provider".into(),
+                    status: CheckStatus::Pass,
+                    summary: p.clone(),
+                    details: vec![],
+                    remediation: None,
+                });
+                true
+            }
             Err(e) => {
-                errors.push(format!("Invalid provider \"{p}\": {e}"));
+                checks.push(CheckResult {
+                    name: "Provider".into(),
+                    status: CheckStatus::Error,
+                    summary: p.clone(),
+                    details: vec![],
+                    remediation: Some(format!("Invalid provider \"{p}\": {e}")),
+                });
                 false
             }
         }
     } else {
-        true // None means default (Anthropic), which is valid
+        checks.push(CheckResult {
+            name: "Provider".into(),
+            status: CheckStatus::Pass,
+            summary: "anthropic".into(),
+            details: vec![],
+            remediation: None,
+        });
+        true
     };
 
-    // 5. Count setup commands for display
-    let setup_command_count = run_cfg
-        .as_ref()
-        .and_then(|c| c.setup.as_ref())
-        .map_or(0, |s| s.commands.len());
+    // 5. Render report
+    let report = CheckReport {
+        title: "Run Preflight".into(),
+        checks,
+    };
 
-    // 6. Print structured report to stdout
-    println!("workflow={}", graph.name);
-    println!("nodes={}", graph.nodes.len());
-    println!("edges={}", graph.edges.len());
-    println!("goal={}", graph.goal());
-    println!("sandbox={sandbox_provider}");
-    println!("sandbox_ready={sandbox_ready}");
-    println!("git_clean={git_clean}");
-    println!("llm_available={llm_available}");
-    println!("llm_providers={}", llm_providers.join(","));
-    println!("model={model}");
-    println!("provider={}", provider.as_deref().unwrap_or("anthropic"));
-    println!("provider_valid={provider_valid}");
-    println!("setup_commands={setup_command_count}");
+    print!("{}", report.render(styles, true, None));
 
-    // 7. Print warnings/errors to stderr
-    for err in &errors {
-        eprintln!("{}: {err}", styles.red.apply_to("error"),);
-    }
-
-    // 8. Final verdict
-    let ok = sandbox_ready && llm_available && provider_valid;
-    if ok {
-        eprintln!("\n{}", styles.bold_green.apply_to("Preflight: OK"),);
+    if sandbox_ok && llm_ok && provider_ok {
         Ok(())
     } else {
-        eprintln!("\n{}", styles.bold_red.apply_to("Preflight: FAIL"),);
         std::process::exit(1);
     }
 }

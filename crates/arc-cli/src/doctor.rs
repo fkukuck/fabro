@@ -1,144 +1,13 @@
-use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::LazyLock;
 
 use arc_api::server_config::{ApiAuthStrategy, AuthProvider};
 use arc_llm::provider::Provider;
+pub use arc_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckStatus};
 use arc_util::terminal::Styles;
 use regex::Regex;
 use semver::Version;
-
-// ---------------------------------------------------------------------------
-// Core types
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CheckStatus {
-    Pass,
-    Warning,
-    Error,
-}
-
-#[derive(Debug, Clone)]
-pub struct CheckDetail {
-    pub text: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct CheckResult {
-    pub name: String,
-    pub status: CheckStatus,
-    pub summary: String,
-    pub details: Vec<CheckDetail>,
-    pub remediation: Option<String>,
-}
-
-pub struct DoctorReport {
-    pub checks: Vec<CheckResult>,
-}
-
-impl DoctorReport {
-    pub fn has_errors(&self) -> bool {
-        self.checks.iter().any(|c| c.status == CheckStatus::Error)
-    }
-
-    pub fn issue_count(&self) -> usize {
-        self.checks
-            .iter()
-            .filter(|c| matches!(c.status, CheckStatus::Warning | CheckStatus::Error))
-            .count()
-    }
-
-    pub fn render(&self, s: &Styles, verbose: bool, live: bool) -> String {
-        let mut out = String::new();
-
-        writeln!(out, "{}", s.bold.apply_to("Arc Doctor")).unwrap();
-        writeln!(out).unwrap();
-
-        for check in &self.checks {
-            let (icon, color) = match check.status {
-                CheckStatus::Pass => ("[✓]", &s.green),
-                CheckStatus::Warning => ("[!]", &s.yellow),
-                CheckStatus::Error => ("[✗]", &s.red),
-            };
-
-            writeln!(
-                out,
-                "  {} {} ({})",
-                color.apply_to(icon),
-                s.bold.apply_to(&check.name),
-                check.summary,
-            )
-            .unwrap();
-
-            if verbose {
-                for detail in &check.details {
-                    writeln!(out, "      • {}", detail.text).unwrap();
-                }
-            }
-        }
-
-        let issues = self.issue_count();
-        writeln!(out).unwrap();
-
-        if issues == 0 {
-            writeln!(out, "All checks passed.").unwrap();
-        } else {
-            writeln!(
-                out,
-                "Doctor found issues in {issues} {}.",
-                if issues == 1 {
-                    "category"
-                } else {
-                    "categories"
-                }
-            )
-            .unwrap();
-
-            let errors: Vec<_> = self
-                .checks
-                .iter()
-                .filter(|c| c.status == CheckStatus::Error)
-                .collect();
-            if !errors.is_empty() {
-                writeln!(out).unwrap();
-                writeln!(out, "{}", s.bold.apply_to("Errors:")).unwrap();
-                for check in &errors {
-                    write!(out, "  • {}", check.name).unwrap();
-                    if let Some(ref rem) = check.remediation {
-                        write!(out, " — {rem}").unwrap();
-                    }
-                    writeln!(out).unwrap();
-                }
-            }
-
-            let warnings: Vec<_> = self
-                .checks
-                .iter()
-                .filter(|c| c.status == CheckStatus::Warning)
-                .collect();
-            if !warnings.is_empty() {
-                writeln!(out).unwrap();
-                writeln!(out, "{}", s.bold.apply_to("Warnings:")).unwrap();
-                for check in &warnings {
-                    write!(out, "  • {}", check.name).unwrap();
-                    if let Some(ref rem) = check.remediation {
-                        write!(out, " — {rem}").unwrap();
-                    }
-                    writeln!(out).unwrap();
-                }
-            }
-        }
-
-        if !live {
-            writeln!(out).unwrap();
-            writeln!(out, "Run with --live to probe service connectivity.").unwrap();
-        }
-
-        out
-    }
-}
 
 // ---------------------------------------------------------------------------
 // System dependency types and parsers
@@ -1141,7 +1010,8 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
     }
 
     // Run pure checks
-    let report = DoctorReport {
+    let report = CheckReport {
+        title: "Arc Doctor".into(),
         checks: vec![
             check_config(if config_exists { config_path } else { None }),
             check_system_deps(DEP_SPECS, &dep_results),
@@ -1155,7 +1025,12 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         ],
     };
 
-    print!("{}", report.render(&styles, verbose, live));
+    let footer = if !live {
+        Some("Run with --live to probe service connectivity.")
+    } else {
+        None
+    };
+    print!("{}", report.render(&styles, verbose, footer));
 
     if report.has_errors() {
         1
@@ -1171,162 +1046,6 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn pass_check(name: &str) -> CheckResult {
-        CheckResult {
-            name: name.to_string(),
-            status: CheckStatus::Pass,
-            summary: "all good".to_string(),
-            details: vec![CheckDetail {
-                text: "everything is fine".to_string(),
-            }],
-            remediation: None,
-        }
-    }
-
-    fn warning_check(name: &str) -> CheckResult {
-        CheckResult {
-            name: name.to_string(),
-            status: CheckStatus::Warning,
-            summary: "not configured".to_string(),
-            details: vec![CheckDetail {
-                text: "missing something".to_string(),
-            }],
-            remediation: Some("fix it".to_string()),
-        }
-    }
-
-    fn error_check(name: &str) -> CheckResult {
-        CheckResult {
-            name: name.to_string(),
-            status: CheckStatus::Error,
-            summary: "broken".to_string(),
-            details: vec![CheckDetail {
-                text: "something is wrong".to_string(),
-            }],
-            remediation: Some("repair it".to_string()),
-        }
-    }
-
-    // -- render: all-pass, no color --
-
-    #[test]
-    fn render_all_pass_no_color() {
-        let report = DoctorReport {
-            checks: vec![pass_check("Test")],
-        };
-        let out = report.render(&Styles::new(false), false, false);
-        assert!(out.contains("[✓]"));
-        assert!(out.contains("All checks passed."));
-        assert!(out.contains("Arc Doctor"));
-    }
-
-    // -- render: warning footer --
-
-    #[test]
-    fn render_warning_footer() {
-        let report = DoctorReport {
-            checks: vec![warning_check("Optional")],
-        };
-        let out = report.render(&Styles::new(false), false, false);
-        assert!(out.contains("[!]"));
-        assert!(out.contains("Doctor found issues in 1 category."));
-        assert!(out.contains("Warnings:"));
-        assert!(out.contains("fix it"));
-    }
-
-    // -- render: error footer --
-
-    #[test]
-    fn render_error_footer() {
-        let report = DoctorReport {
-            checks: vec![error_check("Broken")],
-        };
-        let out = report.render(&Styles::new(false), false, false);
-        assert!(out.contains("[✗]"));
-        assert!(out.contains("Errors:"));
-        assert!(out.contains("repair it"));
-    }
-
-    // -- render: verbose mode --
-
-    #[test]
-    fn render_verbose_shows_details() {
-        let report = DoctorReport {
-            checks: vec![pass_check("Verbose")],
-        };
-        let out = report.render(&Styles::new(false), true, false);
-        assert!(out.contains("•"));
-        assert!(out.contains("everything is fine"));
-    }
-
-    #[test]
-    fn render_default_hides_details() {
-        let report = DoctorReport {
-            checks: vec![pass_check("Verbose")],
-        };
-        let out = report.render(&Styles::new(false), false, false);
-        assert!(!out.contains("everything is fine"));
-    }
-
-    // -- render: color --
-
-    #[test]
-    fn render_color_pass_green() {
-        let report = DoctorReport {
-            checks: vec![pass_check("Color")],
-        };
-        let out = report.render(&Styles::new(true), false, false);
-        assert!(out.contains("\x1b[32m")); // green
-    }
-
-    #[test]
-    fn render_color_warning_yellow() {
-        let report = DoctorReport {
-            checks: vec![warning_check("Color")],
-        };
-        let out = report.render(&Styles::new(true), false, false);
-        assert!(out.contains("\x1b[33m")); // yellow
-    }
-
-    #[test]
-    fn render_color_error_red() {
-        let report = DoctorReport {
-            checks: vec![error_check("Color")],
-        };
-        let out = report.render(&Styles::new(true), false, false);
-        assert!(out.contains("\x1b[31m")); // red
-    }
-
-    // -- has_errors / issue_count --
-
-    #[test]
-    fn has_errors_false_for_warnings_only() {
-        let report = DoctorReport {
-            checks: vec![pass_check("OK"), warning_check("Warn")],
-        };
-        assert!(!report.has_errors());
-    }
-
-    #[test]
-    fn has_errors_true_when_error_present() {
-        let report = DoctorReport {
-            checks: vec![pass_check("OK"), error_check("Broken")],
-        };
-        assert!(report.has_errors());
-    }
-
-    #[test]
-    fn issue_count_counts_warnings_and_errors() {
-        let report = DoctorReport {
-            checks: vec![
-                pass_check("OK"),
-                warning_check("Warn"),
-                error_check("Broken"),
-            ],
-        };
-        assert_eq!(report.issue_count(), 2);
-    }
 
     // -- check_config --
 
@@ -1667,17 +1386,6 @@ mod tests {
             .details
             .iter()
             .any(|d| d.text.contains("connection refused")));
-    }
-
-    // -- render: multiple issues --
-
-    #[test]
-    fn render_multiple_issues_pluralizes() {
-        let report = DoctorReport {
-            checks: vec![warning_check("A"), error_check("B")],
-        };
-        let out = report.render(&Styles::new(false), false, false);
-        assert!(out.contains("2 categories"));
     }
 
     // -- parse_version --
