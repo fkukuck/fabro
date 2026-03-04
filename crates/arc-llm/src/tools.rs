@@ -466,4 +466,36 @@ mod tests {
             .unwrap()
             .contains("repair failed"));
     }
+
+    // --- args_type_name ---
+
+    #[test]
+    fn args_type_name_null() {
+        assert_eq!(args_type_name(&serde_json::Value::Null), "null");
+    }
+
+    #[test]
+    fn args_type_name_bool() {
+        assert_eq!(args_type_name(&serde_json::json!(true)), "boolean");
+    }
+
+    #[test]
+    fn args_type_name_number() {
+        assert_eq!(args_type_name(&serde_json::json!(42)), "number");
+    }
+
+    #[test]
+    fn args_type_name_string() {
+        assert_eq!(args_type_name(&serde_json::json!("hello")), "string");
+    }
+
+    #[test]
+    fn args_type_name_array() {
+        assert_eq!(args_type_name(&serde_json::json!([1, 2])), "array");
+    }
+
+    #[test]
+    fn args_type_name_object() {
+        assert_eq!(args_type_name(&serde_json::json!({})), "object");
+    }
 }

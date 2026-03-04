@@ -271,6 +271,7 @@ impl LineReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ContentPart;
 
     #[test]
     fn is_file_path_absolute() {
@@ -378,5 +379,132 @@ mod tests {
         let info = parse_rate_limit_headers(&headers).unwrap();
         assert_eq!(info.requests_remaining, None);
         assert_eq!(info.tokens_limit, Some(10000));
+    }
+
+    // --- parse_error_body ---
+
+    #[test]
+    fn parse_error_body_valid_json() {
+        let body = r#"{"error":{"message":"rate limited","type":"rate_limit_error"}}"#;
+        let (msg, code, raw) = parse_error_body(body, "type");
+        assert_eq!(msg, "rate limited");
+        assert_eq!(code.as_deref(), Some("rate_limit_error"));
+        assert!(raw.is_some());
+    }
+
+    #[test]
+    fn parse_error_body_missing_error_field() {
+        let body = r#"{"status":"fail"}"#;
+        let (msg, code, raw) = parse_error_body(body, "type");
+        assert_eq!(msg, "Unknown error");
+        assert_eq!(code, None);
+        assert!(raw.is_some());
+    }
+
+    #[test]
+    fn parse_error_body_not_json() {
+        let body = "Internal Server Error";
+        let (msg, code, raw) = parse_error_body(body, "type");
+        assert_eq!(msg, "Internal Server Error");
+        assert_eq!(code, None);
+        assert!(raw.is_none());
+    }
+
+    #[test]
+    fn parse_error_body_different_code_field() {
+        let body = r#"{"error":{"message":"bad","status":"INVALID_ARGUMENT"}}"#;
+        let (msg, code, _) = parse_error_body(body, "status");
+        assert_eq!(msg, "bad");
+        assert_eq!(code.as_deref(), Some("INVALID_ARGUMENT"));
+    }
+
+    #[test]
+    fn parse_error_body_no_message() {
+        let body = r#"{"error":{"type":"server_error"}}"#;
+        let (msg, code, _) = parse_error_body(body, "type");
+        assert_eq!(msg, "Unknown error");
+        assert_eq!(code.as_deref(), Some("server_error"));
+    }
+
+    // --- extract_system_prompt ---
+
+    #[test]
+    fn extract_system_prompt_no_system() {
+        let msgs = vec![Message::user("hello")];
+        let (sys, other) = extract_system_prompt(&msgs);
+        assert_eq!(sys, None);
+        assert_eq!(other.len(), 1);
+    }
+
+    #[test]
+    fn extract_system_prompt_system_only() {
+        let msgs = vec![Message::system("Be helpful"), Message::user("hi")];
+        let (sys, other) = extract_system_prompt(&msgs);
+        assert_eq!(sys.as_deref(), Some("Be helpful"));
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].role, Role::User);
+    }
+
+    #[test]
+    fn extract_system_prompt_multiple_system() {
+        let msgs = vec![
+            Message::system("Rule 1"),
+            Message::system("Rule 2"),
+            Message::user("hi"),
+        ];
+        let (sys, other) = extract_system_prompt(&msgs);
+        assert_eq!(sys.as_deref(), Some("Rule 1\nRule 2"));
+        assert_eq!(other.len(), 1);
+    }
+
+    #[test]
+    fn extract_system_prompt_developer_role() {
+        let dev = Message {
+            role: Role::Developer,
+            content: vec![ContentPart::text("dev instructions")],
+            name: None,
+            tool_call_id: None,
+        };
+        let msgs = vec![dev, Message::user("hi")];
+        let (sys, other) = extract_system_prompt(&msgs);
+        assert_eq!(sys.as_deref(), Some("dev instructions"));
+        assert_eq!(other.len(), 1);
+    }
+
+    #[test]
+    fn extract_system_prompt_empty() {
+        let msgs: Vec<Message> = vec![];
+        let (sys, other) = extract_system_prompt(&msgs);
+        assert_eq!(sys, None);
+        assert!(other.is_empty());
+    }
+
+    // --- parse_retry_after ---
+
+    #[test]
+    fn parse_retry_after_valid() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "2.5".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), Some(2.5));
+    }
+
+    #[test]
+    fn parse_retry_after_missing() {
+        let headers = reqwest::header::HeaderMap::new();
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn parse_retry_after_invalid() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "not-a-number".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn parse_retry_after_integer() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "5".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), Some(5.0));
     }
 }

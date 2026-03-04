@@ -285,4 +285,72 @@ mod tests {
             .iter()
             .all(|p| !p.api_key_env_vars().is_empty()));
     }
+
+    // Mock adapter that supports all tool choices
+    struct MockAdapter;
+
+    #[async_trait::async_trait]
+    impl ProviderAdapter for MockAdapter {
+        fn name(&self) -> &str {
+            "mock"
+        }
+        async fn complete(&self, _request: &Request) -> Result<Response, SdkError> {
+            unimplemented!()
+        }
+        async fn stream(&self, _request: &Request) -> Result<StreamEventStream, SdkError> {
+            unimplemented!()
+        }
+    }
+
+    // Mock adapter that rejects "named" tool choice
+    struct RestrictedAdapter;
+
+    #[async_trait::async_trait]
+    impl ProviderAdapter for RestrictedAdapter {
+        fn name(&self) -> &str {
+            "restricted"
+        }
+        async fn complete(&self, _request: &Request) -> Result<Response, SdkError> {
+            unimplemented!()
+        }
+        async fn stream(&self, _request: &Request) -> Result<StreamEventStream, SdkError> {
+            unimplemented!()
+        }
+        fn supports_tool_choice(&self, mode: &str) -> bool {
+            mode != "named"
+        }
+    }
+
+    #[test]
+    fn validate_tool_choice_auto_accepted() {
+        assert!(validate_tool_choice(&MockAdapter, &ToolChoice::Auto).is_ok());
+    }
+
+    #[test]
+    fn validate_tool_choice_none_accepted() {
+        assert!(validate_tool_choice(&MockAdapter, &ToolChoice::None).is_ok());
+    }
+
+    #[test]
+    fn validate_tool_choice_required_accepted() {
+        assert!(validate_tool_choice(&MockAdapter, &ToolChoice::Required).is_ok());
+    }
+
+    #[test]
+    fn validate_tool_choice_named_rejected_by_restricted() {
+        let result = validate_tool_choice(&RestrictedAdapter, &ToolChoice::named("my_tool"));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SdkError::UnsupportedToolChoice { message } => {
+                assert!(message.contains("restricted"));
+                assert!(message.contains("named"));
+            }
+            other => panic!("expected UnsupportedToolChoice, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_tool_choice_named_accepted_by_default() {
+        assert!(validate_tool_choice(&MockAdapter, &ToolChoice::named("my_tool")).is_ok());
+    }
 }

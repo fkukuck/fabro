@@ -442,3 +442,196 @@ async fn test_models(provider: Option<&str>, model: Option<&str>, s: &Styles) ->
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_option ---
+
+    #[test]
+    fn parse_option_valid() {
+        let (k, v) = parse_option("temperature=0.7").unwrap();
+        assert_eq!(k, "temperature");
+        assert_eq!(v, "0.7");
+    }
+
+    #[test]
+    fn parse_option_value_with_equals() {
+        let (k, v) = parse_option("key=a=b").unwrap();
+        assert_eq!(k, "key");
+        assert_eq!(v, "a=b");
+    }
+
+    #[test]
+    fn parse_option_no_equals() {
+        assert!(parse_option("nope").is_err());
+    }
+
+    // --- format_context_window ---
+
+    #[test]
+    fn format_context_window_millions() {
+        assert_eq!(format_context_window(1_000_000), "1m");
+    }
+
+    #[test]
+    fn format_context_window_thousands() {
+        assert_eq!(format_context_window(128_000), "128k");
+    }
+
+    #[test]
+    fn format_context_window_small() {
+        assert_eq!(format_context_window(400), "400");
+    }
+
+    #[test]
+    fn format_context_window_rounds_up() {
+        // 1500 rounds to 2000 -> "2k"
+        assert_eq!(format_context_window(1500), "2k");
+    }
+
+    #[test]
+    fn format_context_window_rounds_down() {
+        // 1499 rounds to 1000 -> "1k"
+        assert_eq!(format_context_window(1499), "1k");
+    }
+
+    #[test]
+    fn format_context_window_zero() {
+        assert_eq!(format_context_window(0), "0");
+    }
+
+    // --- format_cost ---
+
+    #[test]
+    fn format_cost_none() {
+        assert_eq!(format_cost(None), "-");
+    }
+
+    #[test]
+    fn format_cost_some() {
+        assert_eq!(format_cost(Some(3.0)), "$3.0");
+    }
+
+    #[test]
+    fn format_cost_fractional() {
+        assert_eq!(format_cost(Some(15.75)), "$15.8");
+    }
+
+    // --- format_speed ---
+
+    #[test]
+    fn format_speed_none() {
+        assert_eq!(format_speed(None), "-");
+    }
+
+    #[test]
+    fn format_speed_some() {
+        assert_eq!(format_speed(Some(85.5)), "85 tok/s");
+    }
+
+    // --- resolve_prompt ---
+
+    #[test]
+    fn resolve_prompt_arg_only() {
+        let result = resolve_prompt(Some("hello".into()), None).unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn resolve_prompt_stdin_only() {
+        let result = resolve_prompt(None, Some("piped".into())).unwrap();
+        assert_eq!(result, "piped");
+    }
+
+    #[test]
+    fn resolve_prompt_both_concatenates() {
+        let result = resolve_prompt(Some("arg".into()), Some("stdin".into())).unwrap();
+        assert_eq!(result, "stdin\narg");
+    }
+
+    #[test]
+    fn resolve_prompt_neither_errors() {
+        assert!(resolve_prompt(None, None).is_err());
+    }
+
+    // --- resolve_model ---
+
+    #[test]
+    fn resolve_model_explicit_known() {
+        let (model, provider) = resolve_model(Some("claude-sonnet-4-5".into()));
+        assert_eq!(model, "claude-sonnet-4-5");
+        assert_eq!(provider, Some("anthropic".to_string()));
+    }
+
+    #[test]
+    fn resolve_model_explicit_unknown() {
+        let (model, provider) = resolve_model(Some("nonexistent-model-xyz".into()));
+        assert_eq!(model, "nonexistent-model-xyz");
+        assert_eq!(provider, None);
+    }
+
+    #[test]
+    fn resolve_model_none_uses_default() {
+        let (model, provider) = resolve_model(None);
+        // Should return some valid model from catalog
+        assert!(!model.is_empty());
+        assert!(provider.is_some());
+    }
+
+    // --- apply_options ---
+
+    #[test]
+    fn apply_options_temperature() {
+        let params = GenerateParams::new("test-model");
+        let result = apply_options(params, &[("temperature".into(), "0.7".into())]).unwrap();
+        assert_eq!(result.temperature, Some(0.7));
+    }
+
+    #[test]
+    fn apply_options_max_tokens() {
+        let params = GenerateParams::new("test-model");
+        let result = apply_options(params, &[("max_tokens".into(), "4096".into())]).unwrap();
+        assert_eq!(result.max_tokens, Some(4096));
+    }
+
+    #[test]
+    fn apply_options_top_p() {
+        let params = GenerateParams::new("test-model");
+        let result = apply_options(params, &[("top_p".into(), "0.9".into())]).unwrap();
+        assert_eq!(result.top_p, Some(0.9));
+    }
+
+    #[test]
+    fn apply_options_unknown_key_goes_to_provider_opts() {
+        let params = GenerateParams::new("test-model");
+        let result =
+            apply_options(params, &[("custom_key".into(), "custom_val".into())]).unwrap();
+        let opts = result.provider_options.unwrap();
+        assert_eq!(opts["custom_key"], "custom_val");
+    }
+
+    #[test]
+    fn apply_options_invalid_temperature_errors() {
+        let params = GenerateParams::new("test-model");
+        assert!(
+            apply_options(params, &[("temperature".into(), "not_a_number".into())]).is_err()
+        );
+    }
+
+    #[test]
+    fn apply_options_invalid_max_tokens_errors() {
+        let params = GenerateParams::new("test-model");
+        assert!(apply_options(params, &[("max_tokens".into(), "abc".into())]).is_err());
+    }
+
+    #[test]
+    fn apply_options_empty() {
+        let params = GenerateParams::new("test-model");
+        let result = apply_options(params, &[]).unwrap();
+        assert_eq!(result.temperature, None);
+        assert_eq!(result.max_tokens, None);
+        assert_eq!(result.provider_options, None);
+    }
+}

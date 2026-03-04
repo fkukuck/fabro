@@ -1263,4 +1263,24 @@ mod tests {
             other => panic!("Expected StepFinish, got {other:?}"),
         }
     }
+
+    #[test]
+    fn tool_choice_mode_str_auto() {
+        assert_eq!(ToolChoice::Auto.mode_str(), "auto");
+    }
+
+    #[test]
+    fn tool_choice_mode_str_none() {
+        assert_eq!(ToolChoice::None.mode_str(), "none");
+    }
+
+    #[test]
+    fn tool_choice_mode_str_required() {
+        assert_eq!(ToolChoice::Required.mode_str(), "required");
+    }
+
+    #[test]
+    fn tool_choice_mode_str_named() {
+        assert_eq!(ToolChoice::named("get_weather").mode_str(), "named");
+    }
 }
