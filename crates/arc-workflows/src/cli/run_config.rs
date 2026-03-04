@@ -60,15 +60,59 @@ impl WorkflowRunConfig {
         if self.directory.is_none() {
             self.directory = defaults.directory.clone();
         }
-        if self.llm.is_none() {
-            self.llm = defaults.llm.clone();
+
+        match (&mut self.llm, &defaults.llm) {
+            (Some(task), Some(default)) => {
+                if task.model.is_none() {
+                    task.model = default.model.clone();
+                }
+                if task.provider.is_none() {
+                    task.provider = default.provider.clone();
+                }
+            }
+            (None, Some(_)) => self.llm = defaults.llm.clone(),
+            _ => {}
         }
-        if self.setup.is_none() {
-            self.setup = defaults.setup.clone();
+
+        match (&mut self.setup, &defaults.setup) {
+            (Some(task), Some(default)) => {
+                if task.timeout_ms.is_none() {
+                    task.timeout_ms = default.timeout_ms;
+                }
+            }
+            (None, Some(_)) => self.setup = defaults.setup.clone(),
+            _ => {}
         }
-        if self.sandbox.is_none() {
-            self.sandbox = defaults.sandbox.clone();
+
+        match (&mut self.sandbox, &defaults.sandbox) {
+            (Some(task), Some(default)) => {
+                if task.provider.is_none() {
+                    task.provider = default.provider.clone();
+                }
+                match (&mut task.daytona, &default.daytona) {
+                    (Some(task_d), Some(default_d)) => {
+                        if task_d.auto_stop_interval.is_none() {
+                            task_d.auto_stop_interval = default_d.auto_stop_interval;
+                        }
+                        if task_d.snapshot.is_none() {
+                            task_d.snapshot = default_d.snapshot.clone();
+                        }
+                        if let Some(ref default_labels) = default_d.labels {
+                            let mut merged = default_labels.clone();
+                            if let Some(ref task_labels) = task_d.labels {
+                                merged.extend(task_labels.clone());
+                            }
+                            task_d.labels = Some(merged);
+                        }
+                    }
+                    (None, Some(_)) => task.daytona = default.daytona.clone(),
+                    _ => {}
+                }
+            }
+            (None, Some(_)) => self.sandbox = defaults.sandbox.clone(),
+            _ => {}
         }
+
         if let Some(ref default_vars) = defaults.vars {
             let mut merged = default_vars.clone();
             if let Some(ref task_vars) = self.vars {
@@ -195,6 +239,7 @@ pub async fn run_setup(setup: &SetupConfig, directory: &Path) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daytona_sandbox::DaytonaSnapshotConfig;
 
     #[test]
     fn parse_toml_with_vars() {
@@ -565,6 +610,232 @@ graph = "w.dot"
         cfg.apply_defaults(&defaults);
         let vars = cfg.vars.unwrap();
         assert_eq!(vars["key"], "val");
+    }
+
+    #[test]
+    fn apply_defaults_merges_llm_fields() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[llm]
+model = "haiku"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            llm: Some(LlmConfig {
+                model: None,
+                provider: Some("anthropic".into()),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let llm = cfg.llm.unwrap();
+        assert_eq!(llm.model.as_deref(), Some("haiku"));
+        assert_eq!(llm.provider.as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn apply_defaults_merges_setup_timeout() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[setup]
+commands = ["make test"]
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            setup: Some(SetupConfig {
+                commands: vec!["make build".into()],
+                timeout_ms: Some(60000),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let setup = cfg.setup.unwrap();
+        assert_eq!(setup.commands, vec!["make test"]);
+        assert_eq!(setup.timeout_ms, Some(60000));
+    }
+
+    #[test]
+    fn apply_defaults_merges_sandbox_fields() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox]
+provider = "daytona"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                daytona: Some(DaytonaConfig {
+                    auto_stop_interval: Some(30),
+                    labels: None,
+                    snapshot: None,
+                }),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let sandbox = cfg.sandbox.unwrap();
+        assert_eq!(sandbox.provider.as_deref(), Some("daytona"));
+        let daytona = sandbox.daytona.unwrap();
+        assert_eq!(daytona.auto_stop_interval, Some(30));
+    }
+
+    #[test]
+    fn apply_defaults_merges_daytona_fields() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox]
+provider = "daytona"
+
+[sandbox.daytona]
+auto_stop_interval = 60
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: Some("daytona".into()),
+                daytona: Some(DaytonaConfig {
+                    auto_stop_interval: Some(30),
+                    labels: Some(HashMap::from([("env".into(), "prod".into())])),
+                    snapshot: None,
+                }),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let daytona = cfg.sandbox.unwrap().daytona.unwrap();
+        assert_eq!(daytona.auto_stop_interval, Some(60));
+        assert_eq!(daytona.labels.as_ref().unwrap()["env"], "prod");
+    }
+
+    #[test]
+    fn apply_defaults_merges_daytona_labels() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox.daytona.labels]
+project = "arc"
+env = "from_task"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                daytona: Some(DaytonaConfig {
+                    auto_stop_interval: None,
+                    labels: Some(HashMap::from([
+                        ("env".into(), "from_default".into()),
+                        ("team".into(), "platform".into()),
+                    ])),
+                    snapshot: None,
+                }),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let labels = cfg.sandbox.unwrap().daytona.unwrap().labels.unwrap();
+        assert_eq!(labels["project"], "arc");
+        assert_eq!(labels["team"], "platform");
+        assert_eq!(labels["env"], "from_task");
+    }
+
+    #[test]
+    fn apply_defaults_daytona_snapshot_whole_struct() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox.daytona.snapshot]
+name = "task-snap"
+cpu = 2
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                daytona: Some(DaytonaConfig {
+                    auto_stop_interval: None,
+                    labels: None,
+                    snapshot: Some(DaytonaSnapshotConfig {
+                        name: "default-snap".into(),
+                        cpu: Some(8),
+                        memory: Some(16),
+                        disk: Some(100),
+                        dockerfile: Some("FROM ubuntu".into()),
+                    }),
+                }),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let snapshot = cfg.sandbox.unwrap().daytona.unwrap().snapshot.unwrap();
+        assert_eq!(snapshot.name, "task-snap");
+        assert_eq!(snapshot.cpu, Some(2));
+        assert!(snapshot.memory.is_none());
+    }
+
+    #[test]
+    fn apply_defaults_daytona_snapshot_from_default() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox.daytona]
+auto_stop_interval = 60
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                daytona: Some(DaytonaConfig {
+                    auto_stop_interval: None,
+                    labels: None,
+                    snapshot: Some(DaytonaSnapshotConfig {
+                        name: "default-snap".into(),
+                        cpu: Some(4),
+                        memory: Some(8),
+                        disk: None,
+                        dockerfile: None,
+                    }),
+                }),
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let snapshot = cfg.sandbox.unwrap().daytona.unwrap().snapshot.unwrap();
+        assert_eq!(snapshot.name, "default-snap");
+        assert_eq!(snapshot.cpu, Some(4));
+        assert_eq!(snapshot.memory, Some(8));
     }
 
     #[tokio::test]
