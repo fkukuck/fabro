@@ -412,6 +412,7 @@ pub async fn run_command(
     // Wrap emitter in Arc now so we can share it with exec env callbacks
     let emitter = Arc::new(emitter);
 
+    let mut daytona_sandbox_ref: Option<Arc<crate::daytona_sandbox::DaytonaSandbox>> = None;
     let sandbox: Arc<dyn Sandbox> = match sandbox_provider {
         SandboxProvider::Docker => {
             let config = DockerSandboxConfig {
@@ -436,7 +437,9 @@ pub async fn run_command(
             env.set_event_callback(Arc::new(move |event| {
                 emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
             }));
-            Arc::new(env)
+            let daytona_arc = Arc::new(env);
+            daytona_sandbox_ref = Some(Arc::clone(&daytona_arc));
+            daytona_arc
         }
         SandboxProvider::Local => {
             let mut env = LocalSandbox::new(cwd);
@@ -481,6 +484,30 @@ pub async fn run_command(
         } else {
             (None, None, None)
         };
+
+    // Create SSH access if requested
+    if args.ssh {
+        if let Some(ref daytona) = daytona_sandbox_ref {
+            match daytona.create_ssh_access(Some(60.0)).await {
+                Ok(ssh_info) => {
+                    emitter.emit(&crate::event::WorkflowRunEvent::SshAccessReady {
+                        ssh_command: ssh_info.ssh_command,
+                    });
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{} Failed to create SSH access: {e}",
+                        styles.yellow.apply_to("Warning:"),
+                    );
+                }
+            }
+        } else {
+            eprintln!(
+                "{} --ssh only works with --sandbox daytona, skipping.",
+                styles.yellow.apply_to("Warning:"),
+            );
+        }
+    }
 
     // Run setup commands inside the sandbox (once, not per-stage)
     if !setup_commands.is_empty() {

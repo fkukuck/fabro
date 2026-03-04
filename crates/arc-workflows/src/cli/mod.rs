@@ -127,6 +127,10 @@ pub struct RunArgs {
     /// Skip retro generation after the run
     #[arg(long)]
     pub no_retro: bool,
+
+    /// Create SSH access to the Daytona sandbox and print the connection command
+    #[arg(long)]
+    pub ssh: bool,
 }
 
 #[derive(Args)]
@@ -561,6 +565,9 @@ pub fn format_event_summary(event: &WorkflowRunEvent, styles: &Styles) -> String
             files_skipped,
         } => {
             format!("[ASSETS_CAPTURED] node={node_id} files_copied={files_copied} total_bytes={} files_skipped={files_skipped}", HumanBytes(*total_bytes))
+        }
+        WorkflowRunEvent::SshAccessReady { ssh_command } => {
+            format!("[SSH_ACCESS_READY] {ssh_command}")
         }
     };
     format!("{}", styles.dim.apply_to(body))

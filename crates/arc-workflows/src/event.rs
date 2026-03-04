@@ -187,6 +187,9 @@ pub enum WorkflowRunEvent {
         total_bytes: u64,
         files_skipped: usize,
     },
+    SshAccessReady {
+        ssh_command: String,
+    },
 }
 
 impl WorkflowRunEvent {
@@ -443,6 +446,9 @@ impl WorkflowRunEvent {
                     node_id,
                     files_copied, total_bytes, files_skipped, "Assets captured"
                 );
+            }
+            Self::SshAccessReady { ssh_command } => {
+                info!(ssh_command, "SSH access ready");
             }
         }
     }

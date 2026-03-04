@@ -315,6 +315,9 @@ impl ProgressUI {
             WorkflowRunEvent::Agent { stage, event } => {
                 self.on_agent_event(stage, event);
             }
+            WorkflowRunEvent::SshAccessReady { ssh_command } => {
+                self.on_ssh_access_ready(ssh_command);
+            }
             _ => {}
         }
     }
@@ -375,6 +378,21 @@ impl ProgressUI {
                 }
             }
             _ => {}
+        }
+    }
+
+    // ── SSH access ──────────────────────────────────────────────────────
+
+    fn on_ssh_access_ready(&mut self, ssh_command: &str) {
+        match &self.renderer {
+            ProgressRenderer::Tty(tty) => {
+                let bar = tty.multi.add(ProgressBar::new_spinner());
+                bar.set_style(style_sandbox_detail());
+                bar.finish_with_message(ssh_command.to_string());
+            }
+            ProgressRenderer::Plain => {
+                eprintln!("             {ssh_command}");
+            }
         }
     }
 
