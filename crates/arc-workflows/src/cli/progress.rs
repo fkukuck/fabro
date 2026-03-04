@@ -101,12 +101,17 @@ fn tool_display_name(tool_name: &str, arguments: &serde_json::Value) -> String {
     let path_arg = || arg("path").or_else(|| arg("file_path")).map(|p| truncate(&shorten_path(p), 60));
 
     let detail = match tool_name {
-        "bash" | "execute_command" => arg("command").map(|c| truncate(c, 60)),
+        "bash" | "shell" | "execute_command" => arg("command").map(|c| truncate(c, 60)),
         "glob" => arg("pattern").map(String::from),
         "grep" | "ripgrep" => arg("pattern").map(|p| truncate(p, 40)),
         "read_file" | "read" => path_arg(),
         "write_file" | "write" | "create_file" => path_arg(),
         "edit_file" | "edit" => path_arg(),
+        "list_dir" => path_arg(),
+        "web_search" => arg("query").map(|q| truncate(q, 60)),
+        "web_fetch" => arg("url").map(|u| truncate(u, 60)),
+        "spawn_agent" => arg("task").map(|t| truncate(t, 60)),
+        "use_skill" => arg("skill_name").map(String::from),
         _ => None,
     };
 
