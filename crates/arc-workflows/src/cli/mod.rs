@@ -131,6 +131,10 @@ pub struct RunArgs {
     /// Create SSH access to the Daytona sandbox and print the connection command
     #[arg(long)]
     pub ssh: bool,
+
+    /// Keep the sandbox alive after the run finishes (for debugging)
+    #[arg(long)]
+    pub preserve_sandbox: bool,
 }
 
 #[derive(Args)]

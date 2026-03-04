@@ -525,6 +525,13 @@ impl Sandbox for DaytonaSandbox {
         "Linux (Daytona)".to_string()
     }
 
+    fn sandbox_info(&self) -> String {
+        self.sandbox
+            .get()
+            .map(|s| s.name.clone())
+            .unwrap_or_default()
+    }
+
     async fn read_file(
         &self,
         path: &str,

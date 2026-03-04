@@ -36,6 +36,7 @@ pub struct SetupConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct SandboxConfig {
     pub provider: Option<String>,
+    pub preserve: Option<bool>,
     pub daytona: Option<DaytonaConfig>,
 }
 
@@ -88,6 +89,9 @@ impl WorkflowRunConfig {
             (Some(task), Some(default)) => {
                 if task.provider.is_none() {
                     task.provider = default.provider.clone();
+                }
+                if task.preserve.is_none() {
+                    task.preserve = default.preserve;
                 }
                 match (&mut task.daytona, &default.daytona) {
                     (Some(task_d), Some(default_d)) => {
@@ -665,6 +669,87 @@ commands = ["make test"]
     }
 
     #[test]
+    fn parse_toml_with_sandbox_preserve() {
+        let toml = r#"
+version = 1
+goal = "Run tests"
+graph = "workflow.dot"
+
+[sandbox]
+provider = "docker"
+preserve = true
+"#;
+        let config = parse_run_config(toml).unwrap();
+        let sandbox = config.sandbox.unwrap();
+        assert_eq!(sandbox.preserve, Some(true));
+    }
+
+    #[test]
+    fn parse_toml_sandbox_preserve_defaults_to_none() {
+        let toml = r#"
+version = 1
+goal = "Run tests"
+graph = "workflow.dot"
+
+[sandbox]
+provider = "docker"
+"#;
+        let config = parse_run_config(toml).unwrap();
+        let sandbox = config.sandbox.unwrap();
+        assert_eq!(sandbox.preserve, None);
+    }
+
+    #[test]
+    fn apply_defaults_merges_sandbox_preserve_task_wins() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox]
+preserve = true
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                preserve: Some(false),
+                daytona: None,
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.sandbox.unwrap().preserve, Some(true));
+    }
+
+    #[test]
+    fn apply_defaults_merges_sandbox_preserve_from_default() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[sandbox]
+provider = "docker"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            sandbox: Some(SandboxConfig {
+                provider: None,
+                preserve: Some(true),
+                daytona: None,
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.sandbox.unwrap().preserve, Some(true));
+    }
+
+    #[test]
     fn apply_defaults_merges_sandbox_fields() {
         let mut cfg = parse_run_config(
             r#"
@@ -680,6 +765,7 @@ provider = "daytona"
         let defaults = RunDefaults {
             sandbox: Some(SandboxConfig {
                 provider: None,
+                preserve: None,
                 daytona: Some(DaytonaConfig {
                     auto_stop_interval: Some(30),
                     labels: None,
@@ -714,6 +800,7 @@ auto_stop_interval = 60
         let defaults = RunDefaults {
             sandbox: Some(SandboxConfig {
                 provider: Some("daytona".into()),
+                preserve: None,
                 daytona: Some(DaytonaConfig {
                     auto_stop_interval: Some(30),
                     labels: Some(HashMap::from([("env".into(), "prod".into())])),
@@ -745,6 +832,7 @@ env = "from_task"
         let defaults = RunDefaults {
             sandbox: Some(SandboxConfig {
                 provider: None,
+                preserve: None,
                 daytona: Some(DaytonaConfig {
                     auto_stop_interval: None,
                     labels: Some(HashMap::from([
@@ -780,6 +868,7 @@ cpu = 2
         let defaults = RunDefaults {
             sandbox: Some(SandboxConfig {
                 provider: None,
+                preserve: None,
                 daytona: Some(DaytonaConfig {
                     auto_stop_interval: None,
                     labels: None,
@@ -817,6 +906,7 @@ auto_stop_interval = 60
         let defaults = RunDefaults {
             sandbox: Some(SandboxConfig {
                 provider: None,
+                preserve: None,
                 daytona: Some(DaytonaConfig {
                     auto_stop_interval: None,
                     labels: None,

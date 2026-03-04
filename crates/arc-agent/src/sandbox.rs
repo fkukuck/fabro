@@ -88,6 +88,10 @@ macro_rules! delegate_sandbox {
             fn os_version(&self) -> String {
                 self.$field.os_version()
             }
+
+            fn sandbox_info(&self) -> String {
+                self.$field.sandbox_info()
+            }
         }
     };
 }
@@ -320,6 +324,11 @@ pub trait Sandbox: Send + Sync {
     fn working_directory(&self) -> &str;
     fn platform(&self) -> &str;
     fn os_version(&self) -> String;
+    /// Return a human-readable identifier for the sandbox (e.g. container ID, sandbox name).
+    /// Used when `--preserve-sandbox` is active to tell the user how to reconnect.
+    fn sandbox_info(&self) -> String {
+        String::new()
+    }
 }
 
 #[cfg(test)]

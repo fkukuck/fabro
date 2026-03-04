@@ -119,6 +119,22 @@ fn resolve_sandbox_provider(
     Ok(cli.or(toml).or(defaults).unwrap_or_default())
 }
 
+/// Resolve preserve-sandbox: CLI flag > TOML config > run defaults > false.
+fn resolve_preserve_sandbox(
+    cli: bool,
+    run_cfg: Option<&WorkflowRunConfig>,
+    run_defaults: &RunDefaults,
+) -> bool {
+    if cli {
+        return true;
+    }
+    run_cfg
+        .and_then(|c| c.sandbox.as_ref())
+        .and_then(|s| s.preserve)
+        .or_else(|| run_defaults.sandbox.as_ref().and_then(|s| s.preserve))
+        .unwrap_or(false)
+}
+
 /// Resolve daytona config: TOML config > run defaults.
 fn resolve_daytona_config(
     run_cfg: Option<&WorkflowRunConfig>,
@@ -231,6 +247,8 @@ pub async fn run_command(
     // 2. Pre-flight: check git cleanliness before creating any files
     //    (must happen before logs dir is created, which may be inside the repo)
     let sandbox_provider = resolve_sandbox_provider(args.sandbox, run_cfg.as_ref(), &run_defaults)?;
+    let preserve_sandbox =
+        resolve_preserve_sandbox(args.preserve_sandbox, run_cfg.as_ref(), &run_defaults);
     let original_cwd = std::env::current_dir()?;
     let git_clean = match sandbox_provider {
         SandboxProvider::Local | SandboxProvider::Docker => {
@@ -460,6 +478,9 @@ pub async fn run_command(
     // Safety net: if we panic or return early, best-effort cleanup via spawn.
     let sandbox_for_cleanup = Arc::clone(&sandbox);
     let cleanup_guard = scopeguard::guard((), move |()| {
+        if preserve_sandbox {
+            return;
+        }
         let rt = tokio::runtime::Handle::try_current();
         if let Ok(handle) = rt {
             handle.spawn(async move {
@@ -771,7 +792,20 @@ pub async fn run_command(
 
     // 9. Cleanup sandbox (defuse the scopeguard so we await properly)
     scopeguard::ScopeGuard::into_inner(cleanup_guard);
-    if let Err(e) = sandbox.cleanup().await {
+    if preserve_sandbox {
+        let info = sandbox.sandbox_info();
+        if !info.is_empty() {
+            eprintln!(
+                "\n{} sandbox preserved: {info}",
+                styles.bold.apply_to("Info:")
+            );
+        } else {
+            eprintln!(
+                "\n{} sandbox preserved",
+                styles.bold.apply_to("Info:")
+            );
+        }
+    } else if let Err(e) = sandbox.cleanup().await {
         tracing::warn!(error = %e, "Sandbox cleanup failed");
         eprintln!(
             "\n{} sandbox cleanup failed: {e}",
@@ -1561,6 +1595,72 @@ mod tests {
         let (model, provider) = resolve_model_provider(None, None, Some(&cfg), &defaults, &graph);
         assert_eq!(model, "toml-model");
         assert_eq!(provider, Some("openai".to_string()));
+    }
+
+    #[test]
+    fn resolve_preserve_sandbox_cli_wins() {
+        let cfg = run_config::WorkflowRunConfig {
+            version: 1,
+            goal: "test".into(),
+            graph: "w.dot".into(),
+            directory: None,
+            llm: None,
+            setup: None,
+            sandbox: Some(run_config::SandboxConfig {
+                provider: None,
+                preserve: Some(false),
+                daytona: None,
+            }),
+            vars: None,
+        };
+        let defaults = RunDefaults::default();
+        assert!(resolve_preserve_sandbox(true, Some(&cfg), &defaults));
+    }
+
+    #[test]
+    fn resolve_preserve_sandbox_toml_wins_over_defaults() {
+        let cfg = run_config::WorkflowRunConfig {
+            version: 1,
+            goal: "test".into(),
+            graph: "w.dot".into(),
+            directory: None,
+            llm: None,
+            setup: None,
+            sandbox: Some(run_config::SandboxConfig {
+                provider: None,
+                preserve: Some(true),
+                daytona: None,
+            }),
+            vars: None,
+        };
+        let defaults = RunDefaults {
+            sandbox: Some(run_config::SandboxConfig {
+                provider: None,
+                preserve: Some(false),
+                daytona: None,
+            }),
+            ..RunDefaults::default()
+        };
+        assert!(resolve_preserve_sandbox(false, Some(&cfg), &defaults));
+    }
+
+    #[test]
+    fn resolve_preserve_sandbox_defaults_used() {
+        let defaults = RunDefaults {
+            sandbox: Some(run_config::SandboxConfig {
+                provider: None,
+                preserve: Some(true),
+                daytona: None,
+            }),
+            ..RunDefaults::default()
+        };
+        assert!(resolve_preserve_sandbox(false, None, &defaults));
+    }
+
+    #[test]
+    fn resolve_preserve_sandbox_defaults_to_false() {
+        let defaults = RunDefaults::default();
+        assert!(!resolve_preserve_sandbox(false, None, &defaults));
     }
 
     #[test]
