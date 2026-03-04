@@ -1031,11 +1031,7 @@ async fn run_from_branch(
 
 /// Print the final stage output from the checkpoint, if available.
 fn print_final_output(logs_dir: &std::path::Path, styles: &Styles) {
-    let checkpoint_path = logs_dir.join("checkpoint.json");
-    let Ok(data) = std::fs::read_to_string(&checkpoint_path) else {
-        return;
-    };
-    let Ok(checkpoint) = serde_json::from_str::<Checkpoint>(&data) else {
+    let Ok(checkpoint) = Checkpoint::load(&logs_dir.join("checkpoint.json")) else {
         return;
     };
 
