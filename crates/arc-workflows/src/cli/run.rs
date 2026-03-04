@@ -1278,7 +1278,7 @@ async fn generate_retro(
     }
 
     // Run retro agent session
-    eprintln!("{}", styles.dim.apply_to("Running retro..."));
+    eprintln!("{}", styles.dim.apply_to(format!("Running retro ({model})...")));
     let retro_start = std::time::Instant::now();
     let narrative_result = if dry_run_mode {
         Ok(crate::retro_agent::dry_run_narrative())
@@ -1294,22 +1294,66 @@ async fn generate_retro(
             retro.apply_narrative(narrative);
             match retro.save(logs_dir) {
                 Ok(()) => {
+                    // Line 1: smoothness + outcome with right-aligned duration
+                    let smoothness_str = retro
+                        .smoothness
+                        .as_ref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let outcome_str = retro
+                        .outcome
+                        .as_deref()
+                        .unwrap_or("No outcome recorded");
+                    let line1_content = format!("Retro: {smoothness_str} \u{2014} {outcome_str}");
+                    let term_width = console::Term::stderr().size().1 as usize;
+                    let dur_len = retro_dur.len();
+                    let pad1 = term_width.saturating_sub(line1_content.len() + dur_len);
+                    eprintln!(
+                        "{} {}{:pad1$}{}",
+                        styles.bold.apply_to("Retro:"),
+                        styles.dim.apply_to(format!("{smoothness_str} \u{2014} {outcome_str}")),
+                        "",
+                        styles.dim.apply_to(&retro_dur),
+                    );
+
+                    // Line 2: friction + open items (only if non-zero)
+                    let friction_count = retro
+                        .friction_points
+                        .as_ref()
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    let open_count =
+                        retro.open_items.as_ref().map(|v| v.len()).unwrap_or(0);
+                    if friction_count > 0 || open_count > 0 {
+                        let mut parts = Vec::new();
+                        if friction_count > 0 {
+                            let noun = if friction_count == 1 {
+                                "friction point"
+                            } else {
+                                "friction points"
+                            };
+                            parts.push(format!("{friction_count} {noun}"));
+                        }
+                        if open_count > 0 {
+                            let noun = if open_count == 1 {
+                                "open item"
+                            } else {
+                                "open items"
+                            };
+                            parts.push(format!("{open_count} {noun}"));
+                        }
+                        eprintln!("  {}", styles.dim.apply_to(parts.join(" \u{00b7} ")));
+                    }
+
+                    // Line 3: file path
                     let retro_path = format!(
                         "{}/retro.json",
                         super::tilde_path(logs_dir)
                     );
-                    let msg = format!("Retro saved to {retro_path}");
-                    let term_width = console::Term::stderr()
-                        .size()
-                        .1 as usize;
-                    let dur_len = retro_dur.len();
-                    let pad = term_width.saturating_sub(msg.len() + dur_len);
                     eprintln!(
-                        "{} {}{:pad$}{}",
+                        "  {} {}",
                         styles.dim.apply_to("Retro saved to"),
                         styles.underline.apply_to(&retro_path),
-                        "",
-                        styles.dim.apply_to(&retro_dur),
                     );
                 }
                 Err(e) => {

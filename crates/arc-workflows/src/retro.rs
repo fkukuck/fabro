@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
@@ -16,6 +17,19 @@ pub enum SmoothnessRating {
     Bumpy,
     Struggled,
     Failed,
+}
+
+impl fmt::Display for SmoothnessRating {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            SmoothnessRating::Effortless => "effortless",
+            SmoothnessRating::Smooth => "smooth",
+            SmoothnessRating::Bumpy => "bumpy",
+            SmoothnessRating::Struggled => "struggled",
+            SmoothnessRating::Failed => "failed",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
