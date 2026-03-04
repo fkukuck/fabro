@@ -3,6 +3,7 @@ use console::Style;
 /// Pre-built [`console::Style`] instances for styled terminal output.
 /// Each style is forced on/off based on the `use_color` flag passed to [`Styles::new`].
 pub struct Styles {
+    pub use_color: bool,
     pub bold: Style,
     pub dim: Style,
     pub cyan: Style,
@@ -21,6 +22,7 @@ impl Styles {
     #[must_use]
     pub fn new(use_color: bool) -> Self {
         Self {
+            use_color,
             bold: Style::new().bold().force_styling(use_color),
             dim: Style::new().dim().force_styling(use_color),
             cyan: Style::new().cyan().force_styling(use_color),
@@ -34,6 +36,16 @@ impl Styles {
             bold_green: Style::new().bold().green().force_styling(use_color),
             bold_red: Style::new().bold().red().force_styling(use_color),
         }
+    }
+
+    /// Render Markdown text with terminal formatting (bold, tables, headers).
+    /// Returns plain text when color is disabled.
+    #[must_use]
+    pub fn render_markdown(&self, text: &str) -> String {
+        if !self.use_color {
+            return text.to_string();
+        }
+        termimad::term_text(text).to_string()
     }
 
     /// Create styles based on whether stderr is a TTY.

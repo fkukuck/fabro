@@ -1096,7 +1096,7 @@ fn print_final_output(logs_dir: &std::path::Path, styles: &Styles) {
             let text = response.trim();
             if !text.is_empty() {
                 eprintln!("\n{}", styles.bold.apply_to("=== Output ==="));
-                eprintln!("{text}");
+                eprintln!("{}", styles.render_markdown(text));
             }
             return;
         }

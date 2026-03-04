@@ -217,11 +217,11 @@ fn format_tool_args(args: &serde_json::Value, cwd: &str) -> String {
         .join(", ")
 }
 
-fn print_output(session: &Session) {
+fn print_output(session: &Session, styles: &Styles) {
     for turn in session.history().turns() {
         if let Turn::Assistant { content, .. } = turn {
             if !content.is_empty() {
-                println!("{content}");
+                println!("{}", styles.render_markdown(content));
             }
         }
     }
@@ -575,7 +575,7 @@ pub async fn run_with_args(args: AgentArgs) -> anyhow::Result<()> {
 
     if matches!(output_format, OutputFormat::Text) {
         // Print assistant text to stdout
-        print_output(&session);
+        print_output(&session, styles);
 
         // Print completion summary to stderr
         print_summary(&session, styles);
