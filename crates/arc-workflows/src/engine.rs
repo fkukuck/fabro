@@ -1514,7 +1514,7 @@ impl WorkflowRunEngine {
                 (None, Some(target.clone()))
             } else {
                 let edge = select_edge(&node.id, &outcome, &context, graph);
-                if let Some(ref e) = edge {
+                if let Some(e) = &edge {
                     self.services.emitter.emit(&WorkflowRunEvent::EdgeSelected {
                         from_node: node.id.clone(),
                         to_node: e.to.clone(),

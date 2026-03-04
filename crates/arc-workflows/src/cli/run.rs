@@ -733,42 +733,43 @@ pub async fn run_command(
         HumanDuration(Duration::from_millis(run_duration_ms))
     );
 
-    let acc = accumulator.lock().unwrap();
-    let total_tokens = acc.total_input_tokens + acc.total_output_tokens;
-    if total_tokens > 0 {
-        if acc.has_pricing {
-            eprintln!(
-                "{}",
-                styles.dim.apply_to(format!(
-                    "Cost: {} ({} tokens)",
-                    format_cost(acc.total_cost),
-                    format_tokens_human(total_tokens)
-                ))
-            );
-        } else {
-            eprintln!("{}", styles.dim.apply_to(format!("Tokens: {}", format_tokens_human(total_tokens))));
-        }
-        if acc.total_cache_read_tokens > 0 {
-            eprintln!(
-                "{}",
-                styles.dim.apply_to(format!(
-                    "Cache: {} read, {} write",
-                    format_tokens_human(acc.total_cache_read_tokens),
-                    format_tokens_human(acc.total_cache_write_tokens),
-                )),
-            );
-        }
-        if acc.total_reasoning_tokens > 0 {
-            eprintln!(
-                "{}",
-                styles.dim.apply_to(format!(
-                    "Reasoning: {} tokens",
-                    format_tokens_human(acc.total_reasoning_tokens),
-                )),
-            );
+    {
+        let acc = accumulator.lock().unwrap();
+        let total_tokens = acc.total_input_tokens + acc.total_output_tokens;
+        if total_tokens > 0 {
+            if acc.has_pricing {
+                eprintln!(
+                    "{}",
+                    styles.dim.apply_to(format!(
+                        "Cost: {} ({} tokens)",
+                        format_cost(acc.total_cost),
+                        format_tokens_human(total_tokens)
+                    ))
+                );
+            } else {
+                eprintln!("{}", styles.dim.apply_to(format!("Tokens: {}", format_tokens_human(total_tokens))));
+            }
+            if acc.total_cache_read_tokens > 0 {
+                eprintln!(
+                    "{}",
+                    styles.dim.apply_to(format!(
+                        "Cache: {} read, {} write",
+                        format_tokens_human(acc.total_cache_read_tokens),
+                        format_tokens_human(acc.total_cache_write_tokens),
+                    )),
+                );
+            }
+            if acc.total_reasoning_tokens > 0 {
+                eprintln!(
+                    "{}",
+                    styles.dim.apply_to(format!(
+                        "Reasoning: {} tokens",
+                        format_tokens_human(acc.total_reasoning_tokens),
+                    )),
+                );
+            }
         }
     }
-    drop(acc);
 
     if let Some(failure) = outcome.failure_reason() {
         eprintln!("{}", styles.red.apply_to(format!("Failure: {failure}")),);

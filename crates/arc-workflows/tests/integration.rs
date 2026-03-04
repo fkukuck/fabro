@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arc_llm::provider::Provider;
-use arc_util::terminal::Styles;
 use arc_workflows::checkpoint::Checkpoint;
 use arc_workflows::cli::backend::AgentApiBackend;
 use arc_workflows::context::Context;
@@ -7168,8 +7167,6 @@ fn parse_tool_hooks_from_dot_syntax() {
 // ---------------------------------------------------------------------------
 // E2E test with real LLM
 // ---------------------------------------------------------------------------
-
-static TEST_STYLES: std::sync::LazyLock<Styles> = std::sync::LazyLock::new(|| Styles::new(false));
 
 #[tokio::test]
 #[ignore = "requires ANTHROPIC_API_KEY"]

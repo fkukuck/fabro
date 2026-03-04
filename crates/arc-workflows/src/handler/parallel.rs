@@ -735,9 +735,7 @@ fn find_join_node(results: &[BranchResult], graph: &Graph) -> Option<String> {
     }
 
     // Find the intersection — nodes reachable from ALL branches
-    let Some(first) = target_sets.first() else {
-        return None;
-    };
+    let first = target_sets.first()?;
     let common: std::collections::HashSet<&String> = first
         .iter()
         .filter(|id| target_sets.iter().all(|set| set.contains(*id)))
