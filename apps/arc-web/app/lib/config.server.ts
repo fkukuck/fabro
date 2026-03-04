@@ -68,13 +68,19 @@ function loadAppConfig(): AppConfig {
   const rawApi = (raw.api ?? {}) as Partial<ApiConfig>;
   const rawGit = (raw.git ?? {}) as Partial<GitConfig>;
 
+  const demo = process.env.ARC_DEMO === "1";
+
   return {
     web: {
       ...WEB_DEFAULTS,
       url: (rawWeb.url as string) ?? WEB_DEFAULTS.url,
-      auth: { ...AUTH_DEFAULTS, ...rawWebAuth },
+      auth: demo
+        ? { provider: "insecure_disabled", allowed_usernames: [] }
+        : { ...AUTH_DEFAULTS, ...rawWebAuth },
     },
-    api: { ...API_DEFAULTS, ...rawApi },
+    api: demo
+      ? { ...API_DEFAULTS, authentication_strategy: "insecure_disabled" }
+      : { ...API_DEFAULTS, ...rawApi },
     git: { ...GIT_DEFAULTS, ...rawGit },
   };
 }

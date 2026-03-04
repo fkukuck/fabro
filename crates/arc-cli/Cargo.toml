@@ -32,6 +32,7 @@ semver.workspace = true
 reqwest.workspace = true
 jsonwebtoken.workspace = true
 base64.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 rustls-pemfile = "2"
 x509-parser = "0.16"
 rand.workspace = true

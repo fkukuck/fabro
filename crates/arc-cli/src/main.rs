@@ -78,6 +78,8 @@ enum LlmCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cli = Cli::parse();
     if !cli.no_dotenv {
         if let Some(home) = dirs::home_dir() {

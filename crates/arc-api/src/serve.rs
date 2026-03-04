@@ -154,8 +154,8 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         eprintln!("{}", styles.dim.apply_to("(dry-run mode)"));
     }
 
-    // Branch: TLS or plain HTTP
-    if let Some(ref tls_config) = server_config.api.tls {
+    // Branch: TLS or plain HTTP (demo mode always uses plain HTTP)
+    if let (false, Some(ref tls_config)) = (args.demo, &server_config.api.tls) {
         let client_auth = client_auth.unwrap();
 
         let rustls_config = crate::tls::build_rustls_config(tls_config, client_auth);
