@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use axum::http::StatusCode;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use rustls_pki_types::CertificateDer;
 use serde::Deserialize;
 use tracing::warn;
+
+use crate::error::ApiError;
 
 /// JWT claims for service-to-service authentication.
 #[derive(Debug, Deserialize)]
@@ -148,23 +149,23 @@ fn try_jwt(
     key: &DecodingKey,
     validation: &Validation,
     allowed_usernames: &[String],
-) -> Result<(), StatusCode> {
+) -> Result<(), ApiError> {
     let header = parts
         .headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(ApiError::unauthorized)?;
 
     let token = header
         .strip_prefix("Bearer ")
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(ApiError::unauthorized)?;
 
     let token_data = jsonwebtoken::decode::<Claims>(token, key, validation)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|_| ApiError::unauthorized())?;
 
     // Fail closed: if no usernames are allowed, reject all requests
     if allowed_usernames.is_empty() {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden());
     }
 
     // Extract GitHub username from sub claim URL (last path segment)
@@ -173,38 +174,38 @@ fn try_jwt(
         .sub
         .as_deref()
         .and_then(|s| s.rsplit('/').next())
-        .ok_or(StatusCode::FORBIDDEN)?;
+        .ok_or_else(ApiError::forbidden)?;
 
     if !allowed_usernames.iter().any(|u| u == username) {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden());
     }
 
     Ok(())
 }
 
 /// Try to authenticate via mTLS peer certificates.
-fn try_mtls(parts: &Parts) -> Result<(), StatusCode> {
+fn try_mtls(parts: &Parts) -> Result<(), ApiError> {
     let peer_certs = parts
         .extensions
         .get::<PeerCertificates>()
         .and_then(|pc| pc.0.as_ref())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(ApiError::unauthorized)?;
 
     if peer_certs.is_empty() {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(ApiError::unauthorized());
     }
 
     // Verify we can parse the leaf certificate and extract a CN
     let cert = &peer_certs[0];
     let (_, parsed) =
-        x509_parser::parse_x509_certificate(cert).map_err(|_| StatusCode::UNAUTHORIZED)?;
+        x509_parser::parse_x509_certificate(cert).map_err(|_| ApiError::unauthorized())?;
 
     parsed
         .subject()
         .iter_common_name()
         .next()
         .and_then(|cn| cn.as_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(ApiError::unauthorized)?;
 
     Ok(())
 }
@@ -217,7 +218,7 @@ fn try_mtls(parts: &Parts) -> Result<(), StatusCode> {
 pub struct AuthenticatedService;
 
 impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
-    type Rejection = StatusCode;
+    type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth_mode = parts
@@ -231,10 +232,10 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
         };
 
         if strategies.is_empty() {
-            return Err(StatusCode::UNAUTHORIZED);
+            return Err(ApiError::unauthorized());
         }
 
-        let mut last_err = StatusCode::UNAUTHORIZED;
+        let mut last_err = ApiError::unauthorized();
 
         for strategy in strategies {
             let result = match strategy {
@@ -265,7 +266,7 @@ pub struct AuthenticatedUser {
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedUser {
-    type Rejection = StatusCode;
+    type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth_mode = parts
@@ -283,10 +284,10 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedUser {
         };
 
         if strategies.is_empty() {
-            return Err(StatusCode::UNAUTHORIZED);
+            return Err(ApiError::unauthorized());
         }
 
-        let mut last_err = StatusCode::UNAUTHORIZED;
+        let mut last_err = ApiError::unauthorized();
 
         for strategy in strategies {
             match strategy {
@@ -300,7 +301,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedUser {
                             return Ok(AuthenticatedUser { login });
                         }
                     }
-                    last_err = StatusCode::UNAUTHORIZED;
+                    last_err = ApiError::unauthorized();
                 }
                 AuthStrategy::Mtls => {
                     if try_mtls(parts).is_ok() {
@@ -308,7 +309,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedUser {
                             return Ok(AuthenticatedUser { login });
                         }
                     }
-                    last_err = StatusCode::UNAUTHORIZED;
+                    last_err = ApiError::unauthorized();
                 }
             }
         }

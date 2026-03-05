@@ -13,11 +13,10 @@
  */
 
 
-// May contain unused imports in some cases
-// @ts-ignore
-import type { ErrorResponseEntry } from './error-response-entry';
 
-export interface ErrorResponse {
-    'errors': Array<ErrorResponseEntry>;
+export interface ErrorResponseEntry {
+    'status': string;
+    'title': string;
+    'detail': string;
 }
 

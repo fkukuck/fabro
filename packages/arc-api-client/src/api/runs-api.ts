@@ -228,7 +228,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
 
-            localVarHeaderParameter['Accept'] = 'text/event-stream';
+            localVarHeaderParameter['Accept'] = 'text/event-stream,application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};

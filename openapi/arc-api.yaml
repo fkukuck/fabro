@@ -91,6 +91,10 @@ paths:
                 $ref: "#/components/schemas/UserResponse"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Runs ──────────────────────────────────────────────────────────────
 
@@ -148,6 +152,10 @@ paths:
                 $ref: "#/components/schemas/RunStatusResponse"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/cancel:
     post:
@@ -170,6 +178,10 @@ paths:
                   - cancelled
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: Run is not running
           content:
@@ -193,6 +205,10 @@ paths:
                 type: string
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "502":
           description: Graphviz not available
           content:
@@ -215,6 +231,10 @@ paths:
               schema: {}
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/context:
     get:
@@ -232,6 +252,10 @@ paths:
                 type: object
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/events:
     get:
@@ -249,8 +273,16 @@ paths:
                 type: string
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "410":
           description: Event stream closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/questions:
     get:
@@ -270,6 +302,10 @@ paths:
                   $ref: "#/components/schemas/ApiQuestion"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/questions/{qid}/answer:
     post:
@@ -304,6 +340,10 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/retro:
     get:
@@ -320,6 +360,10 @@ paths:
               schema: {}
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/stages:
     get:
@@ -339,6 +383,10 @@ paths:
                   $ref: "#/components/schemas/RunStage"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/stages/{stageId}/turns:
     get:
@@ -363,6 +411,10 @@ paths:
                   $ref: "#/components/schemas/StageTurn"
         "404":
           description: Run or stage not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/files:
     get:
@@ -385,6 +437,10 @@ paths:
                 $ref: "#/components/schemas/RunFiles"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/usage:
     get:
@@ -402,6 +458,10 @@ paths:
                 $ref: "#/components/schemas/RunUsage"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/verifications:
     get:
@@ -421,6 +481,10 @@ paths:
                   $ref: "#/components/schemas/RunVerification"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/configuration:
     get:
@@ -438,6 +502,10 @@ paths:
                 type: string
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/steer:
     post:
@@ -466,6 +534,10 @@ paths:
                   - accepted
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /runs/{id}/preview:
     post:
@@ -489,6 +561,10 @@ paths:
                 $ref: "#/components/schemas/PreviewUrlResponse"
         "404":
           description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Workflows ─────────────────────────────────────────────────────────
 
@@ -527,6 +603,10 @@ paths:
                 $ref: "#/components/schemas/WorkflowDetail"
         "404":
           description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /workflows/{name}/runs:
     get:
@@ -550,6 +630,10 @@ paths:
                   $ref: "#/components/schemas/RunListItem"
         "404":
           description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: startWorkflowRun
       tags: [Workflows]
@@ -569,6 +653,10 @@ paths:
                 $ref: "#/components/schemas/StartRunResponse"
         "404":
           description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Verifications ─────────────────────────────────────────────────────
 
@@ -607,6 +695,10 @@ paths:
                 $ref: "#/components/schemas/VerificationDetailResponse"
         "404":
           description: Control not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Retros ────────────────────────────────────────────────────────────
 
@@ -679,6 +771,10 @@ paths:
                 $ref: "#/components/schemas/SessionDetail"
         "404":
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /sessions/{id}/messages:
     post:
@@ -711,6 +807,10 @@ paths:
                   - accepted
         "404":
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /sessions/{id}/events:
     get:
@@ -732,6 +832,10 @@ paths:
                 type: string
         "404":
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Insights ──────────────────────────────────────────────────────────
 
@@ -793,6 +897,10 @@ paths:
                 $ref: "#/components/schemas/SavedQuery"
         "404":
           description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deleteSavedQuery
       tags: [Insights]
@@ -808,6 +916,10 @@ paths:
           description: Query deleted
         "404":
           description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /insights/execute:
     post:
@@ -899,6 +1011,10 @@ paths:
                   $ref: "#/components/schemas/Branch"
         "404":
           description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   parameters:
@@ -1000,13 +1116,29 @@ components:
         accepted:
           type: boolean
 
+    ErrorResponseEntry:
+      type: object
+      required:
+        - status
+        - title
+        - detail
+      properties:
+        status:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+
     ErrorResponse:
       type: object
       required:
-        - error
+        - errors
       properties:
-        error:
-          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorResponseEntry"
 
     # ── New Run Schemas ─────────────────────────────────────────────────
 

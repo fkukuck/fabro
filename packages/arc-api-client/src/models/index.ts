@@ -12,6 +12,7 @@ export * from './create-session-response';
 export * from './diff-file';
 export * from './diff-stats';
 export * from './error-response';
+export * from './error-response-entry';
 export * from './evaluation-result';
 export * from './execute-query-request';
 export * from './execute-query-response';

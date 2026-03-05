@@ -28,6 +28,7 @@ models/create-session-request.ts
 models/create-session-response.ts
 models/diff-file.ts
 models/diff-stats.ts
+models/error-response-entry.ts
 models/error-response.ts
 models/evaluation-result.ts
 models/execute-query-request.ts

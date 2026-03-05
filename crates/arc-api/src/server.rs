@@ -16,6 +16,7 @@ use tracing::{error, info};
 
 use arc_agent::LocalSandbox;
 
+use crate::error::ApiError;
 use crate::jwt_auth::{AuthMode, AuthenticatedService, AuthenticatedUser};
 use arc_workflows::checkpoint::Checkpoint;
 use arc_workflows::context::Context;
@@ -191,7 +192,7 @@ pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
 }
 
 async fn not_implemented() -> Response {
-    StatusCode::NOT_IMPLEMENTED.into_response()
+    ApiError::new(StatusCode::NOT_IMPLEMENTED, "Not implemented.").into_response()
 }
 
 async fn root() -> Response {
@@ -268,11 +269,7 @@ async fn start_run(
     let graph = match arc_workflows::workflow::prepare_workflow(&req.dot_source) {
         Ok(g) => g,
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return ApiError::bad_request(e.to_string()).into_response();
         }
     };
 
@@ -416,7 +413,7 @@ async fn get_run_status(
             }),
         )
             .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -449,7 +446,7 @@ async fn get_questions(
                 .collect();
             (StatusCode::OK, Json(questions)).into_response()
         }
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -474,11 +471,7 @@ async fn submit_answer(
                     match option {
                         Some(opt) => Answer::selected(key.clone(), opt),
                         None => {
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                Json(serde_json::json!({"error": "invalid option key"})),
-                            )
-                                .into_response();
+                            return ApiError::bad_request("Invalid option key.").into_response();
                         }
                     }
                 }
@@ -487,7 +480,7 @@ async fn submit_answer(
             let accepted = managed_run.interviewer.submit_answer(&qid, answer);
             (StatusCode::OK, Json(SubmitAnswerResponse { accepted })).into_response()
         }
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -501,9 +494,9 @@ async fn get_events(
         match runs.get(&id) {
             Some(managed_run) => match &managed_run.event_tx {
                 Some(tx) => tx.subscribe(),
-                None => return StatusCode::GONE.into_response(),
+                None => return ApiError::new(StatusCode::GONE, "Event stream closed.").into_response(),
             },
-            None => return StatusCode::NOT_FOUND.into_response(),
+            None => return ApiError::not_found("Run not found.").into_response(),
         }
     };
 
@@ -532,7 +525,7 @@ async fn get_checkpoint(
             Some(cp) => (StatusCode::OK, Json(cp.clone())).into_response(),
             None => (StatusCode::OK, Json(serde_json::json!(null))).into_response(),
         },
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -547,7 +540,7 @@ async fn get_context(
             Some(ctx) => (StatusCode::OK, Json(ctx.snapshot())).into_response(),
             None => (StatusCode::OK, Json(serde_json::json!({}))).into_response(),
         },
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -560,11 +553,7 @@ async fn cancel_run(
     match runs.get_mut(&id) {
         Some(managed_run) => {
             if managed_run.status != RunStatus::Running {
-                return (
-                    StatusCode::CONFLICT,
-                    Json(serde_json::json!({"error": "run is not running"})),
-                )
-                    .into_response();
+                return ApiError::new(StatusCode::CONFLICT, "Run is not running.").into_response();
             }
             managed_run.cancel_token.store(true, Ordering::Relaxed);
             if let Some(cancel_tx) = managed_run.cancel_tx.take() {
@@ -573,7 +562,7 @@ async fn cancel_run(
             managed_run.status = RunStatus::Cancelled;
             (StatusCode::OK, Json(serde_json::json!({"cancelled": true}))).into_response()
         }
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -586,7 +575,7 @@ async fn get_retro(
         let runs = state.runs.lock().expect("runs lock poisoned");
         match runs.get(&id) {
             Some(managed_run) => managed_run.logs_root.clone(),
-            None => return StatusCode::NOT_FOUND.into_response(),
+            None => return ApiError::not_found("Run not found.").into_response(),
         }
     };
 
@@ -609,7 +598,7 @@ async fn get_graph(
         let runs = state.runs.lock().expect("runs lock poisoned");
         match runs.get(&id) {
             Some(managed_run) => managed_run.dot_source.clone(),
-            None => return StatusCode::NOT_FOUND.into_response(),
+            None => return ApiError::not_found("Run not found.").into_response(),
         }
     };
 
@@ -622,11 +611,7 @@ async fn get_graph(
     {
         Ok(child) => child,
         Err(_) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": "graphviz dot command not available"})),
-            )
-                .into_response();
+            return ApiError::new(StatusCode::BAD_GATEWAY, "Graphviz dot command not available.").into_response();
         }
     };
 
@@ -645,17 +630,11 @@ async fn get_graph(
             .into_response(),
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": format!("dot failed: {stderr}")})),
-            )
-                .into_response()
+            ApiError::new(StatusCode::BAD_GATEWAY, format!("dot failed: {stderr}")).into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({"error": format!("dot process error: {e}")})),
-        )
-            .into_response(),
+        Err(e) => {
+            ApiError::new(StatusCode::BAD_GATEWAY, format!("dot process error: {e}")).into_response()
+        }
     }
 }
 

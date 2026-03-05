@@ -24,6 +24,8 @@ import { BASE_PATH, COLLECTION_FORMATS, type RequestArgs, BaseAPI, RequiredError
 // @ts-ignore
 import type { Branch } from '../models';
 // @ts-ignore
+import type { ErrorResponse } from '../models';
+// @ts-ignore
 import type { Project } from '../models';
 /**
  * ProjectsApi - axios parameter creator

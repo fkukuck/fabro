@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 
+use crate::error::ApiError;
 use crate::jwt_auth::AuthenticatedService;
 use crate::server::AppState;
 
@@ -126,7 +127,7 @@ pub async fn get_run_status(
             }),
         )
             .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Run not found.").into_response(),
     }
 }
 
@@ -152,7 +153,7 @@ pub async fn run_events_stub(
     State(_state): State<Arc<AppState>>,
     Path(_id): Path<String>,
 ) -> Response {
-    StatusCode::GONE.into_response()
+    ApiError::new(StatusCode::GONE, "Event stream closed.").into_response()
 }
 
 pub async fn checkpoint_stub(
@@ -196,11 +197,7 @@ pub async fn get_run_graph(
     {
         Ok(child) => child,
         Err(_) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": "graphviz dot command not available"})),
-            )
-                .into_response();
+            return ApiError::new(StatusCode::BAD_GATEWAY, "Graphviz dot command not available.").into_response();
         }
     };
 
@@ -216,11 +213,7 @@ pub async fn get_run_graph(
             output.stdout,
         )
             .into_response(),
-        _ => (
-            StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({"error": "dot rendering failed"})),
-        )
-            .into_response(),
+        _ => ApiError::new(StatusCode::BAD_GATEWAY, "Dot rendering failed.").into_response(),
     }
 }
 
@@ -417,7 +410,7 @@ pub async fn get_workflow(
 ) -> Response {
     match workflows::detail(&name) {
         Some(detail) => (StatusCode::OK, Json(detail)).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Workflow not found.").into_response(),
     }
 }
 
@@ -461,7 +454,7 @@ pub async fn get_verification_detail(
 ) -> Response {
     match verifications::detail(&slug) {
         Some(detail) => (StatusCode::OK, Json(detail)).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Verification not found.").into_response(),
     }
 }
 
@@ -501,7 +494,7 @@ pub async fn get_session(
 ) -> Response {
     match sessions::detail(&id) {
         Some(detail) => (StatusCode::OK, Json(detail)).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => ApiError::not_found("Session not found.").into_response(),
     }
 }
 
@@ -519,7 +512,7 @@ pub async fn session_events_stub(
     Path(_id): Path<String>,
 ) -> Response {
     // Return an empty SSE-like response
-    StatusCode::GONE.into_response()
+    ApiError::new(StatusCode::GONE, "Event stream closed.").into_response()
 }
 
 // ── Insights ───────────────────────────────────────────────────────────

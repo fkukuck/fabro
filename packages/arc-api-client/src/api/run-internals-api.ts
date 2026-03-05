@@ -22,6 +22,8 @@ import { DUMMY_BASE_URL, assertParamExists, setApiKeyToObject, setBasicAuthToObj
 // @ts-ignore
 import { BASE_PATH, COLLECTION_FORMATS, type RequestArgs, BaseAPI, RequiredError, operationServerMap } from '../base';
 // @ts-ignore
+import type { ErrorResponse } from '../models';
+// @ts-ignore
 import type { RunStage } from '../models';
 // @ts-ignore
 import type { StageTurn } from '../models';
@@ -159,7 +161,7 @@ export const RunInternalsApiAxiosParamCreator = function (configuration?: Config
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
 
-            localVarHeaderParameter['Accept'] = 'text/plain';
+            localVarHeaderParameter['Accept'] = 'text/plain,application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};

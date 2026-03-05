@@ -26,6 +26,8 @@ import type { CreateSessionRequest } from '../models';
 // @ts-ignore
 import type { CreateSessionResponse } from '../models';
 // @ts-ignore
+import type { ErrorResponse } from '../models';
+// @ts-ignore
 import type { SendMessageRequest } from '../models';
 // @ts-ignore
 import type { SessionDetail } from '../models';
@@ -199,7 +201,7 @@ export const SessionsApiAxiosParamCreator = function (configuration?: Configurat
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
 
-            localVarHeaderParameter['Accept'] = 'text/event-stream';
+            localVarHeaderParameter['Accept'] = 'text/event-stream,application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
