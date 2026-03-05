@@ -6,7 +6,7 @@ import { statusColors } from "../data/runs";
 import type { ColumnStatus } from "../data/runs";
 import { apiJson } from "../api-client";
 import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
-import type { RunListItem, PreviewUrlResponse } from "@qltysh/arc-api-client";
+import type { PaginatedRunList, PreviewUrlResponse } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/run-detail";
 
 const tabs = [
@@ -21,8 +21,8 @@ const tabs = [
 export const handle = { hideHeader: true };
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const apiRuns = await apiJson<RunListItem[]>("/runs", { request });
-  const apiRun = apiRuns.find((r) => r.id === params.id);
+  const response = await apiJson<PaginatedRunList>("/runs", { request });
+  const apiRun = response.data.find((r) => r.id === params.id);
   if (!apiRun) return { run: null };
   return {
     run: {

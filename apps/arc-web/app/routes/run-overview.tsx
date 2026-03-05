@@ -7,7 +7,7 @@ import { useTheme } from "../lib/theme";
 import { getGraphTheme } from "../lib/graph-theme";
 import { apiJson } from "../api-client";
 import { formatDurationSecs } from "../lib/format";
-import type { RunStage, RunListItem, WorkflowDetail } from "@qltysh/arc-api-client";
+import type { RunStage, PaginatedRunList, WorkflowDetail } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/run-overview";
 
 export const handle = { wide: true };
@@ -22,9 +22,9 @@ interface Stage {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [apiStages, runs] = await Promise.all([
+  const [apiStages, response] = await Promise.all([
     apiJson<RunStage[]>(`/runs/${params.id}/stages`, { request }),
-    apiJson<RunListItem[]>("/runs", { request }),
+    apiJson<PaginatedRunList>("/runs", { request }),
   ]);
   const stages: Stage[] = apiStages.map((s) => ({
     id: s.id,
@@ -32,7 +32,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     status: s.status as StageStatus,
     duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
   }));
-  const run = runs.find((r) => r.id === params.id);
+  const run = response.data.find((r) => r.id === params.id);
   let graphDot: string | null = null;
   if (run) {
     try {

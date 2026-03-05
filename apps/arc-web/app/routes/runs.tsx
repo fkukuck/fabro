@@ -22,7 +22,7 @@ import { ciConfig, statusColors, deriveCiStatus } from "../data/runs";
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
 import { apiJson } from "../api-client";
 import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
-import type { RunListItem } from "@qltysh/arc-api-client";
+import type { RunListItem, PaginatedRunList } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/runs";
 
 export function meta({}: Route.MetaArgs) {
@@ -67,7 +67,8 @@ const columnConfig: {
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const apiRuns = await apiJson<RunListItem[]>("/runs", { request });
+  const response = await apiJson<PaginatedRunList>("/runs", { request });
+  const apiRuns = response.data;
   const items = apiRuns.map(mapRunListItem);
 
   const grouped = new Map<ColumnStatus, RunItem[]>();

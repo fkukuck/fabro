@@ -40,6 +40,8 @@ models/file-diff.ts
 models/health-response.ts
 models/history-entry.ts
 models/index.ts
+models/paginated-run-list.ts
+models/pagination-meta.ts
 models/preview-url-request.ts
 models/preview-url-response.ts
 models/project.ts

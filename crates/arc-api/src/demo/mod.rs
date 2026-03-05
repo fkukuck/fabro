@@ -4,21 +4,29 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
+use serde_json::json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 
 use crate::error::ApiError;
 use crate::jwt_auth::AuthenticatedService;
-use crate::server::AppState;
+use crate::server::{AppState, PaginationParams};
 
 // ── Runs ───────────────────────────────────────────────────────────────
 
 pub async fn list_runs(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
+    Query(pagination): Query<PaginationParams>,
 ) -> Response {
-    (StatusCode::OK, Json(runs::list_items())).into_response()
+    let all_items = runs::list_items();
+    let limit = pagination.limit.clamp(1, 100) as usize;
+    let offset = pagination.offset as usize;
+    let page: Vec<_> = all_items.into_iter().skip(offset).take(limit + 1).collect();
+    let has_more = page.len() > limit;
+    let data: Vec<_> = page.into_iter().take(limit).collect();
+    (StatusCode::OK, Json(json!({ "data": data, "meta": { "has_more": has_more } }))).into_response()
 }
 
 pub async fn start_run_stub(

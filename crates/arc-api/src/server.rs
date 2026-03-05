@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
@@ -27,9 +27,22 @@ use arc_workflows::interviewer::web::WebInterviewer;
 use arc_workflows::interviewer::{Answer, Interviewer};
 
 pub use arc_types::{
-    ApiQuestion, ApiQuestionOption, RunStatus, RunStatusResponse, StartRunRequest,
-    StartRunResponse, SubmitAnswerRequest, SubmitAnswerResponse,
+    ApiQuestion, ApiQuestionOption, PaginatedRunList, PaginationMeta, RunStatus,
+    RunStatusResponse, StartRunRequest, StartRunResponse, SubmitAnswerRequest,
+    SubmitAnswerResponse,
 };
+
+fn default_page_limit() -> u32 {
+    20
+}
+
+#[derive(serde::Deserialize)]
+pub struct PaginationParams {
+    #[serde(rename = "page[limit]", default = "default_page_limit")]
+    pub limit: u32,
+    #[serde(rename = "page[offset]", default)]
+    pub offset: u32,
+}
 
 /// Snapshot of a managed run.
 struct ManagedRun {
@@ -295,9 +308,15 @@ pub fn create_app_state_with_options(
     })
 }
 
-async fn list_runs(_auth: AuthenticatedService, State(state): State<Arc<AppState>>) -> Response {
+async fn list_runs(
+    _auth: AuthenticatedService,
+    State(state): State<Arc<AppState>>,
+    Query(pagination): Query<PaginationParams>,
+) -> Response {
     let runs = state.runs.lock().expect("runs lock poisoned");
-    let items: Vec<RunStatusResponse> = runs
+    let limit = pagination.limit.clamp(1, 100) as usize;
+    let offset = pagination.offset as usize;
+    let all_items: Vec<RunStatusResponse> = runs
         .iter()
         .map(|(id, managed_run)| RunStatusResponse {
             id: id.clone(),
@@ -305,7 +324,17 @@ async fn list_runs(_auth: AuthenticatedService, State(state): State<Arc<AppState
             error: managed_run.error.clone(),
         })
         .collect();
-    (StatusCode::OK, Json(items)).into_response()
+    let page: Vec<_> = all_items.into_iter().skip(offset).take(limit + 1).collect();
+    let has_more = page.len() > limit;
+    let data: Vec<_> = page.into_iter().take(limit).collect();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "data": data,
+            "meta": { "has_more": has_more }
+        })),
+    )
+        .into_response()
 }
 
 async fn start_run(
@@ -1179,7 +1208,8 @@ mod tests {
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = body_json(response.into_body()).await;
-        assert_eq!(body.as_array().unwrap().len(), 0);
+        assert_eq!(body["data"].as_array().unwrap().len(), 0);
+        assert_eq!(body["meta"]["has_more"].as_bool().unwrap(), false);
 
         // Start a run
         let req = Request::builder()
@@ -1205,10 +1235,11 @@ mod tests {
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = body_json(response.into_body()).await;
-        let items = body.as_array().unwrap();
+        let items = body["data"].as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["id"].as_str().unwrap(), run_id);
         assert!(items[0]["status"].as_str().is_some());
+        assert_eq!(body["meta"]["has_more"].as_bool().unwrap(), false);
     }
 
     #[tokio::test]

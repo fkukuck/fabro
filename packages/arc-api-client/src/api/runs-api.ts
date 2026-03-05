@@ -26,7 +26,7 @@ import type { CancelRun200Response } from '../models';
 // @ts-ignore
 import type { ErrorResponse } from '../models';
 // @ts-ignore
-import type { RunListItem } from '../models';
+import type { PaginatedRunList } from '../models';
 // @ts-ignore
 import type { RunStatusResponse } from '../models';
 // @ts-ignore
@@ -75,10 +75,12 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
         /**
          * 
          * @summary List Runs
+         * @param {number} [pageLimit] 
+         * @param {number} [pageOffset] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listRuns: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listRuns: async (pageLimit?: number, pageOffset?: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/runs`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -90,6 +92,14 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
+
+            if (pageLimit !== undefined) {
+                localVarQueryParameter['page[limit]'] = pageLimit;
+            }
+
+            if (pageOffset !== undefined) {
+                localVarQueryParameter['page[offset]'] = pageOffset;
+            }
 
             localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -264,11 +274,13 @@ export const RunsApiFp = function(configuration?: Configuration) {
         /**
          * 
          * @summary List Runs
+         * @param {number} [pageLimit] 
+         * @param {number} [pageOffset] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listRuns(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<RunListItem>>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listRuns(options);
+        async listRuns(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<PaginatedRunList>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listRuns(pageLimit, pageOffset, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunsApi.listRuns']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -347,11 +359,13 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         /**
          * 
          * @summary List Runs
+         * @param {number} [pageLimit] 
+         * @param {number} [pageOffset] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listRuns(options?: RawAxiosRequestConfig): AxiosPromise<Array<RunListItem>> {
-            return localVarFp.listRuns(options).then((request) => request(axios, basePath));
+        listRuns(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig): AxiosPromise<PaginatedRunList> {
+            return localVarFp.listRuns(pageLimit, pageOffset, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -414,11 +428,13 @@ export class RunsApi extends BaseAPI {
     /**
      * 
      * @summary List Runs
+     * @param {number} [pageLimit] 
+     * @param {number} [pageOffset] 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public listRuns(options?: RawAxiosRequestConfig) {
-        return RunsApiFp(this.configuration).listRuns(options).then((request) => request(this.axios, this.basePath));
+    public listRuns(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).listRuns(pageLimit, pageOffset, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
