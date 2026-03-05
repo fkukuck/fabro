@@ -28,6 +28,15 @@ pub enum HookType {
         #[serde(default)]
         tls: TlsMode,
     },
+    Prompt {
+        prompt: String,
+        model: Option<String>,
+    },
+    Agent {
+        prompt: String,
+        model: Option<String>,
+        max_tool_rounds: Option<u32>,
+    },
 }
 
 /// A single hook definition.
@@ -71,9 +80,18 @@ impl HookDefinition {
     }
 
     /// Timeout duration for this hook.
+    ///
+    /// Defaults: 30s for prompt hooks, 60s for all others.
     #[must_use]
     pub fn timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.timeout_ms.unwrap_or(60_000))
+        if let Some(ms) = self.timeout_ms {
+            return std::time::Duration::from_millis(ms);
+        }
+        let default_ms = match self.resolved_hook_type() {
+            Some(HookType::Prompt { .. }) => 30_000,
+            _ => 60_000,
+        };
+        std::time::Duration::from_millis(default_ms)
     }
 
     /// Whether this hook runs in the sandbox.
@@ -95,6 +113,10 @@ impl HookDefinition {
                 format!("{event_str}:{short}")
             }
             Some(HookType::Http { ref url, .. }) => format!("{event_str}:{url}"),
+            Some(HookType::Prompt { ref prompt, .. }) | Some(HookType::Agent { ref prompt, .. }) => {
+                let short = &prompt[..arc_agent::floor_char_boundary(prompt, 20)];
+                format!("{event_str}:{short}")
+            }
             None => event_str,
         }
     }
@@ -471,6 +493,100 @@ tls = "off"
             HookType::Http { tls, .. } => assert_eq!(tls, TlsMode::Off),
             _ => panic!("expected Http hook type"),
         }
+    }
+
+    #[test]
+    fn parse_prompt_hook() {
+        let toml = r#"
+[[hooks]]
+event = "stage_start"
+type = "prompt"
+prompt = "Should this stage proceed?"
+model = "haiku"
+"#;
+        let config: HookConfig = toml::from_str(toml).unwrap();
+        let hook = &config.hooks[0];
+        assert!(matches!(
+            hook.resolved_hook_type(),
+            Some(HookType::Prompt { prompt, model })
+                if prompt == "Should this stage proceed?" && model == Some("haiku".into())
+        ));
+    }
+
+    #[test]
+    fn parse_agent_hook() {
+        let toml = r#"
+[[hooks]]
+event = "run_complete"
+type = "agent"
+prompt = "Verify tests pass."
+model = "sonnet"
+max_tool_rounds = 10
+"#;
+        let config: HookConfig = toml::from_str(toml).unwrap();
+        let hook = &config.hooks[0];
+        assert!(matches!(
+            hook.resolved_hook_type(),
+            Some(HookType::Agent { prompt, model, max_tool_rounds })
+                if prompt == "Verify tests pass."
+                && model == Some("sonnet".into())
+                && max_tool_rounds == Some(10)
+        ));
+    }
+
+    #[test]
+    fn prompt_hook_default_timeout_30s() {
+        let def = HookDefinition {
+            name: None,
+            event: HookEvent::RunStart,
+            command: None,
+            hook_type: Some(HookType::Prompt {
+                prompt: "check".into(),
+                model: None,
+            }),
+            matcher: None,
+            blocking: None,
+            timeout_ms: None,
+            sandbox: None,
+        };
+        assert_eq!(def.timeout(), std::time::Duration::from_secs(30));
+    }
+
+    #[test]
+    fn agent_hook_default_timeout_60s() {
+        let def = HookDefinition {
+            name: None,
+            event: HookEvent::RunStart,
+            command: None,
+            hook_type: Some(HookType::Agent {
+                prompt: "check".into(),
+                model: None,
+                max_tool_rounds: None,
+            }),
+            matcher: None,
+            blocking: None,
+            timeout_ms: None,
+            sandbox: None,
+        };
+        assert_eq!(def.timeout(), std::time::Duration::from_secs(60));
+    }
+
+    #[test]
+    fn effective_name_generated_from_prompt_hook() {
+        let def = HookDefinition {
+            name: None,
+            event: HookEvent::StageStart,
+            command: None,
+            hook_type: Some(HookType::Prompt {
+                prompt: "Should this stage proceed?".into(),
+                model: None,
+            }),
+            matcher: None,
+            blocking: None,
+            timeout_ms: None,
+            sandbox: None,
+        };
+        assert!(def.effective_name().starts_with("stage_start:"));
     }
 
     #[test]

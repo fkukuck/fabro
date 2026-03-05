@@ -99,6 +99,14 @@ impl HookContext {
     }
 }
 
+/// Response returned by prompt/agent hooks from the LLM.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PromptHookResponse {
+    pub ok: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Decision returned by blocking hooks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
@@ -323,5 +331,20 @@ mod tests {
     #[test]
     fn hook_decision_default_is_proceed() {
         assert_eq!(HookDecision::default(), HookDecision::Proceed);
+    }
+
+    #[test]
+    fn prompt_hook_response_ok_true() {
+        let resp: PromptHookResponse = serde_json::from_str(r#"{"ok": true}"#).unwrap();
+        assert!(resp.ok);
+        assert_eq!(resp.reason, None);
+    }
+
+    #[test]
+    fn prompt_hook_response_ok_false_with_reason() {
+        let resp: PromptHookResponse =
+            serde_json::from_str(r#"{"ok": false, "reason": "not ready"}"#).unwrap();
+        assert!(!resp.ok);
+        assert_eq!(resp.reason.as_deref(), Some("not ready"));
     }
 }

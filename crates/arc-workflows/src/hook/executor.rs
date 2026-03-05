@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use arc_agent::Sandbox;
 
 use super::config::{HookDefinition, HookType, TlsMode};
-use super::types::{HookContext, HookDecision, HookResult};
+use super::types::{HookContext, HookDecision, HookResult, PromptHookResponse};
 
 /// Trait for executing hooks via different transports.
 #[async_trait]
@@ -165,6 +165,203 @@ impl HookExecutorImpl {
         }
     }
 
+    /// Parse a prompt/agent hook LLM response into a `HookDecision`.
+    ///
+    /// Fail-open: invalid JSON or missing fields → `Proceed`.
+    pub fn parse_prompt_response(response_text: &str) -> HookDecision {
+        match serde_json::from_str::<PromptHookResponse>(response_text.trim()) {
+            Ok(resp) if resp.ok => HookDecision::Proceed,
+            Ok(resp) => HookDecision::Block {
+                reason: resp.reason,
+            },
+            Err(e) => {
+                tracing::warn!(error = %e, "prompt hook response parse failed, proceeding");
+                HookDecision::Proceed
+            }
+        }
+    }
+
+    /// Execute a prompt hook: single-turn LLM call returning ok/block.
+    async fn execute_prompt(
+        prompt: &str,
+        model: &Option<String>,
+        context: &HookContext,
+        timeout: std::time::Duration,
+    ) -> HookDecision {
+        let result = tokio::time::timeout(timeout, async {
+            let model_id = model.as_deref().unwrap_or("haiku");
+            let model_info = arc_llm::catalog::get_model_info(model_id);
+            let resolved_model = model_info.as_ref().map_or(model_id, |m| m.id.as_str());
+
+            let context_json = serde_json::to_string(context).unwrap_or_default();
+            let system = "You are a hook evaluator for a workflow engine. Given context about a workflow event, evaluate the condition and respond with JSON: {\"ok\": true} or {\"ok\": false, \"reason\": \"...\"}. Respond ONLY with valid JSON.";
+            let user_msg = format!("Hook prompt: {prompt}\n\nEvent context:\n{context_json}");
+
+            let params = arc_llm::generate::GenerateParams::new(resolved_model)
+                .system(system)
+                .prompt(user_msg);
+
+            match arc_llm::generate::generate(params).await {
+                Ok(result) => Self::parse_prompt_response(&result.response.text()),
+                Err(e) => {
+                    tracing::warn!(error = %e, "prompt hook LLM call failed, proceeding");
+                    HookDecision::Proceed
+                }
+            }
+        })
+        .await;
+
+        match result {
+            Ok(decision) => decision,
+            Err(_) => {
+                tracing::warn!("prompt hook timed out, proceeding");
+                HookDecision::Proceed
+            }
+        }
+    }
+
+    /// Execute an agent hook: multi-turn LLM call with sandbox tool access.
+    ///
+    /// Uses a manual tool loop with `Client::complete()` to avoid closure
+    /// lifetime issues with the sandbox reference.
+    async fn execute_agent(
+        prompt: &str,
+        model: &Option<String>,
+        max_tool_rounds: Option<u32>,
+        context: &HookContext,
+        sandbox: &dyn Sandbox,
+        timeout: std::time::Duration,
+    ) -> HookDecision {
+        let result = tokio::time::timeout(timeout, async {
+            let model_id = model.as_deref().unwrap_or("haiku");
+            let model_info = arc_llm::catalog::get_model_info(model_id);
+            let resolved_model = model_info.as_ref().map_or(model_id, |m| m.id.as_str());
+
+            let client = match arc_llm::client::Client::from_env().await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(error = %e, "agent hook client creation failed, proceeding");
+                    return HookDecision::Proceed;
+                }
+            };
+
+            let context_json = serde_json::to_string(context).unwrap_or_default();
+            let system = "You are a hook evaluator for a workflow engine. Given context about a workflow event, evaluate the condition and respond with JSON: {\"ok\": true} or {\"ok\": false, \"reason\": \"...\"}. Respond ONLY with valid JSON.";
+            let user_msg = format!("Hook prompt: {prompt}\n\nEvent context:\n{context_json}");
+
+            let tool_defs = vec![
+                arc_llm::types::ToolDefinition {
+                    name: "exec_command".into(),
+                    description: "Execute a shell command in the sandbox".into(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "command": { "type": "string", "description": "Shell command to execute" }
+                        },
+                        "required": ["command"]
+                    }),
+                },
+                arc_llm::types::ToolDefinition {
+                    name: "read_file".into(),
+                    description: "Read a file from the sandbox".into(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string", "description": "Path to the file to read" }
+                        },
+                        "required": ["path"]
+                    }),
+                },
+            ];
+
+            let mut messages = vec![
+                arc_llm::types::Message::system(system),
+                arc_llm::types::Message::user(user_msg),
+            ];
+
+            let rounds = max_tool_rounds.unwrap_or(50);
+
+            for _ in 0..rounds {
+                let request = arc_llm::types::Request {
+                    model: resolved_model.to_string(),
+                    messages: messages.clone(),
+                    provider: None,
+                    tools: Some(tool_defs.clone()),
+                    tool_choice: None,
+                    response_format: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    stop_sequences: None,
+                    reasoning_effort: None,
+                    metadata: None,
+                    provider_options: None,
+                };
+
+                let response = match client.complete(&request).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "agent hook LLM call failed, proceeding");
+                        return HookDecision::Proceed;
+                    }
+                };
+
+                let tool_calls = response.tool_calls();
+                if tool_calls.is_empty() {
+                    return Self::parse_prompt_response(&response.text());
+                }
+
+                // Append assistant message with tool calls
+                messages.push(response.message.clone());
+
+                // Execute each tool call against the sandbox
+                for tc in &tool_calls {
+                    let args = &tc.arguments;
+
+                    let result_json = match tc.name.as_str() {
+                        "exec_command" => {
+                            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                            match sandbox.exec_command(command, 30_000, None, None, None).await {
+                                Ok(r) => serde_json::json!({
+                                    "exit_code": r.exit_code,
+                                    "stdout": r.stdout,
+                                    "stderr": r.stderr,
+                                }),
+                                Err(e) => serde_json::json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "read_file" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            match sandbox.read_file(path, None, None).await {
+                                Ok(content) => serde_json::json!({ "content": content }),
+                                Err(e) => serde_json::json!({ "error": e.to_string() }),
+                            }
+                        }
+                        other => serde_json::json!({ "error": format!("unknown tool: {other}") }),
+                    };
+
+                    messages.push(arc_llm::types::Message::tool_result(
+                        tc.id.clone(),
+                        result_json,
+                        false,
+                    ));
+                }
+            }
+
+            tracing::warn!("agent hook exhausted max tool rounds, proceeding");
+            HookDecision::Proceed
+        })
+        .await;
+
+        match result {
+            Ok(decision) => decision,
+            Err(_) => {
+                tracing::warn!("agent hook timed out, proceeding");
+                HookDecision::Proceed
+            }
+        }
+    }
+
     /// Execute an HTTP hook: POST context JSON and parse the response.
     /// Fail-open: non-2xx and connection errors return `Proceed`.
     async fn execute_http(
@@ -267,6 +464,27 @@ impl HookExecutor for HookExecutorImpl {
             }) => {
                 Self::execute_http(url, headers, allowed_env_vars, tls, context, definition.timeout())
                     .await
+            }
+            Some(HookType::Prompt {
+                ref prompt,
+                ref model,
+            }) => {
+                Self::execute_prompt(prompt, model, context, definition.timeout()).await
+            }
+            Some(HookType::Agent {
+                ref prompt,
+                ref model,
+                ref max_tool_rounds,
+            }) => {
+                Self::execute_agent(
+                    prompt,
+                    model,
+                    *max_tool_rounds,
+                    context,
+                    sandbox,
+                    definition.timeout(),
+                )
+                .await
             }
             None => HookDecision::Block {
                 reason: Some("no hook type specified".into()),
@@ -439,6 +657,42 @@ mod tests {
         let sandbox = arc_agent::LocalSandbox::new(std::env::current_dir().unwrap());
         let result = executor.execute(&def, &ctx, &sandbox, None).await;
         assert!(matches!(result.decision, HookDecision::Block { .. }));
+    }
+
+    // --- parse_prompt_response tests ---
+
+    #[test]
+    fn parse_prompt_response_ok_true() {
+        assert_eq!(
+            HookExecutorImpl::parse_prompt_response(r#"{"ok": true}"#),
+            HookDecision::Proceed,
+        );
+    }
+
+    #[test]
+    fn parse_prompt_response_ok_false() {
+        assert_eq!(
+            HookExecutorImpl::parse_prompt_response(r#"{"ok": false, "reason": "tests failing"}"#),
+            HookDecision::Block {
+                reason: Some("tests failing".into())
+            },
+        );
+    }
+
+    #[test]
+    fn parse_prompt_response_ok_false_no_reason() {
+        assert_eq!(
+            HookExecutorImpl::parse_prompt_response(r#"{"ok": false}"#),
+            HookDecision::Block { reason: None },
+        );
+    }
+
+    #[test]
+    fn parse_prompt_response_invalid_json() {
+        assert_eq!(
+            HookExecutorImpl::parse_prompt_response("not json"),
+            HookDecision::Proceed,
+        );
     }
 
     // --- interpolate_env_vars tests ---
