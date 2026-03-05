@@ -3,25 +3,67 @@ title: "Lifecycle hooks, model failover, and Docker Compose demo"
 date: "2026-03-05"
 ---
 
-Control workflow execution with lifecycle hooks that can call HTTP endpoints or ask an LLM, automatically fail over to backup models, and get started faster with Docker Compose.
-
-## Features
-
-- **Lifecycle hooks**: Attach hooks to workflow events that execute before or after stages — use them to notify external systems, enforce policies, or gate execution on custom conditions
-- **HTTP hooks**: Call external HTTP endpoints from hooks with environment variable interpolation in request bodies and configurable TLS modes for different environments
-- **Prompt and agent hooks**: Define hook conditions in natural language — the hook evaluates whether to proceed by asking an LLM, so workflows can adapt to nuanced situations like "skip this stage if the code change is cosmetic"
-- **Model failover**: Configure fallback models at the provider level, so if your primary model is unavailable or rate-limited, runs automatically switch to a backup without failing
-- **Docker Compose demo**: Run `docker compose up` to start a complete Arc demo environment locally — API server, web app, and sample workflows ready to explore
-- **CLI config file**: Persistent CLI defaults in `~/.arc/cli.toml` — set your preferred output format, default workflow, or any other CLI option once instead of passing flags every time
-
-## Improvements
-
-- **Variable validation**: Unknown `$variable` placeholders in DOT prompts now produce clear error messages instead of being silently passed through, catching typos before the run starts
-
 <Warning>
-## Breaking changes
-
 **`GET /runs/{id}/files` renamed to `GET /runs/{id}/compare`.** The endpoint returns the same data but the path now reflects its purpose of comparing file changes between checkpoints.
 
-To migrate: Update any API integrations using the old `/files` path to use `/compare`.
+To migrate: Update API integrations using `/files` to use `/compare`.
 </Warning>
+
+## Lifecycle hooks
+
+Workflows can now trigger actions at key moments — before a stage starts, after it completes, or when a run fails. Use hooks to notify external systems, enforce policies, or gate execution on custom conditions.
+
+## HTTP hooks
+
+Hook executors can call external HTTP endpoints with full environment variable interpolation in request bodies. TLS mode is configurable per-hook, supporting strict validation for production and permissive mode for development.
+
+```toml
+[[hooks]]
+event = "stage.before"
+executor = "http"
+url = "https://api.example.com/webhook"
+tls_mode = "strict"
+```
+
+## Prompt and agent hooks
+
+Define hook conditions in natural language instead of rigid pattern matching. The hook evaluates whether to proceed by asking an LLM, so workflows can adapt to nuanced situations like "skip this stage if the code change is cosmetic."
+
+```toml
+[[hooks]]
+event = "stage.before"
+executor = "prompt"
+prompt = "Should this stage run given the changes so far?"
+```
+
+## Model failover
+
+If your primary model is unavailable or rate-limited, runs now automatically switch to a backup. Configure fallback models at the provider level in your server config:
+
+```toml
+[providers.anthropic]
+failover = ["openai", "gemini"]
+```
+
+Previously, a provider outage would fail the entire run. Now it retries with the next provider in the list.
+
+## Docker Compose demo
+
+Get a complete Arc demo environment running locally with a single command — API server, web app, and docs site, all pre-configured.
+
+```bash
+docker compose -f docker-compose.demo.yaml up
+```
+
+## CLI config file
+
+Persistent CLI defaults in `~/.arc/cli.toml`. Set your preferred output format, default workflow, or any other CLI option once instead of passing flags every time.
+
+```toml
+output_format = "json"
+verbose = true
+```
+
+---
+
+- Unknown `$variable` placeholders in DOT prompts now produce clear error messages instead of being silently passed through

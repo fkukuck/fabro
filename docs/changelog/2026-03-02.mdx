@@ -3,30 +3,45 @@ title: "Workflows and runs, devcontainer support, and sessions"
 date: "2026-03-02"
 ---
 
-Clearer terminology, devcontainer-based sandboxes, persistent chat sessions, and GitHub OAuth login.
-
 <Warning>
-## Breaking changes
-
-**"Pipeline" renamed to "Workflow" and "Run" across the entire system.** API endpoints, CLI commands, config files, and the web UI now use `workflow` and `run` instead of `pipeline`. The OpenAPI spec, generated TypeScript client, and all CLI help text have been updated.
+**"Pipeline" renamed to "Workflow" and "Run" across the entire system.** API endpoints, CLI commands, config files, and the web UI now use `workflow` and `run` instead of `pipeline`.
 
 To migrate:
 1. Replace `pipeline` with `workflow` in DOT files and TOML configs
-2. Update any API integrations to use the new endpoint paths (e.g., `/runs` instead of `/pipelines`)
+2. Update API integrations to use new endpoint paths (e.g., `/runs` instead of `/pipelines`)
 3. Regenerate API clients with `bun run generate`
 </Warning>
 
-## Features
+## Devcontainer support
 
-- **Devcontainer support**: Use standard `devcontainer.json` files to define sandbox environments — Arc parses and resolves devcontainer configs including features, lifecycle hooks, build args, and container environment variables
-- **Sessions**: Persistent chat sessions with SQLite storage — start a conversation, come back to it later, and pick up where you left off
-- **GitHub OAuth login**: Authenticate to the Arc web app using your GitHub account, with automatic session management and user identity
-- **Preview endpoint**: Generate a live preview URL for any running sandbox with `POST /runs/{id}/preview`, accessible from a button in the run detail page
-- **LLM chat**: Interactive multi-turn conversations with any configured model via `arc llm chat`, useful for quick experiments and prompt testing
-- **Mintlify docs site**: Full documentation site with getting started guides, core concepts, workflow reference, and API docs
+Sandbox environments can now be defined using standard `devcontainer.json` files. Arc parses and resolves the full devcontainer spec — features, lifecycle hooks (`onCreateCommand`, `postStartCommand`), build args, `containerEnv`, feature dependencies, and Compose-based configurations.
 
-## Improvements
+If your project already has a `.devcontainer/devcontainer.json`, Arc can use it directly instead of requiring a separate sandbox configuration.
 
-- **Asset snapshots**: Generic asset collection for workflow node outputs — any files produced by a node are captured and available for review
-- **Error pages**: Styled 404 and 500 error pages matching the Arc design system instead of raw error text
-- **Debug flag**: Use `--debug` to switch log level from INFO to DEBUG for troubleshooting
+## Sessions
+
+Persistent chat sessions with SQLite storage. Start a conversation with an agent, close the terminal, and pick up where you left off. Sessions track messages, model, and conversation state.
+
+## GitHub OAuth login
+
+Authenticate to the Arc web app using your GitHub account. Session management is automatic, and user identity flows through to API authorization via JWT claims.
+
+## LLM chat
+
+Interactive multi-turn conversations with any configured model via the CLI. Useful for quick experiments and prompt testing outside of a workflow.
+
+```bash
+arc llm chat
+arc llm chat --model gemini-3.1-pro
+```
+
+## Mintlify docs site
+
+Full documentation site with getting started guides, core concepts, workflow reference, API docs, and this changelog.
+
+---
+
+- `POST /runs/{id}/preview` generates a live preview URL for any running sandbox, accessible from a button in the run detail page
+- Asset snapshots capture files produced by workflow nodes for review
+- Styled 404 and 500 error pages matching the Arc design system
+- `--debug` flag switches log level from INFO to DEBUG for troubleshooting

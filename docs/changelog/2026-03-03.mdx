@@ -3,25 +3,55 @@ title: "mTLS auth, setup wizard, and arc doctor"
 date: "2026-03-03"
 ---
 
-Stronger authentication, guided setup, and a diagnostic command that checks your entire Arc installation.
+## mTLS authentication
 
-## Features
+The API server now supports mutual TLS — both client and server present certificates, providing strong identity verification for production deployments. This is the recommended auth method for environments where network-level trust isn't sufficient.
 
-- **mTLS authentication**: Secure the API server with mutual TLS — both client and server present certificates, providing strong identity verification for production deployments
-- **Setup wizard**: Run `arc setup` for an interactive walkthrough that configures your API keys, server settings, and authentication — no more manually editing config files
-- **Arc doctor**: Run `arc doctor` to check your entire installation: system dependencies, cryptographic key validation, LLM provider connectivity, and web server configuration — with `--live` for real-time API probes
-- **Tailscale authentication**: Authenticate API requests using Tailscale identity for zero-config auth on Tailscale networks
-- **TOML configuration**: All configuration moves to `~/.arc/arc.toml` — API keys, auth settings, GitHub App config, and server options in one version-controllable file
-- **Run defaults**: Define default run settings in `server.toml` that all workflow runs inherit, so you don't have to specify the same sandbox, model, or concurrency settings every time
+## Setup wizard
 
-## Improvements
+Previously, getting Arc running meant manually editing config files and setting environment variables. Now run `arc setup` for an interactive walkthrough that configures API keys, server settings, and authentication.
 
-- **Progress UI**: A new indicatif-based progress display for `arc run start` shows real-time stage progress, tool calls, model names, and timing without the noise of raw event logs
-- **Model catalog**: Mercury provider updated to `mercury-2`, Claude Haiku alias updated, and estimated output speed (tok/s) added to `arc models list`
-- **Colored CLI output**: Consistent semantic color scheme across all CLI commands using the `console` crate, with `dialoguer` for interactive prompts
-- **Base64 PEM keys**: `ARC_JWT_PUBLIC_KEY` and `ARC_JWT_PRIVATE_KEY` accept base64-encoded PEM strings for easier deployment in containerized environments
+```bash
+arc setup
+```
 
-## Fixes
+The wizard detects your current configuration, prompts for missing values, and writes everything to `~/.arc/arc.toml`.
 
-- Fixes an issue where the JWT `sub` claim used the GitHub API URL instead of the profile URL, causing identity mismatches
-- Fixes stale configuration persisting after running `arc setup` until a manual restart
+## Arc doctor
+
+A single command to check your entire installation: system dependencies, cryptographic key validation, LLM provider connectivity, and web server configuration.
+
+```bash
+arc doctor         # quick local checks
+arc doctor --live  # includes real-time API probes to each configured provider
+```
+
+If something is misconfigured, `arc doctor` tells you exactly what's wrong and how to fix it.
+
+## Tailscale authentication
+
+For teams on a Tailscale network, API requests can authenticate using Tailscale identity — no tokens, no certificates, just the identity your machine already has.
+
+## TOML configuration
+
+All configuration moves to `~/.arc/arc.toml` — API keys, auth settings, GitHub App config, and server options in one file. Environment variables still work but the TOML file is the recommended approach.
+
+```toml
+[auth]
+provider = "github"
+
+[providers.anthropic]
+api_key = "sk-ant-..."
+
+[web]
+url = "http://localhost:5173"
+```
+
+---
+
+- New indicatif-based progress display for `arc run start` shows real-time stage progress, tool calls, model names, and timing
+- Mercury provider updated to `mercury-2`; estimated output speed (tok/s) added to `arc models list`
+- Run defaults in `server.toml` are inherited by all workflow runs, so you don't have to repeat sandbox, model, or concurrency settings
+- `ARC_JWT_PUBLIC_KEY` and `ARC_JWT_PRIVATE_KEY` accept base64-encoded PEM strings for containerized deployments
+- Fixes JWT `sub` claim using the GitHub API URL instead of the profile URL, causing identity mismatches
+- Fixes stale configuration persisting after `arc setup` until a manual restart

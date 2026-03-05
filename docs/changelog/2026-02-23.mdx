@@ -3,18 +3,35 @@ title: "First CLI, Docker sandboxing, and web dashboard"
 date: "2026-02-23"
 ---
 
-Arc's first usable release — run AI workflows from the command line, execute them in Docker sandboxes, and monitor progress through a web dashboard.
+## Arc CLI
 
-## Features
+Run AI workflows from the command line with `arc run start`, validate DOT workflow definitions with `arc validate`, and step through dry-runs to test logic before committing real LLM calls.
 
-- **Arc CLI**: Run workflows with `arc run start`, validate DOT definitions with `arc validate`, and step through dry-runs to test workflow logic before committing real LLM calls
-- **Docker sandboxing**: Isolate agent tool execution inside Docker containers with `--docker`, so workflows can safely run shell commands, edit files, and install dependencies without affecting your host machine
-- **Web dashboard**: Monitor workflow runs in real time with a pipeline kanban board showing status, progress, and human-in-the-loop prompts
-- **Interactive tool approval**: Approve or reject each tool call during a run via arrow-key prompts in the terminal, giving you fine-grained control over what the agent does
-- **Streaming output**: Watch LLM responses stream in real time instead of waiting for the full response, with `--output-format json` for NDJSON event streaming
+```bash
+arc run start spec-dod-multimodel.dot
+arc validate my-workflow.dot
+arc run start --dry-run my-workflow.dot
+```
 
-## Improvements
+The CLI streams LLM responses in real time and supports interactive tool approval — each tool call pauses for you to approve or reject via arrow-key prompts, giving fine-grained control over what the agent does.
 
-- **Claude Opus 4.6 default**: Ships with Claude Opus 4.6 (1M context window) as the default Anthropic model, and Gemini 3.1 Pro Preview as the default Gemini model
-- **Extended thinking**: Anthropic models now use adaptive thinking by default for deeper reasoning on complex tasks
-- **Prettier CLI output**: Color-coded terminal output with ANSI styling makes it easier to follow what the agent is doing
+## Docker sandboxing
+
+Agent tool execution can now run inside Docker containers, so workflows can safely run shell commands, edit files, and install dependencies without affecting your host machine.
+
+```bash
+arc run start --docker my-workflow.dot
+```
+
+The container is shared across all stages in a run, so tools have access to the same filesystem throughout the workflow.
+
+## Web dashboard
+
+A pipeline kanban board shows all active runs with their status, progress, and any pending human-in-the-loop prompts. Watch workflows execute in real time from the browser.
+
+---
+
+- Ships with Claude Opus 4.6 (1M context window) as the default Anthropic model and Gemini 3.1 Pro Preview as the default Gemini model
+- Anthropic models use adaptive thinking by default for deeper reasoning on complex tasks
+- Color-coded terminal output with ANSI styling makes it easier to follow agent activity
+- Use `--output-format json` for NDJSON event streaming into CI/CD pipelines or custom dashboards

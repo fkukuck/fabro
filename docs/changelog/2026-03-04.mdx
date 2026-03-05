@@ -3,27 +3,47 @@ title: "Pagination, concurrency limits, usage tracking, and SSH access"
 date: "2026-03-04"
 ---
 
-All list endpoints now support pagination, runs queue when capacity is full, and you can SSH into running sandboxes for live debugging.
+## Pagination
 
-## Features
+All list API endpoints now support offset-based pagination with `offset` and `limit` parameters. Previously, endpoints returned all results at once, which became slow as run history grew.
 
-- **Pagination**: All list API endpoints now support offset-based pagination with `offset` and `limit` parameters, so large result sets load efficiently
-- **Concurrency limiter**: Set `max_concurrent_runs` in server config to control how many runs execute simultaneously — additional runs queue automatically with `queued` and `starting` states visible in the UI
-- **Usage API**: `GET /usage` returns aggregate token counts and estimated costs across all runs, broken down by model — useful for budgeting and monitoring spend
-- **Timer nodes**: Add `wait.timer` nodes to workflows that pause for a configured duration, useful for rate limiting or waiting for external processes
-- **SSH access**: Use `--ssh` with `arc run start` to get SSH access into running Daytona sandboxes for live debugging while the workflow executes
-- **Hot config reload**: Changes to `server.toml` are automatically detected and applied without restarting the server, including model defaults from the catalog
-- **Gemini 3.1 Flash Lite**: Added to the model catalog for ultra-fast, low-cost tasks
-- **Preserve sandbox**: Use `--preserve-sandbox` to keep sandboxes alive after a run completes, so you can inspect the final state
+```bash
+curl "http://localhost:3000/runs?offset=0&limit=20"
+```
 
-## Improvements
+## Concurrency limiter
 
-- **Ensemble demo**: New multi-provider ensemble workflow demonstrating how to fan out the same task across different models and merge results
-- **CLI polish**: Parallel branches show in progress UI, sandbox details with hyperlinks display during runs, and retro summaries render as Markdown in the terminal
-- **Uniform error format**: All API error responses now use a consistent JSON structure with error codes and messages
+Set `max_concurrent_runs` in server config to control how many runs execute simultaneously. Additional runs queue automatically with `queued` and `starting` states visible in the UI and API.
 
-## Fixes
+Previously, starting too many runs at once could overwhelm the machine. Now excess runs wait in a queue and start as capacity frees up.
 
-- Fixes an issue where HTTP 529 (Overloaded) responses from LLM providers were misclassified as non-retryable, causing runs to fail instead of retrying
-- Fixes an issue where the `--config` flag was ignored when starting the server
-- Fixes a panic when displaying progress for tool calls containing long whitespace sequences
+## Usage API
+
+`GET /usage` returns aggregate token counts and estimated costs across all runs, broken down by model. Use it for budgeting, monitoring spend, or building cost dashboards.
+
+## SSH access to running sandboxes
+
+Use `--ssh` to get SSH access into running Daytona sandboxes for live debugging while the workflow executes. When something goes wrong mid-run, you can drop into the sandbox, inspect the filesystem, and understand the problem without waiting for the run to finish.
+
+```bash
+arc run start --ssh my-workflow.dot
+```
+
+Use `--preserve-sandbox` to keep sandboxes alive after a run completes for post-mortem inspection.
+
+## Hot config reload
+
+Changes to `server.toml` are automatically detected and applied without restarting the server. Model defaults from the catalog are also refreshed. No more restart-to-reconfigure cycles during development.
+
+## Timer nodes
+
+Add `wait.timer` nodes to workflows that pause for a configured duration. Useful for rate limiting between API calls or waiting for external processes to complete.
+
+---
+
+- Gemini 3.1 Flash Lite added to the model catalog for ultra-fast, low-cost tasks
+- Multi-provider ensemble demo workflow showing fan-out across models and result merging
+- Parallel branches show in progress UI; sandbox details with hyperlinks display during runs
+- All API error responses now use a consistent JSON structure with error codes and messages
+- Fixes HTTP 529 (Overloaded) responses from LLM providers being misclassified as non-retryable
+- Fixes progress display panic when tool calls contain long whitespace sequences

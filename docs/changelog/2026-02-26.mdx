@@ -3,10 +3,26 @@ title: "Daytona cloud sandboxes and TOML run config"
 date: "2026-02-26"
 ---
 
-Run workflows in Daytona cloud sandboxes and configure runs with TOML files instead of CLI flags.
+## Daytona cloud sandboxes
 
-## Features
+Workflows can now execute in Daytona cloud environments — full dev containers with SSH access, persistent storage, and network isolation. Previously, Docker was the only sandbox option, which meant running everything locally. Daytona moves execution to the cloud, freeing up your machine and providing a more production-like environment.
 
-- **Daytona cloud sandboxes**: Use `--execution-env daytona` to run agent tool execution in Daytona cloud environments — full dev containers with SSH access, persistent storage, and network isolation
-- **TOML run configuration**: Define run settings in a TOML file with `[execution]` for sandbox config and `[vars]` for DOT source parameterization, replacing long CLI flag chains with version-controlled config files
-- **Variable expansion**: Use `$variable` placeholders in DOT workflow sources and supply values through TOML config, making workflows reusable across different projects and environments
+```bash
+arc run start --execution-env daytona my-workflow.dot
+```
+
+## TOML run configuration
+
+Long chains of CLI flags are hard to remember and impossible to version-control. Run settings now live in a TOML file with `[execution]` for sandbox config and `[vars]` for DOT source parameterization.
+
+```toml
+[execution]
+environment = "daytona"
+
+[vars]
+repo = "https://github.com/example/project"
+branch = "main"
+language = "typescript"
+```
+
+Use `$variable` placeholders in DOT workflow sources and supply values through the TOML config, making workflows reusable across different projects and environments.

@@ -3,14 +3,22 @@ title: "Auto-compaction and run progress logs"
 date: "2026-02-24"
 ---
 
-Long-running agent sessions no longer fail when they hit the context window limit, and every run now produces a detailed progress log.
+## Auto-compaction
 
-## Features
+Long-running agent sessions used to fail when they hit the context window limit. Now, sessions automatically summarize earlier conversation history when approaching the limit, so long workflows keep running without manual intervention.
 
-- **Auto-compaction**: Agent sessions automatically summarize earlier conversation history when approaching the context window limit, so long workflows can keep running without manual intervention
-- **Progress logs**: Every run now writes `progress.ndjson` and `live.json` to the logs directory, giving you a structured record of every LLM call, tool execution, and routing decision for post-run analysis
-- **Model sync**: Run `arc models sync` to download the latest model metadata from OpenRouter, keeping your catalog current as new models launch
+The compaction preserves the most relevant context — recent tool calls, file changes, and key decisions — while condensing older turns into a structured summary.
 
-## Improvements
+## Progress logs
 
-- **Token and cost tracking**: Each run now tracks cumulative input/output tokens and estimated cost, displayed at completion
+Every run now writes `progress.ndjson` and `live.json` to the logs directory, giving you a structured record of every LLM call, tool execution, and routing decision. Use these for post-run analysis, debugging, or building custom dashboards.
+
+```bash
+# Watch events stream in real time
+tail -f ~/.arc/logs/<run-id>/progress.ndjson
+```
+
+---
+
+- Each run now tracks cumulative input/output tokens and estimated cost, displayed at completion
+- Run `arc models sync` to download the latest model metadata from OpenRouter

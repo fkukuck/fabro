@@ -3,18 +3,30 @@ title: "MCP tool servers, web tools, and multi-CLI backends"
 date: "2026-02-27"
 ---
 
-Agents can now connect to external MCP tool servers, search the web, fetch URLs, and delegate work to Claude Code, Codex, or Gemini CLIs.
+## MCP support
 
-## Features
+Agents can now connect to external tool servers using the Model Context Protocol. Any MCP-compatible server can provide tools to your workflows without custom integration — databases, APIs, internal services, anything with an MCP server.
 
-- **MCP support**: Connect agents to external tool servers using the Model Context Protocol — any MCP-compatible server can provide tools to your workflows without custom integration
-- **Web search**: Agents can search the web using the Brave Search API via the built-in `web_search` tool, bringing real-time information into workflow decisions
-- **Web fetch**: Agents can fetch and read web pages with `web_fetch`, which converts HTML to Markdown and summarizes long content to fit within context limits
-- **CLI backends**: Delegate agent work to Claude Code, Codex, or Gemini CLIs with the `cli_backend` option — each node in a workflow can use a different AI coding assistant
-- **Subagent tools**: Agents can spawn sub-agents to handle focused tasks in parallel, each with their own tool set and conversation context
-- **Structured compaction**: Context compaction now tracks which files were modified and preserves file-level state, so agents maintain accurate project understanding across compaction boundaries
+## Web search and web fetch
 
-## Improvements
+Two new built-in tools bring real-time information into workflow decisions. `web_search` queries the Brave Search API, and `web_fetch` retrieves web pages, converting HTML to Markdown and summarizing long content to fit within context limits.
 
-- **NDJSON streaming**: Use `--output-format json` for machine-readable event streaming, useful for integrating Arc into CI/CD pipelines or custom dashboards
-- **Artifact sync**: Files created in remote sandboxes are automatically synced back to the host, so workflow outputs are always available locally
+## CLI backends
+
+Individual workflow nodes can now delegate work to external AI coding assistants. Set the backend to `claude-code`, `codex`, or `gemini-cli` and the node will use that CLI tool instead of the built-in agent loop.
+
+```dot
+implement [handler=codergen, cli_backend=codex]
+review [handler=codergen, cli_backend=claude-code]
+```
+
+This means each stage in a workflow can use a different AI tool — use Codex for implementation and Claude Code for review, for example.
+
+## Subagent tools
+
+Agents can spawn sub-agents to handle focused tasks in parallel, each with their own tool set and conversation context. The parent agent delegates work and receives results without its own context window growing.
+
+---
+
+- Context compaction now tracks which files were modified and preserves file-level state across compaction boundaries
+- Files created in remote sandboxes are automatically synced back to the host

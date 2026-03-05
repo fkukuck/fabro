@@ -3,15 +3,26 @@ title: "Skills system and secret redaction"
 date: "2026-02-25"
 ---
 
-Reusable prompt templates and automatic secret detection keep workflows organized and logs safe to share.
+## Skills
 
-## Features
+Skills are reusable prompt templates that any workflow can invoke on demand. Define them as `skills/<name>/SKILL.md` files and activate them during runs with the `use_skill` tool.
 
-- **Skills**: Define reusable prompt templates as `skills/<name>/SKILL.md` files and activate them during runs with the `use_skill` tool — build a library of domain-specific capabilities that any workflow can invoke
-- **Secret redaction**: API keys, tokens, and other secrets detected in NDJSON logs, `live.json`, and SSE events are automatically redacted before being written, so progress logs are safe to share and store
-- **Claude Haiku 4.5**: Added to the model catalog for fast, cost-effective tasks within workflows
+```
+skills/
+  code-review/
+    SKILL.md
+  security-audit/
+    SKILL.md
+```
 
-## Improvements
+This lets you build a library of domain-specific capabilities — a code review checklist, a security audit procedure, a migration playbook — and compose them into different workflows without duplicating prompts.
 
-- **Per-node visit limits**: Nodes now track visit counts and stop after a configurable maximum, preventing infinite loops in dry-run mode
-- **One-shot LLM nodes**: Set `codergen_mode = "one_shot"` to use a single LLM call instead of an agent loop, useful for classification and summarization nodes that don't need tools
+## Secret redaction
+
+API keys, tokens, and other secrets detected in NDJSON logs, `live.json`, and SSE events are now automatically redacted before being written. Previously, progress logs could contain sensitive values if the agent encountered them during tool execution. Now they're safe to share, store, and ship to external observability systems.
+
+---
+
+- Added Claude Haiku 4.5 to the model catalog for fast, cost-effective tasks within workflows
+- Nodes now track visit counts and stop after a configurable maximum, preventing infinite loops in dry-run mode
+- Set `codergen_mode = "one_shot"` to use a single LLM call instead of an agent loop, useful for classification and summarization nodes

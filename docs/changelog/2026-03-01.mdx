@@ -3,27 +3,48 @@ title: "Verifications, retrospectives, insights, and parallel branching"
 date: "2026-03-01"
 ---
 
-Automatically verify run outputs, generate LLM-powered retrospectives, query run data with SQL, and run workflow branches in parallel git worktrees.
+## Verifications
 
-## Features
+Define verification checks that automatically validate run outputs. Browse the verification catalog to see all available checks, and review per-run results to catch regressions before merging.
 
-- **Verifications**: Define verification checks that automatically validate run outputs — browse the verification catalog and see per-run results to catch regressions before merging
-- **Retrospectives**: After each run, an LLM-powered retro agent analyzes what happened and generates a structured summary with timing, cost, and improvement suggestions
-- **Insights SQL workbench**: Write and save SQL queries against your run data to answer questions like "which workflows fail most?" or "what's the average cost per stage?" — with a query editor, template library, and execution history
-- **Parallel git branching**: Workflow branches now execute in isolated git worktrees, so parallel stages can edit files simultaneously without conflicts and merge cleanly at fan-in nodes
-- **SQLite persistence**: Run data, sessions, and verifications are stored in a local SQLite database for fast querying and reliable persistence
-- **Interactive SVG graphs**: Run graphs render as interactive SVGs with animated nodes showing which stage is currently executing
-- **Light mode**: Full light mode support with a theme toggle in the web app
+Verifications run after each workflow completes and report pass/fail status, so you get a quality gate between "the agent finished" and "the code is ready."
 
-## Improvements
+## Retrospectives
 
-- **Failure signatures and circuit breakers**: Deterministic failure cycles (like the same syntax error on every retry) are detected and short-circuited, saving tokens and time on runs that would never succeed
-- **Stall watchdog**: Hung pipeline handlers are detected and reported instead of silently blocking the run
-- **Structured tracing**: File-based tracing across all crates controlled by `ARC_LOG`, providing detailed diagnostics without cluttering normal output
-- **Retro output in CLI**: Retrospective summaries now print inline after the run completes, rendered as Markdown in the terminal
+After each run, an LLM-powered retro agent analyzes what happened and generates a structured summary — what worked, what didn't, timing breakdown, cost, and improvement suggestions. The retro prints inline in your terminal after the run completes, rendered as Markdown.
 
-## Fixes
+```bash
+arc run start my-workflow.dot
+# ... run executes ...
+# === Retro ===
+# The run completed in 4m 32s across 6 stages...
+```
 
-- Fixes an issue where non-transient infrastructure failures (like invalid API keys) would trigger retries instead of failing immediately
-- Fixes cross-browser SVG animation for the running graph node indicator
+Previously, understanding what happened in a run meant reading through raw logs. Now you get a concise post-mortem automatically.
+
+## Insights SQL workbench
+
+Query your run data directly with SQL to answer questions like "which workflows fail most?" or "what's the average cost per stage?" The web app includes a query editor, template library, and execution history.
+
+## Parallel git branching
+
+Workflow branches now execute in isolated git worktrees, so parallel stages can edit files simultaneously without conflicts. At fan-in nodes, changes merge cleanly back together.
+
+Previously, parallel stages sharing a single worktree would overwrite each other's changes. Worktree isolation makes parallel execution reliable.
+
+## SQLite persistence
+
+Run data, sessions, and verifications are stored in a local SQLite database. This replaces the previous file-only approach, enabling fast querying and the new Insights feature.
+
+## Light mode
+
+Full light mode support with a theme toggle in the web app.
+
+---
+
+- Interactive SVG graph rendering with animated nodes showing which stage is currently executing
+- Failure signatures and circuit breakers detect deterministic failure cycles (like the same syntax error on every retry) and short-circuit them, saving tokens and time
+- Stall watchdog detects hung pipeline handlers and reports them instead of silently blocking
+- File-based structured tracing across all crates controlled by `ARC_LOG`
+- Fixes non-transient infrastructure failures (like invalid API keys) triggering retries instead of failing immediately
 - Fixes UTF-8 string slicing panics when truncating multi-byte characters in progress output

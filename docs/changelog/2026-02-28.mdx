@@ -1,21 +1,27 @@
 ---
-title: "Arc web app, new providers, and git checkpointing"
+title: "Arc web app, new LLM providers, and git checkpointing"
 date: "2026-02-28"
 ---
 
-A full-featured web app for managing workflows, three new LLM providers, and automatic git checkpoints at every workflow node.
+## Arc web app
 
-## Features
+A full React-based dashboard for managing workflows. Browse workflow definitions with syntax-highlighted DOT and TOML, view run details with side-by-side diffs showing what each run changed, and inspect agent sessions turn-by-turn.
 
-- **Arc web app**: A complete React-based dashboard for browsing workflows, viewing run details with syntax-highlighted diffs, inspecting agent sessions turn-by-turn, and monitoring run status in real time
-- **Workflow visualization**: Interactive SVG diagrams of your workflow graph with zoom, pan, direction toggle, and fit-to-window controls — see exactly where a run is at a glance
-- **Diff viewer**: Side-by-side and unified diff views with syntax highlighting show exactly what each workflow run changed, with split/unified and background toggles
-- **Git checkpointing**: Arc automatically creates git commits at each workflow node, so you can see the exact state of the codebase at any point in a run and compare changes between stages
-- **Kimi, Z.AI, and Minimax providers**: Three new LLM providers expand your options for model selection in workflow stylesheets
-- **JWT authentication**: Secure service-to-service auth between arc-web and the API server using asymmetric JWT tokens with GitHub identity
+The workflow detail page renders an interactive SVG diagram of the workflow graph with zoom, pan, direction toggle, and fit-to-window controls — see exactly where a run is in the graph at a glance.
 
-## Improvements
+## Git checkpointing
 
-- **DOT parser**: Supports unquoted bare string values (e.g., `model = gpt-5.2`) for cleaner workflow definitions
-- **ULID run IDs**: Runs now use time-sortable ULIDs instead of UUIDs, making it easier to find recent runs in logs and the API
-- **Run labels**: Tag runs with custom labels and filter them with `arc run list`
+Arc now automatically creates git commits at each workflow node, so you can see the exact state of the codebase at any point in a run. The run detail page includes a checkpoint picker that lets you compare file changes between any two stages.
+
+Previously, you could only see the final output of a run. Now you can trace exactly what changed at each step and when.
+
+## Kimi, Z.AI, and Minimax providers
+
+Three new LLM providers expand model selection in workflow stylesheets. Configure API keys in your `.env` file and reference their models in DOT `model` attributes.
+
+---
+
+- DOT parser now supports unquoted bare string values (e.g., `model = gpt-5.2`) for cleaner workflow definitions
+- Runs use time-sortable ULIDs instead of UUIDs, making it easier to find recent runs in logs and the API
+- Tag runs with custom labels and filter them with `arc run list`
+- Asymmetric JWT authentication between arc-web and the API server, with GitHub identity in the token
