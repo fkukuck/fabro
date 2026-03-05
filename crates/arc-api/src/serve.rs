@@ -1,14 +1,16 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use arc_llm::provider::Provider;
 use arc_util::terminal::Styles;
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
 use clap::Args;
 
 use crate::jwt_auth::{AuthMode, AuthStrategy};
 use crate::server::{build_router, create_app_state_with_options};
+use crate::server_config::ServerConfig;
 use crate::tls::ClientAuth;
 use arc_workflows::cli::backend::AgentApiBackend;
 use arc_workflows::cli::SandboxProvider;
@@ -79,31 +81,25 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         }
     };
 
-    // Resolve model/provider defaults
-    let provider_str = args.provider;
-    let model = args.model.unwrap_or_else(|| match provider_str.as_deref() {
-        Some("openai") => "gpt-5.2".to_string(),
-        Some("gemini") => "gemini-3.1-pro-preview".to_string(),
-        _ => "claude-opus-4-6".to_string(),
-    });
+    // Initialize data directory and SQLite database
+    let server_config = crate::server_config::load_server_config()?;
+    let data_dir = crate::server_config::resolve_data_dir(&server_config);
 
-    // Resolve model alias through catalog
-    let (model, provider_str) = match arc_llm::catalog::get_model_info(&model) {
-        Some(info) => (info.id, provider_str.or(Some(info.provider))),
-        None => (model, provider_str),
-    };
+    // Shared config for live reloading
+    let shared_config = Arc::new(RwLock::new(server_config));
 
-    // Parse provider string to enum (defaults to Anthropic)
-    let provider_enum: Provider = provider_str
-        .as_deref()
-        .map(|s| s.parse::<Provider>())
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .unwrap_or(Provider::Anthropic);
+    // CLI overrides take precedence over config file values, even after reload
+    let cli_model = args.model;
+    let cli_provider = args.provider;
 
-    // Build registry factory
+    // Build registry factory that reads live config
+    let config_for_factory = Arc::clone(&shared_config);
     let factory = move |interviewer: Arc<dyn Interviewer>| {
-        let model = model.clone();
+        let (model, provider_enum) = resolve_model_provider(
+            &config_for_factory,
+            cli_model.as_deref(),
+            cli_provider.as_deref(),
+        );
         default_registry(interviewer, move || {
             if dry_run_mode {
                 None
@@ -115,35 +111,40 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
             }
         })
     };
-
-    // Initialize data directory and SQLite database
-    let server_config = crate::server_config::load_server_config()?;
-    let data_dir = crate::server_config::resolve_data_dir(&server_config);
     std::fs::create_dir_all(&data_dir)?;
     let db = arc_db::connect(&data_dir.join("arc.db")).await?;
     arc_db::initialize_db(&db).await?;
 
-    let auth_mode = if args.demo {
-        crate::jwt_auth::AuthMode::Disabled
-    } else {
-        crate::jwt_auth::resolve_auth_mode(
-            &server_config.api,
-            server_config.web.auth.allowed_usernames.clone(),
-        )
+    let (auth_mode, client_auth, max_concurrent_runs) = {
+        let cfg = shared_config.read().expect("config lock poisoned");
+        let auth_mode = if args.demo {
+            crate::jwt_auth::AuthMode::Disabled
+        } else {
+            crate::jwt_auth::resolve_auth_mode(
+                &cfg.api,
+                cfg.web.auth.allowed_usernames.clone(),
+            )
+        };
+        let client_auth = cfg
+            .api
+            .tls
+            .as_ref()
+            .map(|_| client_auth_from_mode(&auth_mode));
+        let max_concurrent_runs = args
+            .max_concurrent_runs
+            .or(cfg.max_concurrent_runs)
+            .unwrap_or(5);
+        (auth_mode, client_auth, max_concurrent_runs)
     };
 
-    // Derive client auth mode before auth_mode is moved into the router
-    let client_auth = server_config
-        .api
-        .tls
-        .as_ref()
-        .map(|_| client_auth_from_mode(&auth_mode));
-
-    let max_concurrent_runs = args
-        .max_concurrent_runs
-        .or(server_config.max_concurrent_runs)
-        .unwrap_or(5);
-    let state = create_app_state_with_options(db, factory, dry_run_mode, args.demo, max_concurrent_runs);
+    let state = create_app_state_with_options(
+        db,
+        factory,
+        dry_run_mode,
+        args.demo,
+        max_concurrent_runs,
+        Arc::clone(&shared_config),
+    );
     crate::server::spawn_scheduler(Arc::clone(&state));
     let router = build_router(state, auth_mode);
 
@@ -163,8 +164,38 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         eprintln!("{}", styles.dim.apply_to("(dry-run mode)"));
     }
 
+    // Spawn config polling task (skip in demo mode)
+    if !args.demo {
+        let config_for_poll = Arc::clone(&shared_config);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                match crate::server_config::load_server_config() {
+                    Ok(new_config) => {
+                        let mut cfg = config_for_poll.write().expect("config lock poisoned");
+                        if *cfg != new_config {
+                            info!("Server config reloaded");
+                            *cfg = new_config;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to reload server config, keeping previous: {e}");
+                    }
+                }
+            }
+        });
+    }
+
     // Branch: TLS or plain HTTP (demo mode always uses plain HTTP)
-    if let (false, Some(ref tls_config)) = (args.demo, &server_config.api.tls) {
+    let tls_config = shared_config
+        .read()
+        .expect("config lock poisoned")
+        .api
+        .tls
+        .clone();
+    if let (false, Some(ref tls_config)) = (args.demo, &tls_config) {
         let client_auth = client_auth.unwrap();
 
         let rustls_config = crate::tls::build_rustls_config(tls_config, client_auth);
@@ -178,6 +209,53 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
     }
 
     Ok(())
+}
+
+/// Resolve model and provider from shared config, with CLI overrides taking precedence.
+fn resolve_model_provider(
+    shared_config: &RwLock<ServerConfig>,
+    cli_model: Option<&str>,
+    cli_provider: Option<&str>,
+) -> (String, Provider) {
+    let cfg = shared_config.read().expect("config lock poisoned");
+    let config_provider = cfg
+        .run_defaults
+        .llm
+        .as_ref()
+        .and_then(|l| l.provider.as_deref());
+    let config_model = cfg
+        .run_defaults
+        .llm
+        .as_ref()
+        .and_then(|l| l.model.as_deref());
+
+    let provider_str = cli_provider.or(config_provider);
+    let model = cli_model
+        .map(|s| s.to_string())
+        .or_else(|| config_model.map(|s| s.to_string()))
+        .unwrap_or_else(|| {
+            // Look up default model from catalog for the given provider
+            let default_info = provider_str
+                .and_then(arc_llm::catalog::default_model_for_provider)
+                .unwrap_or_else(arc_llm::catalog::default_model);
+            default_info.id
+        });
+
+    // Resolve model alias through catalog
+    let (model, provider_str) = match arc_llm::catalog::get_model_info(&model) {
+        Some(info) => (
+            info.id,
+            provider_str.map(|s| s.to_string()).or(Some(info.provider)),
+        ),
+        None => (model, provider_str.map(|s| s.to_string())),
+    };
+
+    let provider_enum: Provider = provider_str
+        .as_deref()
+        .and_then(|s| s.parse::<Provider>().ok())
+        .unwrap_or(Provider::Anthropic);
+
+    (model, provider_enum)
 }
 
 /// Derive client certificate verification mode from the resolved auth strategies.

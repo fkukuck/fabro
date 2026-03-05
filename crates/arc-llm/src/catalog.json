@@ -11,7 +11,8 @@
     "input_cost_per_million": 15.0,
     "output_cost_per_million": 75.0,
     "estimated_output_tps": 25,
-    "aliases": ["opus", "claude-opus"]
+    "aliases": ["opus", "claude-opus"],
+    "default": true
   },
   {
     "id": "claude-sonnet-4-5",
@@ -53,7 +54,8 @@
     "input_cost_per_million": 1.75,
     "output_cost_per_million": 14.0,
     "estimated_output_tps": 65,
-    "aliases": ["gpt5"]
+    "aliases": ["gpt5"],
+    "default": true
   },
   {
     "id": "gpt-5-mini",
@@ -109,7 +111,8 @@
     "input_cost_per_million": 2.0,
     "output_cost_per_million": 12.0,
     "estimated_output_tps": 85,
-    "aliases": ["gemini-pro"]
+    "aliases": ["gemini-pro"],
+    "default": true
   },
   {
     "id": "gemini-3-flash-preview",
@@ -151,7 +154,8 @@
     "input_cost_per_million": 0.6,
     "output_cost_per_million": 3.0,
     "estimated_output_tps": 50,
-    "aliases": ["kimi"]
+    "aliases": ["kimi"],
+    "default": true
   },
   {
     "id": "glm-4.7",
@@ -165,7 +169,8 @@
     "input_cost_per_million": 0.6,
     "output_cost_per_million": 2.2,
     "estimated_output_tps": 100,
-    "aliases": ["glm", "glm4"]
+    "aliases": ["glm", "glm4"],
+    "default": true
   },
   {
     "id": "minimax-m2.5",
@@ -179,7 +184,8 @@
     "input_cost_per_million": 0.3,
     "output_cost_per_million": 1.2,
     "estimated_output_tps": 45,
-    "aliases": ["minimax"]
+    "aliases": ["minimax"],
+    "default": true
   },
   {
     "id": "mercury-2",
@@ -193,6 +199,7 @@
     "input_cost_per_million": 0.25,
     "output_cost_per_million": 0.75,
     "estimated_output_tps": 1000,
-    "aliases": ["mercury"]
+    "aliases": ["mercury"],
+    "default": true
   }
 ]

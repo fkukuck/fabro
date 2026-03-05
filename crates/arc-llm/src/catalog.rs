@@ -16,6 +16,27 @@ pub fn get_model_info(model_id: &str) -> Option<ModelInfo> {
         .cloned()
 }
 
+/// Get the default model for a provider, as marked in catalog.json.
+///
+/// Returns `None` if the provider has no models or none marked as default.
+#[must_use]
+pub fn default_model_for_provider(provider: &str) -> Option<ModelInfo> {
+    BUILT_IN_MODELS
+        .iter()
+        .find(|m| m.provider == provider && m.default)
+        .cloned()
+}
+
+/// Get the overall default model (the first model marked `default` in catalog.json).
+#[must_use]
+pub fn default_model() -> ModelInfo {
+    BUILT_IN_MODELS
+        .iter()
+        .find(|m| m.default)
+        .cloned()
+        .expect("catalog.json must contain at least one default model")
+}
+
 /// List all known models, optionally filtered by provider (Section 2.9).
 #[must_use]
 pub fn list_models(provider: Option<&str>) -> Vec<ModelInfo> {
@@ -47,6 +68,45 @@ mod tests {
                 provider
             );
         }
+    }
+
+    #[test]
+    fn every_provider_has_exactly_one_default_model() {
+        for &provider in Provider::ALL {
+            let defaults: Vec<_> = list_models(Some(provider.as_str()))
+                .into_iter()
+                .filter(|m| m.default)
+                .collect();
+            assert_eq!(
+                defaults.len(),
+                1,
+                "Provider {:?} should have exactly one default model, found {}: {:?}",
+                provider,
+                defaults.len(),
+                defaults.iter().map(|m| &m.id).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn default_model_returns_first_catalog_default() {
+        let m = default_model();
+        assert!(m.default);
+    }
+
+    #[test]
+    fn default_model_for_provider_returns_correct_model() {
+        let m = default_model_for_provider("anthropic").unwrap();
+        assert_eq!(m.id, "claude-opus-4-6");
+        assert!(m.default);
+
+        let m = default_model_for_provider("openai").unwrap();
+        assert_eq!(m.id, "gpt-5.2");
+
+        let m = default_model_for_provider("gemini").unwrap();
+        assert_eq!(m.id, "gemini-3.1-pro-preview");
+
+        assert!(default_model_for_provider("nonexistent").is_none());
     }
 
     #[test]

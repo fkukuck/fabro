@@ -92,7 +92,7 @@ impl Default for WebConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct ServerConfig {
     pub data_dir: Option<PathBuf>,
     pub max_concurrent_runs: Option<usize>,

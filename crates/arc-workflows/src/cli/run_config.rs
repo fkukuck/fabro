@@ -21,19 +21,19 @@ pub struct WorkflowRunConfig {
     pub vars: Option<HashMap<String, String>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct LlmConfig {
     pub model: Option<String>,
     pub provider: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SetupConfig {
     pub commands: Vec<String>,
     pub timeout_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SandboxConfig {
     pub provider: Option<String>,
     pub preserve: Option<bool>,
@@ -43,7 +43,7 @@ pub struct SandboxConfig {
 /// Defaults for workflow runs, loaded from the server config.
 ///
 /// Fields mirror `WorkflowRunConfig` but are all optional.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct RunDefaults {
     pub directory: Option<String>,
     pub llm: Option<LlmConfig>,

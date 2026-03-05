@@ -641,6 +641,9 @@ pub struct ModelInfo {
     pub output_cost_per_million: Option<f64>,
     pub estimated_output_tps: Option<f64>,
     pub aliases: Vec<String>,
+    /// Whether this is the default model for its provider.
+    #[serde(default)]
+    pub default: bool,
 }
 
 // --- 4.7 Timeouts ---
