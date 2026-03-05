@@ -24,12 +24,12 @@ use arc_workflows::engine::{RunConfig, WorkflowRunEngine};
 use arc_workflows::event::{EventEmitter, WorkflowRunEvent};
 use arc_workflows::handler::HandlerRegistry;
 use arc_workflows::interviewer::web::WebInterviewer;
-use arc_workflows::interviewer::{Answer, Interviewer};
+use arc_workflows::interviewer::{Answer, Interviewer, QuestionType};
 
 pub use arc_types::{
-    ApiQuestion, ApiQuestionOption, PaginatedRunList, PaginationMeta, RunStatus,
-    RunStatusResponse, StartRunRequest, StartRunResponse, SubmitAnswerRequest,
-    SubmitAnswerResponse,
+    ApiQuestion, ApiQuestionOption, PaginatedRunList, PaginationMeta,
+    QuestionType as ApiQuestionType, RunStatus, RunStatusResponse, StartRunRequest,
+    StartRunResponse, SubmitAnswerRequest, SubmitAnswerResponse,
 };
 
 fn default_page_limit() -> u32 {
@@ -668,7 +668,13 @@ async fn get_questions(
                 .map(|pq| ApiQuestion {
                     id: pq.id,
                     text: pq.question.text.clone(),
-                    question_type: format!("{:?}", pq.question.question_type),
+                    question_type: match pq.question.question_type {
+                        QuestionType::YesNo => ApiQuestionType::YesNo,
+                        QuestionType::MultipleChoice => ApiQuestionType::MultipleChoice,
+                        QuestionType::MultiSelect => ApiQuestionType::MultiSelect,
+                        QuestionType::Freeform => ApiQuestionType::Freeform,
+                        QuestionType::Confirmation => ApiQuestionType::Confirmation,
+                    },
                     options: pq
                         .question
                         .options

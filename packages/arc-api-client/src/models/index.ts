@@ -38,6 +38,7 @@ export * from './pagination-meta';
 export * from './preview-url-request';
 export * from './preview-url-response';
 export * from './project';
+export * from './question-type';
 export * from './recent-control-result';
 export * from './retro-list-item';
 export * from './retro-stats';

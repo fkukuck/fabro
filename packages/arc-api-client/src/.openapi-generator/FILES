@@ -57,6 +57,7 @@ models/pagination-meta.ts
 models/preview-url-request.ts
 models/preview-url-response.ts
 models/project.ts
+models/question-type.ts
 models/recent-control-result.ts
 models/retro-list-item.ts
 models/retro-stats.ts

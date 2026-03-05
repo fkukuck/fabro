@@ -16,12 +16,17 @@
 // May contain unused imports in some cases
 // @ts-ignore
 import type { ApiQuestionOption } from './api-question-option';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { QuestionType } from './question-type';
 
 export interface ApiQuestion {
     'id': string;
     'text': string;
-    'question_type': string;
+    'question_type': QuestionType;
     'options': Array<ApiQuestionOption>;
     'allow_freeform': boolean;
 }
+
+
 

@@ -1305,13 +1305,22 @@ components:
         text:
           type: string
         question_type:
-          type: string
+          $ref: "#/components/schemas/QuestionType"
         options:
           type: array
           items:
             $ref: "#/components/schemas/ApiQuestionOption"
         allow_freeform:
           type: boolean
+
+    QuestionType:
+      type: string
+      enum:
+        - yes_no
+        - multiple_choice
+        - multi_select
+        - freeform
+        - confirmation
 
     SubmitAnswerRequest:
       type: object
