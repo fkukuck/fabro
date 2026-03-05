@@ -101,6 +101,7 @@ pub fn shape_to_handler_type(shape: &str) -> Option<&'static str> {
         "tripleoctagon" => Some("parallel.fan_in"),
         "parallelogram" => Some("script"),
         "house" => Some("stack.manager_loop"),
+        "insulator" => Some("wait.timer"),
         _ => None,
     }
 }
@@ -502,6 +503,7 @@ mod tests {
         );
         assert_eq!(shape_to_handler_type("parallelogram"), Some("script"));
         assert_eq!(shape_to_handler_type("house"), Some("stack.manager_loop"));
+        assert_eq!(shape_to_handler_type("insulator"), Some("wait.timer"));
         assert_eq!(shape_to_handler_type("unknown"), None);
     }
 

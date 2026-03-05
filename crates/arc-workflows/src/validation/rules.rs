@@ -392,6 +392,7 @@ const KNOWN_HANDLER_TYPES: &[&str] = &[
     "script",
     "tool",
     "stack.manager_loop",
+    "wait.timer",
 ];
 
 impl LintRule for TypeKnownRule {

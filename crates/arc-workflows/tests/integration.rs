@@ -18,6 +18,7 @@ use arc_workflows::handler::manager_loop::SubWorkflowHandler;
 use arc_workflows::handler::script::ScriptHandler;
 use arc_workflows::handler::start::StartHandler;
 use arc_workflows::handler::wait_human::WaitHumanHandler;
+use arc_workflows::handler::wait_timer::WaitTimerHandler;
 use arc_workflows::handler::{Handler, HandlerRegistry};
 use arc_workflows::interviewer::auto_approve::AutoApproveInterviewer;
 use arc_workflows::interviewer::queue::QueueInterviewer;
@@ -1251,6 +1252,7 @@ fn make_full_registry(interviewer: Arc<dyn Interviewer>) -> HandlerRegistry {
     registry.register("conditional", Box::new(ConditionalHandler));
     registry.register("script", Box::new(ScriptHandler));
     registry.register("wait.human", Box::new(WaitHumanHandler::new(interviewer)));
+    registry.register("wait.timer", Box::new(WaitTimerHandler));
     registry.register("stack.manager_loop", Box::new(SubWorkflowHandler));
     registry
 }
@@ -11503,4 +11505,46 @@ async fn asset_collection_docker_sandbox() {
     assert!(manifest_path.exists(), "manifest.json should exist");
 
     sandbox.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn wait_timer_e2e() {
+    let mut graph = make_graph_with_start_exit("WaitTimerTest");
+    let mut wait_node = Node::new("wait60");
+    wait_node.attrs.insert(
+        "shape".to_string(),
+        AttrValue::String("insulator".to_string()),
+    );
+    wait_node.attrs.insert(
+        "label".to_string(),
+        AttrValue::String("Wait 1ms".to_string()),
+    );
+    wait_node.attrs.insert(
+        "duration".to_string(),
+        AttrValue::Duration(std::time::Duration::from_millis(1)),
+    );
+    graph.nodes.insert("wait60".to_string(), wait_node);
+    graph.edges.push(Edge::new("start", "wait60"));
+    graph.edges.push(Edge::new("wait60", "exit"));
+
+    let dir = tempfile::tempdir().unwrap();
+    let interviewer = Arc::new(AutoApproveInterviewer);
+    let engine = WorkflowRunEngine::new(
+        make_full_registry(interviewer),
+        Arc::new(EventEmitter::new()),
+        local_env(),
+    );
+    let config = RunConfig {
+        logs_root: dir.path().to_path_buf(),
+        cancel_token: None,
+        dry_run: false,
+        run_id: "test-run".into(),
+        git_checkpoint: None,
+        base_sha: None,
+        run_branch: None,
+        meta_branch: None,
+        labels: std::collections::HashMap::new(),
+    };
+    let outcome = engine.run(&graph, &config).await.expect("run");
+    assert_eq!(outcome.status, StageStatus::Success);
 }

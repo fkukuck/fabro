@@ -7,6 +7,7 @@ pub mod parallel;
 pub mod script;
 pub mod start;
 pub mod wait_human;
+pub mod wait_timer;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -140,6 +141,7 @@ pub fn default_registry(
         "stack.manager_loop",
         Box::new(manager_loop::SubWorkflowHandler),
     );
+    registry.register("wait.timer", Box::new(wait_timer::WaitTimerHandler));
     registry
 }
 
