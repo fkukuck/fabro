@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-
-use crate::server_config::ServerConfig;
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -90,7 +88,6 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     max_concurrent_runs: usize,
     scheduler_notify: tokio::sync::Notify,
-    pub server_config: Arc<RwLock<ServerConfig>>,
 }
 
 /// Build the axum Router with all run endpoints.
@@ -296,14 +293,7 @@ pub fn create_app_state(
     db: sqlx::SqlitePool,
     registry_factory: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
-    create_app_state_with_options(
-        db,
-        registry_factory,
-        false,
-        false,
-        5,
-        Arc::new(RwLock::new(ServerConfig::default())),
-    )
+    create_app_state_with_options(db, registry_factory, false, false, 5)
 }
 
 /// Create an `AppState` with the given database pool, registry factory, dry-run flag, and demo flag.
@@ -313,7 +303,6 @@ pub fn create_app_state_with_options(
     dry_run: bool,
     is_demo: bool,
     max_concurrent_runs: usize,
-    server_config: Arc<RwLock<ServerConfig>>,
 ) -> Arc<AppState> {
     Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
@@ -324,7 +313,6 @@ pub fn create_app_state_with_options(
         db,
         max_concurrent_runs,
         scheduler_notify: tokio::sync::Notify::new(),
-        server_config,
     })
 }
 
@@ -1596,7 +1584,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn concurrency_limit_respected() {
-        let state = create_app_state_with_options(test_db().await, test_registry, false, false, 1, Arc::new(RwLock::new(ServerConfig::default())));
+        let state = create_app_state_with_options(test_db().await, test_registry, false, false, 1);
         let app = test_app_with_scheduler(state);
 
         // Submit two runs with max_concurrent_runs=1

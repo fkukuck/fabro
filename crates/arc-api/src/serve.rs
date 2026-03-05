@@ -137,14 +137,7 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         (auth_mode, client_auth, max_concurrent_runs)
     };
 
-    let state = create_app_state_with_options(
-        db,
-        factory,
-        dry_run_mode,
-        args.demo,
-        max_concurrent_runs,
-        Arc::clone(&shared_config),
-    );
+    let state = create_app_state_with_options(db, factory, dry_run_mode, args.demo, max_concurrent_runs);
     crate::server::spawn_scheduler(Arc::clone(&state));
     let router = build_router(state, auth_mode);
 
@@ -174,10 +167,14 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
                 interval.tick().await;
                 match crate::server_config::load_server_config() {
                     Ok(new_config) => {
-                        let mut cfg = config_for_poll.write().expect("config lock poisoned");
-                        if *cfg != new_config {
-                            info!("Server config reloaded");
+                        let changed = {
+                            let cfg = config_for_poll.read().expect("config lock poisoned");
+                            *cfg != new_config
+                        };
+                        if changed {
+                            let mut cfg = config_for_poll.write().expect("config lock poisoned");
                             *cfg = new_config;
+                            info!("Server config reloaded");
                         }
                     }
                     Err(e) => {
