@@ -63,9 +63,16 @@ impl CodergenHandler {
     }
 }
 
-/// Expand `$goal` in text using the graph goal.
-fn expand_variables(text: &str, graph: &Graph) -> String {
-    text.replace("$goal", graph.goal())
+/// Expand `$variable` placeholders in text using graph attributes.
+///
+/// Known variables are built from graph attributes (e.g. `$goal`). Any
+/// `$identifier` not in the map produces an error, catching typos like
+/// `$gaol` at runtime.
+fn expand_variables(text: &str, graph: &Graph) -> Result<String, ArcError> {
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("goal".to_string(), graph.goal().to_string());
+
+    crate::cli::run_config::expand_vars(text, &vars).map_err(|e| ArcError::Validation(e.to_string()))
 }
 
 /// Status fields that indicate a JSON object contains routing directives.
@@ -203,7 +210,7 @@ impl Handler for CodergenHandler {
             .prompt()
             .filter(|p| !p.is_empty())
             .unwrap_or_else(|| node.label());
-        let expanded = expand_variables(raw_prompt, graph);
+        let expanded = expand_variables(raw_prompt, graph)?;
         let preamble = context.get_string("current.preamble", "");
         let prompt = if preamble.is_empty() {
             expanded
@@ -455,8 +462,32 @@ mod tests {
             "goal".to_string(),
             AttrValue::String("Fix bugs".to_string()),
         );
-        let result = expand_variables("Goal is: $goal, do it", &graph);
+        let result = expand_variables("Goal is: $goal, do it", &graph).unwrap();
         assert_eq!(result, "Goal is: Fix bugs, do it");
+    }
+
+    #[test]
+    fn expand_variables_errors_on_unknown_variable() {
+        let graph = Graph::new("test");
+        let err = expand_variables("Do $foo now", &graph).unwrap_err();
+        assert!(
+            err.to_string().contains("Undefined variable: $foo"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn expand_variables_allows_bare_dollar() {
+        let graph = Graph::new("test");
+        let result = expand_variables("costs $5", &graph).unwrap();
+        assert_eq!(result, "costs $5");
+    }
+
+    #[test]
+    fn expand_variables_allows_dollar_alone() {
+        let graph = Graph::new("test");
+        let result = expand_variables("just a $ sign", &graph).unwrap();
+        assert_eq!(result, "just a $ sign");
     }
 
     #[test]
