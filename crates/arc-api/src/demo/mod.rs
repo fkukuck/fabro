@@ -532,10 +532,53 @@ pub async fn send_message_stub(
 pub async fn session_events_stub(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
-    Path(_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
 ) -> Response {
-    // Return an empty SSE-like response
-    ApiError::new(StatusCode::GONE, "Event stream closed.").into_response()
+    use axum::response::sse::{Event, Sse};
+
+    let session = match sessions::detail(&id) {
+        Some(s) => s,
+        None => return ApiError::not_found("Session not found.").into_response(),
+    };
+
+    let last_event_id: Option<usize> = headers
+        .get("Last-Event-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok());
+
+    let mut events: Vec<Result<Event, std::convert::Infallible>> = Vec::new();
+    let mut seq: usize = 0;
+
+    for turn in &session.turns {
+        let (event_type, data) = match turn {
+            arc_types::SessionTurn::UserTurn(_) => continue,
+            arc_types::SessionTurn::AssistantTurn(t) => {
+                ("assistant_turn", serde_json::to_string(t).unwrap())
+            }
+            arc_types::SessionTurn::ToolTurn(t) => {
+                ("tool_turn", serde_json::to_string(t).unwrap())
+            }
+        };
+
+        if last_event_id.is_none() || seq > last_event_id.unwrap() {
+            events.push(Ok(Event::default()
+                .id(seq.to_string())
+                .event(event_type)
+                .data(data)));
+        }
+        seq += 1;
+    }
+
+    // Append done event
+    if last_event_id.is_none() || seq > last_event_id.unwrap() {
+        events.push(Ok(Event::default()
+            .id(seq.to_string())
+            .event("done")
+            .data("{}")));
+    }
+
+    Sse::new(tokio_stream::iter(events)).into_response()
 }
 
 // ── Insights ───────────────────────────────────────────────────────────

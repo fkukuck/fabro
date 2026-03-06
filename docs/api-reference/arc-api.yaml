@@ -814,6 +814,9 @@ paths:
       description: |
         Opens a server-sent event (SSE) stream for real-time session updates.
 
+        Each SSE frame includes a sequential numeric `id:` field that supports
+        resumption via the `Last-Event-ID` request header.
+
         The stream emits the following SSE event types:
 
         - `event: assistant_turn` — data: `AssistantTurn` JSON object
@@ -821,9 +824,19 @@ paths:
         - `event: done` — data: `{}` (stream complete)
         - `event: error` — data: `{"message": "..."}` (error occurred)
 
-        Each SSE frame has an `event:` line (the event type) and a `data:` line (the JSON payload).
+        Each SSE frame has an `id:` line (sequential integer), an `event:` line (the event type),
+        and a `data:` line (the JSON payload).
       parameters:
         - $ref: "#/components/parameters/SessionId"
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >
+            SSE reconnection header. When provided, the server resumes the
+            stream after the event with this ID. IDs are 0-based sequential
+            integers assigned to each emitted SSE frame.
+          schema:
+            type: string
       responses:
         "200":
           description: Server-sent event stream

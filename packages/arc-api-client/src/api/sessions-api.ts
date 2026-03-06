@@ -217,13 +217,14 @@ export const SessionsApiAxiosParamCreator = function (configuration?: Configurat
             };
         },
         /**
-         * Opens a server-sent event (SSE) stream for real-time session updates.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `event:` line (the event type) and a `data:` line (the JSON payload). 
+         * Opens a server-sent event (SSE) stream for real-time session updates.  Each SSE frame includes a sequential numeric `id:` field that supports resumption via the `Last-Event-ID` request header.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `id:` line (sequential integer), an `event:` line (the event type), and a `data:` line (the JSON payload). 
          * @summary Stream Session Events
          * @param {string} id Unique session identifier.
+         * @param {string} [lastEventID] SSE reconnection header. When provided, the server resumes the stream after the event with this ID. IDs are 0-based sequential integers assigned to each emitted SSE frame. 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        streamSessionEvents: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        streamSessionEvents: async (id: string, lastEventID?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'id' is not null or undefined
             assertParamExists('streamSessionEvents', 'id', id)
             const localVarPath = `/sessions/{id}/events`
@@ -248,6 +249,9 @@ export const SessionsApiAxiosParamCreator = function (configuration?: Configurat
 
             localVarHeaderParameter['Accept'] = 'text/event-stream,application/json';
 
+            if (lastEventID != null) {
+                localVarHeaderParameter['Last-Event-ID'] = String(lastEventID);
+            }
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
@@ -321,14 +325,15 @@ export const SessionsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Opens a server-sent event (SSE) stream for real-time session updates.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `event:` line (the event type) and a `data:` line (the JSON payload). 
+         * Opens a server-sent event (SSE) stream for real-time session updates.  Each SSE frame includes a sequential numeric `id:` field that supports resumption via the `Last-Event-ID` request header.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `id:` line (sequential integer), an `event:` line (the event type), and a `data:` line (the JSON payload). 
          * @summary Stream Session Events
          * @param {string} id Unique session identifier.
+         * @param {string} [lastEventID] SSE reconnection header. When provided, the server resumes the stream after the event with this ID. IDs are 0-based sequential integers assigned to each emitted SSE frame. 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async streamSessionEvents(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.streamSessionEvents(id, options);
+        async streamSessionEvents(id: string, lastEventID?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.streamSessionEvents(id, lastEventID, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SessionsApi.streamSessionEvents']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -385,14 +390,15 @@ export const SessionsApiFactory = function (configuration?: Configuration, baseP
             return localVarFp.sendSessionMessage(id, sendMessageRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Opens a server-sent event (SSE) stream for real-time session updates.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `event:` line (the event type) and a `data:` line (the JSON payload). 
+         * Opens a server-sent event (SSE) stream for real-time session updates.  Each SSE frame includes a sequential numeric `id:` field that supports resumption via the `Last-Event-ID` request header.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `id:` line (sequential integer), an `event:` line (the event type), and a `data:` line (the JSON payload). 
          * @summary Stream Session Events
          * @param {string} id Unique session identifier.
+         * @param {string} [lastEventID] SSE reconnection header. When provided, the server resumes the stream after the event with this ID. IDs are 0-based sequential integers assigned to each emitted SSE frame. 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        streamSessionEvents(id: string, options?: RawAxiosRequestConfig): AxiosPromise<string> {
-            return localVarFp.streamSessionEvents(id, options).then((request) => request(axios, basePath));
+        streamSessionEvents(id: string, lastEventID?: string, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+            return localVarFp.streamSessionEvents(id, lastEventID, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -448,14 +454,15 @@ export class SessionsApi extends BaseAPI {
     }
 
     /**
-     * Opens a server-sent event (SSE) stream for real-time session updates.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `event:` line (the event type) and a `data:` line (the JSON payload). 
+     * Opens a server-sent event (SSE) stream for real-time session updates.  Each SSE frame includes a sequential numeric `id:` field that supports resumption via the `Last-Event-ID` request header.  The stream emits the following SSE event types:  - `event: assistant_turn` — data: `AssistantTurn` JSON object - `event: tool_turn` — data: `ToolTurn` JSON object - `event: done` — data: `{}` (stream complete) - `event: error` — data: `{\"message\": \"...\"}` (error occurred)  Each SSE frame has an `id:` line (sequential integer), an `event:` line (the event type), and a `data:` line (the JSON payload). 
      * @summary Stream Session Events
      * @param {string} id Unique session identifier.
+     * @param {string} [lastEventID] SSE reconnection header. When provided, the server resumes the stream after the event with this ID. IDs are 0-based sequential integers assigned to each emitted SSE frame. 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public streamSessionEvents(id: string, options?: RawAxiosRequestConfig) {
-        return SessionsApiFp(this.configuration).streamSessionEvents(id, options).then((request) => request(this.axios, this.basePath));
+    public streamSessionEvents(id: string, lastEventID?: string, options?: RawAxiosRequestConfig) {
+        return SessionsApiFp(this.configuration).streamSessionEvents(id, lastEventID, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
