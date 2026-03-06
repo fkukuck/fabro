@@ -34,11 +34,11 @@ export interface SessionDetail {
      */
     'model': string;
     /**
-     * ISO 8601 timestamp when the session was created.
+     * Timestamp when the session was created.
      */
     'created_at': string;
     /**
-     * ISO 8601 timestamp when the session was last updated (e.g. new turn added).
+     * Timestamp when the session was last updated (e.g. new turn added).
      */
     'updated_at': string;
     /**

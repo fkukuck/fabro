@@ -9,6 +9,7 @@ description = "Generated Rust types from the Arc API OpenAPI spec"
 doctest = false
 
 [dependencies]
+chrono = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 

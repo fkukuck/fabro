@@ -31,21 +31,25 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     model: apiSession.model,
     created_at: apiSession.created_at,
     updated_at: apiSession.updated_at,
-    turns: apiSession.turns.map((t) => {
-      if (t.kind === "tool" && t.tools) {
-        return {
-          kind: "tool" as const,
-          tools: t.tools.map((tu) => ({
-            id: tu.id,
-            toolName: tu.tool_name,
-            input: tu.input,
-            result: tu.result,
-            isError: tu.is_error,
-            durationMs: tu.duration_ms,
-          })),
-        };
+    turns: apiSession.turns.map((t): Turn => {
+      switch (t.kind) {
+        case "tool":
+          return {
+            kind: "tool",
+            tools: t.tools.map((tu) => ({
+              id: tu.id,
+              toolName: tu.tool_name,
+              input: tu.input,
+              result: tu.result,
+              isError: tu.is_error,
+              durationMs: tu.duration_ms,
+            })),
+          };
+        case "user":
+          return { kind: "user", content: t.content, created_at: t.created_at };
+        case "assistant":
+          return { kind: "assistant", content: t.content };
       }
-      return { kind: t.kind as "user" | "assistant", content: t.content ?? "", created_at: t.created_at };
     }),
   };
   const sessionGroups = groupSessionsByDate(

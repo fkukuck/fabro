@@ -15,16 +15,20 @@
 
 
 /**
- * Request body for starting a new session.
+ * An assistant response turn.
  */
-export interface CreateSessionRequest {
+export interface AssistantTurn {
+    'kind': AssistantTurnKindEnum;
     /**
-     * The initial user message to start the session.
+     * Text content of the assistant response.
      */
     'content': string;
-    /**
-     * LLM model to use. If omitted, the server default is used.
-     */
-    'model'?: string;
 }
+
+export const AssistantTurnKindEnum = {
+    ASSISTANT: 'assistant'
+} as const;
+
+export type AssistantTurnKindEnum = typeof AssistantTurnKindEnum[keyof typeof AssistantTurnKindEnum];
+
 

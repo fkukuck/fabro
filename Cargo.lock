@@ -142,6 +142,7 @@ dependencies = [
  "arc-workflows",
  "axum",
  "base64",
+ "chrono",
  "clap",
  "dirs",
  "http-body-util",
@@ -308,6 +309,7 @@ dependencies = [
 name = "arc-types"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "prettyplease",
  "schemars 0.8.22",
  "serde",

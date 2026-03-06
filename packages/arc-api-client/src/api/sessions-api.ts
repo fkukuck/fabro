@@ -32,7 +32,7 @@ import type { PaginatedSessionList } from '../models';
 // @ts-ignore
 import type { SendMessageRequest } from '../models';
 // @ts-ignore
-import type { SendSessionMessage200Response } from '../models';
+import type { SendMessageResponse } from '../models';
 // @ts-ignore
 import type { SessionDetail } from '../models';
 /**
@@ -314,7 +314,7 @@ export const SessionsApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async sendSessionMessage(id: string, sendMessageRequest: SendMessageRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SendSessionMessage200Response>> {
+        async sendSessionMessage(id: string, sendMessageRequest: SendMessageRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SendMessageResponse>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.sendSessionMessage(id, sendMessageRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SessionsApi.sendSessionMessage']?.[localVarOperationServerIndex]?.url;
@@ -381,7 +381,7 @@ export const SessionsApiFactory = function (configuration?: Configuration, baseP
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        sendSessionMessage(id: string, sendMessageRequest: SendMessageRequest, options?: RawAxiosRequestConfig): AxiosPromise<SendSessionMessage200Response> {
+        sendSessionMessage(id: string, sendMessageRequest: SendMessageRequest, options?: RawAxiosRequestConfig): AxiosPromise<SendMessageResponse> {
             return localVarFp.sendSessionMessage(id, sendMessageRequest, options).then((request) => request(axios, basePath));
         },
         /**

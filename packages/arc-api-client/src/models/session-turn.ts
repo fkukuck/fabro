@@ -15,36 +15,21 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
+import type { AssistantTurn } from './assistant-turn';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { ToolTurn } from './tool-turn';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { ToolUse } from './tool-use';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { UserTurn } from './user-turn';
 
 /**
+ * @type SessionTurn
  * A single turn in a session conversation — a user message, assistant response, or tool invocation block.
  */
-export interface SessionTurn {
-    /**
-     * The type of turn.
-     */
-    'kind': SessionTurnKindEnum;
-    /**
-     * Text content of the turn. Present for user and assistant turns, absent for tool turns.
-     */
-    'content'?: string;
-    /**
-     * ISO 8601 timestamp when the turn was created. Typically present for user turns.
-     */
-    'created_at'?: string;
-    /**
-     * Tool invocations for this turn. Present only when kind is \"tool\".
-     */
-    'tools'?: Array<ToolUse>;
-}
-
-export const SessionTurnKindEnum = {
-    USER: 'user',
-    ASSISTANT: 'assistant',
-    TOOL: 'tool'
-} as const;
-
-export type SessionTurnKindEnum = typeof SessionTurnKindEnum[keyof typeof SessionTurnKindEnum];
+export type SessionTurn = { kind: 'assistant' } & AssistantTurn | { kind: 'tool' } & ToolTurn | { kind: 'user' } & UserTurn;
 
 

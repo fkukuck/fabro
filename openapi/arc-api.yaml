@@ -763,13 +763,7 @@ paths:
       summary: Retrieve Session
       description: Returns the full session detail including all conversation turns.
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique session identifier.
-          schema:
-            type: string
-          example: s1
+        - $ref: "#/components/parameters/SessionId"
       responses:
         "200":
           description: Session detail
@@ -791,13 +785,7 @@ paths:
       summary: Send Session Message
       description: Append a user message to an existing session. The server will process it and produce assistant and tool turns asynchronously via the event stream.
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique session identifier.
-          schema:
-            type: string
-          example: s1
+        - $ref: "#/components/parameters/SessionId"
       requestBody:
         required: true
         content:
@@ -805,19 +793,12 @@ paths:
             schema:
               $ref: "#/components/schemas/SendMessageRequest"
       responses:
-        "200":
-          description: Message accepted
+        "202":
+          description: Message accepted for processing
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  accepted:
-                    type: boolean
-                    description: Whether the message was accepted for processing.
-                    example: true
-                required:
-                  - accepted
+                $ref: "#/components/schemas/SendMessageResponse"
         "404":
           description: Session not found
           content:
@@ -832,13 +813,7 @@ paths:
       summary: Stream Session Events
       description: Opens a server-sent event (SSE) stream for real-time session updates. Events include new assistant turns, tool invocations, and completion signals.
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Unique session identifier.
-          schema:
-            type: string
-          example: s1
+        - $ref: "#/components/parameters/SessionId"
       responses:
         "200":
           description: Server-sent event stream
@@ -1079,6 +1054,15 @@ components:
       required: true
       schema:
         type: string
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Unique session identifier.
+      schema:
+        type: string
+      example: s1
 
     PageLimit:
       name: page[limit]
@@ -2091,6 +2075,7 @@ components:
         - id
         - title
         - created_at
+        - updated_at
       properties:
         id:
           type: string
@@ -2102,35 +2087,78 @@ components:
           example: Add rate limiting to auth endpoints
         created_at:
           type: string
-          description: ISO 8601 timestamp when the session was created.
+          format: date-time
+          description: Timestamp when the session was created.
           example: "2026-03-06T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the session was last updated (e.g. new turn added).
+          example: "2026-03-06T15:45:00Z"
 
 
     SessionTurn:
       description: A single turn in a session conversation — a user message, assistant response, or tool invocation block.
+      discriminator:
+        propertyName: kind
+        mapping:
+          user: "#/components/schemas/UserTurn"
+          assistant: "#/components/schemas/AssistantTurn"
+          tool: "#/components/schemas/ToolTurn"
+      oneOf:
+        - $ref: "#/components/schemas/UserTurn"
+        - $ref: "#/components/schemas/AssistantTurn"
+        - $ref: "#/components/schemas/ToolTurn"
+
+    UserTurn:
+      description: A user message turn.
       type: object
       required:
         - kind
+        - content
+        - created_at
       properties:
         kind:
           type: string
-          description: The type of turn.
-          enum:
-            - user
-            - assistant
-            - tool
-          example: user
+          enum: [user]
         content:
           type: string
-          description: Text content of the turn. Present for user and assistant turns, absent for tool turns.
+          description: Text content of the user message.
           example: Add rate limiting to the auth endpoints using a sliding window approach with Redis.
         created_at:
           type: string
-          description: ISO 8601 timestamp when the turn was created. Typically present for user turns.
+          format: date-time
+          description: Timestamp when the turn was created.
           example: "2026-02-28T10:00:00Z"
+
+    AssistantTurn:
+      description: An assistant response turn.
+      type: object
+      required:
+        - kind
+        - content
+      properties:
+        kind:
+          type: string
+          enum: [assistant]
+        content:
+          type: string
+          description: Text content of the assistant response.
+          example: I'll implement sliding window rate limiting using Redis.
+
+    ToolTurn:
+      description: A tool invocation turn.
+      type: object
+      required:
+        - kind
+        - tools
+      properties:
+        kind:
+          type: string
+          enum: [tool]
         tools:
           type: array
-          description: Tool invocations for this turn. Present only when kind is "tool".
+          description: Tool invocations for this turn.
           items:
             $ref: "#/components/schemas/ToolUse"
 
@@ -2159,11 +2187,13 @@ components:
           example: Opus 4.6
         created_at:
           type: string
-          description: ISO 8601 timestamp when the session was created.
+          format: date-time
+          description: Timestamp when the session was created.
           example: "2026-03-06T14:30:00Z"
         updated_at:
           type: string
-          description: ISO 8601 timestamp when the session was last updated (e.g. new turn added).
+          format: date-time
+          description: Timestamp when the session was last updated (e.g. new turn added).
           example: "2026-03-06T15:45:00Z"
         turns:
           type: array
@@ -2175,9 +2205,9 @@ components:
       description: Request body for starting a new session.
       type: object
       required:
-        - prompt
+        - content
       properties:
-        prompt:
+        content:
           type: string
           description: The initial user message to start the session.
           example: Add rate limiting to the auth endpoints using a sliding window approach with Redis, 10 requests per minute per IP.
@@ -2199,7 +2229,8 @@ components:
           example: s42
         created_at:
           type: string
-          description: ISO 8601 timestamp when the session was created.
+          format: date-time
+          description: Timestamp when the session was created.
           example: "2026-03-06T16:00:00Z"
 
     SendMessageRequest:
@@ -2212,6 +2243,17 @@ components:
           type: string
           description: The user message text.
           example: Can you also add a bypass for internal health-check IPs?
+
+    SendMessageResponse:
+      description: Acknowledgement that the message was accepted for asynchronous processing.
+      type: object
+      required:
+        - accepted
+      properties:
+        accepted:
+          type: boolean
+          description: Whether the message was accepted for processing.
+          example: true
 
     # ── Insights Schemas ────────────────────────────────────────────────
 

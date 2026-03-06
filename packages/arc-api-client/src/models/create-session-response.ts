@@ -23,7 +23,7 @@ export interface CreateSessionResponse {
      */
     'id': string;
     /**
-     * ISO 8601 timestamp when the session was created.
+     * Timestamp when the session was created.
      */
     'created_at': string;
 }

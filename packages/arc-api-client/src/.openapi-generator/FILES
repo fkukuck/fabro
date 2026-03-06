@@ -19,6 +19,7 @@ index.ts
 models/aggregate-usage.ts
 models/api-question-option.ts
 models/api-question.ts
+models/assistant-turn.ts
 models/branch.ts
 models/cancel-run200-response.ts
 models/check-run-status.ts
@@ -75,7 +76,7 @@ models/run-verification.ts
 models/save-query-request.ts
 models/saved-query.ts
 models/send-message-request.ts
-models/send-session-message200-response.ts
+models/send-message-response.ts
 models/session-detail.ts
 models/session-list-item.ts
 models/session-turn.ts
@@ -92,11 +93,13 @@ models/steer-request.ts
 models/steer-run200-response.ts
 models/submit-answer-request.ts
 models/submit-answer-response.ts
+models/tool-turn.ts
 models/tool-use.ts
 models/usage-by-model.ts
 models/usage-stage.ts
 models/usage-totals.ts
 models/user-response.ts
+models/user-turn.ts
 models/verification-category.ts
 models/verification-control.ts
 models/verification-detail-response.ts

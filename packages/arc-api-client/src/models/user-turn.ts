@@ -15,24 +15,24 @@
 
 
 /**
- * Summary of a session shown in list views.
+ * A user message turn.
  */
-export interface SessionListItem {
+export interface UserTurn {
+    'kind': UserTurnKindEnum;
     /**
-     * Unique session identifier.
+     * Text content of the user message.
      */
-    'id': string;
+    'content': string;
     /**
-     * Short title summarizing the session topic.
-     */
-    'title': string;
-    /**
-     * Timestamp when the session was created.
+     * Timestamp when the turn was created.
      */
     'created_at': string;
-    /**
-     * Timestamp when the session was last updated (e.g. new turn added).
-     */
-    'updated_at': string;
 }
+
+export const UserTurnKindEnum = {
+    USER: 'user'
+} as const;
+
+export type UserTurnKindEnum = typeof UserTurnKindEnum[keyof typeof UserTurnKindEnum];
+
 

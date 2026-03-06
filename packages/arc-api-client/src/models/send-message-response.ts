@@ -14,7 +14,10 @@
 
 
 
-export interface SendSessionMessage200Response {
+/**
+ * Acknowledgement that the message was accepted for asynchronous processing.
+ */
+export interface SendMessageResponse {
     /**
      * Whether the message was accepted for processing.
      */
