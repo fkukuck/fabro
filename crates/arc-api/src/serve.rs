@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use clap::Args;
 
 use crate::jwt_auth::{AuthMode, AuthStrategy};
-use crate::server::{build_router, create_app_state_with_options};
+use crate::server::build_router;
 use crate::server_config::ServerConfig;
 use crate::tls::ClientAuth;
 use arc_workflows::cli::backend::AgentApiBackend;
@@ -43,10 +43,6 @@ pub struct ServeArgs {
     /// Sandbox for agent tools
     #[arg(long, value_enum)]
     pub sandbox: Option<SandboxProvider>,
-
-    /// Serve static demo data (disables auth, read-only)
-    #[arg(long)]
-    pub demo: bool,
 
     /// Maximum number of concurrent run executions
     #[arg(long)]
@@ -124,14 +120,10 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
 
     let (auth_mode, client_auth, max_concurrent_runs) = {
         let cfg = shared_config.read().expect("config lock poisoned");
-        let auth_mode = if args.demo {
-            crate::jwt_auth::AuthMode::Disabled
-        } else {
-            crate::jwt_auth::resolve_auth_mode(
-                &cfg.api,
-                cfg.web.auth.allowed_usernames.clone(),
-            )
-        };
+        let auth_mode = crate::jwt_auth::resolve_auth_mode(
+            &cfg.api,
+            cfg.web.auth.allowed_usernames.clone(),
+        );
         let client_auth = cfg
             .api
             .tls
@@ -144,7 +136,7 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         (auth_mode, client_auth, max_concurrent_runs)
     };
 
-    let state = create_app_state_with_options(db, factory, dry_run_mode, args.demo, max_concurrent_runs);
+    let state = crate::server::create_app_state_with_options(db, factory, dry_run_mode, max_concurrent_runs);
     crate::server::spawn_scheduler(Arc::clone(&state));
     let router = build_router(state, auth_mode);
 
@@ -164,43 +156,41 @@ pub async fn serve_command(args: ServeArgs, styles: &'static Styles) -> anyhow::
         eprintln!("{}", styles.dim.apply_to("(dry-run mode)"));
     }
 
-    // Spawn config polling task (skip in demo mode)
-    if !args.demo {
-        let config_for_poll = Arc::clone(&shared_config);
-        let config_path_for_poll = config_path.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
-            interval.tick().await; // skip first immediate tick
-            loop {
-                interval.tick().await;
-                match crate::server_config::load_server_config(config_path_for_poll.as_deref()) {
-                    Ok(new_config) => {
-                        let changed = {
-                            let cfg = config_for_poll.read().expect("config lock poisoned");
-                            *cfg != new_config
-                        };
-                        if changed {
-                            let mut cfg = config_for_poll.write().expect("config lock poisoned");
-                            *cfg = new_config;
-                            info!("Server config reloaded");
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to reload server config, keeping previous: {e}");
+    // Spawn config polling task
+    let config_for_poll = Arc::clone(&shared_config);
+    let config_path_for_poll = config_path.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.tick().await; // skip first immediate tick
+        loop {
+            interval.tick().await;
+            match crate::server_config::load_server_config(config_path_for_poll.as_deref()) {
+                Ok(new_config) => {
+                    let changed = {
+                        let cfg = config_for_poll.read().expect("config lock poisoned");
+                        *cfg != new_config
+                    };
+                    if changed {
+                        let mut cfg = config_for_poll.write().expect("config lock poisoned");
+                        *cfg = new_config;
+                        info!("Server config reloaded");
                     }
                 }
+                Err(e) => {
+                    warn!("Failed to reload server config, keeping previous: {e}");
+                }
             }
-        });
-    }
+        }
+    });
 
-    // Branch: TLS or plain HTTP (demo mode always uses plain HTTP)
+    // Branch: TLS or plain HTTP
     let tls_config = shared_config
         .read()
         .expect("config lock poisoned")
         .api
         .tls
         .clone();
-    if let (false, Some(ref tls_config)) = (args.demo, &tls_config) {
+    if let Some(ref tls_config) = tls_config {
         let client_auth = client_auth.unwrap();
 
         let rustls_config = crate::tls::build_rustls_config(tls_config, client_auth);

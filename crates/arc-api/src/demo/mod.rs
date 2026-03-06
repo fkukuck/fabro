@@ -1,5 +1,5 @@
 //! Demo mode handlers that return static data for all API endpoints.
-//! Used with `arc serve --demo` to showcase the UI without a real backend.
+//! Activated per-request via the `X-Arc-Demo: 1` header to showcase the UI without a real backend.
 
 use std::sync::Arc;
 
@@ -503,7 +503,7 @@ pub async fn create_session_stub(
 ) -> Response {
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({"id": "demo-session-new"})),
+        Json(serde_json::json!({"id": "demo-session-new", "created_at": "2026-03-06T16:00:00Z"})),
     )
         .into_response()
 }
@@ -2375,14 +2375,12 @@ mod sessions {
                     SessionListItem {
                         id: "s1".into(),
                         title: "Add rate limiting to auth endpoints".into(),
-                        repo: "api-server".into(),
-                        time: "2h ago".into(),
+                        created_at: "2026-03-06T14:30:00Z".into(),
                     },
                     SessionListItem {
                         id: "s2".into(),
                         title: "Fix config parsing for nested values".into(),
-                        repo: "cli-tools".into(),
-                        time: "4h ago".into(),
+                        created_at: "2026-03-06T12:30:00Z".into(),
                     },
                 ],
             },
@@ -2392,20 +2390,17 @@ mod sessions {
                     SessionListItem {
                         id: "s3".into(),
                         title: "Migrate to React Router v7".into(),
-                        repo: "web-dashboard".into(),
-                        time: "1d ago".into(),
+                        created_at: "2026-03-05T10:00:00Z".into(),
                     },
                     SessionListItem {
                         id: "s4".into(),
                         title: "Add dark mode toggle".into(),
-                        repo: "web-dashboard".into(),
-                        time: "1d ago".into(),
+                        created_at: "2026-03-05T09:00:00Z".into(),
                     },
                     SessionListItem {
                         id: "s5".into(),
                         title: "Update OpenAPI spec for v3".into(),
-                        repo: "api-server".into(),
-                        time: "1d ago".into(),
+                        created_at: "2026-03-05T08:00:00Z".into(),
                     },
                 ],
             },
@@ -2415,20 +2410,17 @@ mod sessions {
                     SessionListItem {
                         id: "s6".into(),
                         title: "Terraform module for Redis cluster".into(),
-                        repo: "infrastructure".into(),
-                        time: "3d ago".into(),
+                        created_at: "2026-03-03T15:00:00Z".into(),
                     },
                     SessionListItem {
                         id: "s7".into(),
                         title: "Add pipeline event types".into(),
-                        repo: "shared-types".into(),
-                        time: "5d ago".into(),
+                        created_at: "2026-03-01T11:00:00Z".into(),
                     },
                     SessionListItem {
                         id: "s8".into(),
                         title: "Implement webhook retry logic".into(),
-                        repo: "api-server".into(),
-                        time: "6d ago".into(),
+                        created_at: "2026-02-28T09:00:00Z".into(),
                     },
                 ],
             },
@@ -2438,50 +2430,50 @@ mod sessions {
     pub fn detail(id: &str) -> Option<SessionDetail> {
         match id {
             "s1" => Some(SessionDetail {
-                id: "s1".into(), title: "Add rate limiting to auth endpoints".into(), repo: "api-server".into(), model: "Opus 4.6".into(),
+                id: "s1".into(), title: "Add rate limiting to auth endpoints".into(), model: "Opus 4.6".into(), created_at: "2026-03-06T14:30:00Z".into(), updated_at: "2026-03-06T15:45:00Z".into(),
                 turns: vec![
-                    SessionTurn { kind: SessionTurnKind::User, content: Some("Add rate limiting to the auth endpoints. We're getting hit with brute force attempts on /api/auth/login and /api/auth/register. Use a sliding window approach with Redis, 10 requests per minute per IP.".into()), date: Some("Feb 28".into()), tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll implement sliding window rate limiting using Redis. Let me first look at the existing auth routes and middleware setup.".into()), date: None, tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("Add rate limiting to the auth endpoints. We're getting hit with brute force attempts on /api/auth/login and /api/auth/register. Use a sliding window approach with Redis, 10 requests per minute per IP.".into()), created_at: Some("2026-02-28T10:00:00Z".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll implement sliding window rate limiting using Redis. Let me first look at the existing auth routes and middleware setup.".into()), created_at: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, created_at: None, tools: vec![
                         ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/routes/auth.ts" }"#.into(), result: "import { Router } from \"express\";\nimport { loginHandler } from \"../handlers/auth\";\nimport { registerHandler } from \"../handlers/auth\";\n\nconst router = Router();\nrouter.post(\"/login\", loginHandler);\nrouter.post(\"/register\", registerHandler);\n\nexport default router;".into() },
                         ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/middleware/index.ts" }"#.into(), result: "export { authMiddleware } from \"./auth\";\nexport { corsMiddleware } from \"./cors\";\nexport { loggingMiddleware } from \"./logging\";".into() },
                         ToolUse { tool_name: "search_files".into(), args: r#"{ "pattern": "redis", "path": "src/" }"#.into(), result: "src/lib/redis.ts:1: import Redis from \"ioredis\";\nsrc/lib/redis.ts:3: export const redis = new Redis(process.env.REDIS_URL);".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Good \u{2014} there's already a Redis client at `src/lib/redis.ts`. I'll create a rate limiting middleware using the sliding window algorithm and apply it to the auth routes.\n\nHere's the plan:\n1. Create `src/middleware/rate-limit.ts` with sliding window logic\n2. Apply it to `/login` and `/register` routes\n3. Return `429 Too Many Requests` when the limit is exceeded".into()), date: None, tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Good \u{2014} there's already a Redis client at `src/lib/redis.ts`. I'll create a rate limiting middleware using the sliding window algorithm and apply it to the auth routes.\n\nHere's the plan:\n1. Create `src/middleware/rate-limit.ts` with sliding window logic\n2. Apply it to `/login` and `/register` routes\n3. Return `429 Too Many Requests` when the limit is exceeded".into()), created_at: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, created_at: None, tools: vec![
                         ToolUse { tool_name: "write_file".into(), args: r#"{ "path": "src/middleware/rate-limit.ts" }"#.into(), result: "File written: src/middleware/rate-limit.ts (47 lines)".into() },
                         ToolUse { tool_name: "edit_file".into(), args: r#"{ "path": "src/routes/auth.ts", "operations": [{ "type": "insert", "line": 3 }] }"#.into(), result: "Applied 1 edit to src/routes/auth.ts".into() },
                         ToolUse { tool_name: "edit_file".into(), args: r#"{ "path": "src/middleware/index.ts", "operations": [{ "type": "append" }] }"#.into(), result: "Applied 1 edit to src/middleware/index.ts".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Done. I've created the rate limiter and wired it up:\n\n- **`src/middleware/rate-limit.ts`** \u{2014} Sliding window rate limiter using Redis sorted sets. Each request adds a timestamped entry, expired entries are pruned, and the count is checked against the limit.\n- **`src/routes/auth.ts`** \u{2014} Applied `rateLimit({ windowMs: 60_000, max: 10 })` to both `/login` and `/register`.\n- **`src/middleware/index.ts`** \u{2014} Re-exported the new middleware.\n\nWhen the limit is exceeded, clients get a `429` response with a `Retry-After` header indicating seconds until the window resets.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Done. I've created the rate limiter and wired it up:\n\n- **`src/middleware/rate-limit.ts`** \u{2014} Sliding window rate limiter using Redis sorted sets. Each request adds a timestamped entry, expired entries are pruned, and the count is checked against the limit.\n- **`src/routes/auth.ts`** \u{2014} Applied `rateLimit({ windowMs: 60_000, max: 10 })` to both `/login` and `/register`.\n- **`src/middleware/index.ts`** \u{2014} Re-exported the new middleware.\n\nWhen the limit is exceeded, clients get a `429` response with a `Retry-After` header indicating seconds until the window resets.".into()), created_at: None, tools: vec![] },
                 ],
             }),
             "s2" => Some(SessionDetail {
-                id: "s2".into(), title: "Fix config parsing for nested values".into(), repo: "cli-tools".into(), model: "Sonnet 4.6".into(),
+                id: "s2".into(), title: "Fix config parsing for nested values".into(), model: "Sonnet 4.6".into(), created_at: "2026-03-06T12:30:00Z".into(), updated_at: "2026-03-06T13:15:00Z".into(),
                 turns: vec![
-                    SessionTurn { kind: SessionTurnKind::User, content: Some("The CLI crashes when parsing nested TOML config values like [database.connection]. Can you debug and fix this?".into()), date: Some("Feb 28".into()), tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Let me look at the config parser to understand how nested keys are handled.".into()), date: None, tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("The CLI crashes when parsing nested TOML config values like [database.connection]. Can you debug and fix this?".into()), created_at: Some("2026-02-28T10:00:00Z".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Let me look at the config parser to understand how nested keys are handled.".into()), created_at: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, created_at: None, tools: vec![
                         ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "src/config/parser.ts" }"#.into(), result: "export function parseConfig(raw: string): Record<string, string> {\n  const result: Record<string, string> = {};\n  for (const line of raw.split(\"\\n\")) {\n    const match = line.match(/^(\\w+)\\s*=\\s*(.+)$/);\n    if (match) result[match[1]] = match[2].trim();\n  }\n  return result;\n}".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Found the issue. The parser uses a flat `Record<string, string>` and the regex `^(\\w+)` only matches simple keys \u{2014} it can't handle TOML section headers like `[database.connection]` or dotted keys like `database.host`.\n\nI'll rewrite the parser to support nested sections and dotted keys, producing a properly nested object.".into()), date: None, tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Found the issue. The parser uses a flat `Record<string, string>` and the regex `^(\\w+)` only matches simple keys \u{2014} it can't handle TOML section headers like `[database.connection]` or dotted keys like `database.host`.\n\nI'll rewrite the parser to support nested sections and dotted keys, producing a properly nested object.".into()), created_at: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, created_at: None, tools: vec![
                         ToolUse { tool_name: "write_file".into(), args: r#"{ "path": "src/config/parser.ts" }"#.into(), result: "File written: src/config/parser.ts (62 lines)".into() },
                         ToolUse { tool_name: "run_command".into(), args: r#"{ "command": "npm test -- --grep 'config parser'" }"#.into(), result: "PASS src/config/__tests__/parser.test.ts\n  config parser\n    \u{2713} parses flat keys (2ms)\n    \u{2713} parses section headers (1ms)\n    \u{2713} parses dotted keys (1ms)\n    \u{2713} handles nested sections (1ms)\n\nTest Suites: 1 passed\nTests: 4 passed".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Fixed. The parser now:\n\n1. Tracks the current section header (e.g. `[database.connection]`)\n2. Constructs nested objects from dotted paths\n3. Handles both `key = value` within sections and bare `dotted.key = value` syntax\n\nAll 4 tests pass, including the new nested section case.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("Fixed. The parser now:\n\n1. Tracks the current section header (e.g. `[database.connection]`)\n2. Constructs nested objects from dotted paths\n3. Handles both `key = value` within sections and bare `dotted.key = value` syntax\n\nAll 4 tests pass, including the new nested section case.".into()), created_at: None, tools: vec![] },
                 ],
             }),
             "s3" => Some(SessionDetail {
-                id: "s3".into(), title: "Migrate to React Router v7".into(), repo: "web-dashboard".into(), model: "Opus 4.6".into(),
+                id: "s3".into(), title: "Migrate to React Router v7".into(), model: "Opus 4.6".into(), created_at: "2026-03-05T10:00:00Z".into(), updated_at: "2026-03-05T11:30:00Z".into(),
                 turns: vec![
-                    SessionTurn { kind: SessionTurnKind::User, content: Some("Help me migrate our app from React Router v6 to v7. We're using createBrowserRouter with data loaders.".into()), date: Some("Feb 26".into()), tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll audit your current router setup and identify what needs to change for v7. Let me scan the codebase.".into()), date: None, tools: vec![] },
-                    SessionTurn { kind: SessionTurnKind::Tool, content: None, date: None, tools: vec![
+                    SessionTurn { kind: SessionTurnKind::User, content: Some("Help me migrate our app from React Router v6 to v7. We're using createBrowserRouter with data loaders.".into()), created_at: Some("2026-02-26T10:00:00Z".into()), tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("I'll audit your current router setup and identify what needs to change for v7. Let me scan the codebase.".into()), created_at: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Tool, content: None, created_at: None, tools: vec![
                         ToolUse { tool_name: "search_files".into(), args: r#"{ "pattern": "createBrowserRouter" }"#.into(), result: "src/main.tsx:5: import { createBrowserRouter } from \"react-router-dom\";\nsrc/main.tsx:8: const router = createBrowserRouter([".into() },
                         ToolUse { tool_name: "read_file".into(), args: r#"{ "path": "package.json" }"#.into(), result: "\"react-router-dom\": \"^6.22.0\"".into() },
                     ] },
-                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("You're on React Router 6.22. The migration to v7 involves:\n\n1. Replace `react-router-dom` with `react-router` (single package)\n2. Update `createBrowserRouter` import path\n3. Migrate data loaders to the new `Route.LoaderArgs` type\n4. Update any `useLoaderData` calls to be type-safe\n\nLet me make these changes.".into()), date: None, tools: vec![] },
+                    SessionTurn { kind: SessionTurnKind::Assistant, content: Some("You're on React Router 6.22. The migration to v7 involves:\n\n1. Replace `react-router-dom` with `react-router` (single package)\n2. Update `createBrowserRouter` import path\n3. Migrate data loaders to the new `Route.LoaderArgs` type\n4. Update any `useLoaderData` calls to be type-safe\n\nLet me make these changes.".into()), created_at: None, tools: vec![] },
                 ],
             }),
             _ => None,

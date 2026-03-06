@@ -44,7 +44,7 @@ pub fn jwt_validation() -> Validation {
 pub enum AuthMode {
     /// One or more strategies to try in order.
     Strategies(Vec<AuthStrategy>),
-    /// Authentication is explicitly disabled (--demo flag only).
+    /// Authentication is explicitly disabled (used for demo requests via `X-Arc-Demo: 1` header).
     Disabled,
 }
 

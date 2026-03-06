@@ -1,5 +1,6 @@
 import { importPKCS8, SignJWT } from "jose";
 import { getAppConfig } from "./lib/config.server";
+import { isDemoMode } from "./lib/demo-mode.server";
 import { getUser } from "./lib/session.server";
 
 const ARC_JWT_PRIVATE_KEY = process.env.ARC_JWT_PRIVATE_KEY;
@@ -56,6 +57,9 @@ export async function apiFetch(
   if (ARC_JWT_PRIVATE_KEY) {
     const token = await signToken(sub);
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (request && isDemoMode(request)) {
+    headers.set("X-Arc-Demo", "1");
   }
 
   const url = `${base_url}${path}`;

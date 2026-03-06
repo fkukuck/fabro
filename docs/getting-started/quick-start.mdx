@@ -75,11 +75,7 @@ The API server exposes a REST API for launching and managing workflow runs:
 ./target/release/arc serve
 ```
 
-This starts the server on `http://localhost:3000`. To try it with demo data (no API keys required):
-
-```bash
-./target/release/arc serve --demo
-```
+This starts the server on `http://localhost:3000`. Demo mode is per-request — the web UI sends the `X-Arc-Demo: 1` header automatically when configured with `ARC_DEMO=1`.
 
 ## Start the web frontend
 

@@ -2,7 +2,7 @@
 
 ## Dev servers
 
-1. `arc serve --demo` — starts the Rust API server in demo mode
+1. `arc serve` — starts the Rust API server (demo mode is per-request via `X-Arc-Demo: 1` header)
 2. `cd apps/arc-web && bun run dev` — starts the React dev server
 
 ## API workflow

@@ -9,6 +9,7 @@ import {
 } from "@headlessui/react";
 import {
   Bars3Icon,
+  BeakerIcon,
   ChartBarIcon,
   CheckBadgeIcon,
   Cog6ToothIcon,
@@ -23,6 +24,7 @@ import {
 import { Form, Link, Outlet, redirect, useLocation, useMatches } from "react-router";
 import { useTheme } from "../lib/theme";
 import { getAppConfig } from "../lib/config.server";
+import { isDemoMode, demoCookieHeader } from "../lib/demo-mode.server";
 import { isGitHubAppConfigured } from "../lib/github.server";
 import { requireUser } from "../lib/session.server";
 import type { Route } from "./+types/app-shell";
@@ -36,15 +38,29 @@ const DEMO_USER = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { provider } = getAppConfig().web.auth;
+  const config = getAppConfig();
+  const { provider } = config.web.auth;
+  const demoMode = isDemoMode(request);
   if (provider === "insecure_disabled") {
-    return { user: DEMO_USER };
+    return { user: DEMO_USER, demoMode, feature_flags: config.feature_flags };
   }
   if (provider === "github" && !isGitHubAppConfigured()) {
     throw redirect("/setup");
   }
   const user = await requireUser(request);
-  return { user, provider };
+  return { user, provider, demoMode, feature_flags: config.feature_flags };
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const form = await request.formData();
+  if (form.get("intent") === "toggle-demo") {
+    const enabled = !isDemoMode(request);
+    const referer = request.headers.get("Referer") ?? "/start";
+    const url = new URL(referer);
+    return redirect(url.pathname + url.search, {
+      headers: { "Set-Cookie": demoCookieHeader(enabled) },
+    });
+  }
 }
 
 const navigation = [
@@ -62,7 +78,7 @@ function classNames(...classes: Array<string | false | null | undefined>) {
 }
 
 export default function AppShell({ loaderData }: Route.ComponentProps) {
-  const { user, provider } = loaderData;
+  const { user, provider, demoMode } = loaderData;
   const { pathname } = useLocation();
   const matches = useMatches();
   const { theme, toggle } = useTheme();
@@ -114,6 +130,20 @@ export default function AppShell({ loaderData }: Route.ComponentProps) {
             </div>
             <div className="hidden md:block">
               <div className="ml-4 flex items-center gap-3 md:ml-6">
+                <Form method="POST" className="flex">
+                  <input type="hidden" name="intent" value="toggle-demo" />
+                  <button
+                    type="submit"
+                    className={classNames(
+                      "rounded-full p-1.5 transition-colors hover:bg-overlay hover:text-fg",
+                      demoMode ? "text-teal-500" : "text-fg-muted",
+                    )}
+                    title={demoMode ? "Switch to live data" : "Switch to demo data"}
+                  >
+                    <BeakerIcon className="size-5" aria-hidden="true" />
+                    <span className="sr-only">Toggle demo mode</span>
+                  </button>
+                </Form>
                 <button
                   type="button"
                   onClick={toggle}
@@ -211,15 +241,31 @@ export default function AppShell({ loaderData }: Route.ComponentProps) {
                   {user.email}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={toggle}
-                className="ml-auto rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
-                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              >
-                <ThemeIcon className="size-5" aria-hidden="true" />
-                <span className="sr-only">Toggle theme</span>
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <Form method="POST" className="flex">
+                  <input type="hidden" name="intent" value="toggle-demo" />
+                  <button
+                    type="submit"
+                    className={classNames(
+                      "rounded-full p-1.5 transition-colors hover:bg-overlay hover:text-fg",
+                      demoMode ? "text-teal-500" : "text-fg-muted",
+                    )}
+                    title={demoMode ? "Switch to live data" : "Switch to demo data"}
+                  >
+                    <BeakerIcon className="size-5" aria-hidden="true" />
+                    <span className="sr-only">Toggle demo mode</span>
+                  </button>
+                </Form>
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  <ThemeIcon className="size-5" aria-hidden="true" />
+                  <span className="sr-only">Toggle theme</span>
+                </button>
+              </div>
             </div>
             {provider !== "tailscale" && (
               <div className="mt-3 space-y-1 px-2">

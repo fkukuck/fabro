@@ -7,7 +7,7 @@ type ServiceConfig = {
 
 const services: Record<string, ServiceConfig> = {
   api: {
-    command: ["arc", "serve", "--demo", "--host", "0.0.0.0"],
+    command: ["arc", "serve", "--host", "0.0.0.0"],
   },
   web: {
     command: ["bun", "run", "dev", "--host", "0.0.0.0"],

@@ -79,11 +79,7 @@ API mode supports two authentication strategies, configurable in `server.toml`:
 
 ### Demo mode
 
-```bash
-arc serve --demo
-```
-
-Demo mode disables authentication and serves static mock data for all endpoints. It lets you explore the web UI without API keys or real workflow execution.
+Demo mode is per-request: send the `X-Arc-Demo: 1` HTTP header to get static mock data with authentication disabled. The web UI sends this header automatically when configured with `ARC_DEMO=1`. This lets you explore the UI without API keys or real workflow execution.
 
 ## Web UI
 

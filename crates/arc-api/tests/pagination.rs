@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use arc_api::jwt_auth::AuthMode;
-use arc_api::server::{build_router, create_app_state_with_options};
+use arc_api::server::{build_router, create_app_state};
 use arc_workflows::handler::exit::ExitHandler;
 use arc_workflows::handler::start::StartHandler;
 use arc_workflows::handler::HandlerRegistry;
@@ -29,6 +29,7 @@ async fn get_json(app: axum::Router, uri: &str) -> serde_json::Value {
     let req = Request::builder()
         .method("GET")
         .uri(uri)
+        .header("x-arc-demo", "1")
         .body(Body::empty())
         .unwrap();
     let response = app.clone().oneshot(req).await.unwrap();
@@ -103,7 +104,7 @@ const ENDPOINTS: &[PaginatedEndpoint] = &[
 
 #[tokio::test]
 async fn paginated_endpoints_return_correct_shape() {
-    let state = create_app_state_with_options(test_db().await, test_registry, false, true, 5);
+    let state = create_app_state(test_db().await, test_registry);
     let app = build_router(state, AuthMode::Disabled);
 
     for ep in ENDPOINTS {

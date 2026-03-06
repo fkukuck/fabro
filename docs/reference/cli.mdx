@@ -207,7 +207,6 @@ Start the HTTP API server that exposes the [REST API](/api-reference) for launch
 ```bash
 arc serve
 arc serve --port 8080 --host 0.0.0.0
-arc serve --demo
 arc serve --sandbox daytona --max-concurrent-runs 4
 ```
 
@@ -219,9 +218,10 @@ arc serve --sandbox daytona --max-concurrent-runs 4
 | `--provider <PROVIDER>` | Override default LLM provider | — |
 | `--dry-run` | Execute with simulated LLM backend | — |
 | `--sandbox <SANDBOX>` | Sandbox for agent tools: `local`, `docker`, or `daytona` | — |
-| `--demo` | Serve static demo data (disables auth, read-only) | — |
 | `--max-concurrent-runs <N>` | Maximum number of concurrent run executions | — |
 | `--config <PATH>` | Path to server config file | `~/.arc/server.toml` |
+
+Demo mode is per-request: send the `X-Arc-Demo: 1` header to get static demo data with auth disabled.
 
 If no LLM provider API keys are configured, the server automatically falls back to dry-run mode.
 
