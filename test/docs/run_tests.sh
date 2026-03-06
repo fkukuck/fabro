@@ -13,14 +13,18 @@ total=0
 
 run_one() {
     local dot="$1"
+    local dot_dir
+    dot_dir="$(dirname "$dot")"
+    local dot_name
+    dot_name="$(basename "$dot")"
     local rel
-    rel="$(realpath --relative-to="$SCRIPT_DIR" "$dot" 2>/dev/null || echo "$dot")"
+    rel="$(python3 -c "import os; print(os.path.relpath('$dot', '$SCRIPT_DIR'))")"
 
     # Check for companion run.toml (run-<stem>.toml in same dir)
     local stem
     stem="$(basename "${dot%.dot}")"
     local toml
-    toml="$(dirname "$dot")/run-${stem}.toml"
+    toml="${dot_dir}/run-${stem}.toml"
 
     total=$((total + 1))
 
@@ -34,32 +38,16 @@ run_one() {
                 fail=$((fail + 1))
             fi
             ;;
-        dry-run)
-            local target="$dot"
-            [[ -f "$toml" ]] && target="$toml"
-            if "$ARC" run start "$target" --dry-run --auto-approve 2>&1; then
-                echo "  PASS  $rel"
-                pass=$((pass + 1))
-            else
-                echo "  FAIL  $rel"
-                fail=$((fail + 1))
-            fi
-            ;;
-        haiku)
-            local target="$dot"
-            [[ -f "$toml" ]] && target="$toml"
-            if "$ARC" run start "$target" --model claude-haiku-4-5 --auto-approve 2>&1; then
-                echo "  PASS  $rel"
-                pass=$((pass + 1))
-            else
-                echo "  FAIL  $rel"
-                fail=$((fail + 1))
-            fi
-            ;;
-        full)
-            local target="$dot"
-            [[ -f "$toml" ]] && target="$toml"
-            if "$ARC" run start "$target" --auto-approve 2>&1; then
+        dry-run|haiku|full)
+            # cd into the dot file's directory so relative script paths resolve
+            local target="$dot_name"
+            [[ -f "$toml" ]] && target="run-${stem}.toml"
+
+            local flags=(--auto-approve)
+            [[ "$PHASE" == "dry-run" ]] && flags+=(--dry-run)
+            [[ "$PHASE" == "haiku" ]] && flags+=(--model claude-haiku-4-5)
+
+            if (cd "$dot_dir" && "$ARC" run start "$target" "${flags[@]}" 2>&1); then
                 echo "  PASS  $rel"
                 pass=$((pass + 1))
             else

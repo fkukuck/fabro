@@ -42,7 +42,7 @@ digraph TransitionPatterns {
     start -> plan -> review
 
     review -> fix     [label="Fix"]
-    review -> gate    [label="Approve"]
+    review -> gate    [label="Approve", weight=10]
 
     fix -> review
 
