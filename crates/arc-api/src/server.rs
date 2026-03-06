@@ -424,6 +424,8 @@ async fn start_run(
     let run_id = ulid::Ulid::new().to_string();
     info!(run_id = %run_id, "Run queued");
 
+    let created_at = chrono::Utc::now();
+
     {
         let mut runs = state.runs.lock().expect("runs lock poisoned");
         runs.insert(
@@ -433,7 +435,7 @@ async fn start_run(
                 graph,
                 status: RunStatus::Queued,
                 error: None,
-                created_at: chrono::Utc::now(),
+                created_at,
                 interviewer: None,
                 event_tx: None,
                 context: None,
@@ -452,7 +454,7 @@ async fn start_run(
         Json(StartRunResponse {
             id: run_id,
             status: RunStatus::Queued,
-            created_at: chrono::Utc::now(),
+            created_at,
         }),
     )
         .into_response()

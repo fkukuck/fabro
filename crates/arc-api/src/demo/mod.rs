@@ -686,13 +686,15 @@ pub async fn get_aggregate_usage(
 
 // ── Data modules ───────────────────────────────────────────────────────
 
-mod runs {
-    use arc_types::*;
-    use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc};
 
-    fn ts(s: &str) -> DateTime<Utc> {
-        s.parse().unwrap()
-    }
+fn ts(s: &str) -> DateTime<Utc> {
+    s.parse().unwrap()
+}
+
+mod runs {
+    use super::ts;
+    use arc_types::*;
 
     pub fn list_items() -> Vec<RunListItem> {
         vec![
@@ -2310,12 +2312,8 @@ mod verifications {
 }
 
 mod retros {
+    use super::ts;
     use arc_types::*;
-    use chrono::{DateTime, Utc};
-
-    fn ts(s: &str) -> DateTime<Utc> {
-        s.parse().unwrap()
-    }
 
     pub fn list_items() -> Vec<RetroListItem> {
         vec![
@@ -2431,13 +2429,9 @@ mod retros {
 }
 
 mod sessions {
+    use super::ts;
     use arc_types::*;
-    use chrono::{DateTime, Utc};
     use uuid::Uuid;
-
-    fn ts(s: &str) -> DateTime<Utc> {
-        s.parse().unwrap()
-    }
 
     fn uid(n: u128) -> Uuid {
         Uuid::from_u128(n)
@@ -2577,12 +2571,8 @@ mod sessions {
 }
 
 mod insights {
+    use super::ts;
     use arc_types::*;
-    use chrono::{DateTime, Utc};
-
-    fn ts(s: &str) -> DateTime<Utc> {
-        s.parse().unwrap()
-    }
 
     pub fn saved_queries() -> Vec<SavedQuery> {
         vec![
