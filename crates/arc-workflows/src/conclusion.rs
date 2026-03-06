@@ -3,12 +3,13 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ArcError, Result};
+use crate::error::Result;
+use crate::outcome::StageStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conclusion {
     pub timestamp: DateTime<Utc>,
-    pub status: String,
+    pub status: StageStatus,
     pub duration_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<String>,
@@ -18,17 +19,11 @@ pub struct Conclusion {
 
 impl Conclusion {
     pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| ArcError::Checkpoint(format!("conclusion serialize failed: {e}")))?;
-        std::fs::write(path, json)?;
-        Ok(())
+        crate::save_json(self, path, "conclusion")
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let data = std::fs::read_to_string(path)?;
-        let conclusion: Self = serde_json::from_str(&data)
-            .map_err(|e| ArcError::Checkpoint(format!("conclusion deserialize failed: {e}")))?;
-        Ok(conclusion)
+        crate::load_json(path, "conclusion")
     }
 }
 
@@ -39,7 +34,7 @@ mod tests {
     fn sample_conclusion() -> Conclusion {
         Conclusion {
             timestamp: Utc::now(),
-            status: "success".to_string(),
+            status: crate::outcome::StageStatus::Success,
             duration_ms: 12345,
             failure_reason: None,
             final_git_commit_sha: Some("deadbeef".to_string()),
@@ -55,7 +50,7 @@ mod tests {
         conclusion.save(&path).unwrap();
         let loaded = Conclusion::load(&path).unwrap();
 
-        assert_eq!(loaded.status, "success");
+        assert_eq!(loaded.status, crate::outcome::StageStatus::Success);
         assert_eq!(loaded.duration_ms, 12345);
         assert!(loaded.failure_reason.is_none());
         assert_eq!(
@@ -87,7 +82,7 @@ mod tests {
 
         let conclusion = Conclusion {
             timestamp: Utc::now(),
-            status: "fail".to_string(),
+            status: crate::outcome::StageStatus::Fail,
             duration_ms: 500,
             failure_reason: None,
             final_git_commit_sha: None,
@@ -107,7 +102,7 @@ mod tests {
 
         let conclusion = Conclusion {
             timestamp: Utc::now(),
-            status: "fail".to_string(),
+            status: crate::outcome::StageStatus::Fail,
             duration_ms: 100,
             failure_reason: Some("timeout".to_string()),
             final_git_commit_sha: None,

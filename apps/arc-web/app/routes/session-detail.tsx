@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import {
   ChatBubbleLeftIcon,
   ClipboardDocumentIcon,
   CheckIcon,
   PencilSquareIcon,
   UserIcon,
-  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
+import { ToolRow, ToolBlock } from "../components/tool-use";
+import type { ToolUse } from "../components/tool-use";
 import { timeAgo, groupSessionsByDate } from "../lib/time";
 import { apiJson } from "../api-client";
 import type { SessionDetail as ApiSessionDetail, PaginatedSessionList } from "@qltysh/arc-api-client";
@@ -56,15 +56,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     apiSessions.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at }))
   );
   return { session, sessionGroups };
-}
-
-interface ToolUse {
-  id: string;
-  toolName: string;
-  input: string;
-  result: string;
-  isError: boolean;
-  durationMs?: number;
 }
 
 type Turn =
@@ -293,48 +284,6 @@ const sessionGroups: SessionGroupType[] = [
     ],
   },
 ];
-
-function ToolRow({ tool }: { tool: ToolUse }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="border-b border-line last:border-b-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-overlay"
-      >
-        <ChevronRightIcon className={`size-3 shrink-0 text-fg-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-        <WrenchScrewdriverIcon className="size-3.5 shrink-0 text-fg-muted" />
-        <span className="font-mono text-xs text-fg-3">{tool.toolName}</span>
-        {tool.durationMs != null && <span className="text-[11px] text-fg-muted">{tool.durationMs}ms</span>}
-        <span className="truncate font-mono text-xs text-fg-muted">{tool.input}</span>
-      </button>
-      {open && (
-        <div className="space-y-px bg-overlay px-2.5 pb-2 pt-1">
-          <div className="rounded bg-overlay px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Input</div>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.input}</pre>
-          </div>
-          <div className="rounded bg-overlay px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Result</div>
-            <pre className={`whitespace-pre-wrap font-mono text-xs leading-relaxed ${tool.isError ? "text-coral" : "text-fg-3"}`}>{tool.result}</pre>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolBlock({ tools }: { tools: ToolUse[] }) {
-  return (
-    <div className="rounded-md border border-line bg-overlay overflow-hidden">
-      {tools.map((tool) => (
-        <ToolRow key={tool.id} tool={tool} />
-      ))}
-    </div>
-  );
-}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);

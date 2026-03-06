@@ -4,7 +4,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ArcError, Result};
+use crate::error::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -24,17 +24,11 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| ArcError::Checkpoint(format!("manifest serialize failed: {e}")))?;
-        std::fs::write(path, json)?;
-        Ok(())
+        crate::save_json(self, path, "manifest")
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let data = std::fs::read_to_string(path)?;
-        let manifest: Self = serde_json::from_str(&data)
-            .map_err(|e| ArcError::Checkpoint(format!("manifest deserialize failed: {e}")))?;
-        Ok(manifest)
+        crate::load_json(path, "manifest")
     }
 }
 

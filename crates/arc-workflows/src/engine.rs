@@ -26,12 +26,8 @@ use crate::handler::{EngineServices, HandlerRegistry};
 use crate::hook::{HookContext, HookDecision, HookEvent, HookRunner};
 use crate::interviewer::Interviewer;
 use crate::outcome::{Outcome, StageStatus};
+use crate::millis_u64;
 use crate::preamble::build_preamble;
-
-/// Convert a Duration's milliseconds to u64, saturating on overflow.
-fn millis_u64(d: std::time::Duration) -> u64 {
-    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
-}
 
 /// Classify the failure mode of a completed outcome.
 ///

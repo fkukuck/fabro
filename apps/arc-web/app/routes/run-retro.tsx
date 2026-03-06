@@ -4,7 +4,7 @@ import {
   learningCategoryConfig,
   frictionKindConfig,
   openItemKindConfig,
-  formatDuration,
+  formatDurationMs,
 } from "../data/retros";
 import type { Retro } from "../data/retros";
 import { apiJson } from "../api-client";
@@ -54,7 +54,7 @@ export default function RunRetro({ loaderData }: Route.ComponentProps) {
 
       {/* Aggregate Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Duration" value={formatDuration(retro.stats.total_duration_ms)} />
+        <StatCard label="Duration" value={formatDurationMs(retro.stats.total_duration_ms)} />
         <StatCard label="Cost" value={formatCost(retro.stats.total_cost)} />
         <StatCard label="Retries" value={String(retro.stats.total_retries)} warn={retro.stats.total_retries > 0} />
         <StatCard label="Files" value={String(retro.stats.files_touched.length)} />
@@ -181,7 +181,7 @@ export default function RunRetro({ loaderData }: Route.ComponentProps) {
                     <StageStatusBadge status={stage.status} />
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
-                    {formatDuration(stage.duration_ms)}
+                    {formatDurationMs(stage.duration_ms)}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
                     <span className={stage.retries > 0 ? "text-amber" : "text-fg-3"}>

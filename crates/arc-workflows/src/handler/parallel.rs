@@ -6,6 +6,7 @@ use arc_agent::Sandbox;
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
+use crate::millis_u64;
 use crate::context::keys;
 use crate::context::Context;
 use crate::engine::GitCheckpointMode;
@@ -102,11 +103,6 @@ impl Sandbox for WorktreeSandbox {
     fn os_version(&self) -> String {
         self.inner.os_version()
     }
-}
-
-/// Convert a Duration's milliseconds to u64, saturating on overflow.
-fn millis_u64(d: std::time::Duration) -> u64 {
-    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Fans out execution to multiple branches concurrently.

@@ -7,8 +7,8 @@ use serde::Serialize;
 use tracing::{debug, info};
 
 #[derive(Args)]
-pub struct RunsListArgs {
-    /// Only show runs started before this date (YYYY-MM-DD prefix match)
+pub struct RunFilterArgs {
+    /// Only include runs started before this date (YYYY-MM-DD prefix match)
     #[arg(long)]
     pub before: Option<String>,
 
@@ -23,6 +23,12 @@ pub struct RunsListArgs {
     /// Include orphan directories (no manifest.json)
     #[arg(long)]
     pub orphans: bool,
+}
+
+#[derive(Args)]
+pub struct RunsListArgs {
+    #[command(flatten)]
+    pub filter: RunFilterArgs,
 
     /// Output as JSON
     #[arg(long)]
@@ -31,21 +37,8 @@ pub struct RunsListArgs {
 
 #[derive(Args)]
 pub struct RunsPruneArgs {
-    /// Only prune runs started before this date (YYYY-MM-DD prefix match)
-    #[arg(long)]
-    pub before: Option<String>,
-
-    /// Filter by workflow name (substring match)
-    #[arg(long)]
-    pub workflow: Option<String>,
-
-    /// Filter by label (KEY=VALUE, repeatable, AND semantics)
-    #[arg(long = "label", value_name = "KEY=VALUE")]
-    pub label: Vec<String>,
-
-    /// Include orphan directories (no manifest.json)
-    #[arg(long)]
-    pub orphans: bool,
+    #[command(flatten)]
+    pub filter: RunFilterArgs,
 
     /// Actually delete (default is dry-run)
     #[arg(long)]
@@ -87,9 +80,8 @@ pub fn scan_runs(base: &Path) -> Result<Vec<RunInfo>> {
         debug!(dir = %dir_name, "scanning run directory");
 
         let manifest_path = path.join("manifest.json");
-        if manifest_path.exists() {
+        if let Ok(manifest) = crate::manifest::Manifest::load(&manifest_path) {
             debug!(dir = %dir_name, "reading manifest");
-            let manifest = crate::manifest::Manifest::load(&manifest_path)?;
 
             let run_id = manifest.run_id;
             let workflow_name = manifest.workflow_name;
@@ -139,17 +131,13 @@ pub fn scan_runs(base: &Path) -> Result<Vec<RunInfo>> {
 }
 
 fn read_status(run_dir: &Path) -> String {
-    let conclusion_path = run_dir.join("conclusion.json");
-    if conclusion_path.exists() {
-        if let Ok(conclusion) = crate::conclusion::Conclusion::load(&conclusion_path) {
-            return conclusion.status;
-        }
-        "unknown".to_string()
-    } else if run_dir.join("run.pid").exists() {
-        "running".to_string()
-    } else {
-        "unknown".to_string()
+    if let Ok(conclusion) = crate::conclusion::Conclusion::load(&run_dir.join("conclusion.json")) {
+        return conclusion.status.to_string();
     }
+    if run_dir.join("run.pid").exists() {
+        return "running".to_string();
+    }
+    "unknown".to_string()
 }
 
 /// Filter runs by criteria. Orphans are excluded unless `include_orphans` is true.
@@ -205,13 +193,13 @@ fn default_logs_base() -> PathBuf {
 pub fn list_command(args: &RunsListArgs) -> Result<()> {
     let base = default_logs_base();
     let runs = scan_runs(&base)?;
-    let label_filters = parse_label_filters(&args.label);
+    let label_filters = parse_label_filters(&args.filter.label);
     let filtered = filter_runs(
         &runs,
-        args.before.as_deref(),
-        args.workflow.as_deref(),
+        args.filter.before.as_deref(),
+        args.filter.workflow.as_deref(),
         &label_filters,
-        args.orphans,
+        args.filter.orphans,
     );
 
     if args.json {
@@ -265,13 +253,13 @@ pub fn prune_command(args: &RunsPruneArgs) -> Result<()> {
 
 pub fn prune_from(args: &RunsPruneArgs, base: &Path) -> Result<()> {
     let runs = scan_runs(base)?;
-    let label_filters = parse_label_filters(&args.label);
+    let label_filters = parse_label_filters(&args.filter.label);
     let filtered = filter_runs(
         &runs,
-        args.before.as_deref(),
-        args.workflow.as_deref(),
+        args.filter.before.as_deref(),
+        args.filter.workflow.as_deref(),
         &label_filters,
-        args.orphans,
+        args.filter.orphans,
     );
 
     if filtered.is_empty() {
@@ -540,10 +528,12 @@ mod tests {
         );
 
         let args = RunsPruneArgs {
-            before: Some("2026-01-01".into()),
-            workflow: None,
-            label: Vec::new(),
-            orphans: false,
+            filter: RunFilterArgs {
+                before: Some("2026-01-01".into()),
+                workflow: None,
+                label: Vec::new(),
+                orphans: false,
+            },
             yes: false,
         };
 
@@ -588,10 +578,12 @@ mod tests {
         );
 
         let args = RunsPruneArgs {
-            before: Some("2026-01-01".into()),
-            workflow: None,
-            label: Vec::new(),
-            orphans: false,
+            filter: RunFilterArgs {
+                before: Some("2026-01-01".into()),
+                workflow: None,
+                label: Vec::new(),
+                orphans: false,
+            },
             yes: true,
         };
 
@@ -611,10 +603,12 @@ mod tests {
         let orphan_dir = make_run_dir(base, "orphan-dir", None, None, false);
 
         let args = RunsPruneArgs {
-            before: None,
-            workflow: None,
-            label: Vec::new(),
-            orphans: true,
+            filter: RunFilterArgs {
+                before: None,
+                workflow: None,
+                label: Vec::new(),
+                orphans: true,
+            },
             yes: true,
         };
 

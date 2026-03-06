@@ -868,22 +868,7 @@ async fn cancel_run(
     let mut runs = state.runs.lock().expect("runs lock poisoned");
     match runs.get_mut(&id) {
         Some(managed_run) => match managed_run.status {
-            RunStatus::Queued => {
-                managed_run.status = RunStatus::Cancelled;
-                let created_at = managed_run.created_at;
-                (
-                    StatusCode::OK,
-                    Json(RunStatusResponse {
-                        id: id.clone(),
-                        status: RunStatus::Cancelled,
-                        error: None,
-                        queue_position: None,
-                        created_at,
-                    }),
-                )
-                    .into_response()
-            }
-            RunStatus::Starting | RunStatus::Running => {
+            RunStatus::Queued | RunStatus::Starting | RunStatus::Running => {
                 if let Some(token) = &managed_run.cancel_token {
                     token.store(true, Ordering::Relaxed);
                 }

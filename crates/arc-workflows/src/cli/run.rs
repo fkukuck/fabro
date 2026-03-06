@@ -709,8 +709,8 @@ pub async fn run_command(
 
     {
         let (status, failure_reason) = match &engine_result {
-            Ok(o) => (o.status.to_string(), o.failure_reason().map(String::from)),
-            Err(e) => ("fail".to_string(), Some(e.to_string())),
+            Ok(o) => (o.status.clone(), o.failure_reason().map(String::from)),
+            Err(e) => (crate::outcome::StageStatus::Fail, Some(e.to_string())),
         };
         let conclusion = crate::conclusion::Conclusion {
             timestamp: Utc::now(),

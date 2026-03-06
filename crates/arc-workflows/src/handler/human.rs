@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 
+use crate::millis_u64;
 use crate::context::keys;
 use crate::context::Context;
 use crate::error::ArcError;
@@ -15,11 +16,6 @@ use crate::interviewer::{
 use crate::outcome::Outcome;
 
 use super::{EngineServices, Handler};
-
-/// Convert a Duration's milliseconds to u64, saturating on overflow.
-fn millis_u64(d: std::time::Duration) -> u64 {
-    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
-}
 
 /// A choice derived from an outgoing edge.
 struct Choice {

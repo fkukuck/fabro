@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::checkpoint::Checkpoint;
-use crate::error::{ArcError, Result};
+use crate::error::Result;
 use crate::outcome::StageStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,18 +170,12 @@ impl Retro {
 
     /// Save the retro as JSON to `logs_root/retro.json`.
     pub fn save(&self, logs_root: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| ArcError::Checkpoint(format!("retro serialize failed: {e}")))?;
-        std::fs::write(logs_root.join("retro.json"), json)?;
-        Ok(())
+        crate::save_json(self, &logs_root.join("retro.json"), "retro")
     }
 
     /// Load a retro from `logs_root/retro.json`.
     pub fn load(logs_root: &Path) -> Result<Self> {
-        let data = std::fs::read_to_string(logs_root.join("retro.json"))?;
-        let retro: Self = serde_json::from_str(&data)
-            .map_err(|e| ArcError::Checkpoint(format!("retro deserialize failed: {e}")))?;
-        Ok(retro)
+        crate::load_json(&logs_root.join("retro.json"), "retro")
     }
 }
 

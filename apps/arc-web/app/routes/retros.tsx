@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { MagnifyingGlassIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
-import { smoothnessConfig, formatDuration } from "../data/retros";
+import { smoothnessConfig, formatDurationMs } from "../data/retros";
 import type { SmoothnessRating } from "../data/retros";
 import { apiJson } from "../api-client";
 import type { PaginatedRetroList } from "@qltysh/arc-api-client";
@@ -142,7 +142,7 @@ export default function Retros({ loaderData }: Route.ComponentProps) {
                 <SmoothnesssBadge smoothness={retro.smoothness} />
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
-                {formatDuration(retro.total_duration_ms)}
+                {formatDurationMs(retro.total_duration_ms)}
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-fg-3">
                 {retro.friction_point_count}

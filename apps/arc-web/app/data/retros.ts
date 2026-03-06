@@ -1,3 +1,5 @@
+import { formatDurationSecs } from "../lib/format";
+
 export type SmoothnessRating = "effortless" | "smooth" | "bumpy" | "struggled" | "failed";
 
 type LearningCategory = "repo" | "code" | "workflow" | "tool";
@@ -88,16 +90,8 @@ export const openItemKindConfig: Record<OpenItemKind, { label: string; text: str
   test_gap: { label: "Test Gap", text: "text-coral" },
 };
 
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes >= 60) {
-    const hours = Math.floor(minutes / 60);
-    const remainMinutes = minutes % 60;
-    return `${hours}h ${remainMinutes}m`;
-  }
-  return `${minutes}m ${seconds}s`;
+function formatDurationMs(ms: number): string {
+  return formatDurationSecs(Math.floor(ms / 1000));
 }
 
-export { formatDuration };
+export { formatDurationMs };
