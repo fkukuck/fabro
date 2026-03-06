@@ -315,19 +315,23 @@ async fn get_aggregate_usage(
         .by_model
         .iter()
         .map(|(model, totals)| arc_types::UsageByModel {
-            model: model.clone(),
+            model: arc_types::ModelReference { id: model.clone() },
             stages: totals.stages,
-            input_tokens: totals.input_tokens,
-            output_tokens: totals.output_tokens,
-            cost: totals.cost,
+            usage: arc_types::TokenUsage {
+                input_tokens: totals.input_tokens,
+                output_tokens: totals.output_tokens,
+                cost: totals.cost,
+            },
         })
         .collect();
     let response = arc_types::AggregateUsage {
-        total_runs: agg.total_runs,
-        total_input_tokens: by_model.iter().map(|m| m.input_tokens).sum(),
-        total_output_tokens: by_model.iter().map(|m| m.output_tokens).sum(),
-        total_cost: by_model.iter().map(|m| m.cost).sum(),
-        total_runtime_secs: agg.total_runtime_secs,
+        totals: arc_types::AggregateUsageTotals {
+            runs: agg.total_runs,
+            input_tokens: by_model.iter().map(|m| m.usage.input_tokens).sum(),
+            output_tokens: by_model.iter().map(|m| m.usage.output_tokens).sum(),
+            cost: by_model.iter().map(|m| m.usage.cost).sum(),
+            runtime_secs: agg.total_runtime_secs,
+        },
         by_model,
     };
     (StatusCode::OK, Json(response)).into_response()
@@ -377,7 +381,7 @@ async fn list_runs(
         .map(|(id, managed_run)| RunStatusResponse {
             id: id.clone(),
             status: managed_run.status,
-            error: managed_run.error.clone(),
+            error: managed_run.error.as_ref().map(|msg| arc_types::RunError { message: msg.clone() }),
             queue_position: queue_positions.get(id).copied(),
             created_at: managed_run.created_at,
         })
@@ -458,6 +462,7 @@ async fn start_run(
             queue_position: None,
             created_at,
         }),
+
     )
         .into_response()
 }
@@ -690,7 +695,7 @@ async fn get_run_status(
                 Json(RunStatusResponse {
                     id: id.clone(),
                     status: managed_run.status,
-                    error: managed_run.error.clone(),
+                    error: managed_run.error.as_ref().map(|msg| arc_types::RunError { message: msg.clone() }),
                     created_at: managed_run.created_at,
                     queue_position,
                 }),
@@ -1506,11 +1511,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = body_json(response.into_body()).await;
-        assert_eq!(body["total_runs"].as_i64().unwrap(), 0);
-        assert_eq!(body["total_input_tokens"].as_i64().unwrap(), 0);
-        assert_eq!(body["total_output_tokens"].as_i64().unwrap(), 0);
-        assert_eq!(body["total_cost"].as_f64().unwrap(), 0.0);
-        assert_eq!(body["total_runtime_secs"].as_f64().unwrap(), 0.0);
+        assert_eq!(body["totals"]["runs"].as_i64().unwrap(), 0);
+        assert_eq!(body["totals"]["input_tokens"].as_i64().unwrap(), 0);
+        assert_eq!(body["totals"]["output_tokens"].as_i64().unwrap(), 0);
+        assert_eq!(body["totals"]["cost"].as_f64().unwrap(), 0.0);
+        assert_eq!(body["totals"]["runtime_secs"].as_f64().unwrap(), 0.0);
         assert!(body["by_model"].as_array().unwrap().is_empty());
     }
 
@@ -1562,7 +1567,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = body_json(response.into_body()).await;
-        assert_eq!(body["total_runs"].as_i64().unwrap(), 1);
+        assert_eq!(body["totals"]["runs"].as_i64().unwrap(), 1);
     }
 
     #[tokio::test]
