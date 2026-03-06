@@ -1,5 +1,5 @@
 ---
-title: "Slack interviews, richer conditions, lifecycle hooks, and model failover"
+title: "Slack interviews, GPT-5.4, per-node loop limits, and richer conditions"
 date: "2026-03-05"
 ---
 
@@ -76,6 +76,32 @@ failover = ["openai", "gemini"]
 ```
 
 Previously, a provider outage would fail the entire run. Now it retries with the next provider in the list.
+
+## GPT-5.4 and GPT-5.4 Pro
+
+OpenAI's GPT-5.4 and GPT-5.4 Pro are now available in the model catalog. Use the aliases `gpt54` and `gpt54-pro` in your workflow stylesheets. Neither replaces GPT-5.2 as the default OpenAI model.
+
+```dot
+stage_a [model="gpt54-pro"];
+```
+
+## Per-node loop limits
+
+Individual nodes can now override the graph-level `max_node_visits` setting with a `max_visits` attribute. This gives tighter control over specific loops — for example, allowing a fix-and-verify cycle to iterate more than the default while keeping the rest of the graph constrained.
+
+Previously, the only option was the graph-wide `max_node_visits` setting (or the dry-run default of 10), which applied uniformly to every node.
+
+```dot
+verify [type="agent" max_visits=20];
+```
+
+## `$$` escape for variable expansion
+
+Prompts that need a literal `$` character can now use `$$` to escape it. Previously, `$goal` in a prompt would always be expanded as a variable, with no way to output a literal dollar sign. This also fixes a subtle bug where `$goal` could match as a substring of other `$`-prefixed text.
+
+```dot
+stage_a [prompt="The cost is $$50 and the goal is $goal"];
+```
 
 ## Docker Compose demo
 
