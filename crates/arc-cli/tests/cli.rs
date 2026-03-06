@@ -20,7 +20,8 @@ fn models_list_prints_all_models() {
         .stdout(predicate::str::contains("gemini-3.1-pro-preview"))
         .stdout(predicate::str::contains("anthropic"))
         .stdout(predicate::str::contains("openai"))
-        .stdout(predicate::str::contains("gemini"));
+        .stdout(predicate::str::contains("gemini"))
+        .stdout(predicate::str::contains("gpt-5.4"));
 }
 
 #[test]

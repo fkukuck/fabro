@@ -239,7 +239,7 @@ mod tests {
         assert!(anthropic.iter().all(|m| m.provider == "anthropic"));
 
         let openai = list_models(Some("openai"));
-        assert_eq!(openai.len(), 4);
+        assert_eq!(openai.len(), 6);
 
         let gemini = list_models(Some("gemini"));
         assert_eq!(gemini.len(), 3);
@@ -312,6 +312,41 @@ mod tests {
     }
 
     #[test]
+    fn gpt_5_4_in_catalog() {
+        let m = get_model_info("gpt-5.4").unwrap();
+        assert_eq!(m.provider, "openai");
+        assert_eq!(m.display_name, "GPT-5.4");
+        assert_eq!(m.context_window, 1047576);
+        assert_eq!(m.max_output, Some(128000));
+        assert!(m.supports_tools);
+        assert!(m.supports_vision);
+        assert!(m.supports_reasoning);
+        assert_eq!(m.input_cost_per_million, Some(2.5));
+        assert_eq!(m.output_cost_per_million, Some(15.0));
+        assert!(!m.default);
+    }
+
+    #[test]
+    fn gpt_5_4_pro_in_catalog() {
+        let m = get_model_info("gpt-5.4-pro").unwrap();
+        assert_eq!(m.provider, "openai");
+        assert_eq!(m.display_name, "GPT-5.4 Pro");
+        assert_eq!(m.context_window, 1047576);
+        assert_eq!(m.max_output, Some(128000));
+        assert!(m.supports_tools);
+        assert!(m.supports_vision);
+        assert!(m.supports_reasoning);
+        assert_eq!(m.input_cost_per_million, Some(30.0));
+        assert_eq!(m.output_cost_per_million, Some(180.0));
+        assert!(!m.default);
+    }
+
+    #[test]
+    fn gpt54_alias() {
+        assert_eq!(get_model_info("gpt54").unwrap().id, "gpt-5.4");
+    }
+
+    #[test]
     fn closest_model_opus_to_gemini() {
         let opus = get_model_info("claude-opus-4-6").unwrap();
         let result = closest_model("gemini", &opus).unwrap();
@@ -367,7 +402,7 @@ mod tests {
         assert_eq!(chain[0].provider, "gemini");
         assert_eq!(chain[0].model, "gemini-3.1-pro-preview");
         assert_eq!(chain[1].provider, "openai");
-        assert_eq!(chain[1].model, "gpt-5.2");
+        assert_eq!(chain[1].model, "gpt-5.4");
     }
 
     #[test]
