@@ -16,12 +16,16 @@ This pattern is useful when you have detailed specs with acceptance criteria (De
 
 ## Single-model variant
 
+<Frame>
+  <img src="/images/example-dod.svg" alt="Definition of Done workflow: Start → Audit LLM → Audit Agent → Triage → Fix → Build → Verify → Review → Exit, with Fix self-loop, Build/Build Fix loop, and Verify back to Triage" />
+</Frame>
+
 The simpler variant uses one model throughout, with sequential audits across multiple specs:
 
 ```dot title="spec-dod.dot"
 digraph SpecDoD {
     graph [
-        goal="Satisfy every Definition of Done checkbox across all three attractor specs (unified-llm-spec.md, coding-agent-loop-spec.md, attractor-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code.",
+        goal="Satisfy every Definition of Done checkbox across both specs (unified-llm-spec.md, coding-agent-loop-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code.",
         default_max_retry="3",
         retry_target="triage",
         model_stylesheet="
@@ -84,27 +88,6 @@ Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
 Be thorough. Check every single checkbox."
     ]
 
-    audit_attractor [
-        label="Audit: Attractor Pipeline DoD",
-        shape=box,
-        class="audit",
-        prompt="Read docs/specs/attractor-spec.md Section 11 (Definition of Done) in full. Then read every source file under crates/attractor/.
-
-For EACH checkbox in sections 11.1 through 11.13, evaluate whether the current Rust implementation satisfies it. Be strict.
-
-Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
-{
-  \"spec\": \"attractor\",
-  \"sections\": { ... },
-  \"total\": N,
-  \"passed\": M,
-  \"failed\": K,
-  \"failed_items\": [ {\"section\": \"11.1\", \"text\": \"...\", \"reason\": \"...\"} ]
-}
-
-Be thorough. Check every single checkbox."
-    ]
-
     /*------------------------------------------------------------------------
      * Phase 2: Triage — merge results, prioritize failures, decide next step
      *----------------------------------------------------------------------*/
@@ -112,7 +95,7 @@ Be thorough. Check every single checkbox."
     triage [
         label="Triage & Prioritize",
         shape=box,
-        prompt="You have three audit reports in context (from audit_llm, audit_agent, audit_attractor). Merge them into a single prioritized list of ALL failing DoD checkboxes.
+        prompt="You have two audit reports in context (from audit_llm, audit_agent). Merge them into a single prioritized list of ALL failing DoD checkboxes.
 
 Group failures into:
 1. IMPLEMENTABLE — can be fixed by writing/modifying Rust code (functions, handlers, logic)
@@ -206,10 +189,9 @@ Output the fixes applied and ensure the code will compile cleanly with: cargo bu
     final_audit [
         label="Final Verification Audit",
         shape=box,
-        prompt="This is a verification pass. Re-read all three spec DoD sections:
+        prompt="This is a verification pass. Re-read both spec DoD sections:
 - docs/specs/unified-llm-spec.md Section 8
 - docs/specs/coding-agent-loop-spec.md Section 9
-- docs/specs/attractor-spec.md Section 11
 
 And re-read the implementation files that were changed in this iteration.
 
@@ -244,8 +226,7 @@ Otherwise set preferred_next_label to \"More work needed\"."
 
     /* Sequential audit chain */
     audit_llm -> audit_agent
-    audit_agent -> audit_attractor
-    audit_attractor -> triage
+    audit_agent -> triage
 
     /* Triage decision */
     triage -> exit           [label="Done", condition="preferred_label=Done"]
@@ -291,12 +272,16 @@ Otherwise set preferred_next_label to \"More work needed\"."
 
 ## Multi-model variant
 
+<Frame>
+  <img src="/images/example-dod-multimodel.svg" alt="Multi-model Definition of Done workflow: Start → Dual Audit (Opus+GPT) → Critique → Consensus → Triage (Opus+GPT) → Fix Cycle (Codex↔Opus) → Build → Verify (Opus+GPT) → Review → Exit, with Fix Cycle self-loop, Build/Build Fix loop, and Verify back to Triage" />
+</Frame>
+
 The multi-model variant applies the same audit-triage-fix-verify structure but uses independent assessments from two models (Claude Opus and GPT-5.2) at each phase, with cross-critique and consensus merging. This catches blind spots that a single model might miss.
 
 ```dot title="spec-dod-multimodel.dot"
 digraph SpecDoDMultiModel {
     graph [
-        goal="Satisfy every Definition of Done checkbox across all three attractor specs (unified-llm-spec.md, coding-agent-loop-spec.md, attractor-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code. Uses multi-model consensus: Opus 4.6 and GPT-5.2 compete on audits and planning, GPT-5.2-codex and Opus 4.6 alternate on implementation.",
+        goal="Satisfy every Definition of Done checkbox across both specs (unified-llm-spec.md, coding-agent-loop-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code. Uses multi-model consensus: Opus 4.6 and GPT-5.2 compete on audits and planning, GPT-5.2-codex and Opus 4.6 alternate on implementation.",
         default_max_retry="3",
         retry_target="triage_merge",
         default_fidelity="full",
@@ -315,7 +300,7 @@ digraph SpecDoDMultiModel {
     /*========================================================================
      * PHASE 1 — Dual Independent Audits (interleaved, fidelity-isolated)
      *
-     * Each spec is audited by both models before moving to the next spec.
+     * Each spec is audited by both models before moving to the next.
      * Audit nodes use fidelity="truncate" so they only see the graph goal
      * and NOT each other's responses — prevents anchoring bias.
      * Full responses are still stored as response.<node_id> for later use.
@@ -423,54 +408,6 @@ Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
 Be thorough. Check every single checkbox."
     ]
 
-    /* ---- Attractor spec: both models ---- */
-
-    audit_attractor_opus [
-        label="Opus: Audit Attractor DoD",
-        shape=box,
-        class="opus",
-        fidelity="truncate",
-        prompt="Read docs/specs/attractor-spec.md Section 11 (Definition of Done) in full. Then read every source file under crates/attractor/.
-
-For EACH checkbox in sections 11.1 through 11.13, evaluate whether the current Rust implementation satisfies it. Be strict.
-
-Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
-{
-  \"spec\": \"attractor\",
-  \"model\": \"opus\",
-  \"sections\": { ... },
-  \"total\": N,
-  \"passed\": M,
-  \"failed\": K,
-  \"failed_items\": [ {\"section\": \"11.1\", \"text\": \"...\", \"reason\": \"...\"} ]
-}
-
-Be thorough. Check every single checkbox."
-    ]
-
-    audit_attractor_gpt [
-        label="GPT-5.2: Audit Attractor DoD",
-        shape=box,
-        class="gpt",
-        fidelity="truncate",
-        prompt="Read docs/specs/attractor-spec.md Section 11 (Definition of Done) in full. Then read every source file under crates/attractor/.
-
-For EACH checkbox in sections 11.1 through 11.13, evaluate whether the current Rust implementation satisfies it. Be strict.
-
-Respond with ONLY a JSON object (no prose) -- don't write it out as a file:
-{
-  \"spec\": \"attractor\",
-  \"model\": \"gpt-5.2\",
-  \"sections\": { ... },
-  \"total\": N,
-  \"passed\": M,
-  \"failed\": K,
-  \"failed_items\": [ {\"section\": \"11.1\", \"text\": \"...\", \"reason\": \"...\"} ]
-}
-
-Be thorough. Check every single checkbox."
-    ]
-
     /*========================================================================
      * PHASE 2 — Cross-Critique (fidelity=full to see all response.* keys)
      *
@@ -483,17 +420,15 @@ Be thorough. Check every single checkbox."
         shape=box,
         class="gpt",
         fidelity="full",
-        prompt="You have all six audit reports available in context. The full outputs are in these context keys:
+        prompt="You have all four audit reports available in context. The full outputs are in these context keys:
 
 OPUS AUDITS:
 - response.audit_llm_opus — Opus's audit of unified-llm-spec.md Section 8
 - response.audit_agent_opus — Opus's audit of coding-agent-loop-spec.md Section 9
-- response.audit_attractor_opus — Opus's audit of attractor-spec.md Section 11
 
 GPT AUDITS (your own):
 - response.audit_llm_gpt — your audit of unified-llm-spec.md Section 8
 - response.audit_agent_gpt — your audit of coding-agent-loop-spec.md Section 9
-- response.audit_attractor_gpt — your audit of attractor-spec.md Section 11
 
 Compare them item by item. For every DoD checkbox where the two models DISAGREE (one says pass, the other says fail), re-read the relevant spec section and source file to determine who is correct.
 
@@ -522,17 +457,15 @@ Be rigorous. When in doubt, fail the checkbox — strictness prevents false conf
         shape=box,
         class="opus",
         fidelity="full",
-        prompt="You have all six audit reports available in context. The full outputs are in these context keys:
+        prompt="You have all four audit reports available in context. The full outputs are in these context keys:
 
 GPT AUDITS:
 - response.audit_llm_gpt — GPT-5.2's audit of unified-llm-spec.md Section 8
 - response.audit_agent_gpt — GPT-5.2's audit of coding-agent-loop-spec.md Section 9
-- response.audit_attractor_gpt — GPT-5.2's audit of attractor-spec.md Section 11
 
 OPUS AUDITS (your own):
 - response.audit_llm_opus — your audit of unified-llm-spec.md Section 8
 - response.audit_agent_opus — your audit of coding-agent-loop-spec.md Section 9
-- response.audit_attractor_opus — your audit of attractor-spec.md Section 11
 
 Compare them item by item. For every DoD checkbox where the two models DISAGREE (one says pass, the other says fail), re-read the relevant spec section and source file to determine who is correct.
 
@@ -570,7 +503,7 @@ Be rigorous. When in doubt, fail the checkbox — strictness prevents false conf
         fidelity="full",
         prompt="You have all prior audit and critique outputs in context. The key inputs are:
 
-SIX AUDIT REPORTS (context keys response.audit_llm_opus, response.audit_agent_opus, response.audit_attractor_opus, response.audit_llm_gpt, response.audit_agent_gpt, response.audit_attractor_gpt)
+FOUR AUDIT REPORTS (context keys response.audit_llm_opus, response.audit_agent_opus, response.audit_llm_gpt, response.audit_agent_gpt)
 
 TWO CROSS-CRITIQUES (context keys response.critique_by_gpt, response.critique_by_opus)
 
@@ -584,8 +517,7 @@ Respond with JSON (not by writing out a file):
 {
   \"spec_results\": {
     \"unified-llm\": { \"total\": N, \"passed\": M, \"failed\": K, \"failed_items\": [...] },
-    \"coding-agent-loop\": { ... },
-    \"attractor\": { ... }
+    \"coding-agent-loop\": { ... }
   },
   \"consensus_total\": N,
   \"consensus_passed\": M,
@@ -814,10 +746,9 @@ Output the fixes applied and ensure the code will compile cleanly with: cargo bu
         fidelity="full",
         prompt="This is a verification pass. The items that were previously failing are listed in context key response.triage_merge (the implementable list). The fixes applied are in response.fix_codex and response.review_fix_opus.
 
-Re-read all three spec DoD sections:
+Re-read both spec DoD sections:
 - docs/specs/unified-llm-spec.md Section 8
 - docs/specs/coding-agent-loop-spec.md Section 9
-- docs/specs/attractor-spec.md Section 11
 
 And re-read the implementation files that were changed in this iteration.
 
@@ -840,10 +771,9 @@ Respond with JSON (not by writing out a file):
         fidelity="full",
         prompt="This is a verification pass. The items that were previously failing are listed in context key response.triage_merge (the implementable list). The fixes applied are in response.fix_codex and response.review_fix_opus.
 
-Re-read all three spec DoD sections:
+Re-read both spec DoD sections:
 - docs/specs/unified-llm-spec.md Section 8
 - docs/specs/coding-agent-loop-spec.md Section 9
-- docs/specs/attractor-spec.md Section 11
 
 And re-read the implementation files that were changed in this iteration.
 
@@ -904,11 +834,9 @@ Otherwise set preferred_next_label to \"More work needed\"."
     audit_llm_opus -> audit_llm_gpt
     audit_llm_gpt -> audit_agent_opus
     audit_agent_opus -> audit_agent_gpt
-    audit_agent_gpt -> audit_attractor_opus
-    audit_attractor_opus -> audit_attractor_gpt
 
     /* Phase 2: Cross-critique (now sequential — GPT critiques Opus, then Opus critiques GPT) */
-    audit_attractor_gpt -> critique_by_gpt
+    audit_agent_gpt -> critique_by_gpt
     critique_by_gpt -> critique_by_opus
 
     /* Phase 3: Consensus */
@@ -957,7 +885,7 @@ Otherwise set preferred_next_label to \"More work needed\"."
 
 **Cross-critique** — after all audits complete, each model reviews the other's work. Disagreements are resolved by re-reading the spec and code. This adversarial step catches both false positives (a model said "pass" when the feature is incomplete) and false negatives (a model said "fail" when the code is actually correct).
 
-**Consensus merging** — a dedicated merge node combines the six audit reports and two critiques into a single truth. The merge rules are conservative: when in doubt, fail the checkbox.
+**Consensus merging** — a dedicated merge node combines the four audit reports and two critiques into a single truth. The merge rules are conservative: when in doubt, fail the checkbox.
 
 **Dual triage** — both models independently classify and prioritize failures. The merge takes the more actionable classification (IMPLEMENTABLE > STRUCTURAL > DEFERRED) and averages ranks. Different models weight risks differently, so consensus produces a stronger work plan.
 
