@@ -58,7 +58,7 @@ import {
 import type {
   VerificationType,
   VerificationMode,
-  EvaluationResult,
+  VerificationResult,
   VerificationCategory,
   CriterionPerformance,
 } from "../data/verifications";
@@ -87,7 +87,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         f1: ctrl.f1 ?? null,
         passAt1: ctrl.pass_at_1 ?? null,
         mode: (ctrl.mode ?? "disabled") as VerificationMode,
-        evaluations: (ctrl.evaluations ?? []) as EvaluationResult[],
+        evaluations: (ctrl.evaluations ?? []) as VerificationResult[],
       };
     }
   }
@@ -276,7 +276,7 @@ function ModeBadge({ mode }: { mode: VerificationMode }) {
   );
 }
 
-function EvaluationDots({ evaluations }: { evaluations: readonly EvaluationResult[] }) {
+function EvaluationDots({ evaluations }: { evaluations: readonly VerificationResult[] }) {
   if (evaluations.length === 0) {
     return <span className="text-xs italic text-fg-muted">—</span>;
   }

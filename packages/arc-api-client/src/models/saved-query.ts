@@ -37,6 +37,6 @@ export interface SavedQuery {
     /**
      * Timestamp when the query was last modified.
      */
-    'updated_at'?: string;
+    'updated_at': string;
 }
 

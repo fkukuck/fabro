@@ -33,12 +33,14 @@ import type { VerificationDetailResponse } from '../models';
 export const VerificationsApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * Returns all verification categories with their controls and performance metrics.
-         * @summary List Verifications
+         * Returns paginated verification categories with their controls and performance metrics. Each category contains controls; retrieve a specific control via `/verifications/{slug}`.
+         * @summary List Verification Categories
+         * @param {number} [pageLimit] Maximum number of items to return per page.
+         * @param {number} [pageOffset] Number of items to skip before returning results.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listVerifications: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listVerificationCategories: async (pageLimit?: number, pageOffset?: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/verifications`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -58,6 +60,14 @@ export const VerificationsApiAxiosParamCreator = function (configuration?: Confi
             // http bearer authentication required
             await setBearerAuthToObject(localVarHeaderParameter, configuration)
 
+            if (pageLimit !== undefined) {
+                localVarQueryParameter['page[limit]'] = pageLimit;
+            }
+
+            if (pageOffset !== undefined) {
+                localVarQueryParameter['page[offset]'] = pageOffset;
+            }
+
             localVarHeaderParameter['Accept'] = 'application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
@@ -70,15 +80,15 @@ export const VerificationsApiAxiosParamCreator = function (configuration?: Confi
             };
         },
         /**
-         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category.
-         * @summary Retrieve Verification
+         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category. Controls are listed within categories returned by `/verifications`.
+         * @summary Retrieve Verification Control
          * @param {string} slug URL-safe slug identifying a verification control.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        retrieveVerification: async (slug: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        retrieveVerificationControl: async (slug: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'slug' is not null or undefined
-            assertParamExists('retrieveVerification', 'slug', slug)
+            assertParamExists('retrieveVerificationControl', 'slug', slug)
             const localVarPath = `/verifications/{slug}`
                 .replace(`{${"slug"}}`, encodeURIComponent(String(slug)));
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
@@ -120,28 +130,30 @@ export const VerificationsApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = VerificationsApiAxiosParamCreator(configuration)
     return {
         /**
-         * Returns all verification categories with their controls and performance metrics.
-         * @summary List Verifications
+         * Returns paginated verification categories with their controls and performance metrics. Each category contains controls; retrieve a specific control via `/verifications/{slug}`.
+         * @summary List Verification Categories
+         * @param {number} [pageLimit] Maximum number of items to return per page.
+         * @param {number} [pageOffset] Number of items to skip before returning results.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listVerifications(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<PaginatedVerificationCategoryList>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listVerifications(options);
+        async listVerificationCategories(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<PaginatedVerificationCategoryList>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listVerificationCategories(pageLimit, pageOffset, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['VerificationsApi.listVerifications']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['VerificationsApi.listVerificationCategories']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category.
-         * @summary Retrieve Verification
+         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category. Controls are listed within categories returned by `/verifications`.
+         * @summary Retrieve Verification Control
          * @param {string} slug URL-safe slug identifying a verification control.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async retrieveVerification(slug: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<VerificationDetailResponse>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveVerification(slug, options);
+        async retrieveVerificationControl(slug: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<VerificationDetailResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveVerificationControl(slug, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['VerificationsApi.retrieveVerification']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['VerificationsApi.retrieveVerificationControl']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -154,23 +166,25 @@ export const VerificationsApiFactory = function (configuration?: Configuration, 
     const localVarFp = VerificationsApiFp(configuration)
     return {
         /**
-         * Returns all verification categories with their controls and performance metrics.
-         * @summary List Verifications
+         * Returns paginated verification categories with their controls and performance metrics. Each category contains controls; retrieve a specific control via `/verifications/{slug}`.
+         * @summary List Verification Categories
+         * @param {number} [pageLimit] Maximum number of items to return per page.
+         * @param {number} [pageOffset] Number of items to skip before returning results.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listVerifications(options?: RawAxiosRequestConfig): AxiosPromise<PaginatedVerificationCategoryList> {
-            return localVarFp.listVerifications(options).then((request) => request(axios, basePath));
+        listVerificationCategories(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig): AxiosPromise<PaginatedVerificationCategoryList> {
+            return localVarFp.listVerificationCategories(pageLimit, pageOffset, options).then((request) => request(axios, basePath));
         },
         /**
-         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category.
-         * @summary Retrieve Verification
+         * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category. Controls are listed within categories returned by `/verifications`.
+         * @summary Retrieve Verification Control
          * @param {string} slug URL-safe slug identifying a verification control.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        retrieveVerification(slug: string, options?: RawAxiosRequestConfig): AxiosPromise<VerificationDetailResponse> {
-            return localVarFp.retrieveVerification(slug, options).then((request) => request(axios, basePath));
+        retrieveVerificationControl(slug: string, options?: RawAxiosRequestConfig): AxiosPromise<VerificationDetailResponse> {
+            return localVarFp.retrieveVerificationControl(slug, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -180,24 +194,26 @@ export const VerificationsApiFactory = function (configuration?: Configuration, 
  */
 export class VerificationsApi extends BaseAPI {
     /**
-     * Returns all verification categories with their controls and performance metrics.
-     * @summary List Verifications
+     * Returns paginated verification categories with their controls and performance metrics. Each category contains controls; retrieve a specific control via `/verifications/{slug}`.
+     * @summary List Verification Categories
+     * @param {number} [pageLimit] Maximum number of items to return per page.
+     * @param {number} [pageOffset] Number of items to skip before returning results.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public listVerifications(options?: RawAxiosRequestConfig) {
-        return VerificationsApiFp(this.configuration).listVerifications(options).then((request) => request(this.axios, this.basePath));
+    public listVerificationCategories(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig) {
+        return VerificationsApiFp(this.configuration).listVerificationCategories(pageLimit, pageOffset, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
-     * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category.
-     * @summary Retrieve Verification
+     * Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category. Controls are listed within categories returned by `/verifications`.
+     * @summary Retrieve Verification Control
      * @param {string} slug URL-safe slug identifying a verification control.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public retrieveVerification(slug: string, options?: RawAxiosRequestConfig) {
-        return VerificationsApiFp(this.configuration).retrieveVerification(slug, options).then((request) => request(this.axios, this.basePath));
+    public retrieveVerificationControl(slug: string, options?: RawAxiosRequestConfig) {
+        return VerificationsApiFp(this.configuration).retrieveVerificationControl(slug, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

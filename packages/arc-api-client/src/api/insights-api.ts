@@ -260,6 +260,47 @@ export const InsightsApiAxiosParamCreator = function (configuration?: Configurat
             };
         },
         /**
+         * Returns a single saved query by ID.
+         * @summary Retrieve Saved Query
+         * @param {string} id Unique identifier of a saved query.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveSavedQuery: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('retrieveSavedQuery', 'id', id)
+            const localVarPath = `/insights/queries/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication mTLS required
+            await setApiKeyToObject(localVarHeaderParameter, "X-mTLS-Client-CN", configuration)
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * Replaces the name and SQL of an existing saved query.
          * @summary Update Saved Query
          * @param {string} id Unique identifier of a saved query.
@@ -382,6 +423,19 @@ export const InsightsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Returns a single saved query by ID.
+         * @summary Retrieve Saved Query
+         * @param {string} id Unique identifier of a saved query.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async retrieveSavedQuery(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SavedQuery>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveSavedQuery(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['InsightsApi.retrieveSavedQuery']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Replaces the name and SQL of an existing saved query.
          * @summary Update Saved Query
          * @param {string} id Unique identifier of a saved query.
@@ -457,6 +511,16 @@ export const InsightsApiFactory = function (configuration?: Configuration, baseP
             return localVarFp.listSavedQueries(pageLimit, pageOffset, options).then((request) => request(axios, basePath));
         },
         /**
+         * Returns a single saved query by ID.
+         * @summary Retrieve Saved Query
+         * @param {string} id Unique identifier of a saved query.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveSavedQuery(id: string, options?: RawAxiosRequestConfig): AxiosPromise<SavedQuery> {
+            return localVarFp.retrieveSavedQuery(id, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Replaces the name and SQL of an existing saved query.
          * @summary Update Saved Query
          * @param {string} id Unique identifier of a saved query.
@@ -529,6 +593,17 @@ export class InsightsApi extends BaseAPI {
      */
     public listSavedQueries(pageLimit?: number, pageOffset?: number, options?: RawAxiosRequestConfig) {
         return InsightsApiFp(this.configuration).listSavedQueries(pageLimit, pageOffset, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Returns a single saved query by ID.
+     * @summary Retrieve Saved Query
+     * @param {string} id Unique identifier of a saved query.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public retrieveSavedQuery(id: string, options?: RawAxiosRequestConfig) {
+        return InsightsApiFp(this.configuration).retrieveSavedQuery(id, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

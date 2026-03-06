@@ -41,8 +41,8 @@ models/diff-file.ts
 models/diff-stats.ts
 models/error-response-entry.ts
 models/error-response.ts
-models/evaluation-result.ts
 models/execute-query-request.ts
+models/execute-query-response-rows-inner-inner.ts
 models/execute-query-response.ts
 models/feature-flags.ts
 models/file-checkpoint.ts
@@ -127,7 +127,7 @@ models/verification-category.ts
 models/verification-control.ts
 models/verification-detail-response.ts
 models/verification-mode.ts
-models/verification-status.ts
+models/verification-result.ts
 models/verification-type.ts
 models/web-configuration.ts
 models/workflow-detail.ts

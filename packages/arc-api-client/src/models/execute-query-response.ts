@@ -13,6 +13,9 @@
  */
 
 
+// May contain unused imports in some cases
+// @ts-ignore
+import type { ExecuteQueryResponseRowsInnerInner } from './execute-query-response-rows-inner-inner';
 
 /**
  * Columnar result set from an executed query.
@@ -25,7 +28,7 @@ export interface ExecuteQueryResponse {
     /**
      * Result rows, each an array of values matching the column order.
      */
-    'rows': Array<Array<any>>;
+    'rows': Array<Array<ExecuteQueryResponseRowsInnerInner>>;
     /**
      * Query execution time in seconds.
      */

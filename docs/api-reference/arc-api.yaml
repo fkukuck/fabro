@@ -668,10 +668,13 @@ paths:
 
   /verifications:
     get:
-      operationId: listVerifications
+      operationId: listVerificationCategories
       tags: [Verifications]
-      summary: List Verifications
-      description: Returns all verification categories with their controls and performance metrics.
+      summary: List Verification Categories
+      description: Returns paginated verification categories with their controls and performance metrics. Each category contains controls; retrieve a specific control via `/verifications/{slug}`.
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
       responses:
         "200":
           description: Array of verification categories
@@ -682,10 +685,10 @@ paths:
 
   /verifications/{slug}:
     get:
-      operationId: retrieveVerification
+      operationId: retrieveVerificationControl
       tags: [Verifications]
-      summary: Retrieve Verification
-      description: Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category.
+      summary: Retrieve Verification Control
+      description: Returns detailed information about a specific verification control, including performance data, recent results, and sibling controls in the same category. Controls are listed within categories returned by `/verifications`.
       parameters:
         - $ref: "#/components/parameters/VerificationSlug"
       responses:
@@ -891,6 +894,26 @@ paths:
                 $ref: "#/components/schemas/SavedQuery"
 
   /insights/queries/{id}:
+    get:
+      operationId: retrieveSavedQuery
+      tags: [Insights]
+      summary: Retrieve Saved Query
+      description: Returns a single saved query by ID.
+      parameters:
+        - $ref: "#/components/parameters/InsightQueryId"
+      responses:
+        "200":
+          description: Saved query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedQuery"
+        "404":
+          description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     put:
       operationId: updateSavedQuery
       tags: [Insights]
@@ -953,6 +976,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExecuteQueryResponse"
+        "400":
+          description: Bad SQL or query error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /insights/history:
     get:
@@ -2198,12 +2227,13 @@ components:
 
     # ── Verification Schemas ─────────────────────────────────────────────
 
-    VerificationStatus:
-      description: Result status of a verification control evaluation.
+    VerificationResult:
+      description: Outcome of a verification control evaluation.
       type: string
       enum:
         - pass
         - fail
+        - skip
         - na
 
     VerificationType:
@@ -2234,7 +2264,7 @@ components:
         type:
           $ref: "#/components/schemas/VerificationType"
         status:
-          $ref: "#/components/schemas/VerificationStatus"
+          $ref: "#/components/schemas/VerificationResult"
 
     RunVerification:
       description: Verification results for a category within a run.
@@ -2254,7 +2284,7 @@ components:
           description: The guiding question for this verification category.
           example: Do we understand what this change is and why we're making it?
         status:
-          $ref: "#/components/schemas/VerificationStatus"
+          $ref: "#/components/schemas/VerificationResult"
         controls:
           type: array
           description: Individual control results within this category.
@@ -2364,14 +2394,6 @@ components:
 
     # ── Verification Detail Schemas ──────────────────────────────────────
 
-    EvaluationResult:
-      description: Outcome of a single verification evaluation.
-      type: string
-      enum:
-        - pass
-        - fail
-        - skip
-
     VerificationMode:
       description: Operational mode of a verification control.
       type: string
@@ -2416,7 +2438,7 @@ components:
           type: array
           description: Recent evaluation results (newest first).
           items:
-            $ref: "#/components/schemas/EvaluationResult"
+            $ref: "#/components/schemas/VerificationResult"
 
     VerificationCategory:
       description: A group of related verification controls.
@@ -2487,18 +2509,18 @@ components:
           type: array
           description: Recent evaluation results (newest first).
           items:
-            $ref: "#/components/schemas/EvaluationResult"
+            $ref: "#/components/schemas/VerificationResult"
 
     ControlDetail:
       description: Detailed information about a verification control including checks and examples.
       type: object
       required:
-        - description
+        - rationale
         - checks
         - pass_example
         - fail_example
       properties:
-        description:
+        rationale:
           type: string
           description: Detailed prose description of the control's purpose and rationale.
           example: Verifies that every change traces back to a clear origin.
@@ -2531,7 +2553,7 @@ components:
         workflow:
           $ref: "#/components/schemas/WorkflowReference"
         result:
-          $ref: "#/components/schemas/VerificationStatus"
+          $ref: "#/components/schemas/VerificationResult"
         timestamp:
           type: string
           format: date-time
@@ -2896,6 +2918,7 @@ components:
         - name
         - sql
         - created_at
+        - updated_at
       properties:
         id:
           type: string
@@ -2967,7 +2990,12 @@ components:
           description: Result rows, each an array of values matching the column order.
           items:
             type: array
-            items: {}
+            items:
+              oneOf:
+                - type: string
+                - type: number
+                - type: boolean
+                - type: "null"
         elapsed:
           type: number
           description: Query execution time in seconds.

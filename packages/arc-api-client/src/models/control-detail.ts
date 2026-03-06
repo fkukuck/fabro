@@ -21,7 +21,7 @@ export interface ControlDetail {
     /**
      * Detailed prose description of the control\'s purpose and rationale.
      */
-    'description': string;
+    'rationale': string;
     /**
      * Specific checks performed by this control.
      */

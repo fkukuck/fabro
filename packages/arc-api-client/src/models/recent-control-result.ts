@@ -18,7 +18,7 @@
 import type { RunReference } from './run-reference';
 // May contain unused imports in some cases
 // @ts-ignore
-import type { VerificationStatus } from './verification-status';
+import type { VerificationResult } from './verification-result';
 // May contain unused imports in some cases
 // @ts-ignore
 import type { WorkflowReference } from './workflow-reference';
@@ -29,7 +29,7 @@ import type { WorkflowReference } from './workflow-reference';
 export interface RecentControlResult {
     'run': RunReference;
     'workflow': WorkflowReference;
-    'result': VerificationStatus;
+    'result': VerificationResult;
     /**
      * ISO 8601 timestamp of the evaluation.
      */

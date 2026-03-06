@@ -15,7 +15,7 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
-import type { VerificationStatus } from './verification-status';
+import type { VerificationResult } from './verification-result';
 // May contain unused imports in some cases
 // @ts-ignore
 import type { VerificationType } from './verification-type';
@@ -33,7 +33,7 @@ export interface RunVerificationControl {
      */
     'description': string;
     'type'?: VerificationType;
-    'status': VerificationStatus;
+    'status': VerificationResult;
 }
 
 

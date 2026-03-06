@@ -15,7 +15,7 @@ import {
   getCriteriaSummary,
 } from "../data/verifications";
 import type {
-  VerificationStatus,
+  VerificationResult,
   VerificationType,
   VerificationCategory,
 } from "../data/verifications";
@@ -28,12 +28,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const categories: VerificationCategory[] = apiCategories.map((cat) => ({
     name: cat.name,
     question: cat.question,
-    status: cat.status as VerificationStatus,
+    status: cat.status as VerificationResult,
     criteria: cat.controls.map((c) => ({
       name: c.name,
       description: c.description,
       type: (c.type ?? null) as VerificationType | null,
-      status: c.status as VerificationStatus,
+      status: c.status as VerificationResult,
     })),
   }));
   return { categories };
@@ -43,7 +43,7 @@ function StatusIcon({
   status,
   className = "size-5",
 }: {
-  status: VerificationStatus;
+  status: VerificationResult;
   className?: string;
 }) {
   switch (status) {

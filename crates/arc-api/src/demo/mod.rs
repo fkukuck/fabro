@@ -11,7 +11,7 @@ use axum::Json;
 
 use crate::error::ApiError;
 use crate::jwt_auth::AuthenticatedService;
-use crate::server::{AppState, ListResponse, PaginationParams};
+use crate::server::{AppState, PaginationParams};
 
 fn paginated_response<T: serde::Serialize>(items: Vec<T>, pagination: &PaginationParams) -> Response {
     let limit = pagination.limit.clamp(1, 100) as usize;
@@ -20,10 +20,6 @@ fn paginated_response<T: serde::Serialize>(items: Vec<T>, pagination: &Paginatio
     let has_more = data.len() > limit;
     data.truncate(limit);
     (StatusCode::OK, Json(json!({ "data": data, "meta": { "has_more": has_more } }))).into_response()
-}
-
-fn list_response<T: serde::Serialize>(items: T) -> Response {
-    (StatusCode::OK, Json(ListResponse::new(items))).into_response()
 }
 
 // ── Runs ───────────────────────────────────────────────────────────────
@@ -460,8 +456,9 @@ pub async fn trigger_workflow_run_stub(
 pub async fn list_verifications(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
+    Query(pagination): Query<PaginationParams>,
 ) -> Response {
-    list_response(verifications::categories())
+    paginated_response(verifications::categories(), &pagination)
 }
 
 pub async fn get_verification_detail(
@@ -598,6 +595,17 @@ pub async fn save_query_stub(
         Json(serde_json::json!({"id": "new-q", "name": "New Query", "sql": "SELECT 1", "created_at": "2026-03-06T16:00:00Z"})),
     )
         .into_response()
+}
+
+pub async fn get_saved_query(
+    _auth: AuthenticatedService,
+    State(_state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    match insights::saved_queries().into_iter().find(|q| q.id == id) {
+        Some(query) => (StatusCode::OK, Json(query)).into_response(),
+        None => ApiError::not_found("Saved query not found.").into_response(),
+    }
 }
 
 pub async fn update_query_stub(
@@ -1450,9 +1458,9 @@ mod verifications {
         mode: VerificationMode,
         f1: Option<f64>,
         pass_at_1: Option<f64>,
-        evaluations: &'static [EvaluationResult],
+        evaluations: &'static [VerificationResult],
         // Run-level status
-        run_status: VerificationStatus,
+        run_status: VerificationResult,
         // Detail fields
         detail_description: &'static str,
         checks: &'static [&'static str],
@@ -1466,7 +1474,7 @@ mod verifications {
         run_id: &'static str,
         run_title: &'static str,
         workflow: &'static str,
-        result: VerificationStatus,
+        result: VerificationResult,
         timestamp: &'static str,
     }
 
@@ -1475,35 +1483,35 @@ mod verifications {
             run_id: "run-047",
             run_title: "PR #312 \u{2014} Add OAuth2 PKCE flow",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T12:00:00Z",
         },
         RecentResultDef {
             run_id: "run-046",
             run_title: "PR #311 \u{2014} Update rate limiter config",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T09:00:00Z",
         },
         RecentResultDef {
             run_id: "run-044",
             run_title: "PR #309 \u{2014} Migrate to pnpm",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-14T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-042",
             run_title: "PR #307 \u{2014} Fix session timeout",
             workflow: "fix_build",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-13T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-040",
             run_title: "PR #305 \u{2014} Add webhook retries",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-12T14:00:00Z",
         },
     ];
@@ -1513,35 +1521,35 @@ mod verifications {
             run_id: "run-047",
             run_title: "PR #312 \u{2014} Add OAuth2 PKCE flow",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T12:00:00Z",
         },
         RecentResultDef {
             run_id: "run-046",
             run_title: "PR #311 \u{2014} Update rate limiter config",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T09:00:00Z",
         },
         RecentResultDef {
             run_id: "run-044",
             run_title: "PR #309 \u{2014} Migrate to pnpm",
             workflow: "code_review",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-14T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-042",
             run_title: "PR #307 \u{2014} Fix session timeout",
             workflow: "fix_build",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-13T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-040",
             run_title: "PR #305 \u{2014} Add webhook retries",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-12T14:00:00Z",
         },
     ];
@@ -1551,35 +1559,35 @@ mod verifications {
             run_id: "run-047",
             run_title: "PR #312 \u{2014} Add OAuth2 PKCE flow",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T12:00:00Z",
         },
         RecentResultDef {
             run_id: "run-046",
             run_title: "PR #311 \u{2014} Update rate limiter config",
             workflow: "code_review",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-15T09:00:00Z",
         },
         RecentResultDef {
             run_id: "run-044",
             run_title: "PR #309 \u{2014} Migrate to pnpm",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-14T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-042",
             run_title: "PR #307 \u{2014} Fix session timeout",
             workflow: "fix_build",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-13T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-040",
             run_title: "PR #305 \u{2014} Add webhook retries",
             workflow: "code_review",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-12T14:00:00Z",
         },
     ];
@@ -1589,40 +1597,40 @@ mod verifications {
             run_id: "run-047",
             run_title: "PR #312 \u{2014} Add OAuth2 PKCE flow",
             workflow: "code_review",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-15T12:00:00Z",
         },
         RecentResultDef {
             run_id: "run-046",
             run_title: "PR #311 \u{2014} Update rate limiter config",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-15T09:00:00Z",
         },
         RecentResultDef {
             run_id: "run-044",
             run_title: "PR #309 \u{2014} Migrate to pnpm",
             workflow: "code_review",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-14T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-042",
             run_title: "PR #307 \u{2014} Fix session timeout",
             workflow: "fix_build",
-            result: VerificationStatus::Fail,
+            result: VerificationResult::Fail,
             timestamp: "2025-09-13T14:00:00Z",
         },
         RecentResultDef {
             run_id: "run-040",
             run_title: "PR #305 \u{2014} Add webhook retries",
             workflow: "code_review",
-            result: VerificationStatus::Pass,
+            result: VerificationResult::Pass,
             timestamp: "2025-09-12T14:00:00Z",
         },
     ];
 
-    use EvaluationResult::{Fail as F, Pass as P};
+    use VerificationResult::{Fail as F, Pass as P};
 
     const ALL_CATEGORIES: &[CategoryDef] = &[
         CategoryDef {
@@ -1635,7 +1643,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.87), pass_at_1: Some(0.82),
                     evaluations: &[P, P, F, P, P, P, P, F, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Verifies that every change traces back to a clear origin \u{2014} whether a ticket, RFC, customer request, or incident. Without documented motivation, reviewers lack context for evaluating whether the change is appropriate.",
                     checks: &["PR body or linked issue explains why the change is needed", "Commit messages reference a ticket or context", "No orphaned changes without traceable origin"],
                     pass_example: "PR links to JIRA-1234 and explains the user-facing pain point being resolved.",
@@ -1648,7 +1656,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.83), pass_at_1: Some(0.78),
                     evaluations: &[P, F, P, P, P, F, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Checks that functional and non-functional requirements are written down before implementation begins. Specifications prevent scope creep and ensure everyone agrees on what done looks like.",
                     checks: &["Acceptance criteria listed in the issue or PR", "Edge cases documented", "Non-functional requirements (performance, security) stated when relevant"],
                     pass_example: "Issue includes acceptance criteria with three testable scenarios.",
@@ -1661,7 +1669,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.79), pass_at_1: Some(0.74),
                     evaluations: &[P, P, P, F, P, P, F, P, P, F],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Ensures developer-facing and user-facing documentation is added or updated alongside code changes. Stale docs degrade team velocity and increase onboarding cost.",
                     checks: &["README or docs updated for new features", "API documentation reflects endpoint changes", "Inline comments for non-obvious logic"],
                     pass_example: "New API endpoint has corresponding OpenAPI spec update and usage example in docs.",
@@ -1674,7 +1682,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Evaluate,
                     f1: Some(0.72), pass_at_1: Some(0.68),
                     evaluations: &[P, F, P, F, P, P, F, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Flags extraneous changes that inflate the diff \u{2014} formatting-only edits, unrelated refactors, or drive-by fixes. Keeping PRs focused improves review quality and reduces revert risk.",
                     checks: &["No unrelated formatting or whitespace changes", "Refactors separated from feature work", "Each commit addresses a single concern"],
                     pass_example: "PR touches only files directly related to the new caching layer.",
@@ -1693,7 +1701,7 @@ mod verifications {
                     type_: Some(VerificationType::Automated), mode: VerificationMode::Active,
                     f1: Some(0.99), pass_at_1: Some(0.98),
                     evaluations: &[P, P, P, P, P, P, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Validates that code layout conforms to the project's formatting standard (e.g., Prettier, rustfmt). Automated formatting removes subjective style debates from code review.",
                     checks: &["All files pass the project formatter", "No manual formatting overrides without justification"],
                     pass_example: "All changed files pass `prettier --check` and `rustfmt --check`.",
@@ -1706,7 +1714,7 @@ mod verifications {
                     type_: Some(VerificationType::Automated), mode: VerificationMode::Active,
                     f1: Some(0.98), pass_at_1: Some(0.97),
                     evaluations: &[P, P, P, P, P, P, P, P, F, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Confirms that static analysis findings are resolved. Linter warnings left unaddressed accumulate into tech debt and mask real issues.",
                     checks: &["No new linter warnings introduced", "Existing warnings not suppressed without explanation", "Lint config not weakened"],
                     pass_example: "ESLint and Clippy pass with zero warnings on changed files.",
@@ -1719,7 +1727,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.81), pass_at_1: Some(0.76),
                     evaluations: &[P, F, P, P, P, P, F, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Evaluates whether the code follows the team's house style conventions beyond what automated formatters catch \u{2014} naming, file organization, import ordering, and idiomatic patterns.",
                     checks: &["Naming conventions followed (camelCase, snake_case as appropriate)", "Import ordering matches project convention", "Idiomatic patterns used for the language"],
                     pass_example: "New TypeScript module uses camelCase variables, groups imports by source, and uses `Map` instead of plain objects for lookups.",
@@ -1738,7 +1746,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.76), pass_at_1: Some(0.71),
                     evaluations: &[P, P, F, P, F, P, P, P, F, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Checks that the implementation fully covers the specified requirements. Partial implementations ship broken experiences and create follow-up tickets that could have been avoided.",
                     checks: &["All acceptance criteria addressed", "Edge cases handled", "Error states implemented"],
                     pass_example: "Feature handles all three specified user roles with appropriate permissions.",
@@ -1751,7 +1759,7 @@ mod verifications {
                     type_: Some(VerificationType::AiAnalysis), mode: VerificationMode::Active,
                     f1: Some(0.84), pass_at_1: Some(0.79),
                     evaluations: &[P, P, P, F, P, P, P, P, P, F],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Identifies potential or likely bugs through static analysis and AI review. Catching defects before merge is orders of magnitude cheaper than finding them in production.",
                     checks: &["No off-by-one errors in loops or slices", "Null/undefined handled at boundaries", "Race conditions considered in async code"],
                     pass_example: "API handler validates input, handles missing fields gracefully, and returns appropriate HTTP status codes.",
@@ -1764,7 +1772,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Evaluate,
                     f1: Some(0.69), pass_at_1: Some(0.63),
                     evaluations: &[F, P, P, F, P, F, P, P, F, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Assesses whether the change impacts hot paths or introduces algorithmic regressions. Performance problems that ship to production are expensive to diagnose and fix.",
                     checks: &["No N+1 queries introduced", "Large collections not processed synchronously", "Caching considered for repeated expensive operations"],
                     pass_example: "Database query uses a JOIN instead of N separate queries for related records.",
@@ -1783,7 +1791,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.95), pass_at_1: Some(0.93),
                     evaluations: &[P, P, P, P, P, P, F, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Measures whether production code is exercised by automated tests. Coverage gaps mean regressions can ship undetected.",
                     checks: &["New code has corresponding unit tests", "Coverage does not decrease", "Critical paths have integration tests"],
                     pass_example: "New service method has 6 unit tests covering happy path, error cases, and edge cases.",
@@ -1796,7 +1804,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Evaluate,
                     f1: Some(0.71), pass_at_1: Some(0.65),
                     evaluations: &[P, F, F, P, P, F, P, F, P, P],
-                    run_status: VerificationStatus::Fail,
+                    run_status: VerificationResult::Fail,
                     detail_description: "Evaluates whether tests are robust, readable, and actually verify behavior rather than implementation details. Low-quality tests give false confidence.",
                     checks: &["Tests verify behavior, not implementation", "Assertions are specific and meaningful", "Tests are independent and deterministic"],
                     pass_example: "Tests assert on API response shape and status codes, not on internal method call counts.",
@@ -1809,7 +1817,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.91), pass_at_1: Some(0.88),
                     evaluations: &[P, P, P, F, P, P, P, P, P, P],
-                    run_status: VerificationStatus::Na,
+                    run_status: VerificationResult::Na,
                     detail_description: "Checks that user-facing workflows are exercised by end-to-end browser automation. E2E tests catch integration issues that unit tests miss.",
                     checks: &["Critical user flows have Playwright/Cypress tests", "E2E tests run in CI", "No flaky E2E tests introduced"],
                     pass_example: "New checkout flow has a Playwright test that completes a purchase end-to-end.",
@@ -1828,7 +1836,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.88), pass_at_1: Some(0.84),
                     evaluations: &[P, P, P, P, F, P, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Validates that layering and dependency directions conform to the project's architectural design. Architectural violations compound over time and make systems harder to evolve.",
                     checks: &["Dependencies point inward (domain doesn't depend on infra)", "No circular dependencies introduced", "Module boundaries respected"],
                     pass_example: "New repository implementation depends on domain interfaces, not the other way around.",
@@ -1841,7 +1849,7 @@ mod verifications {
                     type_: None, mode: VerificationMode::Disabled,
                     f1: None, pass_at_1: None,
                     evaluations: &[],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Reviews public API surfaces for clarity, consistency, and backward compatibility. Interfaces are contracts \u{2014} once published, they're expensive to change.",
                     checks: &["Public API types are well-defined", "Breaking changes documented", "Consistent naming across endpoints"],
                     pass_example: "New endpoint follows existing naming and error format conventions.",
@@ -1854,7 +1862,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.96), pass_at_1: Some(0.94),
                     evaluations: &[P, P, P, P, P, P, P, F, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Detects similar or identical code blocks that could be consolidated. Duplication increases maintenance burden and creates inconsistency risk.",
                     checks: &["No copy-pasted logic across files", "Shared utilities used for common patterns", "Similar test setup consolidated"],
                     pass_example: "Date formatting logic extracted into a shared utility used by 4 components.",
@@ -1867,7 +1875,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.74), pass_at_1: Some(0.69),
                     evaluations: &[P, F, P, P, F, P, P, F, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Flags unnecessarily complex code that could be simplified without changing behavior. Simpler code is easier to review, debug, and extend.",
                     checks: &["No premature abstractions", "Control flow is straightforward", "Functions are focused and short"],
                     pass_example: "Conditional logic uses early returns instead of deeply nested if-else chains.",
@@ -1880,7 +1888,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.93), pass_at_1: Some(0.90),
                     evaluations: &[P, P, P, P, P, F, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Identifies unexecuted code paths and unused dependencies. Dead code misleads readers and bloats bundles.",
                     checks: &["No unreachable code paths", "Unused imports and variables removed", "Deprecated functions removed if no longer called"],
                     pass_example: "Old feature flag and its associated code paths removed after rollout completed.",
@@ -1899,7 +1907,7 @@ mod verifications {
                     type_: Some(VerificationType::AiAnalysis), mode: VerificationMode::Active,
                     f1: Some(0.86), pass_at_1: Some(0.81),
                     evaluations: &[P, P, F, P, P, P, P, P, F, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Scans for known security vulnerabilities using both AI analysis and static scanning tools. Shipping known vulnerabilities exposes users and the organization to risk.",
                     checks: &["No SQL injection or XSS vectors", "User input sanitized at boundaries", "Authentication/authorization checks present"],
                     pass_example: "User input passed through parameterized queries; HTML output escaped.",
@@ -1912,7 +1920,7 @@ mod verifications {
                     type_: None, mode: VerificationMode::Disabled,
                     f1: None, pass_at_1: None,
                     evaluations: &[],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Validates infrastructure-as-code definitions against security best practices. Misconfigured infrastructure is a leading cause of data breaches.",
                     checks: &["No publicly accessible storage buckets", "Encryption at rest enabled", "Least-privilege IAM policies"],
                     pass_example: "Terraform module creates S3 bucket with encryption, versioning, and private ACL.",
@@ -1925,7 +1933,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.97), pass_at_1: Some(0.95),
                     evaluations: &[P, P, P, P, P, P, P, P, P, F],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Checks that third-party dependencies are free from known CVEs. Vulnerable dependencies are an easy attack vector that automated tools can detect.",
                     checks: &["No dependencies with known critical CVEs", "Lock file updated to patched versions", "Unused dependencies removed"],
                     pass_example: "Dependabot alert resolved by updating lodash from 4.17.20 to 4.17.21.",
@@ -1938,7 +1946,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.80), pass_at_1: Some(0.75),
                     evaluations: &[P, P, F, P, P, F, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Verifies that organization-specific security standards are applied \u{2014} rate limiting, audit logging, CORS policies, and secret management.",
                     checks: &["Secrets not hardcoded in source", "Rate limiting on public endpoints", "Audit logging for sensitive operations"],
                     pass_example: "API key loaded from environment variable; rate limiter configured on login endpoint.",
@@ -1957,7 +1965,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.89), pass_at_1: Some(0.85),
                     evaluations: &[P, P, P, P, F, P, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Detects breaking changes in APIs, database schemas, or wire formats that could disrupt consumers. Breaking changes require coordination that surprises prevent.",
                     checks: &["No removed or renamed public API fields", "Database migrations are backward-compatible", "Wire format changes are additive"],
                     pass_example: "New field added to API response; no existing fields removed or renamed.",
@@ -1970,7 +1978,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Evaluate,
                     f1: Some(0.66), pass_at_1: Some(0.60),
                     evaluations: &[F, P, F, P, F, P, P, F, P, F],
-                    run_status: VerificationStatus::Fail,
+                    run_status: VerificationResult::Fail,
                     detail_description: "Confirms that the change has a clear deployment plan and can be safely rolled back if issues arise. Every production deploy should be reversible.",
                     checks: &["Feature flag available for gradual rollout", "Database migration is reversible", "Rollback procedure documented"],
                     pass_example: "Feature behind a LaunchDarkly flag with 10% initial rollout and documented rollback steps.",
@@ -1983,7 +1991,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Evaluate,
                     f1: Some(0.73), pass_at_1: Some(0.67),
                     evaluations: &[P, F, P, F, P, P, F, P, F, P],
-                    run_status: VerificationStatus::Fail,
+                    run_status: VerificationResult::Fail,
                     detail_description: "Ensures that logging, metrics, and tracing are instrumented for new code paths. Without observability, production issues are invisible until users report them.",
                     checks: &["Structured logging for new operations", "Metrics emitted for key business events", "Distributed tracing propagated"],
                     pass_example: "New payment endpoint logs transaction IDs, emits latency metrics, and propagates trace context.",
@@ -1996,7 +2004,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Evaluate,
                     f1: Some(0.78), pass_at_1: Some(0.72),
                     evaluations: &[P, P, F, P, F, P, P, F, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Estimates the infrastructure and operational cost impact of the change. Unchecked cost growth erodes margins and can cause budget surprises.",
                     checks: &["New infrastructure resources sized appropriately", "No unbounded resource consumption", "Cost estimate provided for significant changes"],
                     pass_example: "New Lambda function has memory limit set and estimated monthly cost noted in PR.",
@@ -2015,7 +2023,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.94), pass_at_1: Some(0.91),
                     evaluations: &[P, P, P, P, P, P, P, P, F, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Validates that separation-of-duties policies are met \u{2014} the author is not the sole reviewer, approvals are obtained, and the change went through the proper process.",
                     checks: &["PR has at least one approval from non-author", "Required reviewers have signed off", "No self-merging without policy exception"],
                     pass_example: "PR approved by two team members before merge; CI checks all green.",
@@ -2028,7 +2036,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.85), pass_at_1: Some(0.80),
                     evaluations: &[P, P, P, F, P, P, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Checks that AI-generated or AI-assisted code meets the organization's governance requirements \u{2014} attribution, review depth, and acceptable use.",
                     checks: &["AI-generated code clearly attributed", "Human review of AI suggestions documented", "AI usage within acceptable-use policy"],
                     pass_example: "PR notes that implementation was AI-assisted; human reviewer verified logic and tests.",
@@ -2041,7 +2049,7 @@ mod verifications {
                     type_: Some(VerificationType::Ai), mode: VerificationMode::Active,
                     f1: Some(0.77), pass_at_1: Some(0.72),
                     evaluations: &[P, F, P, P, P, F, P, P, P, F],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Ensures that personally identifiable information (PII) is identified, classified, and handled according to privacy standards (GDPR, CCPA).",
                     checks: &["PII fields identified and documented", "Data retention policies applied", "Consent mechanisms in place for data collection"],
                     pass_example: "New user profile endpoint masks email in logs and respects data deletion requests.",
@@ -2054,7 +2062,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.90), pass_at_1: Some(0.87),
                     evaluations: &[P, P, P, P, P, F, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Verifies that UI changes meet accessibility requirements (WCAG 2.1 AA). Inaccessible software excludes users and creates legal risk.",
                     checks: &["Semantic HTML elements used", "ARIA labels present on interactive elements", "Color contrast meets WCAG AA standards"],
                     pass_example: "New modal uses <dialog>, has aria-labelledby, and focus is trapped within.",
@@ -2067,7 +2075,7 @@ mod verifications {
                     type_: Some(VerificationType::Analysis), mode: VerificationMode::Active,
                     f1: Some(0.96), pass_at_1: Some(0.93),
                     evaluations: &[P, P, P, P, P, P, P, P, P, P],
-                    run_status: VerificationStatus::Pass,
+                    run_status: VerificationResult::Pass,
                     detail_description: "Ensures that all third-party dependencies comply with the organization's intellectual property policy. License violations can have severe legal consequences.",
                     checks: &["No GPL-licensed dependencies in proprietary code", "License file present for new dependencies", "Supply chain attestation where required"],
                     pass_example: "New dependency uses MIT license; added to approved dependency list.",
@@ -2091,21 +2099,21 @@ mod verifications {
             .collect()
     }
 
-    fn category_run_status(cat: &CategoryDef) -> VerificationStatus {
+    fn category_run_status(cat: &CategoryDef) -> VerificationResult {
         if cat
             .controls
             .iter()
-            .any(|c| c.run_status == VerificationStatus::Fail)
+            .any(|c| c.run_status == VerificationResult::Fail)
         {
-            VerificationStatus::Fail
+            VerificationResult::Fail
         } else if cat
             .controls
             .iter()
-            .all(|c| c.run_status == VerificationStatus::Na)
+            .all(|c| c.run_status == VerificationResult::Na)
         {
-            VerificationStatus::Na
+            VerificationResult::Na
         } else {
-            VerificationStatus::Pass
+            VerificationResult::Pass
         }
     }
 
@@ -2172,7 +2180,7 @@ mod verifications {
                             evaluations: ctrl.evaluations.to_vec(),
                         },
                         control_detail: ControlDetail {
-                            description: ctrl.detail_description.into(),
+                            rationale: ctrl.detail_description.into(),
                             checks: ctrl.checks.iter().map(|s| (*s).into()).collect(),
                             pass_example: ctrl.pass_example.into(),
                             fail_example: ctrl.fail_example.into(),
@@ -2468,9 +2476,9 @@ mod insights {
 
     pub fn saved_queries() -> Vec<SavedQuery> {
         vec![
-            SavedQuery { id: "1".into(), name: "Run duration by workflow".into(), sql: "SELECT workflow_name, AVG(duration_seconds) as avg_duration,\n       COUNT(*) as run_count\nFROM runs\nGROUP BY workflow_name\nORDER BY avg_duration DESC\nLIMIT 20".into(), created_at: ts("2026-03-01T10:00:00Z"), updated_at: Some(ts("2026-03-05T14:30:00Z")) },
-            SavedQuery { id: "2".into(), name: "Daily failure rate".into(), sql: "SELECT date_trunc('day', created_at) as day,\n       COUNT(*) FILTER (WHERE status = 'failed') as failures,\n       COUNT(*) as total\nFROM runs\nGROUP BY 1\nORDER BY 1 DESC\nLIMIT 30".into(), created_at: ts("2026-03-02T09:00:00Z"), updated_at: None },
-            SavedQuery { id: "3".into(), name: "Top repos by activity".into(), sql: "SELECT repo, COUNT(*) as runs\nFROM runs\nGROUP BY repo\nORDER BY runs DESC".into(), created_at: ts("2026-03-03T11:00:00Z"), updated_at: None },
+            SavedQuery { id: "1".into(), name: "Run duration by workflow".into(), sql: "SELECT workflow_name, AVG(duration_seconds) as avg_duration,\n       COUNT(*) as run_count\nFROM runs\nGROUP BY workflow_name\nORDER BY avg_duration DESC\nLIMIT 20".into(), created_at: ts("2026-03-01T10:00:00Z"), updated_at: ts("2026-03-05T14:30:00Z") },
+            SavedQuery { id: "2".into(), name: "Daily failure rate".into(), sql: "SELECT date_trunc('day', created_at) as day,\n       COUNT(*) FILTER (WHERE status = 'failed') as failures,\n       COUNT(*) as total\nFROM runs\nGROUP BY 1\nORDER BY 1 DESC\nLIMIT 30".into(), created_at: ts("2026-03-02T09:00:00Z"), updated_at: ts("2026-03-02T09:00:00Z") },
+            SavedQuery { id: "3".into(), name: "Top repos by activity".into(), sql: "SELECT repo, COUNT(*) as runs\nFROM runs\nGROUP BY repo\nORDER BY runs DESC".into(), created_at: ts("2026-03-03T11:00:00Z"), updated_at: ts("2026-03-03T11:00:00Z") },
         ]
     }
 

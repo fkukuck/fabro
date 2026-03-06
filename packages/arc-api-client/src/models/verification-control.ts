@@ -15,10 +15,10 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
-import type { EvaluationResult } from './evaluation-result';
+import type { VerificationMode } from './verification-mode';
 // May contain unused imports in some cases
 // @ts-ignore
-import type { VerificationMode } from './verification-mode';
+import type { VerificationResult } from './verification-result';
 // May contain unused imports in some cases
 // @ts-ignore
 import type { VerificationType } from './verification-type';
@@ -52,7 +52,7 @@ export interface VerificationControl {
     /**
      * Recent evaluation results (newest first).
      */
-    'evaluations'?: Array<EvaluationResult>;
+    'evaluations'?: Array<VerificationResult>;
 }
 
 

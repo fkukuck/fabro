@@ -1,4 +1,4 @@
-export type VerificationStatus = "pass" | "fail" | "na";
+export type VerificationResult = "pass" | "fail" | "skip" | "na";
 
 export type VerificationType = "ai" | "automated" | "analysis" | "ai-analysis";
 
@@ -6,13 +6,13 @@ export interface Criterion {
   name: string;
   description: string;
   type: VerificationType | null;
-  status: VerificationStatus;
+  status: VerificationResult;
 }
 
 export interface VerificationCategory {
   name: string;
   question: string;
-  status: VerificationStatus;
+  status: VerificationResult;
   criteria: Criterion[];
 }
 
@@ -31,6 +31,13 @@ export const statusConfig = {
     dot: "bg-coral",
     border: "border-l-coral/50",
   },
+  skip: {
+    label: "Skip",
+    color: "text-fg-muted",
+    bg: "bg-overlay",
+    dot: "bg-fg-muted",
+    border: "border-l-fg-muted/50",
+  },
   na: {
     label: "N/A",
     color: "text-fg-muted",
@@ -39,7 +46,7 @@ export const statusConfig = {
     border: "border-l-fg-muted/50",
   },
 } as const satisfies Record<
-  VerificationStatus,
+  VerificationResult,
   { label: string; color: string; bg: string; dot: string; border: string }
 >;
 
@@ -53,15 +60,13 @@ export const typeConfig = {
   { label: string; color: string; bg: string }
 >;
 
-export type EvaluationResult = "pass" | "fail" | "skip";
-
 export type VerificationMode = "active" | "evaluate" | "disabled";
 
 export interface CriterionPerformance {
   f1: number | null;
   passAt1: number | null;
   mode: VerificationMode;
-  evaluations: EvaluationResult[];
+  evaluations: VerificationResult[];
 }
 
 export const modeConfig = {

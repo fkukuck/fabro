@@ -18,7 +18,7 @@
 import type { RunVerificationControl } from './run-verification-control';
 // May contain unused imports in some cases
 // @ts-ignore
-import type { VerificationStatus } from './verification-status';
+import type { VerificationResult } from './verification-result';
 
 /**
  * Verification results for a category within a run.
@@ -32,7 +32,7 @@ export interface RunVerification {
      * The guiding question for this verification category.
      */
     'question': string;
-    'status': VerificationStatus;
+    'status': VerificationResult;
     /**
      * Individual control results within this category.
      */

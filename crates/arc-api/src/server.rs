@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
@@ -218,7 +218,9 @@ fn demo_routes() -> Router<Arc<AppState>> {
         )
         .route(
             "/insights/queries/{id}",
-            put(crate::demo::update_query_stub).delete(crate::demo::delete_query_stub),
+            get(crate::demo::get_saved_query)
+                .put(crate::demo::update_query_stub)
+                .delete(crate::demo::delete_query_stub),
         )
         .route("/insights/execute", post(crate::demo::execute_query_stub))
         .route("/insights/history", get(crate::demo::list_query_history))
@@ -267,7 +269,7 @@ fn real_routes() -> Router<Arc<AppState>> {
         )
         .route(
             "/insights/queries/{id}",
-            put(not_implemented).delete(not_implemented),
+            get(not_implemented).put(not_implemented).delete(not_implemented),
         )
         .route("/insights/execute", post(not_implemented))
         .route("/insights/history", get(not_implemented))

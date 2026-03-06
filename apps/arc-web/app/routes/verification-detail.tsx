@@ -52,8 +52,7 @@ import {
 import type {
   VerificationType,
   VerificationMode,
-  EvaluationResult,
-  VerificationStatus,
+  VerificationResult,
 } from "../data/verifications";
 import { apiJson } from "../api-client";
 import { timeAgo } from "../lib/time";
@@ -153,7 +152,7 @@ function StatCard({ label, value, warn }: { label: string; value: string; warn?:
   );
 }
 
-function EvaluationBar({ evaluations }: { evaluations: readonly EvaluationResult[] }) {
+function EvaluationBar({ evaluations }: { evaluations: readonly VerificationResult[] }) {
   if (evaluations.length === 0) {
     return <p className="text-sm italic text-fg-muted">No evaluations yet</p>;
   }
@@ -198,7 +197,7 @@ function EvaluationBar({ evaluations }: { evaluations: readonly EvaluationResult
   );
 }
 
-function ResultIcon({ result }: { result: VerificationStatus }) {
+function ResultIcon({ result }: { result: VerificationResult }) {
   const config = statusConfig[result];
   if (result === "pass") return <CheckCircleIcon className={`size-4 ${config.color}`} />;
   if (result === "fail") return <XCircleIcon className={`size-4 ${config.color}`} />;
@@ -219,10 +218,10 @@ export default function VerificationDetail({ loaderData }: Route.ComponentProps)
     f1: apiPerf.f1 ?? null,
     passAt1: apiPerf.pass_at_1 ?? null,
     mode: apiPerf.mode as VerificationMode,
-    evaluations: apiPerf.evaluations as EvaluationResult[],
+    evaluations: apiPerf.evaluations as VerificationResult[],
   };
   const detail = apiDetail ? {
-    description: apiDetail.description,
+    description: apiDetail.rationale,
     checks: apiDetail.checks,
     passExample: apiDetail.pass_example,
     failExample: apiDetail.fail_example,
@@ -231,7 +230,7 @@ export default function VerificationDetail({ loaderData }: Route.ComponentProps)
     runId: r.run.id,
     runTitle: r.run.title,
     workflow: r.workflow.slug,
-    result: r.result as VerificationStatus,
+    result: r.result as VerificationResult,
     timestamp: r.timestamp,
   }));
   const siblings = apiSiblings.map((s) => ({
