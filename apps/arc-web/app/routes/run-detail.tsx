@@ -2,10 +2,9 @@ import { useEffect } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import { Link, Outlet, useFetcher, useLocation } from "react-router";
-import { statusColors } from "../data/runs";
+import { columnNames, mapRunListItem, statusColors } from "../data/runs";
 import type { ColumnStatus } from "../data/runs";
 import { apiJson } from "../api-client";
-import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
 import type { PaginatedRunList, PreviewUrlResponse } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/run-detail";
 
@@ -26,15 +25,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (!apiRun) return { run: null };
   return {
     run: {
-      id: apiRun.id,
-      repo: apiRun.repository.name,
-      title: apiRun.title,
-      workflow: apiRun.workflow.slug,
+      ...mapRunListItem(apiRun),
       status: apiRun.status as ColumnStatus,
-      statusLabel: apiRun.status === "working" ? "Working" : apiRun.status === "pending" ? "Pending" : apiRun.status === "review" ? "Verify" : "Merge",
-      elapsed: apiRun.timings?.elapsed_secs != null ? formatElapsedSecs(apiRun.timings.elapsed_secs) : undefined,
-      elapsedWarning: apiRun.timings?.elapsed_warning,
-      sandboxId: apiRun.sandbox?.id,
+      statusLabel: columnNames[apiRun.status as ColumnStatus] ?? apiRun.status,
     },
   };
 }

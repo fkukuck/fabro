@@ -1,39 +1,16 @@
 import { useState } from "react";
 import { ChevronDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { Link, useParams } from "react-router";
-import { ciConfig, deriveCiStatus, statusColors } from "../data/runs";
+import { ciConfig, columnNames, deriveCiStatus, mapRunListItem, statusColors } from "../data/runs";
 import type { ColumnStatus, RunWithStatus } from "../data/runs";
 import { apiJson } from "../api-client";
-import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
 import type { PaginatedRunList } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/workflow-runs";
-
-const columnNames: Record<ColumnStatus, string> = {
-  working: "Working",
-  pending: "Pending",
-  review: "Verify",
-  merge: "Merge",
-};
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: apiRuns } = await apiJson<PaginatedRunList>(`/workflows/${params.name}/runs`, { request });
   const runs: RunWithStatus[] = apiRuns.map((r) => ({
-    id: r.id,
-    repo: r.repository.name,
-    title: r.title,
-    workflow: r.workflow.slug,
-    number: r.pull_request?.number,
-    additions: r.pull_request?.additions,
-    deletions: r.pull_request?.deletions,
-    checks: r.pull_request?.checks?.map((c) => ({
-      name: c.name,
-      status: c.status,
-      duration: c.duration_secs != null ? formatDurationSecs(c.duration_secs) : undefined,
-    })),
-    elapsed: r.timings?.elapsed_secs != null ? formatElapsedSecs(r.timings.elapsed_secs) : undefined,
-    elapsedWarning: r.timings?.elapsed_warning,
-    comments: r.pull_request?.comments,
-    sandboxId: r.sandbox?.id,
+    ...mapRunListItem(r),
     status: r.status as ColumnStatus,
     statusLabel: columnNames[r.status as ColumnStatus] ?? r.status,
   }));

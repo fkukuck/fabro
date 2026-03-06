@@ -18,38 +18,14 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ciConfig, statusColors, deriveCiStatus } from "../data/runs";
+import { ciConfig, statusColors, deriveCiStatus, mapRunListItem } from "../data/runs";
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
 import { apiJson } from "../api-client";
-import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
-import type { RunListItem, PaginatedRunList } from "@qltysh/arc-api-client";
+import type { PaginatedRunList } from "@qltysh/arc-api-client";
 import type { Route } from "./+types/runs";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Runs — Arc" }];
-}
-
-function mapRunListItem(item: RunListItem): RunItem {
-  return {
-    id: item.id,
-    repo: item.repository.name,
-    title: item.title,
-    workflow: item.workflow.slug,
-    number: item.pull_request?.number,
-    additions: item.pull_request?.additions,
-    deletions: item.pull_request?.deletions,
-    checks: item.pull_request?.checks?.map((c) => ({
-      name: c.name,
-      status: c.status,
-      duration: c.duration_secs != null ? formatDurationSecs(c.duration_secs) : undefined,
-    })),
-    elapsed: item.timings?.elapsed_secs != null ? formatElapsedSecs(item.timings.elapsed_secs) : undefined,
-    elapsedWarning: item.timings?.elapsed_warning,
-    resources: item.sandbox?.resources ? `${item.sandbox.resources.cpu} CPU / ${item.sandbox.resources.memory} GB` : undefined,
-    comments: item.pull_request?.comments,
-    question: item.question?.text,
-    sandboxId: item.sandbox?.id,
-  };
 }
 
 const columnConfig: {
@@ -69,16 +45,14 @@ const columnConfig: {
 export async function loader({ request }: Route.LoaderArgs) {
   const response = await apiJson<PaginatedRunList>("/runs", { request });
   const apiRuns = response.data;
-  const items = apiRuns.map(mapRunListItem);
 
   const grouped = new Map<ColumnStatus, RunItem[]>();
   for (const cfg of columnConfig) {
     grouped.set(cfg.id, []);
   }
-  for (const item of items) {
-    const status = apiRuns.find((r) => r.id === item.id)?.status;
-    if (status && grouped.has(status)) {
-      grouped.get(status)?.push(item);
+  for (const apiRun of apiRuns) {
+    if (grouped.has(apiRun.status)) {
+      grouped.get(apiRun.status)?.push(mapRunListItem(apiRun));
     }
   }
 

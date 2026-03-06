@@ -1,3 +1,6 @@
+import { formatElapsedSecs, formatDurationSecs } from "../lib/format";
+import type { RunListItem } from "@qltysh/arc-api-client";
+
 export type CiStatus = "passing" | "failing" | "pending";
 
 export type CheckStatus = "success" | "failure" | "skipped" | "pending" | "queued";
@@ -28,9 +31,39 @@ export interface RunItem {
 
 export type ColumnStatus = "working" | "pending" | "review" | "merge";
 
+export const columnNames: Record<ColumnStatus, string> = {
+  working: "Working",
+  pending: "Pending",
+  review: "Verify",
+  merge: "Merge",
+};
+
 export interface RunWithStatus extends RunItem {
   status: ColumnStatus;
   statusLabel: string;
+}
+
+export function mapRunListItem(item: RunListItem): RunItem {
+  return {
+    id: item.id,
+    repo: item.repository.name,
+    title: item.title,
+    workflow: item.workflow.slug,
+    number: item.pull_request?.number,
+    additions: item.pull_request?.additions,
+    deletions: item.pull_request?.deletions,
+    checks: item.pull_request?.checks?.map((c) => ({
+      name: c.name,
+      status: c.status,
+      duration: c.duration_secs != null ? formatDurationSecs(c.duration_secs) : undefined,
+    })),
+    elapsed: item.timings?.elapsed_secs != null ? formatElapsedSecs(item.timings.elapsed_secs) : undefined,
+    elapsedWarning: item.timings?.elapsed_warning,
+    resources: item.sandbox?.resources ? `${item.sandbox.resources.cpu} CPU / ${item.sandbox.resources.memory} GB` : undefined,
+    comments: item.pull_request?.comments,
+    question: item.question?.text,
+    sandboxId: item.sandbox?.id,
+  };
 }
 
 export function deriveCiStatus(checks: CheckRun[]): CiStatus {
