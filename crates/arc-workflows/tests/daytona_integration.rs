@@ -3,6 +3,7 @@
 //! These tests require a `DAYTONA_API_KEY` environment variable and network access.
 //! Run with: `cargo test --package arc-workflows -- --ignored daytona`
 
+use base64::Engine as _;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -23,11 +24,58 @@ use arc_workflows::handler::{Handler, HandlerRegistry};
 use arc_workflows::outcome::{Outcome, StageStatus};
 
 async fn create_env() -> DaytonaSandbox {
+    create_env_with_github_app(None).await
+}
+
+async fn create_env_with_github_app(
+    github_app: Option<arc_workflows::github_app::GitHubAppCredentials>,
+) -> DaytonaSandbox {
     dotenvy::dotenv().ok();
     let client = daytona_sdk::Client::new()
         .await
         .expect("Failed to create Daytona client — is DAYTONA_API_KEY set?");
-    DaytonaSandbox::new(client, DaytonaConfig::default(), None)
+    DaytonaSandbox::new(client, DaytonaConfig::default(), github_app)
+}
+
+fn load_github_app_credentials() -> arc_workflows::github_app::GitHubAppCredentials {
+    dotenvy::dotenv().ok();
+
+    // Read app_id from ~/.arc/server.toml
+    let home = dirs::home_dir().expect("No home directory");
+    let config_path = home.join(".arc/server.toml");
+    let config_str = std::fs::read_to_string(&config_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", config_path.display()));
+
+    #[derive(serde::Deserialize)]
+    struct Config {
+        #[serde(default)]
+        git: GitSection,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct GitSection {
+        app_id: Option<String>,
+    }
+
+    let config: Config =
+        toml::from_str(&config_str).expect("Failed to parse server.toml");
+    let app_id = config.git.app_id.expect("app_id not set in server.toml [git] section");
+
+    let raw = std::env::var("GITHUB_APP_PRIVATE_KEY")
+        .expect("GITHUB_APP_PRIVATE_KEY not set");
+    let private_key_pem = if raw.starts_with("-----") {
+        raw
+    } else {
+        let bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &raw,
+        )
+        .expect("GITHUB_APP_PRIVATE_KEY is not valid base64");
+        String::from_utf8(bytes).expect("GITHUB_APP_PRIVATE_KEY decoded to invalid UTF-8")
+    };
+    arc_workflows::github_app::GitHubAppCredentials {
+        app_id,
+        private_key_pem,
+    }
 }
 
 #[tokio::test]
@@ -1172,5 +1220,95 @@ async fn daytona_ssh_access_before_init_fails() {
     assert!(
         result.unwrap_err().contains("not initialized"),
         "error should mention not initialized"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GitHub App Installation Access Token (IAT) clone tests
+// ---------------------------------------------------------------------------
+
+/// E2E: Clone the current (private) repo using GitHub App IAT credentials.
+/// Verifies the full flow: JWT signing, installation lookup, token creation, clone.
+#[tokio::test]
+#[ignore]
+async fn daytona_clone_private_repo_with_github_app_iat() {
+    let creds = load_github_app_credentials();
+    let env = create_env_with_github_app(Some(creds)).await;
+
+    // initialize() clones the current repo — with IAT credentials this should succeed
+    env.initialize().await.unwrap();
+
+    // Verify the clone worked: CLAUDE.md should exist in the workspace
+    let result = env
+        .exec_command("test -f CLAUDE.md && echo EXISTS", 10_000, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(result.exit_code, 0, "CLAUDE.md should exist after clone");
+    assert!(
+        result.stdout.contains("EXISTS"),
+        "clone should have populated the workspace"
+    );
+
+    // Verify this is actually the arc repo
+    let result = env
+        .exec_command("git remote get-url origin", 10_000, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert!(
+        result.stdout.contains("brynary/arc"),
+        "origin should point to brynary/arc, got: {}",
+        result.stdout.trim()
+    );
+
+    env.cleanup().await.unwrap();
+}
+
+/// E2E: Verify that public repos are cloned without credentials even when
+/// GitHub App is configured (the `is_repo_public` optimization path).
+#[tokio::test]
+#[ignore]
+async fn daytona_clone_public_repo_no_credentials_needed() {
+    let creds = load_github_app_credentials();
+
+    // Directly test resolve_clone_credentials against a known public repo
+    let (username, password) = arc_workflows::github_app::resolve_clone_credentials(
+        &creds,
+        "rust-lang",
+        "rust",
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        username.is_none(),
+        "public repo should not need credentials, got username: {:?}",
+        username
+    );
+    assert!(
+        password.is_none(),
+        "public repo should not need credentials, got password set"
+    );
+}
+
+/// E2E: Verify that requesting an IAT for a repo the app isn't installed on
+/// gives a clear error message.
+#[tokio::test]
+#[ignore]
+async fn daytona_iat_not_installed_gives_clear_error() {
+    let creds = load_github_app_credentials();
+
+    let result = arc_workflows::github_app::resolve_clone_credentials(
+        &creds,
+        "torvalds",
+        "linux",
+    )
+    .await;
+
+    assert!(result.is_err(), "should fail for repo the app isn't installed on");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("not installed"),
+        "error should mention 'not installed', got: {err}"
     );
 }

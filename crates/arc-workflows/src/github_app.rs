@@ -87,8 +87,15 @@ pub async fn is_repo_public(
         .await
         .map_err(|e| format!("Failed to check repo visibility: {e}"))?;
 
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
         return Ok(false);
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Failed to check repo visibility (HTTP {status}): {body}"
+        ));
     }
 
     let body: RepoResponse = response
