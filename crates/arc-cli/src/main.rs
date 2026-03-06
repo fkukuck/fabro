@@ -79,6 +79,20 @@ enum LlmCommand {
     Chat(arc_llm::cli::ChatArgs),
 }
 
+fn build_github_app_credentials(
+    config: &arc_api::server_config::ServerConfig,
+) -> Option<arc_workflows::github_app::GitHubAppCredentials> {
+    let app_id = config.git.app_id.as_ref()?;
+    let key_b64 = std::env::var("GITHUB_APP_PRIVATE_KEY").ok()?;
+    let pem_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &key_b64)
+        .ok()?;
+    let private_key_pem = String::from_utf8(pem_bytes).ok()?;
+    Some(arc_workflows::github_app::GitHubAppCredentials {
+        app_id: app_id.clone(),
+        private_key_pem,
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -143,8 +157,14 @@ async fn main() -> Result<()> {
                 let styles: &'static arc_util::terminal::Styles =
                     Box::leak(Box::new(arc_util::terminal::Styles::detect_stderr()));
                 let server_config = arc_api::server_config::load_server_config(None)?;
-                arc_workflows::cli::run::run_command(args, server_config.run_defaults, styles)
-                    .await?;
+                let github_app = build_github_app_credentials(&server_config);
+                arc_workflows::cli::run::run_command(
+                    args,
+                    server_config.run_defaults,
+                    styles,
+                    github_app,
+                )
+                .await?;
             }
             RunCommand::List(args) => {
                 arc_workflows::cli::runs::list_command(&args)?;

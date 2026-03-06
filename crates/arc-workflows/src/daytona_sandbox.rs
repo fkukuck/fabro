@@ -11,6 +11,8 @@ use rand::Rng;
 use serde::de::{self, MapAccess, Visitor};
 use serde::Deserialize;
 
+use crate::github_app::GitHubAppCredentials;
+
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
 const DEFAULT_IMAGE: &str = "ubuntu:22.04";
 
@@ -117,6 +119,7 @@ pub struct DaytonaSnapshotConfig {
 pub struct DaytonaSandbox {
     config: DaytonaConfig,
     client: daytona_sdk::Client,
+    github_app: Option<GitHubAppCredentials>,
     sandbox: tokio::sync::OnceCell<daytona_sdk::Sandbox>,
     rg_available: tokio::sync::OnceCell<bool>,
     event_callback: Option<SandboxEventCallback>,
@@ -124,10 +127,15 @@ pub struct DaytonaSandbox {
 
 impl DaytonaSandbox {
     #[must_use]
-    pub fn new(client: daytona_sdk::Client, config: DaytonaConfig) -> Self {
+    pub fn new(
+        client: daytona_sdk::Client,
+        config: DaytonaConfig,
+        github_app: Option<GitHubAppCredentials>,
+    ) -> Self {
         Self {
             config,
             client,
+            github_app,
             sandbox: tokio::sync::OnceCell::new(),
             rg_available: tokio::sync::OnceCell::const_new(),
             event_callback: None,
@@ -334,28 +342,6 @@ pub fn detect_repo_info(path: &Path) -> Result<(String, Option<String>), String>
     Ok((url, branch))
 }
 
-/// Get a GitHub authentication token via `gh auth token`.
-pub fn get_gh_token() -> Result<String, String> {
-    let output = std::process::Command::new("gh")
-        .args(["auth", "token"])
-        .output()
-        .map_err(|e| format!("Failed to run 'gh auth token': {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "gh auth token failed (exit code {}): {stderr}",
-            output.status.code().unwrap_or(-1)
-        ));
-    }
-
-    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() {
-        return Err("gh auth token returned empty string".to_string());
-    }
-    Ok(token)
-}
-
 #[async_trait]
 impl Sandbox for DaytonaSandbox {
     async fn download_file_to_local(
@@ -461,24 +447,38 @@ impl Sandbox for DaytonaSandbox {
                 });
                 let clone_start = Instant::now();
 
-                let token = get_gh_token()
-                    .map_err(|e| format!("Failed to get GitHub token for Daytona clone: {e}"));
-                let token = match token {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.emit(SandboxEvent::GitCloneFailed {
-                            url: url.clone(),
-                            error: e.clone(),
-                        });
-                        let duration_ms =
-                            u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        self.emit(SandboxEvent::InitializeFailed {
-                            provider: "daytona".into(),
-                            error: e.clone(),
-                            duration_ms,
-                        });
-                        return Err(e);
+                // Resolve clone credentials via GitHub App or fall back to no auth
+                let (username, password) = match &self.github_app {
+                    Some(creds) => {
+                        let (owner, repo) =
+                            crate::github_app::parse_github_owner_repo(&url).map_err(|e| {
+                                let err = format!("Failed to parse GitHub URL for clone: {e}");
+                                self.emit(SandboxEvent::GitCloneFailed {
+                                    url: url.clone(),
+                                    error: err.clone(),
+                                });
+                                err
+                            })?;
+                        crate::github_app::resolve_clone_credentials(creds, &owner, &repo)
+                            .await
+                            .map_err(|e| {
+                                let err =
+                                    format!("Failed to get GitHub App credentials for clone: {e}");
+                                self.emit(SandboxEvent::GitCloneFailed {
+                                    url: url.clone(),
+                                    error: err.clone(),
+                                });
+                                let duration_ms = u64::try_from(init_start.elapsed().as_millis())
+                                    .unwrap_or(u64::MAX);
+                                self.emit(SandboxEvent::InitializeFailed {
+                                    provider: "daytona".into(),
+                                    error: err.clone(),
+                                    duration_ms,
+                                });
+                                err
+                            })?
                     }
+                    None => (None, None),
                 };
 
                 let git_svc = sandbox
@@ -503,19 +503,20 @@ impl Sandbox for DaytonaSandbox {
                     }
                 };
 
-                match git_svc
+                let clone_result = git_svc
                     .clone(
                         &url,
                         WORKING_DIRECTORY,
                         daytona_sdk::GitCloneOptions {
                             branch,
-                            username: Some("x-access-token".to_string()),
-                            password: Some(token),
+                            username,
+                            password,
                             ..Default::default()
                         },
                     )
-                    .await
-                {
+                    .await;
+
+                match clone_result {
                     Ok(()) => {
                         let clone_duration =
                             u64::try_from(clone_start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -523,6 +524,25 @@ impl Sandbox for DaytonaSandbox {
                             url,
                             duration_ms: clone_duration,
                         });
+                    }
+                    Err(e) if self.github_app.is_none() => {
+                        let err = format!(
+                            "Git clone failed: {e}. If this is a private repository, \
+                             configure a GitHub App with `arc setup` and install it \
+                             for your organization."
+                        );
+                        self.emit(SandboxEvent::GitCloneFailed {
+                            url,
+                            error: err.clone(),
+                        });
+                        let duration_ms =
+                            u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        self.emit(SandboxEvent::InitializeFailed {
+                            provider: "daytona".into(),
+                            error: err.clone(),
+                            duration_ms,
+                        });
+                        return Err(err);
                     }
                     Err(e) => {
                         let err = format!("Failed to clone repo into Daytona sandbox: {e}");
@@ -1011,13 +1031,6 @@ mod tests {
         let (_, branch) = detect_repo_info(dir.path()).unwrap();
         // git init creates "master" or "main" depending on git config
         assert!(branch.is_some());
-    }
-
-    #[test]
-    #[ignore] // requires `gh` CLI installed and authenticated
-    fn gh_auth_token_returns_nonempty_string() {
-        let token = get_gh_token().unwrap();
-        assert!(!token.is_empty());
     }
 
     #[test]

@@ -108,13 +108,13 @@ The Daytona sandbox runs all tool operations inside a cloud-hosted VM managed by
 ### Prerequisites
 
 - A `DAYTONA_API_KEY` environment variable
-- The `gh` CLI authenticated (for git clone authentication)
+- A GitHub App configured via `arc setup` (for private repository cloning)
 
 ### How it works
 
 - **Sandbox lifecycle** — On `initialize()`, Arc creates a Daytona sandbox (from an image or a snapshot), clones the current git repository into it, and waits until it's ready. On `cleanup()`, the sandbox is deleted.
 - **Working directory** — Fixed at `/home/daytona/workspace`. The current repository is cloned there automatically.
-- **Git clone** — Arc detects the local `origin` remote URL and current branch, converts SSH URLs to HTTPS, obtains a GitHub token via `gh auth token`, and clones into the sandbox. If no git repo is detected, the working directory is created empty.
+- **Git clone** — Arc detects the local `origin` remote URL and current branch, converts SSH URLs to HTTPS, and clones into the sandbox. For private repositories, Arc uses a GitHub App Installation Access Token scoped to `contents: read` on the specific repository. Public repositories are cloned without credentials. If no git repo is detected, the working directory is created empty.
 - **Commands** — Executed via the Daytona process API. Commands are base64-encoded and piped through `sh` to support pipes, environment variables, and other shell features.
 - **Ephemeral** — Sandboxes are created with `ephemeral: true` and a unique timestamped name (e.g. `arc-20260305-142301-a3f2`).
 

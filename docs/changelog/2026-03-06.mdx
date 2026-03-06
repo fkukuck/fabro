@@ -1,0 +1,24 @@
+---
+title: "GitHub App tokens for Daytona git cloning"
+date: "2026-03-06"
+---
+
+<Warning>
+**Daytona sandboxes no longer use `gh` CLI for git cloning.** The `gh` CLI is no longer required in Daytona environments. Arc now uses GitHub App Installation Access Tokens instead.
+
+To migrate: Remove any `gh` CLI dependency from your Daytona environments. If you ran `arc setup`, your `app_id` and `GITHUB_APP_PRIVATE_KEY` are already configured — no further action needed.
+</Warning>
+
+## GitHub App Installation Access Tokens for Daytona
+
+Daytona sandboxes now authenticate git clones using GitHub App Installation Access Tokens (IATs) instead of the user's `gh` CLI token. Each token is scoped to `contents: read` on the specific repository being cloned.
+
+Arc automatically detects whether a repository is public or private. Public repositories are cloned without credentials. Private repositories get a short-lived, minimally-scoped IAT generated from the GitHub App configured during `arc setup`.
+
+When credentials are missing or misconfigured, Arc provides specific error messages for each failure mode:
+- App not installed for the organization
+- Installation suspended
+- Repository not accessible to the app
+- Authentication failure (bad key or app ID)
+
+If no GitHub App is configured (`app_id` or `GITHUB_APP_PRIVATE_KEY` missing), Arc clones without credentials and surfaces a clear message if the clone fails for private repositories.

@@ -6,6 +6,7 @@ pub mod condition;
 pub mod context;
 pub mod daytona_sandbox;
 pub mod engine;
+pub mod github_app;
 pub mod error;
 pub mod event;
 pub mod git;

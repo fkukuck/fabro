@@ -27,7 +27,7 @@ async fn create_env() -> DaytonaSandbox {
     let client = daytona_sdk::Client::new()
         .await
         .expect("Failed to create Daytona client — is DAYTONA_API_KEY set?");
-    DaytonaSandbox::new(client, DaytonaConfig::default())
+    DaytonaSandbox::new(client, DaytonaConfig::default(), None)
 }
 
 #[tokio::test]
@@ -138,7 +138,7 @@ async fn daytona_snapshot_sandbox() {
         ..DaytonaConfig::default()
     };
 
-    let env = DaytonaSandbox::new(client, config);
+    let env = DaytonaSandbox::new(client, config, None);
     env.initialize().await.unwrap();
 
     // Verify rg is available (installed by snapshot)

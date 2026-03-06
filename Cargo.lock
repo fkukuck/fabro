@@ -353,6 +353,7 @@ dependencies = [
  "futures",
  "git2",
  "indicatif",
+ "jsonwebtoken",
  "mockito",
  "nom",
  "predicates",

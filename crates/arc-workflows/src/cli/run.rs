@@ -191,6 +191,7 @@ pub async fn run_command(
     args: RunArgs,
     run_defaults: RunDefaults,
     styles: &'static Styles,
+    github_app: Option<crate::github_app::GitHubAppCredentials>,
 ) -> anyhow::Result<()> {
     // Handle --run-branch resume: read everything from git metadata
     if let Some(branch) = args.run_branch.clone() {
@@ -289,6 +290,7 @@ pub async fn run_command(
             git_clean,
             sandbox_provider,
             styles,
+            github_app,
         )
         .await;
     }
@@ -457,7 +459,7 @@ pub async fn run_command(
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to create Daytona client: {e}"))?;
             let config = daytona_config.clone().unwrap_or_default();
-            let mut env = crate::daytona_sandbox::DaytonaSandbox::new(daytona_client, config);
+            let mut env = crate::daytona_sandbox::DaytonaSandbox::new(daytona_client, config, github_app.clone());
             let emitter_cb = Arc::clone(&emitter);
             env.set_event_callback(Arc::new(move |event| {
                 emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
@@ -1157,6 +1159,7 @@ async fn run_preflight(
     git_clean: bool,
     sandbox_provider: SandboxProvider,
     styles: &'static Styles,
+    github_app: Option<crate::github_app::GitHubAppCredentials>,
 ) -> anyhow::Result<()> {
     use arc_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckStatus};
 
@@ -1209,7 +1212,7 @@ async fn run_preflight(
         SandboxProvider::Daytona => match daytona_sdk::Client::new().await {
             Ok(daytona_client) => {
                 let config = daytona_config.unwrap_or_default();
-                let env = crate::daytona_sandbox::DaytonaSandbox::new(daytona_client, config);
+                let env = crate::daytona_sandbox::DaytonaSandbox::new(daytona_client, config, github_app);
                 Ok(Arc::new(env) as Arc<dyn Sandbox>)
             }
             Err(e) => Err(format!("Daytona client creation failed: {e}")),
