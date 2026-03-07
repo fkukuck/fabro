@@ -60,6 +60,18 @@
             ]
           },
           {
+            "group": "Human Tools",
+            "icon": "hand",
+            "pages": [
+              "human-tools/steering",
+              "human-tools/ssh-access",
+              "human-tools/vs-code",
+              "human-tools/preview",
+              "human-tools/vnc-access",
+              "human-tools/vpn-connections"
+            ]
+          },
+          {
             "group": "Agents",
             "icon": "robot",
             "pages": [
@@ -81,8 +93,7 @@
               "integrations/daytona",
               "integrations/slack",
               "integrations/exe-dev",
-              "integrations/brave-search",
-              "integrations/vs-code"
+              "integrations/brave-search"
             ]
           },
           {
