@@ -280,6 +280,7 @@
             "group": "March 2026",
             "icon": "clock-rotate-left",
             "pages": [
+              "changelog/2026-03-07",
               "changelog/2026-03-06",
               "changelog/2026-03-05",
               "changelog/2026-03-04",

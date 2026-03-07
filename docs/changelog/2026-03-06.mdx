@@ -1,9 +1,37 @@
 ---
-title: "GitHub App tokens for Daytona git cloning"
+title: "API restructuring and sandbox improvements"
 date: "2026-03-06"
 ---
 
-## GitHub App Installation Access Tokens for Daytona
+## Structured API schemas
+
+The REST API now organizes related fields into typed sub-objects instead of flat key lists. For example, a run's `model_id` and `model_name` are now nested under a `model` object, token counts live under `usage`, and timing fields are grouped under `timings`. This applies across runs, workflows, verifications, and usage endpoints — 17 new sub-schemas in total.
+
+If you use the TypeScript client, regenerate it to pick up the new types:
+
+```bash
+cd packages/arc-api-client && bun run generate
+```
+
+API responses also now return real ISO 8601 timestamps (e.g. `"2026-03-06T14:30:00Z"`) instead of pre-formatted relative strings like `"2h ago"`. The web UI formats these for display — API consumers get machine-readable dates they can format however they want.
+
+## Provider API keys forwarded to sandboxes
+
+Agent CLI tools running inside Daytona sandboxes can now authenticate with LLM providers automatically. Arc collects the relevant API key environment variables (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and forwards them into the sandbox environment, so CLI agents like Claude and Codex can make API calls without manual credential setup.
+
+Previously, sandbox-based agents would fail to authenticate because API keys were only available on the Arc server, not inside the sandbox.
+
+## Checkpoint pushing for Daytona runs
+
+When a workflow runs on a Daytona sandbox, Arc now pushes the run branch to origin after each checkpoint. Previously, commits on the run branch were lost when the sandbox was deleted, making it impossible to review intermediate work.
+
+This required upgrading the GitHub App token permission from `contents:read` to `contents:write`. Tokens are automatically refreshed before they expire.
+
+## Retro detail API
+
+The `/runs/{id}/retro` endpoint now returns a structured `RetroDetail` schema instead of an untyped JSON blob. The `/retros` list endpoint supports new `workflow` and `smoothness` filter parameters for narrowing results.
+
+## GitHub App tokens for Daytona
 
 Daytona sandboxes now authenticate git clones using GitHub App Installation Access Tokens (IATs) instead of the user's `gh` CLI token. Each token is scoped to `contents: read` on the specific repository being cloned.
 
@@ -15,10 +43,21 @@ When credentials are missing or misconfigured, Arc provides specific error messa
 - Repository not accessible to the app
 - Authentication failure (bad key or app ID)
 
-If no GitHub App is configured (`app_id` or `GITHUB_APP_PRIVATE_KEY` missing), Arc clones without credentials and surfaces a clear message if the clone fails for private repositories.
-
 <Warning>
-**Daytona sandboxes no longer use `gh` CLI for git cloning.** The `gh` CLI is no longer required in Daytona environments. Arc now uses GitHub App Installation Access Tokens instead.
+**API response shapes have changed.** Flat fields are now nested into typed sub-objects (e.g. `model_id` becomes `model.id`), and relative time strings are replaced with ISO 8601 timestamps. Several endpoints were renamed: `retrieveRunSvg` is now `retrieveRunGraph`, `listRunCompare` is now `retrieveRunDiff`, and `RunListItemStatus` is now `BoardColumn`.
 
-To migrate: Remove any `gh` CLI dependency from your Daytona environments. If you ran `arc setup`, your `app_id` and `GITHUB_APP_PRIVATE_KEY` are already configured — no further action needed.
+To migrate:
+1. Regenerate your TypeScript client: `cd packages/arc-api-client && bun run generate`
+2. Update any code that reads flat fields to use the new nested paths
+3. Update any code that displays timestamps — the API now returns ISO 8601 strings instead of pre-formatted relative times
 </Warning>
+
+---
+
+- Fixes dry-run mode issues with stub scripts, runner working directory, and transition weights
+- Fixes GitHub App repo visibility check incorrectly treating 401/403 responses as public
+- Fixes duplicate `.env` variables when re-running `arc setup`
+- Adds pagination parameters to `listRunQuestions`, `listRunStages`, and `listRunVerifications` endpoints
+- Fixes 27 OpenAPI spec review items across verifications, insights, HITL, run outputs, workflows, and configuration
+- Removes redundant API response types (`StartRunResponse`, `CancelRunResponse`, `SteerRunResponse`, `SubmitAnswerResponse`)
+- Filters preamble noise by excluding meta nodes, blank context values, and empty sections

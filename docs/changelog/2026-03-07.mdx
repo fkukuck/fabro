@@ -1,0 +1,52 @@
+---
+title: "Models API, exe.dev sandboxes, and auto-install agent CLIs"
+date: "2026-03-07"
+---
+
+## Models API endpoint
+
+A new `GET /models` endpoint exposes the full LLM model catalog via the REST API. This is the same data available through `arc models list` on the CLI, now accessible to the web UI and API consumers. Results are paginated.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://your-arc-server/models
+```
+
+## exe.dev sandbox provider (beta)
+
+Arc can now run agent stages inside ephemeral [exe.dev](https://exe.dev) VMs as an alternative to Daytona sandboxes. The new `arc-exe` crate manages VM lifecycle through SSH — a management plane connection to `exe.dev` for creating and destroying VMs, and a data plane connection to the VM itself for command execution and file I/O.
+
+```toml
+[execution]
+environment = "exe"
+```
+
+## Auto-install agent CLIs in sandboxes
+
+Agent CLI tools (like `claude` or `codex`) are now automatically detected and installed inside sandboxes at runtime when they're missing. This includes installing Node.js via NodeSource if needed. Previously, you had to build custom Dockerfiles that pre-installed every CLI tool your workflow used.
+
+## Verification API restructured
+
+The verification API has been reorganized from a flat `/verifications` namespace into distinct resources: `/verification/criteria` and `/verification/controls`. The run sub-resource path is now singular: `/runs/{id}/verification`.
+
+## Updated model catalog
+
+The default OpenAI model has been upgraded from gpt-5.3 to **gpt-5.4**. New models added to the catalog include **gpt-5.3-codex-spark** and **claude-sonnet-4-6**. Model defaults are now centralized in the catalog rather than hardcoded across crates.
+
+## Streaming stage logs for CLI agents
+
+Stage logs now update in real-time while CLI agents are working. Arc syncs `cli_stdout.log` and `cli_stderr.log` to the stage directory on each poll iteration, so you can see what an agent is doing before it finishes — useful for long-running stages.
+
+<Warning>
+**Verification API paths have changed.** `/verifications` is now split into `/verification/criteria` and `/verification/controls`. The run sub-resource moved from `/runs/{id}/verifications` to `/runs/{id}/verification`.
+
+To migrate:
+1. Regenerate your TypeScript client: `cd packages/arc-api-client && bun run generate`
+2. Update any direct API calls to use the new paths
+</Warning>
+
+---
+
+- Fixes sub-workflow context diffs leaking child engine-internal keys (`internal.*`, `graph.*`, `thread.*`) into the parent run
+- Fixes turn and tool-call counts always showing 0 in non-TTY mode
+- Fixes push credentials for public repos in Daytona sandboxes
+- Fixes Daytona CLI installation with rootless Node.js install and better error messages
