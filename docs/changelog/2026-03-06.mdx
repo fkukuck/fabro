@@ -3,18 +3,6 @@ title: "API restructuring and sandbox improvements"
 date: "2026-03-06"
 ---
 
-## Structured API schemas
-
-The REST API now organizes related fields into typed sub-objects instead of flat key lists. For example, a run's `model_id` and `model_name` are now nested under a `model` object, token counts live under `usage`, and timing fields are grouped under `timings`. This applies across runs, workflows, verifications, and usage endpoints — 17 new sub-schemas in total.
-
-If you use the TypeScript client, regenerate it to pick up the new types:
-
-```bash
-cd packages/arc-api-client && bun run generate
-```
-
-API responses also now return real ISO 8601 timestamps (e.g. `"2026-03-06T14:30:00Z"`) instead of pre-formatted relative strings like `"2h ago"`. The web UI formats these for display — API consumers get machine-readable dates they can format however they want.
-
 ## Provider API keys forwarded to sandboxes
 
 Agent CLI tools running inside Daytona sandboxes can now authenticate with LLM providers automatically. Arc collects the relevant API key environment variables (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and forwards them into the sandbox environment, so CLI agents like Claude and Codex can make API calls without manual credential setup.
@@ -51,6 +39,7 @@ To migrate:
 ## More
 
 <Accordion title="API">
+- API responses now nest related fields into typed sub-objects (e.g. `model_id` becomes `model.id`) and return ISO 8601 timestamps instead of pre-formatted relative strings
 - `/runs/{id}/retro` now returns a structured `RetroDetail` schema instead of an untyped JSON blob; `/retros` supports new `workflow` and `smoothness` filter parameters
 </Accordion>
 
