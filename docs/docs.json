@@ -106,13 +106,6 @@
             ]
           },
           {
-            "group": "Deployment",
-            "icon": "server",
-            "pages": [
-              "administration/deployment"
-            ]
-          },
-          {
             "group": "Example Workflows",
             "icon": "flask",
             "pages": [
@@ -121,6 +114,13 @@
               "examples/definition-of-done",
               "examples/nlspec-conformance",
               "examples/clone-substack"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "icon": "server",
+            "pages": [
+              "administration/deployment"
             ]
           }
         ]
