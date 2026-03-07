@@ -1,6 +1,129 @@
 ---
 title: "Slack"
-description: "Send notifications and interact with Arc workflows from Slack"
+description: "Answer human-in-the-loop questions directly from Slack"
 ---
 
-Coming soon.
+Arc's Slack integration lets your team answer [human-in-the-loop](/workflows/human-in-the-loop) questions without leaving Slack. When a workflow reaches a human gate, Arc posts an interactive message to a Slack channel with buttons for each option. Team members click a button (or reply in a thread for freeform input), and the workflow continues.
+
+The integration uses Slack's [Socket Mode](https://api.slack.com/apis/socket-mode), so no public URL or webhook endpoint is required — Arc connects outbound over a WebSocket.
+
+## What it looks like
+
+When a workflow hits a human gate like this:
+
+```dot
+approve [shape=hexagon, label="Approve Plan"]
+
+approve -> implement [label="[A] Approve"]
+approve -> plan      [label="[R] Revise"]
+```
+
+Arc posts a message to your configured Slack channel:
+
+> **Approve Plan**
+>
+> `[Approve]` `[Revise]`
+
+A team member clicks a button, the message updates to show the selection, and the workflow resumes on the chosen path.
+
+## Supported question types
+
+| Question type | Slack UI |
+|---|---|
+| **Yes/No** | Two buttons: Yes, No |
+| **Confirmation** | Two buttons: Yes, No |
+| **Multiple choice** | One button per option |
+| **Multi-select** | Checkboxes with a Submit button |
+| **Freeform** | Prompt to reply in a thread |
+
+For freeform questions, Arc posts a message asking the user to reply in the thread. The reply text (with any `@mention` prefix stripped) becomes the answer.
+
+## Setup
+
+### 1. Create a Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
+2. Choose **From scratch**, give it a name (e.g. "Arc"), and select your workspace
+
+### 2. Enable Socket Mode
+
+1. In the app settings sidebar, go to **Socket Mode**
+2. Toggle **Enable Socket Mode** on
+3. Create an **App-Level Token** with the `connections:write` scope
+4. Copy the token (starts with `xapp-`) — this is your `ARC_SLACK_APP_TOKEN`
+
+### 3. Add bot token scopes
+
+1. Go to **OAuth & Permissions** in the sidebar
+2. Under **Bot Token Scopes**, add:
+   - `chat:write` — post messages to channels
+   - `chat:write.public` — post to channels without joining them
+
+### 4. Subscribe to events
+
+1. Go to **Event Subscriptions** in the sidebar
+2. Toggle **Enable Events** on
+3. Under **Subscribe to bot events**, add:
+   - `message.channels` — receive channel messages (needed for freeform thread replies)
+
+### 5. Install the app
+
+1. Go to **Install App** in the sidebar
+2. Click **Install to Workspace** and authorize
+3. Copy the **Bot User OAuth Token** (starts with `xoxb-`) — this is your `ARC_SLACK_BOT_TOKEN`
+
+### 6. Configure Arc
+
+Add both tokens to your `.env` file:
+
+```bash
+ARC_SLACK_BOT_TOKEN=xoxb-your-bot-token
+ARC_SLACK_APP_TOKEN=xapp-your-app-token
+```
+
+Optionally, set a default channel in your [server configuration](/administration/server-configuration):
+
+```toml
+[slack]
+default_channel = "#arc-reviews"
+```
+
+### 7. Invite the bot
+
+Invite the bot to any channel where you want it to post questions:
+
+```
+/invite @Arc
+```
+
+Or use the `chat:write.public` scope to post to public channels without an invite.
+
+## How it works
+
+Arc uses the same [web interviewer](/execution/interviews#web) that powers the web UI. When a human gate fires:
+
+1. Arc builds a [Block Kit](https://api.slack.com/block-kit) message from the question (buttons for choices, a thread prompt for freeform)
+2. Posts the message to the configured Slack channel
+3. The workflow blocks, waiting for an answer
+
+When a user interacts:
+
+- **Button click** — Slack delivers the interaction over the Socket Mode WebSocket. Arc maps the button's action ID back to the question and submits the answer. The original message is updated to show the selection.
+- **Thread reply** (freeform) — The user replies in the message thread. Arc receives the reply as a message event, matches it to the pending question via the thread timestamp, and submits the text as the answer.
+
+The connection is maintained with automatic reconnection and exponential backoff (1s initial, 30s max). If the WebSocket disconnects, Arc reconnects transparently — no manual intervention needed.
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `ARC_SLACK_BOT_TOKEN` | Yes | Bot User OAuth Token (`xoxb-...`). Used to post and update messages. |
+| `ARC_SLACK_APP_TOKEN` | Yes | App-Level Token (`xapp-...`). Used to connect via Socket Mode. |
+
+Both must be set for the Slack integration to activate. If either is missing or empty, Slack is disabled silently.
+
+## Limitations
+
+- **Interviews only** — The Slack integration handles human gate questions. It does not post run status notifications or support [steering](/human-tools/steering) running agents.
+- **Single workspace** — Arc connects to one Slack workspace at a time.
+- **One answer per question** — The first person to click a button or reply in a thread provides the answer. Subsequent interactions on the same question are ignored.
