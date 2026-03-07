@@ -29,6 +29,8 @@ tags:
     description: Run retrospectives
   - name: Projects
     description: Project and branch management
+  - name: Models
+    description: Available LLM models
   - name: Settings
     description: Platform configuration
 
@@ -1073,6 +1075,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/AggregateUsage"
 
+  # ── Models ───────────────────────────────────────────────────────────
+
+  /models:
+    get:
+      operationId: listModels
+      tags: [Models]
+      summary: List Models
+      description: Returns a paginated list of available LLM models from the built-in catalog.
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+      responses:
+        "200":
+          description: Paginated list of models
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedModelList"
+
   # ── Settings ──────────────────────────────────────────────────────────
 
   /settings:
@@ -1383,6 +1404,93 @@ components:
             $ref: "#/components/schemas/Branch"
         meta:
           $ref: "#/components/schemas/PaginationMeta"
+
+    PaginatedModelList:
+      description: Paginated list of models.
+      type: object
+      required:
+        - data
+        - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Model"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    Model:
+      description: An available LLM model from the built-in catalog.
+      type: object
+      required:
+        - id
+        - provider
+        - display_name
+        - context_window
+        - supports_tools
+        - supports_vision
+        - supports_reasoning
+        - aliases
+        - default
+      properties:
+        id:
+          type: string
+          description: Unique model identifier.
+          example: "claude-opus-4-6"
+        provider:
+          type: string
+          description: Provider that serves this model.
+          example: "anthropic"
+        display_name:
+          type: string
+          description: Human-readable model name.
+          example: "Claude Opus 4.6"
+        context_window:
+          type: integer
+          format: int64
+          description: Maximum context window size in tokens.
+          example: 1000000
+        max_output:
+          type: integer
+          format: int64
+          nullable: true
+          description: Maximum output tokens, if known.
+          example: 128000
+        supports_tools:
+          type: boolean
+          description: Whether the model supports tool use.
+        supports_vision:
+          type: boolean
+          description: Whether the model supports vision/image inputs.
+        supports_reasoning:
+          type: boolean
+          description: Whether the model supports extended reasoning.
+        input_cost_per_million:
+          type: number
+          format: double
+          nullable: true
+          description: Cost per million input tokens in USD.
+          example: 15.0
+        output_cost_per_million:
+          type: number
+          format: double
+          nullable: true
+          description: Cost per million output tokens in USD.
+          example: 75.0
+        estimated_output_tps:
+          type: number
+          format: double
+          nullable: true
+          description: Estimated output tokens per second.
+        aliases:
+          type: array
+          items:
+            type: string
+          description: Alternative names that resolve to this model.
+          example: ["opus"]
+        default:
+          type: boolean
+          description: Whether this is the default model for its provider.
 
     PaginatedSavedQueryList:
       description: Paginated list of saved queries.

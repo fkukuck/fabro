@@ -97,6 +97,10 @@ const ENDPOINTS: &[PaginatedEndpoint] = &[
         name: "listQueryHistory",
     },
     PaginatedEndpoint {
+        path: "/models",
+        name: "listModels",
+    },
+    PaginatedEndpoint {
         path: "/runs/run-1/stages/detect-drift/turns",
         name: "listStageTurns",
     },

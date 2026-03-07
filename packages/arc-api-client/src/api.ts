@@ -17,6 +17,7 @@
 export * from './api/discovery-api';
 export * from './api/human-in-the-loop-api';
 export * from './api/insights-api';
+export * from './api/models-api';
 export * from './api/projects-api';
 export * from './api/retros-api';
 export * from './api/run-internals-api';
