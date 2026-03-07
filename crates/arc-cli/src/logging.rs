@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub fn init_tracing(debug: bool) -> Result<()> {
+pub fn init_tracing(debug: bool, log_prefix: &str) -> Result<()> {
     let default_level = if debug { "debug" } else { "info" };
     let filter =
         EnvFilter::try_from_env("ARC_LOG").unwrap_or_else(|_| EnvFilter::new(default_level));
@@ -13,7 +13,9 @@ pub fn init_tracing(debug: bool) -> Result<()> {
     std::fs::create_dir_all(&log_dir)
         .with_context(|| format!("Failed to create log directory: {}", log_dir.display()))?;
 
-    let filename = chrono::Local::now().format("%Y-%m-%d.log").to_string();
+    let filename = chrono::Local::now()
+        .format(&format!("{log_prefix}-%Y-%m-%d.log"))
+        .to_string();
     let file_appender = tracing_appender::rolling::never(&log_dir, &filename);
 
     tracing_subscriber::registry()

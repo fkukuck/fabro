@@ -125,10 +125,6 @@ async fn main() -> Result<()> {
         dotenvy::dotenv().ok();
     }
 
-    if let Err(err) = logging::init_tracing(cli.debug) {
-        eprintln!("Warning: failed to initialize logging: {err:#}");
-    }
-
     let command_name = match &cli.command {
         Command::Llm { .. } => "llm",
         Command::Agent(_) => "agent",
@@ -140,6 +136,12 @@ async fn main() -> Result<()> {
         Command::Doctor { .. } => "doctor",
         Command::Setup => "setup",
     };
+
+    let log_prefix = if command_name == "serve" { "serve" } else { "cli" };
+    if let Err(err) = logging::init_tracing(cli.debug, log_prefix) {
+        eprintln!("Warning: failed to initialize logging: {err:#}");
+    }
+
     debug!(command = %command_name, "CLI command started");
 
     match cli.command {
