@@ -79,6 +79,7 @@
               "reference/dot-language",
               "reference/cli",
               "reference/cli-configuration",
+              "reference/logs-directory",
               "reference/architecture",
               "administration/advanced-setup",
               "administration/security"
