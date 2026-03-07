@@ -1,6 +1,34 @@
 ---
 title: "exe.dev"
-description: "Connect Arc with exe.dev for cloud-based workflow execution"
+description: "Run Arc workflows in fast ephemeral VMs from exe.dev"
 ---
 
-Coming soon.
+<Warning>
+The exe.dev sandbox provider is in **beta** and not yet generally available. This page describes the planned integration. We'll update it when exe.dev support ships.
+</Warning>
+
+[exe.dev](https://exe.dev) provides fast ephemeral cloud VMs for Arc workflows. Each run gets a fresh VM with full machine-level isolation, connected via SSH.
+
+## How it works
+
+- Each run creates a new VM via the exe.dev management plane
+- Agent tool calls (shell commands, file edits, grep, glob) execute over SSH inside the VM
+- The working directory is `/home/exedev`
+- VMs are destroyed automatically when the run finishes
+
+## Configuration
+
+```bash
+arc run start workflow.dot --sandbox exe
+```
+
+```toml
+[sandbox]
+provider = "exe"
+```
+
+## Prerequisites
+
+- SSH keys configured for exe.dev (added via the [exe.dev dashboard](https://exe.dev))
+
+See [Environments](/execution/environments#exe) for additional details on how the exe.dev sandbox operates.
