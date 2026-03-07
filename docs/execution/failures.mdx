@@ -95,7 +95,7 @@ When a handler returns a `Retry` status instead of `Fail`, retries always procee
 
 When a model provider fails with a transient error or quota exhaustion, Arc can automatically switch to a different provider. Configure fallback chains in your [run configuration](/execution/run-configuration):
 
-```toml
+```toml title="run.toml"
 [llm]
 model = "claude-opus-4-6"
 provider = "anthropic"

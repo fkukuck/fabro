@@ -72,7 +72,7 @@ The GitHub App configuration lives in two places:
 
 ### `~/.arc/server.toml`
 
-```toml
+```toml title="server.toml"
 [git]
 provider = "github"
 app_id = "123456"
@@ -112,7 +112,7 @@ The web app uses the GitHub App's OAuth credentials to authenticate users:
 
 Configure allowed users in `server.toml`:
 
-```toml
+```toml title="server.toml"
 [web.auth]
 provider = "github"
 allowed_usernames = ["alice", "bob"]

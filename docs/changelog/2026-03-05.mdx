@@ -15,7 +15,7 @@ Workflows can now trigger actions at key moments — before a stage starts, afte
 
 Three executor types are available: `http` for calling external endpoints (with TLS mode configurable per-hook), `prompt` for natural-language conditions evaluated by an LLM, and `agent` for autonomous decision-making.
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 event = "stage.before"
 executor = "http"
@@ -27,7 +27,7 @@ tls_mode = "strict"
 
 If your primary model is unavailable or rate-limited, runs now automatically switch to a backup. Configure fallback models at the provider level in your server config:
 
-```toml
+```toml title="server.toml"
 [providers.anthropic]
 failover = ["openai", "gemini"]
 ```

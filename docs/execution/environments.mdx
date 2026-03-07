@@ -26,7 +26,7 @@ arc run start workflow.dot --sandbox daytona
 arc run start workflow.dot --sandbox exe
 ```
 
-```toml
+```toml title="run.toml"
 # Run config TOML
 [sandbox]
 provider = "daytona"
@@ -95,7 +95,7 @@ arc run start workflow.dot --sandbox docker --preserve-sandbox
 
 Or in the run config:
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "docker"
 preserve = true
@@ -124,7 +124,7 @@ The Daytona sandbox runs all tool operations inside a cloud-hosted VM managed by
 
 Snapshots let you pre-build an environment image so each run starts with dependencies already installed. If the named snapshot doesn't exist and a `dockerfile` is provided, Arc creates it automatically and polls until it's ready (up to 10 minutes).
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "daytona"
 
@@ -153,7 +153,7 @@ If the snapshot already exists and is in `Active` state, Arc uses it directly. I
 
 Attach key-value labels to sandboxes for filtering and identification in the Daytona dashboard:
 
-```toml
+```toml title="run.toml"
 [sandbox.daytona.labels]
 project = "arc"
 env = "ci"
@@ -186,7 +186,7 @@ Arc prints the sandbox name so you can find it in the [Daytona dashboard](https:
 
 The `auto_stop_interval` setting (in minutes) tells Daytona to stop the sandbox after a period of inactivity. This saves costs for long-running sandboxes that may sit idle:
 
-```toml
+```toml title="run.toml"
 [sandbox.daytona]
 auto_stop_interval = 30
 ```
@@ -213,7 +213,7 @@ The Exe sandbox runs all tool operations inside a cloud VM managed by [exe.dev](
 
 ### Configuration
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "exe"
 ```
@@ -250,7 +250,7 @@ Each provider handles outbound network access differently:
 
 For Daytona, network access is configured in the `[sandbox.daytona]` section:
 
-```toml
+```toml title="run.toml"
 # Block all egress
 [sandbox.daytona]
 network = "block"

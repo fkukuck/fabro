@@ -27,14 +27,14 @@ Set the sandbox provider in your run config TOML or via CLI flag:
 arc run start workflow.dot --sandbox daytona
 ```
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "daytona"
 ```
 
 A full configuration example with all Daytona-specific options:
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "daytona"
 preserve = false
@@ -61,7 +61,7 @@ See [Server Configuration](/administration/server-configuration) for the full re
 
 Control outbound network access with the `network` field. Three modes are available:
 
-```toml
+```toml title="run.toml"
 # Full access (default)
 [sandbox.daytona]
 network = "allow_all"
@@ -81,7 +81,7 @@ Use `"block"` or a CIDR allow list when running untrusted or generated code to p
 
 Snapshots let you pre-build an environment image so each run starts with dependencies already installed rather than installing them in setup commands every time.
 
-```toml
+```toml title="run.toml"
 [sandbox.daytona.snapshot]
 name = "my-snapshot"
 cpu = 4
@@ -140,7 +140,7 @@ arc run start workflow.dot --sandbox daytona --preserve-sandbox
 
 Or in the run config:
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "daytona"
 preserve = true
@@ -152,7 +152,7 @@ When preserved, Arc prints the sandbox name so you can find it in the [Daytona d
 
 The `auto_stop_interval` setting tells Daytona to stop the sandbox after a period of inactivity, saving costs for preserved or long-running sandboxes:
 
-```toml
+```toml title="run.toml"
 [sandbox.daytona]
 auto_stop_interval = 30
 ```

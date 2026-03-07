@@ -7,7 +7,7 @@ date: "2026-03-07"
 
 Arc can now run agent stages inside ephemeral [exe.dev](https://exe.dev) VMs as an alternative to Daytona sandboxes. The new `arc-exe` crate manages VM lifecycle through SSH — a management plane connection to `exe.dev` for creating and destroying VMs, and a data plane connection to the VM itself for command execution and file I/O.
 
-```toml
+```toml title="run.toml"
 [execution]
 environment = "exe"
 ```

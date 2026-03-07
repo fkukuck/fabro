@@ -13,7 +13,7 @@ arc run start run.toml
 
 A run config requires three fields:
 
-```toml
+```toml title="run.toml"
 version = 1
 goal = "Implement the login feature"
 graph = "workflow.dot"
@@ -27,7 +27,7 @@ graph = "workflow.dot"
 
 ## Full example
 
-```toml
+```toml title="run.toml"
 version = 1
 goal = "Run the CI pipeline for $repo_name"
 graph = "pipelines/ci.dot"
@@ -84,7 +84,7 @@ command = "echo done"
 
 Override the default model and provider for all nodes that don't have an explicit model assigned via a [stylesheet](/workflows/stylesheets).
 
-```toml
+```toml title="run.toml"
 [llm]
 model = "claude-sonnet-4-5"
 provider = "anthropic"
@@ -99,7 +99,7 @@ provider = "anthropic"
 
 Map each provider to an ordered list of fallback providers. When the primary provider is unavailable, Arc tries the fallbacks in order:
 
-```toml
+```toml title="run.toml"
 [llm.fallbacks]
 anthropic = ["gemini", "openai"]
 gemini = ["anthropic", "openai"]
@@ -109,7 +109,7 @@ gemini = ["anthropic", "openai"]
 
 Shell commands to run before the workflow starts. Use this to clone repositories, install dependencies, or prepare the environment.
 
-```toml
+```toml title="run.toml"
 [setup]
 commands = ["pip install -r requirements.txt", "npm install"]
 timeout_ms = 60000
@@ -126,7 +126,7 @@ Each command must exit with status 0. If any command fails or times out, the run
 
 Configure how agent tools (bash, file edits) are executed.
 
-```toml
+```toml title="run.toml"
 [sandbox]
 provider = "docker"
 preserve = true
@@ -141,7 +141,7 @@ preserve = true
 
 Additional settings when using the Daytona cloud sandbox:
 
-```toml
+```toml title="run.toml"
 [sandbox.daytona]
 auto_stop_interval = 60
 
@@ -172,7 +172,7 @@ dockerfile = "FROM rust:1.85-slim-bookworm\nRUN apt-get update"
 
 Define variables that are expanded into the DOT source before the graph is parsed. See [Variables](/workflows/variables) for the full reference.
 
-```toml
+```toml title="run.toml"
 [vars]
 repo_name = "arc"
 repo_url = "https://github.com/qltysh/arc"
@@ -195,7 +195,7 @@ If a `$variable` in the DOT file has no matching entry in `[vars]`, Arc raises a
 
 Define hooks that run in response to lifecycle events. Each hook is a TOML array entry:
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 name = "pre-check"
 event = "stage_start"

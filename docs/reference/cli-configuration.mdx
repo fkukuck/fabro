@@ -19,7 +19,7 @@ CLI flags always take the highest priority:
 
 ## Full example
 
-```toml
+```toml title="cli.toml"
 mode = "server"
 
 [server]
@@ -119,7 +119,7 @@ Optional mTLS configuration for authenticating with the server. When present, th
 
 Paths support `~/` expansion. Example:
 
-```toml
+```toml title="cli.toml"
 [server.tls]
 cert = "~/.arc/tls/client.crt"
 key = "~/.arc/tls/client.key"

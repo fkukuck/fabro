@@ -9,7 +9,7 @@ Arc supports `$variable` placeholders that let you parameterize workflows withou
 
 Define variables in the `[vars]` section of a run config TOML file:
 
-```toml
+```toml title="run.toml"
 version = 1
 goal = "Run tests for $repo_name"
 graph = "check.dot"

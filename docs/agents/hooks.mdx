@@ -13,7 +13,7 @@ Arc supports four hook types, from simple shell commands to full agent sessions:
 
 Run a shell command via `sh -c`. The simplest and most common hook type.
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 event = "stage_start"
 command = "./scripts/pre-check.sh"
@@ -23,7 +23,7 @@ command = "./scripts/pre-check.sh"
 
 POST the event context as JSON to an HTTP endpoint. Useful for webhooks, external APIs, and notification services.
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 event = "run_complete"
 type = "http"
@@ -44,7 +44,7 @@ Authorization = "Bearer $API_KEY"
 
 A single-turn LLM call that evaluates the event context and returns an `ok`/`block` decision. The model responds with structured JSON.
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 event = "stage_start"
 type = "prompt"
@@ -62,7 +62,7 @@ blocking = true
 
 A multi-turn agent session with full tool access (shell, file read/write, grep, glob). The agent can investigate the workspace before making a decision.
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 event = "run_complete"
 type = "agent"
@@ -102,7 +102,7 @@ Each hook fires on a specific lifecycle event:
 
 Hooks are defined as `[[hooks]]` entries in a [run configuration](/execution/run-configuration) TOML file:
 
-```toml
+```toml title="run.toml"
 [[hooks]]
 name = "pre-check"
 event = "stage_start"
@@ -191,7 +191,7 @@ The `matcher` field is a regex pattern that filters which stages trigger a hook.
 
 If any of these fields match the regex, the hook fires. If `matcher` is omitted, the hook fires for all stages of the specified event.
 
-```toml
+```toml title="run.toml"
 # Only fire for agent nodes
 [[hooks]]
 event = "stage_start"
@@ -285,7 +285,7 @@ When both the server config (`~/.arc/server.toml`) and a run config define hooks
 
 ## Full example
 
-```toml
+```toml title="run.toml"
 # Validate environment before the run starts
 [[hooks]]
 name = "env-check"

@@ -15,7 +15,7 @@ arc run start --execution-env daytona my-workflow.dot
 
 Long chains of CLI flags are hard to remember and impossible to version-control. Run settings now live in a TOML file with `[execution]` for sandbox config and `[vars]` for DOT source parameterization.
 
-```toml
+```toml title="run.toml"
 [execution]
 environment = "daytona"
 
