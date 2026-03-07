@@ -85,6 +85,7 @@ fn spawn_event_forwarder(
                     | AgentEvent::SessionEnded
                     | AgentEvent::AssistantTextStart
                     | AgentEvent::TextDelta { .. }
+                    | AgentEvent::ReasoningDelta { .. }
                     | AgentEvent::ToolCallOutputDelta { .. }
                     | AgentEvent::SkillExpanded { .. }
             ) {

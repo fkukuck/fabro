@@ -468,13 +468,24 @@ impl Session {
             while let Some(event_result) = event_stream.next().await {
                 match event_result {
                     Ok(event) => {
-                        if let StreamEvent::TextDelta { ref delta, .. } = event {
-                            self.event_emitter.emit(
-                                self.id.clone(),
-                                AgentEvent::TextDelta {
-                                    delta: delta.clone(),
-                                },
-                            );
+                        match &event {
+                            StreamEvent::TextDelta { ref delta, .. } => {
+                                self.event_emitter.emit(
+                                    self.id.clone(),
+                                    AgentEvent::TextDelta {
+                                        delta: delta.clone(),
+                                    },
+                                );
+                            }
+                            StreamEvent::ReasoningDelta { ref delta } => {
+                                self.event_emitter.emit(
+                                    self.id.clone(),
+                                    AgentEvent::ReasoningDelta {
+                                        delta: delta.clone(),
+                                    },
+                                );
+                            }
+                            _ => {}
                         }
                         accumulator.process(&event);
                     }

@@ -103,6 +103,9 @@ pub enum AgentEvent {
     TextDelta {
         delta: String,
     },
+    ReasoningDelta {
+        delta: String,
+    },
     ToolCallStarted {
         tool_name: String,
         tool_call_id: String,
@@ -219,6 +222,7 @@ impl AgentEvent {
                 );
             }
             Self::TextDelta { .. } => {}
+            Self::ReasoningDelta { .. } => {}
             Self::ToolCallStarted {
                 tool_name,
                 tool_call_id,

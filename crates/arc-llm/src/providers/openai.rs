@@ -475,6 +475,7 @@ struct SseStreamState {
     finish_reason: FinishReason,
     emitted_start: bool,
     emitted_text_start: bool,
+    emitted_reasoning_start: bool,
     raw_response: Option<serde_json::Value>,
     rate_limit: Option<crate::types::RateLimitInfo>,
 }
@@ -566,6 +567,20 @@ fn process_sse_event(
         }
         "response.output_item.done" => handle_output_item_done(state, &json, &mut events),
         "response.completed" => handle_response_completed(state, &json, &mut events),
+        "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
+            if let Some(delta) = json.get("delta").and_then(serde_json::Value::as_str) {
+                if !state.emitted_reasoning_start {
+                    state.emitted_reasoning_start = true;
+                    events.push(StreamEvent::ReasoningStart);
+                }
+                events.push(StreamEvent::ReasoningDelta {
+                    delta: delta.to_string(),
+                });
+            }
+        }
+        "response.reasoning_summary_part.added" => {
+            // Recognized but no-op — ReasoningStart is emitted on the first delta instead.
+        }
         _ => {}
     }
 
@@ -682,6 +697,10 @@ fn handle_output_item_done(
 
     match item_type {
         Some("reasoning") => {
+            if state.emitted_reasoning_start {
+                state.emitted_reasoning_start = false;
+                events.push(StreamEvent::ReasoningEnd);
+            }
             let item = json.get("item").unwrap_or(json);
             state.reasoning_items.push(item.clone());
         }
@@ -941,6 +960,7 @@ impl ProviderAdapter for Adapter {
             finish_reason: FinishReason::Stop,
             emitted_start: false,
             emitted_text_start: false,
+            emitted_reasoning_start: false,
             raw_response: None,
             rate_limit,
         };
@@ -1367,5 +1387,86 @@ mod tests {
         let request = minimal_request();
         let body = build_request_body(&request, false);
         assert!(body.get("stop").is_none());
+    }
+
+    fn empty_sse_state() -> SseStreamState {
+        let http_resp = http::Response::builder()
+            .status(200)
+            .body("")
+            .unwrap();
+        let response = reqwest::Response::from(http_resp);
+        SseStreamState {
+            line_reader: crate::providers::common::LineReader::new(response, None),
+            model: String::new(),
+            response_id: String::new(),
+            response_model: String::new(),
+            accumulated_text: String::new(),
+            tool_calls: Vec::new(),
+            reasoning_items: Vec::new(),
+            usage: Usage::default(),
+            finish_reason: FinishReason::Stop,
+            emitted_start: true,
+            emitted_text_start: false,
+            emitted_reasoning_start: false,
+            raw_response: None,
+            rate_limit: None,
+        }
+    }
+
+    #[test]
+    fn reasoning_summary_delta_emits_reasoning_events() {
+        let mut state = empty_sse_state();
+        let data = r#"{"type":"response.reasoning_summary_text.delta","delta":"Let me think"}"#;
+        let events = process_sse_event(
+            &mut state,
+            Some("response.reasoning_summary_text.delta"),
+            data,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], StreamEvent::ReasoningStart));
+        assert!(matches!(events[1], StreamEvent::ReasoningDelta { ref delta } if delta == "Let me think"));
+    }
+
+    #[test]
+    fn reasoning_text_delta_emits_reasoning_events() {
+        let mut state = empty_sse_state();
+
+        // First delta: should emit ReasoningStart + ReasoningDelta
+        let data1 = r#"{"type":"response.reasoning_text.delta","delta":"Step 1"}"#;
+        let events1 = process_sse_event(
+            &mut state,
+            Some("response.reasoning_text.delta"),
+            data1,
+        );
+        assert_eq!(events1.len(), 2);
+        assert!(matches!(events1[0], StreamEvent::ReasoningStart));
+        assert!(matches!(events1[1], StreamEvent::ReasoningDelta { ref delta } if delta == "Step 1"));
+
+        // Second delta: should NOT emit duplicate ReasoningStart
+        let data2 = r#"{"type":"response.reasoning_text.delta","delta":"Step 2"}"#;
+        let events2 = process_sse_event(
+            &mut state,
+            Some("response.reasoning_text.delta"),
+            data2,
+        );
+        assert_eq!(events2.len(), 1);
+        assert!(matches!(events2[0], StreamEvent::ReasoningDelta { ref delta } if delta == "Step 2"));
+    }
+
+    #[test]
+    fn reasoning_end_emitted_on_item_done() {
+        let mut state = empty_sse_state();
+        state.emitted_reasoning_start = true;
+
+        let data = r#"{"item":{"type":"reasoning","id":"rs_abc","summary":[]}}"#;
+        let events = process_sse_event(
+            &mut state,
+            Some("response.output_item.done"),
+            data,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], StreamEvent::ReasoningEnd));
+        assert!(!state.emitted_reasoning_start);
+        assert_eq!(state.reasoning_items.len(), 1);
     }
 }
