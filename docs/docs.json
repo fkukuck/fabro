@@ -78,6 +78,7 @@
             "pages": [
               "reference/dot-language",
               "reference/cli",
+              "reference/cli-configuration",
               "reference/architecture",
               "administration/advanced-setup",
               "administration/security"
@@ -98,7 +99,8 @@
               "tutorials/branch-loop",
               "tutorials/parallel-review",
               "tutorials/multi-model",
-              "tutorials/ensemble"
+              "tutorials/ensemble",
+              "tutorials/sub-workflow"
             ]
           },
           {
@@ -167,7 +169,7 @@
             "pages": [
               "GET /runs/{id}/compare",
               "GET /runs/{id}/usage",
-              "GET /runs/{id}/verifications",
+              "GET /runs/{id}/verification",
               {
                 "group": "Run Internals",
                 "icon": "microchip",
@@ -192,11 +194,13 @@
             ]
           },
           {
-            "group": "Verifications",
+            "group": "Verification",
             "icon": "shield-check",
             "pages": [
-              "GET /verifications",
-              "GET /verifications/{slug}"
+              "GET /verification/criteria",
+              "GET /verification/criteria/{id}",
+              "GET /verification/controls",
+              "GET /verification/controls/{id}"
             ]
           },
           {

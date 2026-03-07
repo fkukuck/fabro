@@ -1,0 +1,69 @@
+---
+title: "CLI Configuration"
+description: "Configure default settings for the Arc CLI with cli.toml"
+---
+
+Arc loads CLI defaults from `~/.arc/cli.toml` so you don't have to pass common flags every time. The file is optional — if it doesn't exist, built-in defaults are used.
+
+## File location
+
+The default path is `~/.arc/cli.toml`. Arc silently skips loading if the file is missing.
+
+## Precedence
+
+CLI flags always take the highest priority:
+
+1. **CLI flags** — always win
+2. **`cli.toml`** — used when no flag is provided
+3. **Built-in defaults** — used when neither flag nor config is set
+
+## Full example
+
+```toml
+[agent]
+provider = "anthropic"
+model = "claude-opus-4-6"
+permissions = "read-write"
+output_format = "text"
+
+[llm]
+model = "claude-sonnet-4-5"
+```
+
+All fields are optional. You can include just the sections and keys you want to override.
+
+## `[agent]` section
+
+Defaults for `arc agent` sessions.
+
+| Key | Description | Values | Default |
+|---|---|---|---|
+| `provider` | LLM provider | `"anthropic"`, `"openai"`, `"gemini"`, etc. | `"anthropic"` |
+| `model` | Model name | Any model ID from `arc models list` | Per provider |
+| `permissions` | Tool permission level | `"read-only"`, `"read-write"`, `"full"` | `"read-write"` |
+| `output_format` | Output format | `"text"`, `"json"` | `"text"` |
+
+### Permission levels
+
+- **`read-only`** — auto-approves read tools (`read_file`, `grep`, `glob`, `list_dir`) and subagent tools
+- **`read-write`** — adds write tools (`write_file`, `edit_file`, `apply_patch`)
+- **`full`** — allows all tools including shell commands
+
+Tools outside the permission level are interactively prompted (if a TTY is present) or denied (with `--auto-approve`).
+
+### Output formats
+
+- **`text`** — human-readable terminal output
+- **`json`** — NDJSON event stream
+
+## `[llm]` section
+
+Defaults for `arc llm prompt` and `arc llm chat`.
+
+| Key | Description | Values | Default |
+|---|---|---|---|
+| `model` | Model name | Any model ID from `arc models list` | Per provider |
+
+<Note>
+The `[llm]` section only sets the default model. Use `[agent]` to configure provider, permissions, and output format for `arc agent`.
+</Note>

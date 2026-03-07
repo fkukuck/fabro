@@ -21,7 +21,7 @@ digraph BranchLoop {
 
     plan      [label="Plan", prompt="Plan a small Python script (fizzbuzz.py) and a test file (test_fizzbuzz.py) using pytest. Describe what you will create.", shape=tab, reasoning_effort="low"]
     implement [label="Implement", prompt="Create fizzbuzz.py and test_fizzbuzz.py as planned. Write the files to disk."]
-    validate  [label="Validate", shape=parallelogram, script="python -m pytest test_fizzbuzz.py -v 2>&1 || true"]
+    validate  [label="Validate", shape=parallelogram, script="python3 -m pytest test_fizzbuzz.py -v 2>&1 || true"]
     gate      [shape=diamond, label="Tests passing?"]
 
     start -> plan -> implement -> validate -> gate
@@ -39,7 +39,7 @@ arc run start demo/05-branch-loop.dot
 The `validate` node has `shape=parallelogram`, making it a **command node**. It runs a shell script and captures the output:
 
 ```dot
-validate [label="Validate", shape=parallelogram, script="python -m pytest test_fizzbuzz.py -v 2>&1 || true"]
+validate [label="Validate", shape=parallelogram, script="python3 -m pytest test_fizzbuzz.py -v 2>&1 || true"]
 ```
 
 The `|| true` ensures the command always exits successfully — this way the node itself doesn't fail even when tests fail. The test output is captured as `command.output` in the [run context](/execution/context) for downstream nodes to use.
