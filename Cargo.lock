@@ -323,6 +323,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-sprites"
+version = "0.1.0"
+dependencies = [
+ "arc-agent",
+ "async-trait",
+ "base64",
+ "chrono",
+ "rand 0.8.5",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "arc-types"
 version = "0.1.0"
 dependencies = [
