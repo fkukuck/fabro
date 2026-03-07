@@ -1,24 +1,32 @@
 ---
-title: "Models API, exe.dev sandboxes, and auto-install agent CLIs"
+title: "Completions API, Sprites and exe.dev sandboxes, auto-install agent CLIs"
 date: "2026-03-07"
 ---
 
-## exe.dev sandbox provider (beta)
+## Completions API with SSE streaming
 
-Arc can now run agent stages inside ephemeral [exe.dev](https://exe.dev) VMs as an alternative to Daytona sandboxes. The new `arc-exe` crate manages VM lifecycle through SSH — a management plane connection to `exe.dev` for creating and destroying VMs, and a data plane connection to the VM itself for command execution and file I/O.
+Arc now exposes a `POST /completions` endpoint for single-turn LLM completions. You can use it for structured output via JSON Schema, one-off prompts, or building custom frontends on top of Arc's model routing. Streaming uses Anthropic-style SSE events (`message_start`, `content_block_delta`, `message_stop`, etc.), so you get tokens as they're generated rather than waiting for the full response.
+
+The CLI's `arc llm prompt` command can now target the server instead of calling providers directly:
+
+```bash
+arc llm prompt "Summarize this file" --mode server
+```
+
+## Two new sandbox providers: exe.dev and Sprites
+
+Arc now supports three sandbox environments for running agent stages. In addition to Daytona, you can now use **exe.dev** VMs or **Sprites** (powered by Fly.io).
+
+exe.dev (beta) manages ephemeral VMs through SSH with separate management and data plane connections. Sprites uses the `sprite` CLI to provision Fly.io VMs with full sandbox lifecycle support.
 
 ```toml title="run.toml"
 [execution]
-environment = "exe"
+environment = "exe"    # or "sprites" or "daytona"
 ```
 
 ## Auto-install agent CLIs in sandboxes
 
 Agent CLI tools (like `claude` or `codex`) are now automatically detected and installed inside sandboxes at runtime when they're missing. This includes installing Node.js via NodeSource if needed. Previously, you had to build custom Dockerfiles that pre-installed every CLI tool your workflow used.
-
-## Updated model catalog
-
-The default OpenAI model has been upgraded from gpt-5.3 to **gpt-5.4**. New models added to the catalog include **gpt-5.3-codex-spark** and **claude-sonnet-4-6**. Model defaults are now centralized in the catalog rather than hardcoded across crates.
 
 <Warning>
 **Verification API paths have changed.** `/verifications` is now split into `/verification/criteria` and `/verification/controls`. The run sub-resource moved from `/runs/{id}/verifications` to `/runs/{id}/verification`.
@@ -28,9 +36,18 @@ To migrate:
 2. Update any direct API calls to use the new paths
 </Warning>
 
+<Warning>
+**Removed API endpoints.** The following endpoints have been removed:
+- `GET /projects` and `GET /projects/{name}/branches` — projects and branches are no longer exposed via the API
+- `POST /workflows/{name}/runs` — use `POST /runs` instead (identical functionality)
+
+To migrate, regenerate your TypeScript client and update any direct API calls.
+</Warning>
+
 ## More
 
 <Accordion title="API">
+- New `POST /completions` endpoint for single-turn LLM completions with SSE streaming and structured output via JSON Schema
 - New `GET /models` endpoint exposes the full LLM model catalog via the REST API with pagination
 - Verification API reorganized: `/verifications` split into `/verification/criteria` and `/verification/controls`; run sub-resource path is now `/runs/{id}/verification`
 </Accordion>
@@ -38,13 +55,24 @@ To migrate:
 <Accordion title="Workflows">
 - Stage logs now stream in real-time while CLI agents are working, so you can see progress before a stage finishes
 - Sub-workflow context diffs no longer leak child engine-internal keys (`internal.*`, `graph.*`, `thread.*`) into the parent run
+- Configurable git author identity for checkpoint commits via `[git.author]` in `server.toml` or `cli.toml`
 </Accordion>
 
 <Accordion title="CLI">
+- `arc llm prompt --mode server` routes prompts through the Arc server instead of calling providers directly
 - Turn and tool-call counts now display correctly in non-TTY mode
 </Accordion>
 
+<Accordion title="Improvements">
+- Default OpenAI model upgraded from gpt-5.3 to gpt-5.4
+- New models added to catalog: gpt-5.3-codex-spark and claude-sonnet-4-6
+- `apply_patch` parser now accepts bare `@@` hunk headers (compatibility with GPT-5.4 output)
+</Accordion>
+
 <Accordion title="Fixes">
+- Fixed stall watchdog killing agents during long LLM reasoning turns — streaming events now correctly reset the timer
+- Fixed OpenAI reasoning SSE events being silently swallowed, causing stall watchdog to fire during extended reasoning phases
+- Fixed orphaned OpenAI reasoning items after context compaction causing "item provided without required following item" errors
 - Fixed push credentials for public repos in Daytona sandboxes
 - Fixed Daytona CLI installation with rootless Node.js install and better error messages
 </Accordion>
