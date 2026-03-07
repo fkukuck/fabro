@@ -1,12 +1,10 @@
 digraph Example {
-    graph [goal="Test retry_target attributes", retry_target="plan"]
-
-    start [shape=Mdiamond, label="Start"]
-    exit  [shape=Msquare, label="Exit"]
-
-    plan [label="Plan", prompt="Create a plan."]
-    implement [label="Implement", prompt="Implement the plan."]
-    verify [label="Verify", goal_gate="true", retry_target="implement", prompt="Verify the implementation."]
+    graph [retry_target="plan"]
+    start [shape=Mdiamond]
+    plan [label="Plan"]
+    implement [label="Implement"]
+    verify [shape=box, label="Verify", goal_gate="true", retry_target="implement"]
+    exit [shape=Msquare]
 
     start -> plan -> implement -> verify -> exit
 }

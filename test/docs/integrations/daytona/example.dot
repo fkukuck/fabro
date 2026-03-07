@@ -1,5 +1,5 @@
 digraph Example {
-    graph [default_fidelity="summary:medium"]
+    graph [stall_timeout="1200"]
     start [shape=Mdiamond]
     work [label="Work"]
     exit [shape=Msquare]

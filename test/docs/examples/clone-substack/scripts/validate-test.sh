@@ -1,2 +1,2 @@
-#\!/bin/sh
-echo "stub: $0"
+#!/bin/sh
+echo "validate-test stub"

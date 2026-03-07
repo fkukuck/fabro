@@ -1,6 +1,5 @@
 digraph Example {
     graph [
-        goal="Demonstrate model stylesheet",
         model_stylesheet="
             *        { llm_model: claude-haiku-4-5; }
             .coding  { llm_model: claude-sonnet-4-5; reasoning_effort: high; }
@@ -8,12 +7,11 @@ digraph Example {
         "
     ]
 
-    start [shape=Mdiamond, label="Start"]
-    exit  [shape=Msquare, label="Exit"]
-
+    start [shape=Mdiamond]
     spec     [label="Write Spec"]
     implement [label="Implement", class="coding"]
     review   [label="Review"]
+    exit [shape=Msquare]
 
     start -> spec -> implement -> review -> exit
 }

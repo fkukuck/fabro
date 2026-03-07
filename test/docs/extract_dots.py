@@ -86,7 +86,11 @@ def find_custom_vars(code: str) -> list[str]:
 
 
 def main():
-    skip_pages = {"changelog/2026-02-27"}  # deprecated syntax
+    skip_pages = {
+        "changelog/2026-02-27",        # deprecated handler=codergen syntax
+        "human-tools/vnc-access",       # workflows not yet working
+        "human-tools/vpn-connections",  # workflows not yet working
+    }
 
     extracted = 0
     skipped_snippets = 0
