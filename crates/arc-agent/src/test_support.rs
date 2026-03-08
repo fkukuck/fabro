@@ -308,11 +308,20 @@ impl Sandbox for MutableMockSandbox {
 
     async fn grep(
         &self,
-        _pattern: &str,
+        pattern: &str,
         _path: &str,
         _options: &GrepOptions,
     ) -> Result<Vec<String>, String> {
-        Ok(vec![])
+        let files = self.files.lock().expect("files lock poisoned");
+        let mut results = Vec::new();
+        for (path, content) in files.iter() {
+            for (i, line) in content.lines().enumerate() {
+                if line.contains(pattern) {
+                    results.push(format!("{}:{}:{}", path, i + 1, line));
+                }
+            }
+        }
+        Ok(results)
     }
 
     async fn glob(&self, _pattern: &str, _path: Option<&str>) -> Result<Vec<String>, String> {

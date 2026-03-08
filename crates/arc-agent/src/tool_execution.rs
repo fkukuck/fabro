@@ -602,4 +602,206 @@ mod tests {
         let content = result.content.to_string();
         assert!(content.contains("echo: hello"));
     }
+
+    // --- ReadBeforeWriteSandbox e2e tests ---
+
+    fn make_guarded_sandbox(files: HashMap<String, String>) -> Arc<dyn Sandbox> {
+        Arc::new(
+            crate::read_before_write_sandbox::ReadBeforeWriteSandbox::new(Arc::new(
+                crate::test_support::MutableMockSandbox::new(files),
+            )),
+        )
+    }
+
+    #[tokio::test]
+    async fn write_to_unread_file_blocked() {
+        let mut registry = ToolRegistry::new();
+        registry.register(crate::tools::make_write_file_tool());
+
+        let sandbox = make_guarded_sandbox(HashMap::from([("a.ts".into(), "content".into())]));
+        let tc = make_tool_call(
+            "write_file",
+            "call_1",
+            serde_json::json!({"file_path": "a.ts", "content": "new"}),
+        );
+        let emitter = EventEmitter::new();
+        let config = SessionConfig::default();
+
+        let result = execute_and_emit_one_tool(
+            &tc,
+            &registry,
+            sandbox,
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+
+        assert!(result.is_error);
+        assert!(result.content.to_string().contains("has not been read"));
+    }
+
+    #[tokio::test]
+    async fn read_then_write_succeeds() {
+        let mut registry = ToolRegistry::new();
+        registry.register(crate::tools::make_read_file_tool());
+        registry.register(crate::tools::make_write_file_tool());
+
+        let sandbox = make_guarded_sandbox(HashMap::from([("a.ts".into(), "content".into())]));
+        let emitter = EventEmitter::new();
+        let config = SessionConfig::default();
+
+        // First read the file
+        let read_tc = make_tool_call(
+            "read_file",
+            "call_1",
+            serde_json::json!({"file_path": "a.ts"}),
+        );
+        let read_result = execute_and_emit_one_tool(
+            &read_tc,
+            &registry,
+            sandbox.clone(),
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+        assert!(!read_result.is_error);
+
+        // Then write should succeed
+        let write_tc = make_tool_call(
+            "write_file",
+            "call_2",
+            serde_json::json!({"file_path": "a.ts", "content": "new"}),
+        );
+        let write_result = execute_and_emit_one_tool(
+            &write_tc,
+            &registry,
+            sandbox,
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+
+        assert!(!write_result.is_error);
+    }
+
+    #[tokio::test]
+    async fn grep_then_write_succeeds() {
+        let mut registry = ToolRegistry::new();
+        registry.register(crate::tools::make_grep_tool());
+        registry.register(crate::tools::make_write_file_tool());
+
+        let sandbox = make_guarded_sandbox(HashMap::from([("a.ts".into(), "content".into())]));
+        let emitter = EventEmitter::new();
+        let config = SessionConfig::default();
+
+        // Grep matching a.ts
+        let grep_tc = make_tool_call("grep", "call_1", serde_json::json!({"pattern": "content"}));
+        let grep_result = execute_and_emit_one_tool(
+            &grep_tc,
+            &registry,
+            sandbox.clone(),
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+        assert!(!grep_result.is_error);
+
+        // Then write should succeed
+        let write_tc = make_tool_call(
+            "write_file",
+            "call_2",
+            serde_json::json!({"file_path": "a.ts", "content": "new"}),
+        );
+        let write_result = execute_and_emit_one_tool(
+            &write_tc,
+            &registry,
+            sandbox,
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+
+        assert!(!write_result.is_error);
+    }
+
+    #[tokio::test]
+    async fn edit_unread_file_blocked() {
+        let mut registry = ToolRegistry::new();
+        registry.register(crate::tools::make_edit_file_tool());
+
+        let sandbox = make_guarded_sandbox(HashMap::from([("a.ts".into(), "content".into())]));
+        let tc = make_tool_call(
+            "edit_file",
+            "call_1",
+            serde_json::json!({"file_path": "a.ts", "old_string": "content", "new_string": "updated"}),
+        );
+        let emitter = EventEmitter::new();
+        let config = SessionConfig::default();
+
+        let result = execute_and_emit_one_tool(
+            &tc,
+            &registry,
+            sandbox,
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+
+        assert!(result.is_error);
+        assert!(result.content.to_string().contains("has not been read"));
+    }
+
+    #[tokio::test]
+    async fn write_new_file_succeeds() {
+        let mut registry = ToolRegistry::new();
+        registry.register(crate::tools::make_write_file_tool());
+
+        let sandbox = make_guarded_sandbox(HashMap::new());
+        let tc = make_tool_call(
+            "write_file",
+            "call_1",
+            serde_json::json!({"file_path": "new.ts", "content": "hello"}),
+        );
+        let emitter = EventEmitter::new();
+        let config = SessionConfig::default();
+
+        let result = execute_and_emit_one_tool(
+            &tc,
+            &registry,
+            sandbox,
+            None,
+            CancellationToken::new(),
+            &config,
+            &emitter,
+            "test-session",
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error);
+    }
 }
