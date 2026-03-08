@@ -13,12 +13,12 @@ pub struct McpServerConfig {
     pub tool_timeout_secs: u64,
 }
 
-fn default_startup_timeout_secs() -> u64 {
+pub fn default_startup_timeout_secs() -> u64 {
     10
 }
 
-fn default_tool_timeout_secs() -> u64 {
-    120
+pub fn default_tool_timeout_secs() -> u64 {
+    60
 }
 
 impl McpServerConfig {
@@ -33,13 +33,11 @@ impl McpServerConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum McpTransport {
     Stdio {
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
+        command: Vec<String>,
         #[serde(default)]
         env: HashMap<String, String>,
     },
@@ -59,19 +57,19 @@ mod tests {
         let config = McpServerConfig {
             name: "test-server".into(),
             transport: McpTransport::Stdio {
-                command: "npx".into(),
-                args: vec![
+                command: vec![
+                    "npx".into(),
                     "-y".into(),
                     "@modelcontextprotocol/server-filesystem".into(),
                 ],
                 env: HashMap::new(),
             },
             startup_timeout_secs: 10,
-            tool_timeout_secs: 120,
+            tool_timeout_secs: 60,
         };
         assert_eq!(config.name, "test-server");
         assert_eq!(config.startup_timeout(), Duration::from_secs(10));
-        assert_eq!(config.tool_timeout(), Duration::from_secs(120));
+        assert_eq!(config.tool_timeout(), Duration::from_secs(60));
     }
 
     #[test]
@@ -95,8 +93,7 @@ mod tests {
         let config = McpServerConfig {
             name: "fs".into(),
             transport: McpTransport::Stdio {
-                command: "node".into(),
-                args: vec!["server.js".into()],
+                command: vec!["node".into(), "server.js".into()],
                 env: HashMap::from([("NODE_ENV".into(), "production".into())]),
             },
             startup_timeout_secs: 15,
@@ -108,7 +105,7 @@ mod tests {
         assert_eq!(deserialized.startup_timeout_secs, 15);
         assert_eq!(deserialized.tool_timeout_secs, 90);
         assert!(
-            matches!(deserialized.transport, McpTransport::Stdio { command, .. } if command == "node")
+            matches!(deserialized.transport, McpTransport::Stdio { command, .. } if command == vec!["node", "server.js"])
         );
     }
 
@@ -121,7 +118,7 @@ mod tests {
                 headers: HashMap::new(),
             },
             startup_timeout_secs: 10,
-            tool_timeout_secs: 120,
+            tool_timeout_secs: 60,
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: McpServerConfig = serde_json::from_str(&json).unwrap();
@@ -133,9 +130,9 @@ mod tests {
 
     #[test]
     fn serde_defaults_applied() {
-        let json = r#"{"name":"minimal","transport":{"type":"stdio","command":"echo"}}"#;
+        let json = r#"{"name":"minimal","transport":{"type":"stdio","command":["echo"]}}"#;
         let config: McpServerConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.startup_timeout_secs, 10);
-        assert_eq!(config.tool_timeout_secs, 120);
+        assert_eq!(config.tool_timeout_secs, 60);
     }
 }

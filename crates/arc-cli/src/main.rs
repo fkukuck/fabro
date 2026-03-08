@@ -216,7 +216,12 @@ async fn main() -> Result<()> {
                 exec_defaults.and_then(|a| a.permissions),
                 exec_defaults.and_then(|a| a.output_format),
             );
-            arc_agent::cli::run_with_args(args).await?
+            let mcp_servers: Vec<arc_mcp::config::McpServerConfig> = cli_config
+                .mcp_servers
+                .into_iter()
+                .map(|(name, entry)| entry.into_config(name))
+                .collect();
+            arc_agent::cli::run_with_args(args, mcp_servers).await?
         }
         Command::Run(mut args) => {
             let styles: &'static arc_util::terminal::Styles =

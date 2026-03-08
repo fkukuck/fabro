@@ -185,6 +185,7 @@ dependencies = [
  "arc-agent",
  "arc-api",
  "arc-llm",
+ "arc-mcp",
  "arc-util",
  "arc-workflows",
  "assert_cmd",

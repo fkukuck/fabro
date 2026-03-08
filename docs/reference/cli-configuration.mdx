@@ -46,6 +46,22 @@ level = "info"
 [git.author]
 name = "arc-bot"
 email = "arc-bot@company.com"
+
+[mcp_servers.filesystem]
+type = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+startup_timeout_secs = 15
+tool_timeout_secs = 90
+
+[mcp_servers.filesystem.env]
+NODE_ENV = "production"
+
+[mcp_servers.sentry]
+type = "http"
+url = "https://mcp.sentry.dev/mcp"
+
+[mcp_servers.sentry.headers]
+Authorization = "Bearer sk-xxx"
 ```
 
 All fields are optional. You can include just the sections and keys you want to override.
@@ -163,3 +179,51 @@ cert = "~/.arc/tls/client.crt"
 key = "~/.arc/tls/client.key"
 ca = "~/.arc/tls/ca.crt"
 ```
+
+## `[mcp_servers]` section
+
+Configure [MCP servers](/agents/mcp) to connect to during `arc exec` sessions. Each server is a named TOML table under `[mcp_servers]`.
+
+### Stdio transport
+
+Spawn a local process and communicate over stdin/stdout:
+
+```toml title="cli.toml"
+[mcp_servers.filesystem]
+type = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+startup_timeout_secs = 15
+tool_timeout_secs = 90
+
+[mcp_servers.filesystem.env]
+NODE_ENV = "production"
+```
+
+| Key | Description | Default |
+|---|---|---|
+| `type` | Must be `"stdio"` | — |
+| `command` | Array: executable + arguments | — |
+| `env` | Additional environment variables for the child process | `{}` |
+| `startup_timeout_secs` | Max seconds for the MCP handshake | `10` |
+| `tool_timeout_secs` | Max seconds for a single tool call | `60` |
+
+### HTTP transport
+
+Connect to a remote MCP server over Streamable HTTP:
+
+```toml title="cli.toml"
+[mcp_servers.sentry]
+type = "http"
+url = "https://mcp.sentry.dev/mcp"
+
+[mcp_servers.sentry.headers]
+Authorization = "Bearer sk-xxx"
+```
+
+| Key | Description | Default |
+|---|---|---|
+| `type` | Must be `"http"` | — |
+| `url` | The MCP server endpoint URL | — |
+| `headers` | Optional HTTP headers (e.g., for authentication) | `{}` |
+| `startup_timeout_secs` | Max seconds for the MCP handshake | `10` |
+| `tool_timeout_secs` | Max seconds for a single tool call | `60` |

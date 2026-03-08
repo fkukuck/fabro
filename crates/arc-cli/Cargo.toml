@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arc-llm = { path = "../arc-llm" }
 arc-agent = { path = "../arc-agent" }
+arc-mcp = { path = "../arc-mcp" }
 arc-workflows = { path = "../arc-workflows" }
 arc-api = { path = "../arc-api" }
 arc-util = { path = "../arc-util" }

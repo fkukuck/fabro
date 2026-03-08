@@ -354,7 +354,10 @@ impl arc_llm::middleware::Middleware for VerboseMiddleware {
     }
 }
 
-pub async fn run_with_args(args: AgentArgs) -> anyhow::Result<()> {
+pub async fn run_with_args(
+    args: AgentArgs,
+    mcp_servers: Vec<arc_mcp::config::McpServerConfig>,
+) -> anyhow::Result<()> {
     // Resolve color support once, leak to get 'static lifetime for use across threads
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
 
@@ -406,6 +409,7 @@ pub async fn run_with_args(args: AgentArgs) -> anyhow::Result<()> {
     let config = SessionConfig {
         tool_approval: Some(tool_approval),
         skill_dirs: args.skills_dir.map(|d| vec![d]),
+        mcp_servers,
         ..SessionConfig::default()
     };
 
@@ -617,7 +621,7 @@ pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut args = cli.args;
     args.apply_cli_defaults(None, None, None, None);
-    run_with_args(args).await
+    run_with_args(args, Vec::new()).await
 }
 
 #[cfg(test)]

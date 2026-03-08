@@ -32,7 +32,33 @@ For example, a server named `filesystem` exposing a `read_file` tool becomes `mc
 
 ## Configuration
 
-MCP servers are configured in the `SessionConfig` and passed to the agent session. Each server entry specifies a name, transport, and optional timeouts.
+MCP servers are configured in `~/.arc/cli.toml` under the `[mcp_servers]` section, or programmatically via `SessionConfig`. Each server entry specifies a transport and optional timeouts.
+
+### TOML configuration
+
+The recommended way to configure MCP servers. Each server is a named table:
+
+```toml title="~/.arc/cli.toml"
+[mcp_servers.filesystem]
+type = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+startup_timeout_secs = 15
+tool_timeout_secs = 90
+
+[mcp_servers.filesystem.env]
+NODE_ENV = "production"
+
+[mcp_servers.sentry]
+type = "http"
+url = "https://mcp.sentry.dev/mcp"
+
+[mcp_servers.sentry.headers]
+Authorization = "Bearer sk-xxx"
+```
+
+The server name (e.g., `filesystem`, `sentry`) is the TOML table key and is used in qualified tool names. See [CLI Configuration](/reference/cli-configuration#mcp_servers-section) for the full reference.
+
+### JSON format
 
 ### Stdio transport
 
@@ -43,12 +69,11 @@ The most common transport. Arc spawns a child process and communicates over stdi
   "name": "filesystem",
   "transport": {
     "type": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+    "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
     "env": {}
   },
   "startup_timeout_secs": 10,
-  "tool_timeout_secs": 120
+  "tool_timeout_secs": 60
 }
 ```
 
@@ -56,11 +81,10 @@ The most common transport. Arc spawns a child process and communicates over stdi
 |---|---|
 | `name` | Unique identifier for this server. Used in qualified tool names. |
 | `transport.type` | Must be `"stdio"`. |
-| `transport.command` | The executable to spawn. |
-| `transport.args` | Command-line arguments passed to the process. |
+| `transport.command` | Array: the executable followed by its arguments. |
 | `transport.env` | Additional environment variables for the child process. |
 | `startup_timeout_secs` | Max seconds to wait for the MCP handshake. Default: `10`. |
-| `tool_timeout_secs` | Max seconds to wait for a single tool call. Default: `120`. |
+| `tool_timeout_secs` | Max seconds to wait for a single tool call. Default: `60`. |
 
 ### HTTP transport
 
@@ -128,20 +152,15 @@ If the server marks the result as an error (`is_error: true`), the tool result i
 
 A complete example connecting an agent to the MCP filesystem server:
 
-```json
-{
-  "name": "fs",
-  "transport": {
-    "type": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
-    "env": {
-      "NODE_ENV": "production"
-    }
-  },
-  "startup_timeout_secs": 15,
-  "tool_timeout_secs": 90
-}
+```toml title="~/.arc/cli.toml"
+[mcp_servers.fs]
+type = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+startup_timeout_secs = 15
+tool_timeout_secs = 90
+
+[mcp_servers.fs.env]
+NODE_ENV = "production"
 ```
 
 After startup, the agent would see tools like:

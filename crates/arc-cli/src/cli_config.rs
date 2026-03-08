@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use arc_agent::cli::{OutputFormat, PermissionLevel};
+use arc_mcp::config::{McpServerConfig, McpTransport};
 use serde::Deserialize;
 use tracing::debug;
 
@@ -44,6 +46,27 @@ pub struct CliGitConfig {
     pub author: arc_api::server_config::GitAuthorConfig,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct McpServerEntry {
+    #[serde(flatten)]
+    pub transport: McpTransport,
+    #[serde(default = "arc_mcp::config::default_startup_timeout_secs")]
+    pub startup_timeout_secs: u64,
+    #[serde(default = "arc_mcp::config::default_tool_timeout_secs")]
+    pub tool_timeout_secs: u64,
+}
+
+impl McpServerEntry {
+    pub fn into_config(self, name: String) -> McpServerConfig {
+        McpServerConfig {
+            name,
+            transport: self.transport,
+            startup_timeout_secs: self.startup_timeout_secs,
+            tool_timeout_secs: self.tool_timeout_secs,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct CliConfig {
     pub mode: Option<ExecutionMode>,
@@ -55,6 +78,8 @@ pub struct CliConfig {
     pub verbose: bool,
     #[serde(default)]
     pub log: arc_api::server_config::LogConfig,
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, McpServerEntry>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -381,5 +406,119 @@ email = "me@local"
         };
         let resolved = resolve_mode(None, None, &config);
         assert_eq!(resolved.tls, Some(tls));
+    }
+
+    #[test]
+    fn parse_mcp_stdio_server_with_env_and_timeouts() {
+        let toml = r#"
+[mcp_servers.filesystem]
+type = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+startup_timeout_secs = 15
+tool_timeout_secs = 90
+
+[mcp_servers.filesystem.env]
+NODE_ENV = "production"
+"#;
+        let config: CliConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.mcp_servers.len(), 1);
+        let entry = &config.mcp_servers["filesystem"];
+        assert_eq!(entry.startup_timeout_secs, 15);
+        assert_eq!(entry.tool_timeout_secs, 90);
+        match &entry.transport {
+            McpTransport::Stdio { command, env } => {
+                assert_eq!(
+                    command,
+                    &[
+                        "npx",
+                        "-y",
+                        "@modelcontextprotocol/server-filesystem",
+                        "/workspace"
+                    ]
+                );
+                assert_eq!(env.get("NODE_ENV").unwrap(), "production");
+            }
+            _ => panic!("expected Stdio transport"),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_http_server_with_headers() {
+        let toml = r#"
+[mcp_servers.sentry]
+type = "http"
+url = "https://mcp.sentry.dev/mcp"
+
+[mcp_servers.sentry.headers]
+Authorization = "Bearer sk-xxx"
+"#;
+        let config: CliConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.mcp_servers.len(), 1);
+        let entry = &config.mcp_servers["sentry"];
+        match &entry.transport {
+            McpTransport::Http { url, headers } => {
+                assert_eq!(url, "https://mcp.sentry.dev/mcp");
+                assert_eq!(headers.get("Authorization").unwrap(), "Bearer sk-xxx");
+            }
+            _ => panic!("expected Http transport"),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_empty_backward_compat() {
+        let config: CliConfig = toml::from_str("").unwrap();
+        assert!(config.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn parse_mcp_both_transports() {
+        let toml = r#"
+[mcp_servers.local]
+type = "stdio"
+command = ["python3", "server.py"]
+
+[mcp_servers.remote]
+type = "http"
+url = "https://mcp.example.com"
+"#;
+        let config: CliConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.mcp_servers.len(), 2);
+        assert!(matches!(
+            config.mcp_servers["local"].transport,
+            McpTransport::Stdio { .. }
+        ));
+        assert!(matches!(
+            config.mcp_servers["remote"].transport,
+            McpTransport::Http { .. }
+        ));
+    }
+
+    #[test]
+    fn parse_mcp_defaults_applied_when_timeouts_omitted() {
+        let toml = r#"
+[mcp_servers.minimal]
+type = "stdio"
+command = ["echo"]
+"#;
+        let config: CliConfig = toml::from_str(toml).unwrap();
+        let entry = &config.mcp_servers["minimal"];
+        assert_eq!(entry.startup_timeout_secs, 10);
+        assert_eq!(entry.tool_timeout_secs, 60);
+    }
+
+    #[test]
+    fn mcp_server_entry_into_config() {
+        let entry = McpServerEntry {
+            transport: McpTransport::Stdio {
+                command: vec!["node".into(), "server.js".into()],
+                env: HashMap::new(),
+            },
+            startup_timeout_secs: 15,
+            tool_timeout_secs: 90,
+        };
+        let config = entry.into_config("my-server".into());
+        assert_eq!(config.name, "my-server");
+        assert_eq!(config.startup_timeout_secs, 15);
+        assert_eq!(config.tool_timeout_secs, 90);
     }
 }

@@ -10,8 +10,7 @@ fn test_server_config() -> McpServerConfig {
     McpServerConfig {
         name: "test-echo".into(),
         transport: McpTransport::Stdio {
-            command: "python3".into(),
-            args: vec![test_server],
+            command: vec!["python3".into(), test_server],
             env: HashMap::new(),
         },
         startup_timeout_secs: 10,

@@ -37,8 +37,11 @@ impl McpClient {
     /// Create a new MCP client from config. Does not connect yet — call `initialize()`.
     pub fn new(config: &McpServerConfig) -> Result<Self> {
         let transport = match &config.transport {
-            McpTransport::Stdio { command, args, env } => {
-                let mut cmd = Command::new(command);
+            McpTransport::Stdio { command, env } => {
+                let (program, args) = command.split_first().ok_or_else(|| {
+                    anyhow!("MCP server '{}': command must not be empty", config.name)
+                })?;
+                let mut cmd = Command::new(program);
                 cmd.args(args)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
