@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 fn dot_id_path() -> Result<PathBuf> {
@@ -8,15 +8,18 @@ fn dot_id_path() -> Result<PathBuf> {
     Ok(home.join(".arc").join(".id"))
 }
 
+fn read_existing_id(path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(path).ok()?;
+    let id = contents.trim().to_string();
+    (!id.is_empty()).then_some(id)
+}
+
 /// Server: UUID persisted at ~/.arc/.id
 pub fn load_or_create_server_id() -> Result<String> {
     let path = dot_id_path()?;
 
-    if let Ok(contents) = fs::read_to_string(&path) {
-        let id = contents.trim().to_string();
-        if !id.is_empty() {
-            return Ok(id);
-        }
+    if let Some(id) = read_existing_id(&path) {
+        return Ok(id);
     }
 
     let id = Uuid::new_v4().to_string();
@@ -34,13 +37,8 @@ pub fn load_or_create_server_id() -> Result<String> {
 
 /// CLI: prefer existing ~/.arc/.id, else MD5 of MAC address
 pub fn compute_cli_id() -> Result<String> {
-    let path = dot_id_path()?;
-
-    if let Ok(contents) = fs::read_to_string(&path) {
-        let id = contents.trim().to_string();
-        if !id.is_empty() {
-            return Ok(id);
-        }
+    if let Some(id) = read_existing_id(&dot_id_path()?) {
+        return Ok(id);
     }
 
     let mac = mac_address::get_mac_address()

@@ -24,28 +24,20 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    pub fn for_server() -> Result<Self> {
-        let level = telemetry_level();
-        let anonymous_id = anonymous_id::load_or_create_server_id()?;
-        let context = context::build_context();
-
-        Ok(Self {
-            level,
+    fn new(anonymous_id: String) -> Self {
+        Self {
+            level: telemetry_level(),
             anonymous_id,
-            context,
-        })
+            context: context::build_context(),
+        }
+    }
+
+    pub fn for_server() -> Result<Self> {
+        Ok(Self::new(anonymous_id::load_or_create_server_id()?))
     }
 
     pub fn for_cli() -> Result<Self> {
-        let level = telemetry_level();
-        let anonymous_id = anonymous_id::compute_cli_id()?;
-        let context = context::build_context();
-
-        Ok(Self {
-            level,
-            anonymous_id,
-            context,
-        })
+        Ok(Self::new(anonymous_id::compute_cli_id()?))
     }
 
     pub fn level(&self) -> &TelemetryLevel {
