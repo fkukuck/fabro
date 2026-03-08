@@ -359,12 +359,20 @@ name = "arc-util"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "anyhow",
+ "base64",
+ "chrono",
  "console 0.15.11",
+ "dirs",
  "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "termimad",
+ "tokio",
  "toml",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
