@@ -704,6 +704,7 @@ pub async fn run_command(
     let run_id = worktree_run_id
         .or(daytona_run_id)
         .unwrap_or_else(|| ulid::Ulid::new().to_string());
+    eprintln!("{} {run_id}", styles.bold.apply_to("Run:"));
     // Set up metadata branch for git checkpointing (host or remote)
     let meta_branch = if worktree_work_dir.is_some() || daytona_base_sha.is_some() {
         Some(crate::git::MetadataStore::branch_name(&run_id))
@@ -1006,10 +1007,11 @@ async fn run_from_branch(
     apply_goal_override(&mut graph, args.goal.as_deref());
 
     eprintln!(
-        "{} {} from branch {}",
+        "{} {} from branch {} ({})",
         styles.bold.apply_to("Resuming workflow:"),
         graph.name,
         styles.dim.apply_to(run_branch),
+        run_id,
     );
 
     super::print_diagnostics(&diagnostics, styles);
