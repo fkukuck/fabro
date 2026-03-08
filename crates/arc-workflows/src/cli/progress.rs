@@ -188,6 +188,7 @@ pub struct ProgressUI {
     sandbox_bar: Option<ProgressBar>,
     setup_bar: Option<ProgressBar>,
     cli_ensure_bar: Option<ProgressBar>,
+    compaction_bar: Option<ProgressBar>,
     any_stage_started: bool,
     parallel_parent: Option<String>,
 }
@@ -210,6 +211,7 @@ impl ProgressUI {
             sandbox_bar: None,
             setup_bar: None,
             cli_ensure_bar: None,
+            compaction_bar: None,
             any_stage_started: false,
             parallel_parent: None,
         }
@@ -732,20 +734,49 @@ impl ProgressUI {
                     ),
                 );
             }
+            AgentEvent::CompactionStarted { .. } => {
+                match &self.renderer {
+                    ProgressRenderer::Tty(tty) => {
+                        let after = self
+                            .active_stages
+                            .get(stage_node_id)
+                            .map(|s| s.tool_calls.back().map_or(&s.spinner, |e| &e.bar));
+                        let bar = if let Some(after_bar) = after {
+                            tty.multi
+                                .insert_after(after_bar, ProgressBar::new_spinner())
+                        } else {
+                            tty.multi.add(ProgressBar::new_spinner())
+                        };
+                        bar.set_style(style_tool_running());
+                        bar.set_message("\u{27f3} compacting context\u{2026}");
+                        bar.enable_steady_tick(Duration::from_millis(100));
+                        self.compaction_bar = Some(bar);
+                    }
+                    ProgressRenderer::Plain => {}
+                }
+            }
             AgentEvent::CompactionCompleted {
                 original_turn_count,
                 preserved_turn_count,
                 tracked_file_count,
                 ..
-            } if self.verbose => {
-                let dim = Style::new().dim();
-                self.insert_info_line_for_stage(
-                    stage_node_id,
-                    &dim.apply_to(format!(
-                        "\u{27f3} compaction: {original_turn_count} \u{2192} {preserved_turn_count} turns, {tracked_file_count} files"
-                    ))
-                    .to_string(),
+            } => {
+                let msg = format!(
+                    "\u{27f3} compaction: {original_turn_count} \u{2192} {preserved_turn_count} turns, {tracked_file_count} files"
                 );
+                match &self.renderer {
+                    ProgressRenderer::Tty(_) => {
+                        if let Some(bar) = self.compaction_bar.take() {
+                            bar.set_style(style_tool_done());
+                            bar.finish_with_message(msg);
+                        } else {
+                            self.insert_info_line_for_stage(stage_node_id, &msg);
+                        }
+                    }
+                    ProgressRenderer::Plain => {
+                        eprintln!("      {msg}");
+                    }
+                }
             }
             AgentEvent::LlmRetry {
                 model,
@@ -1128,6 +1159,34 @@ mod tests {
             stage.tool_calls[0].status,
             ToolCallStatus::Failed
         ));
+    }
+
+    #[test]
+    fn compaction_sets_and_clears_bar() {
+        let mut ui = ProgressUI::new(true, false);
+
+        ui.handle_event(&stage_started("s1", "Build"));
+        assert!(ui.compaction_bar.is_none());
+
+        ui.handle_event(&WorkflowRunEvent::Agent {
+            stage: "s1".into(),
+            event: AgentEvent::CompactionStarted {
+                estimated_tokens: 5000,
+                context_window_size: 8000,
+            },
+        });
+        assert!(ui.compaction_bar.is_some());
+
+        ui.handle_event(&WorkflowRunEvent::Agent {
+            stage: "s1".into(),
+            event: AgentEvent::CompactionCompleted {
+                original_turn_count: 20,
+                preserved_turn_count: 6,
+                summary_token_estimate: 500,
+                tracked_file_count: 3,
+            },
+        });
+        assert!(ui.compaction_bar.is_none());
     }
 
     #[test]
