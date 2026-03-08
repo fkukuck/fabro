@@ -103,16 +103,7 @@ pub fn prepare_from_file(path: &Path) -> Result<(Graph, Vec<Diagnostic>), ArcErr
 pub fn prepare_from_source(dot_source: &str) -> Result<Graph, ArcError> {
     let builder = WorkflowBuilder::new();
     let (graph, diagnostics) = builder.prepare(dot_source)?;
-
-    let errors: Vec<&Diagnostic> = diagnostics
-        .iter()
-        .filter(|d| d.severity == validation::Severity::Error)
-        .collect();
-    if !errors.is_empty() {
-        let messages: Vec<String> = errors.iter().map(|d| d.message.clone()).collect();
-        return Err(ArcError::Validation(messages.join("; ")));
-    }
-
+    validation::raise_on_errors(&diagnostics)?;
     Ok(graph)
 }
 

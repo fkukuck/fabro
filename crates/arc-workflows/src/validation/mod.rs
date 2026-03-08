@@ -44,6 +44,25 @@ pub fn validate(graph: &Graph, extra_rules: &[&dyn LintRule]) -> Vec<Diagnostic>
     diagnostics
 }
 
+/// If any Error-severity diagnostics are present, return `ArcError::Validation`.
+///
+/// # Errors
+/// Returns `ArcError::Validation` with joined error messages.
+pub fn raise_on_errors(diagnostics: &[Diagnostic]) -> Result<(), ArcError> {
+    let mut errors = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .peekable();
+    if errors.peek().is_some() {
+        let message = errors
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ArcError::Validation(message));
+    }
+    Ok(())
+}
+
 /// Run all built-in lint rules (and any extra rules). Returns Err if any Error-severity
 /// diagnostics are found.
 ///
@@ -54,14 +73,7 @@ pub fn validate_or_raise(
     extra_rules: &[&dyn LintRule],
 ) -> Result<Vec<Diagnostic>, ArcError> {
     let diagnostics = validate(graph, extra_rules);
-    let errors: Vec<&Diagnostic> = diagnostics
-        .iter()
-        .filter(|d| d.severity == Severity::Error)
-        .collect();
-    if !errors.is_empty() {
-        let messages: Vec<String> = errors.iter().map(|d| d.message.clone()).collect();
-        return Err(ArcError::Validation(messages.join("; ")));
-    }
+    raise_on_errors(&diagnostics)?;
     Ok(diagnostics)
 }
 

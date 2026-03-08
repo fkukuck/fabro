@@ -13,6 +13,7 @@ use crate::engine::{RunConfig, WorkflowRunEngine};
 use crate::error::ArcError;
 use crate::graph::{Graph, Node};
 use crate::outcome::{Outcome, StageStatus};
+use crate::validation;
 use crate::workflow::{prepare_from_file, prepare_from_source};
 
 use super::{EngineServices, Handler};
@@ -58,14 +59,7 @@ fn parse_child_graph(node: &Node) -> Result<Graph, ArcError> {
         .and_then(|v| v.as_str())
     {
         let (graph, diagnostics) = prepare_from_file(std::path::Path::new(path))?;
-        let errors: Vec<&crate::validation::Diagnostic> = diagnostics
-            .iter()
-            .filter(|d| d.severity == crate::validation::Severity::Error)
-            .collect();
-        if !errors.is_empty() {
-            let messages: Vec<String> = errors.iter().map(|d| d.message.clone()).collect();
-            return Err(ArcError::Validation(messages.join("; ")));
-        }
+        validation::raise_on_errors(&diagnostics)?;
         return Ok(graph);
     }
     Err(ArcError::handler("No child DOT source".to_string()))

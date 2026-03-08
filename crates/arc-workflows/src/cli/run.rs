@@ -1007,9 +1007,7 @@ async fn run_from_branch(
 
     // If --pipeline was also provided, use it instead (allows overriding)
     let (mut graph, diagnostics) = if let Some(ref workflow_path) = args.workflow {
-        let source = super::read_dot_file(workflow_path)?;
-        let dot_dir = workflow_path.parent().unwrap_or(std::path::Path::new("."));
-        crate::workflow::WorkflowBuilder::new().prepare_with_file_inlining(&source, dot_dir)?
+        crate::workflow::prepare_from_file(workflow_path)?
     } else {
         crate::workflow::WorkflowBuilder::new().prepare(&source)?
     };
