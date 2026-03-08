@@ -164,6 +164,8 @@ fn demo_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/checkpoint", get(crate::demo::checkpoint_stub))
         .route("/runs/{id}/context", get(crate::demo::context_stub))
         .route("/runs/{id}/cancel", post(crate::demo::cancel_stub))
+        .route("/runs/{id}/pause", post(crate::demo::pause_stub))
+        .route("/runs/{id}/unpause", post(crate::demo::unpause_stub))
         .route("/runs/{id}/graph", get(crate::demo::get_run_graph))
         .route("/runs/{id}/retro", get(crate::demo::get_run_retro))
         .route("/runs/{id}/stages", get(crate::demo::get_run_stages))
@@ -171,7 +173,7 @@ fn demo_routes() -> Router<Arc<AppState>> {
             "/runs/{id}/stages/{stageId}/turns",
             get(crate::demo::get_stage_turns),
         )
-        .route("/runs/{id}/compare", get(crate::demo::get_run_compare))
+        .route("/runs/{id}/files", get(crate::demo::get_run_files))
         .route("/runs/{id}/usage", get(crate::demo::get_run_usage))
         .route(
             "/runs/{id}/verification",
@@ -251,11 +253,13 @@ fn real_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/checkpoint", get(get_checkpoint))
         .route("/runs/{id}/context", get(get_context))
         .route("/runs/{id}/cancel", post(cancel_run))
+        .route("/runs/{id}/pause", post(pause_run))
+        .route("/runs/{id}/unpause", post(unpause_run))
         .route("/runs/{id}/graph", get(get_graph))
         .route("/runs/{id}/retro", get(get_retro))
         .route("/runs/{id}/stages", get(not_implemented))
         .route("/runs/{id}/stages/{stageId}/turns", get(not_implemented))
-        .route("/runs/{id}/compare", get(not_implemented))
+        .route("/runs/{id}/files", get(not_implemented))
         .route("/runs/{id}/usage", get(not_implemented))
         .route("/runs/{id}/verification", get(not_implemented))
         .route("/runs/{id}/configuration", get(not_implemented))
@@ -457,7 +461,7 @@ async fn start_run(
     Json(req): Json<StartRunRequest>,
 ) -> Response {
     // Parse the DOT source
-    let graph = match arc_workflows::workflow::prepare_workflow(&req.dot_source) {
+    let graph = match arc_workflows::workflow::prepare_from_source(&req.dot_source) {
         Ok(g) => g,
         Err(e) => {
             return ApiError::bad_request(e.to_string()).into_response();
@@ -959,6 +963,64 @@ async fn cancel_run(
                     .into_response()
             }
             _ => ApiError::new(StatusCode::CONFLICT, "Run is not cancellable.").into_response(),
+        },
+        None => ApiError::not_found("Run not found.").into_response(),
+    }
+}
+
+async fn pause_run(
+    _auth: AuthenticatedService,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    let mut runs = state.runs.lock().expect("runs lock poisoned");
+    match runs.get_mut(&id) {
+        Some(managed_run) => match managed_run.status {
+            RunStatus::Running => {
+                managed_run.status = RunStatus::Paused;
+                let created_at = managed_run.created_at;
+                (
+                    StatusCode::OK,
+                    Json(RunStatusResponse {
+                        id: id.clone(),
+                        status: RunStatus::Paused,
+                        error: None,
+                        queue_position: None,
+                        created_at,
+                    }),
+                )
+                    .into_response()
+            }
+            _ => ApiError::new(StatusCode::CONFLICT, "Run is not pausable.").into_response(),
+        },
+        None => ApiError::not_found("Run not found.").into_response(),
+    }
+}
+
+async fn unpause_run(
+    _auth: AuthenticatedService,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    let mut runs = state.runs.lock().expect("runs lock poisoned");
+    match runs.get_mut(&id) {
+        Some(managed_run) => match managed_run.status {
+            RunStatus::Paused => {
+                managed_run.status = RunStatus::Running;
+                let created_at = managed_run.created_at;
+                (
+                    StatusCode::OK,
+                    Json(RunStatusResponse {
+                        id: id.clone(),
+                        status: RunStatus::Running,
+                        error: None,
+                        queue_position: None,
+                        created_at,
+                    }),
+                )
+                    .into_response()
+            }
+            _ => ApiError::new(StatusCode::CONFLICT, "Run is not paused.").into_response(),
         },
         None => ApiError::not_found("Run not found.").into_response(),
     }

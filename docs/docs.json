@@ -180,6 +180,8 @@
               "POST /runs",
               "GET /runs/{id}",
               "POST /runs/{id}/cancel",
+              "POST /runs/{id}/pause",
+              "POST /runs/{id}/unpause",
               "GET /runs/{id}/graph",
               "GET /runs/{id}/events"
             ]
@@ -198,7 +200,7 @@
             "group": "Run Outputs",
             "icon": "file-export",
             "pages": [
-              "GET /runs/{id}/compare",
+              "GET /runs/{id}/files",
               "GET /runs/{id}/usage",
               {
                 "group": "Run Internals",

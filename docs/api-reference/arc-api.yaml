@@ -199,6 +199,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /runs/{id}/pause:
+    post:
+      operationId: pauseRun
+      tags: [Runs]
+      summary: Pause Run
+      description: Pauses a running run. Returns 409 if the run is not running.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunStatusResponse"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Run is not running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /runs/{id}/unpause:
+    post:
+      operationId: unpauseRun
+      tags: [Runs]
+      summary: Unpause Run
+      description: Resumes a paused run. Returns 409 if the run is not paused.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run unpaused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunStatusResponse"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Run is not paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /runs/{id}/graph:
     get:
       operationId: retrieveRunGraph
@@ -436,22 +492,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /runs/{id}/compare:
+  /runs/{id}/files:
     get:
-      operationId: retrieveRunCompare
+      operationId: retrieveRunFiles
       tags: [Run Outputs]
-      summary: Retrieve Run Compare
-      description: Returns file-level diffs produced by the run, optionally filtered to a specific checkpoint.
+      summary: Retrieve Run Files
+      description: Returns a paginated list of file-level diffs produced by the run, optionally filtered to a specific checkpoint.
       parameters:
         - $ref: "#/components/parameters/RunId"
         - $ref: "#/components/parameters/CheckpointFilter"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
       responses:
         "200":
-          description: File changes with checkpoint metadata
+          description: Paginated list of file diffs
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RunCompare"
+                $ref: "#/components/schemas/PaginatedRunFileList"
         "404":
           description: Run not found
           content:
@@ -1680,6 +1738,7 @@ components:
         - completed
         - failed
         - cancelled
+        - paused
 
     StartRunRequest:
       description: Request body for starting a new run from a DOT graph source.
@@ -2367,7 +2426,7 @@ components:
           items:
             $ref: "#/components/schemas/ToolUse"
 
-    # ── Compare / Diff Schemas ───────────────────────────────────────────
+    # ── File Diff Schemas ──────────────────────────────────────────────
 
     FileCheckpoint:
       description: A named checkpoint within a run, used to filter file diffs.
@@ -2429,26 +2488,19 @@ components:
           description: Total lines deleted.
           example: 234
 
-    RunCompare:
-      description: File-level diff output for a run, with checkpoint filtering support.
+    PaginatedRunFileList:
+      description: Paginated list of file diffs produced by a run.
       type: object
       required:
-        - checkpoints
-        - files
-        - stats
+        - data
+        - meta
       properties:
-        checkpoints:
+        data:
           type: array
-          description: Available checkpoints for filtering.
-          items:
-            $ref: "#/components/schemas/FileCheckpoint"
-        files:
-          type: array
-          description: File diffs, optionally filtered by checkpoint.
           items:
             $ref: "#/components/schemas/FileDiff"
-        stats:
-          $ref: "#/components/schemas/DiffStats"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
 
     # ── Usage Schemas ────────────────────────────────────────────────────
 

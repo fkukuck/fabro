@@ -24,7 +24,8 @@ export const RunStatus = {
     RUNNING: 'running',
     COMPLETED: 'completed',
     FAILED: 'failed',
-    CANCELLED: 'cancelled'
+    CANCELLED: 'cancelled',
+    PAUSED: 'paused'
 } as const;
 
 export type RunStatus = typeof RunStatus[keyof typeof RunStatus];

@@ -78,19 +78,13 @@ pub async fn get_stage_turns(
     paginated_response(runs::turns(), &pagination)
 }
 
-#[derive(serde::Deserialize)]
-pub struct CompareQuery {
-    #[allow(dead_code)]
-    checkpoint: Option<String>,
-}
-
-pub async fn get_run_compare(
+pub async fn get_run_files(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
     Path(_id): Path<String>,
-    Query(_q): Query<CompareQuery>,
+    Query(pagination): Query<PaginationParams>,
 ) -> Response {
-    (StatusCode::OK, Json(runs::compare())).into_response()
+    paginated_response(runs::files(), &pagination)
 }
 
 pub async fn get_run_usage(
@@ -206,6 +200,22 @@ pub async fn cancel_stub(
     Path(_id): Path<String>,
 ) -> Response {
     (StatusCode::OK, Json(serde_json::json!({"id": _id, "status": "cancelled", "created_at": "2026-03-06T14:30:00Z"}))).into_response()
+}
+
+pub async fn pause_stub(
+    _auth: AuthenticatedService,
+    State(_state): State<Arc<AppState>>,
+    Path(_id): Path<String>,
+) -> Response {
+    (StatusCode::OK, Json(serde_json::json!({"id": _id, "status": "paused", "created_at": "2026-03-06T14:30:00Z"}))).into_response()
+}
+
+pub async fn unpause_stub(
+    _auth: AuthenticatedService,
+    State(_state): State<Arc<AppState>>,
+    Path(_id): Path<String>,
+) -> Response {
+    (StatusCode::OK, Json(serde_json::json!({"id": _id, "status": "running", "created_at": "2026-03-06T14:30:00Z"}))).into_response()
 }
 
 pub async fn get_run_graph(
@@ -1071,15 +1081,8 @@ mod runs {
         ]
     }
 
-    pub fn compare() -> RunCompare {
-        RunCompare {
-            checkpoints: vec![
-                FileCheckpoint { id: "cp-4".into(), label: "Checkpoint 4 — Apply Changes".into() },
-                FileCheckpoint { id: "cp-3".into(), label: "Checkpoint 3 — Review Changes".into() },
-                FileCheckpoint { id: "cp-2".into(), label: "Checkpoint 2 — Propose Changes".into() },
-                FileCheckpoint { id: "cp-1".into(), label: "Checkpoint 1 — Detect Drift".into() },
-            ],
-            files: vec![
+    pub fn files() -> Vec<FileDiff> {
+        vec![
                 FileDiff {
                     old_file: DiffFile { name: "src/commands/run.ts".into(), contents: "import { parseArgs } from \"node:util\";\nimport { loadConfig } from \"../config.js\";\nimport { execute } from \"../executor.js\";\n\ninterface RunOptions {\n  config: string;\n  dryRun: boolean;\n}\n\nexport async function run(argv: string[]) {\n  const { values } = parseArgs({\n    args: argv,\n    options: {\n      config: { type: \"string\", short: \"c\", default: \"arc.toml\" },\n      \"dry-run\": { type: \"boolean\", default: false },\n    },\n  });\n\n  const opts: RunOptions = {\n    config: values.config ?? \"arc.toml\",\n    dryRun: values[\"dry-run\"] ?? false,\n  };\n\n  const config = await loadConfig(opts.config);\n  const result = await execute(config, { dryRun: opts.dryRun });\n\n  if (result.success) {\n    console.log(\"Run completed successfully.\");\n  } else {\n    console.error(\"Run failed:\", result.error);\n    process.exitCode = 1;\n  }\n}\n".into() },
                     new_file: DiffFile { name: "src/commands/run.ts".into(), contents: "import { parseArgs } from \"node:util\";\nimport { loadConfig } from \"../config.js\";\nimport { execute } from \"../executor.js\";\nimport { createLogger, type Logger } from \"../logger.js\";\n\ninterface RunOptions {\n  config: string;\n  dryRun: boolean;\n  verbose: boolean;\n}\n\nexport async function run(argv: string[]) {\n  const { values } = parseArgs({\n    args: argv,\n    options: {\n      config: { type: \"string\", short: \"c\", default: \"arc.toml\" },\n      \"dry-run\": { type: \"boolean\", default: false },\n      verbose: { type: \"boolean\", short: \"v\", default: false },\n    },\n  });\n\n  const opts: RunOptions = {\n    config: values.config ?? \"arc.toml\",\n    dryRun: values[\"dry-run\"] ?? false,\n    verbose: values.verbose ?? false,\n  };\n\n  const logger: Logger = createLogger({ verbose: opts.verbose });\n\n  const config = await loadConfig(opts.config);\n  logger.debug(\"Loaded config from %s\", opts.config);\n\n  const result = await execute(config, { dryRun: opts.dryRun, logger });\n  logger.debug(\"Execution finished in %dms\", result.elapsed);\n\n  if (result.success) {\n    console.log(\"Run completed successfully.\");\n  } else {\n    console.error(\"Run failed:\", result.error);\n    process.exitCode = 1;\n  }\n}\n".into() },
@@ -1092,9 +1095,7 @@ mod runs {
                     old_file: DiffFile { name: "src/executor.ts".into(), contents: "import type { Config } from \"./config.js\";\n\ninterface ExecuteOptions {\n  dryRun: boolean;\n}\n\ninterface ExecuteResult {\n  success: boolean;\n  error?: string;\n}\n\nexport async function execute(\n  config: Config,\n  options: ExecuteOptions,\n): Promise<ExecuteResult> {\n  if (options.dryRun) {\n    console.log(\"Dry run — skipping execution.\");\n    return { success: true };\n  }\n\n  try {\n    for (const step of config.steps) {\n      await step.run();\n    }\n    return { success: true };\n  } catch (err) {\n    const message = err instanceof Error ? err.message : String(err);\n    return { success: false, error: message };\n  }\n}\n".into() },
                     new_file: DiffFile { name: "src/executor.ts".into(), contents: "import type { Config } from \"./config.js\";\nimport type { Logger } from \"./logger.js\";\n\ninterface ExecuteOptions {\n  dryRun: boolean;\n  logger: Logger;\n}\n\ninterface ExecuteResult {\n  success: boolean;\n  elapsed: number;\n  error?: string;\n}\n\nexport async function execute(\n  config: Config,\n  options: ExecuteOptions,\n): Promise<ExecuteResult> {\n  const start = performance.now();\n\n  if (options.dryRun) {\n    options.logger.info(\"Dry run — skipping execution.\");\n    return { success: true, elapsed: performance.now() - start };\n  }\n\n  try {\n    for (const step of config.steps) {\n      options.logger.debug(\"Running step: %s\", step.name);\n      await step.run();\n    }\n    return { success: true, elapsed: performance.now() - start };\n  } catch (err) {\n    const message = err instanceof Error ? err.message : String(err);\n    return { success: false, elapsed: performance.now() - start, error: message };\n  }\n}\n".into() },
                 },
-            ],
-            stats: DiffStats { additions: 567, deletions: 234 },
-        }
+        ]
     }
 
     pub fn usage() -> RunUsage {
