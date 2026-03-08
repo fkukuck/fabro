@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::bail;
+use tracing::debug;
 use arc_agent::{DockerSandbox, DockerSandboxConfig, LocalSandbox, Sandbox};
 use arc_util::terminal::Styles;
 use chrono::{Local, Utc};
@@ -34,6 +35,17 @@ use super::{
     compute_stage_cost, format_cost, format_tokens_human, print_diagnostics, read_dot_file,
     RunArgs, SandboxProvider,
 };
+
+/// Apply a CLI `--goal` override to the graph, if provided.
+fn apply_goal_override(graph: &mut crate::graph::types::Graph, cli_goal: Option<&str>) {
+    if let Some(goal) = cli_goal {
+        debug!(goal = %goal, "CLI --goal overriding graph goal");
+        graph.attrs.insert(
+            "goal".to_string(),
+            crate::graph::types::AttrValue::String(goal.to_string()),
+        );
+    }
+}
 
 /// Resolve model and provider through the full precedence chain:
 /// CLI flag > TOML config > run defaults > DOT graph attrs > provider-specific defaults.
@@ -230,7 +242,8 @@ pub async fn run_command(
         Some(vars) => run_config::expand_vars(&source, vars)?,
         None => source,
     };
-    let (graph, diagnostics) = WorkflowBuilder::new().prepare(&source)?;
+    let (mut graph, diagnostics) = WorkflowBuilder::new().prepare(&source)?;
+    apply_goal_override(&mut graph, args.goal.as_deref());
 
     eprintln!(
         "{} {} {}",
@@ -959,7 +972,8 @@ async fn run_from_branch(
         source
     };
 
-    let (graph, diagnostics) = crate::workflow::WorkflowBuilder::new().prepare(&source)?;
+    let (mut graph, diagnostics) = crate::workflow::WorkflowBuilder::new().prepare(&source)?;
+    apply_goal_override(&mut graph, args.goal.as_deref());
 
     eprintln!(
         "{} {} from branch {}",
@@ -1521,6 +1535,28 @@ async fn generate_retro(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apply_goal_override_replaces_graph_goal() {
+        use crate::graph::types::{AttrValue, Graph};
+        let mut graph = Graph::new("test");
+        graph
+            .attrs
+            .insert("goal".to_string(), AttrValue::String("original".to_string()));
+        apply_goal_override(&mut graph, Some("CLI goal"));
+        assert_eq!(graph.goal(), "CLI goal");
+    }
+
+    #[test]
+    fn apply_goal_override_noop_when_none() {
+        use crate::graph::types::{AttrValue, Graph};
+        let mut graph = Graph::new("test");
+        graph
+            .attrs
+            .insert("goal".to_string(), AttrValue::String("original".to_string()));
+        apply_goal_override(&mut graph, None);
+        assert_eq!(graph.goal(), "original");
+    }
 
     #[test]
     fn resolve_model_provider_defaults() {

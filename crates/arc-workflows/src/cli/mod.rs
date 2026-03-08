@@ -106,6 +106,10 @@ pub struct RunArgs {
     #[arg(long, conflicts_with = "resume")]
     pub run_branch: Option<String>,
 
+    /// Override the workflow goal (exposed as $goal in prompts)
+    #[arg(long)]
+    pub goal: Option<String>,
+
     /// Override default LLM model
     #[arg(long)]
     pub model: Option<String>,
