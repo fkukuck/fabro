@@ -1893,6 +1893,12 @@ impl WorkflowRunEngine {
             }
 
             // Step 6b: Write shadow branch first, then run branch commit with trailer
+            // Skip git checkpoint for the start node — it's a no-op, so the commit is always empty.
+            let is_start_node = graph
+                .find_start_node()
+                .map(|n| n.id == node.id)
+                .unwrap_or(false);
+            if !is_start_node {
             if let Some(ref mode) = config.git_checkpoint {
                 // Shadow commit (best-effort): extract repo path from either variant
                 let shadow_sha: Option<String> = if config.meta_branch.is_some() {
@@ -2024,6 +2030,7 @@ impl WorkflowRunEngine {
                 } else {
                     context.append_log("git checkpoint commit failed".to_string());
                 }
+            }
             }
 
             // Step 7: Follow selected edge (or direct jump)
@@ -4836,6 +4843,86 @@ mod tests {
         assert!(
             sig_str.contains("work|deterministic|"),
             "expected failure signature in context, got: {sig_str}"
+        );
+    }
+
+    #[tokio::test]
+    async fn git_checkpoint_skipped_for_start_node() {
+        // Set up a real git repo so GitCheckpointMode::Host works
+        let repo_dir = tempfile::tempdir().unwrap();
+        let repo = repo_dir.path();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@test.com", "commit", "--allow-empty", "-m", "initial"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        let base_sha = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(repo)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        let logs_dir = tempfile::tempdir().unwrap();
+
+        // Build start -> work -> exit graph so work node produces a git checkpoint
+        let mut g = simple_graph();
+        let work = Node::new("work");
+        g.nodes.insert("work".to_string(), work);
+        g.edges.clear();
+        g.edges.push(Edge::new("start", "work"));
+        g.edges.push(Edge::new("work", "exit"));
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<WorkflowRunEvent>::new()));
+        let events_clone = events.clone();
+        let mut emitter = EventEmitter::new();
+        emitter.on_event(move |event| {
+            events_clone.lock().unwrap().push(event.clone());
+        });
+
+        let engine = WorkflowRunEngine::new(make_registry(), Arc::new(emitter), local_env());
+        let config = RunConfig {
+            logs_root: logs_dir.path().to_path_buf(),
+            cancel_token: None,
+            dry_run: false,
+            run_id: "git-cp-test".into(),
+            git_checkpoint: Some(GitCheckpointMode::Host(repo.to_path_buf())),
+            base_sha: Some(base_sha),
+            run_branch: None,
+            meta_branch: None,
+            labels: HashMap::new(),
+            checkpoint_exclude_globs: Vec::new(),
+            github_app: None,
+            git_author: crate::git::GitAuthor::default(),
+        };
+        engine.run(&g, &config).await.unwrap();
+
+        let collected = events.lock().unwrap();
+        let git_checkpoint_node_ids: Vec<&str> = collected
+            .iter()
+            .filter_map(|e| match e {
+                WorkflowRunEvent::GitCheckpoint { node_id, .. } => Some(node_id.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            !git_checkpoint_node_ids.contains(&"start"),
+            "start node should not have a git checkpoint, but found: {git_checkpoint_node_ids:?}"
+        );
+        assert!(
+            git_checkpoint_node_ids.contains(&"work"),
+            "work node should have a git checkpoint, but found: {git_checkpoint_node_ids:?}"
         );
     }
 }

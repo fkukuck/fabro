@@ -10180,11 +10180,15 @@ async fn git_checkpoint_host_emits_events_and_diff_patch() {
             }
         })
         .collect();
-    // start, work, exit = 3 nodes, each gets a checkpoint commit
+    // work node gets a checkpoint commit (start is skipped, exit is terminal)
     assert!(
-        git_events.len() >= 2,
-        "expected at least 2 GitCheckpoint events, got {}",
+        git_events.len() >= 1,
+        "expected at least 1 GitCheckpoint event, got {}",
         git_events.len()
+    );
+    assert!(
+        !git_events.iter().any(|(id, _)| id == "start"),
+        "start node should not have a git checkpoint"
     );
     // Each SHA should be a valid 40-char hex string
     assert!(
@@ -10194,15 +10198,15 @@ async fn git_checkpoint_host_emits_events_and_diff_patch() {
         "all SHAs should be 40-char hex, got: {git_events:?}"
     );
 
-    // 7. Assert diff.patch was written for the "start" node (where hello.txt is committed)
+    // 7. diff.patch is NOT written for the start node (git checkpoint skipped)
     let start_diff = logs_dir
         .path()
         .join("nodes")
         .join("start")
         .join("diff.patch");
     assert!(
-        start_diff.exists(),
-        "diff.patch should exist for start node (hello.txt committed there)"
+        !start_diff.exists(),
+        "diff.patch should not exist for start node (git checkpoint skipped)"
     );
 
     // 8. Verify checkpoint.json has git_commit_sha
