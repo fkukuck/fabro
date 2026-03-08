@@ -1,49 +1,80 @@
 ---
-title: "GitHub webhooks, sandbox reliability, and @file validation"
+title: "Lifecycle hooks, server mode, and auto-PR"
 date: "2026-03-08"
 ---
 
-## GitHub webhook listener
+## Lifecycle hooks
 
-Arc's server can now receive GitHub App webhooks automatically when you enable Tailscale funnel. On startup, it binds a local HTTP listener, exposes it via `tailscale funnel`, and patches the GitHub App's webhook URL — no manual ngrok or port forwarding setup needed. Incoming webhooks are verified with HMAC-SHA256 before processing.
+You can now intercept tool calls at three points during agent execution: before a tool runs (`PreToolUse`), after it succeeds (`PostToolUse`), and after it fails (`PostToolUseFailure`). Each hook receives the tool name and arguments, and can modify, skip, or block the call. This makes it possible to enforce project conventions — like auto-formatting after file writes — or add guardrails without modifying agent prompts.
 
-```toml title="server.toml"
-[git.webhooks]
-strategy = "tailscale_funnel"
+```toml title="arc.toml"
+[[hooks]]
+event = "PostToolUse"
+tool = "write"
+command = "cargo fmt"
 ```
 
-## Sandbox command reliability
+## Server mode for `arc exec`
 
-Long-running sandbox commands could previously hang indefinitely on stalled connections or get killed prematurely during complex reasoning turns. Arc now enforces a 5-minute stream read timeout on sandbox connections with 5-second retry backoff, and applies local timeout and cancellation for Daytona `execute_command` calls so zombie processes can't block a stage forever.
+`arc exec` can now run as a long-lived server that proxies requests through a `/completions` endpoint. Instead of running a single agent session and exiting, server mode keeps the agent process alive and accepts Anthropic-style streaming requests over HTTP. This enables integrating Arc agents into applications that speak the standard completions API.
 
-The default stall watchdog timeout has also increased from 10 to 30 minutes, giving agents more room for deep reasoning without being killed.
+```bash
+arc exec --server --port 8080
+```
 
-## @file reference validation
+## Auto-PR on workflow completion
 
-The workflow validator and `arc validate` now catch unresolved `@file` references before execution starts. Previously, a typo like `@file(src/mising.txt)` would silently pass through as literal text in the prompt. Now you get a clear validation error pointing to the bad reference.
+Workflows can now automatically open a GitHub pull request when a run completes successfully. Arc creates the PR from the agent's working branch with the run summary as the description. No extra scripting or post-run steps needed — just enable the option in your run configuration.
 
-Path handling for `~` home directory and `..` parent directory references is also fixed, so `@file(~/config.toml)` and `@file(../shared/prompt.md)` resolve correctly.
+<Warning>
+**Breaking: CLI commands renamed.** `arc run start` is now `arc run`, and `arc agent` is now `arc exec`. The old command names no longer work.
+
+To migrate, update any scripts or aliases:
+1. Replace `arc run start` with `arc run`
+2. Replace `arc agent` with `arc exec`
+</Warning>
 
 ## More
 
+<Accordion title="API">
+- Renamed `/runs/{id}/compare` to `/runs/{id}/files` with standard paginated response
+- Added `POST /runs/{id}/pause` and `POST /runs/{id}/unpause` endpoints
+- Added `POST /completions` endpoint with Anthropic-style SSE streaming
+- Removed `List Projects` and `List Branches` endpoints
+</Accordion>
+
 <Accordion title="CLI">
-- `verbose = true` in `cli.toml` defaults to verbose output without needing `-v` every time
+- MCP servers can now be configured in TOML via `cli.toml` instead of JSON
+- `verbose = true` in `cli.toml` defaults to verbose output without needing `-v`
 - `goal` is now optional in run config TOML — precedence is CLI `--goal` > TOML `goal` > DOT graph attribute
+- Configurable git author identity for checkpoint commits via `[git.author]`
+- Added `[log]` config section to `server.toml` and `cli.toml` for log level and format control
 </Accordion>
 
 <Accordion title="Workflows">
+- GitHub webhook listener via Tailscale funnel — auto-configures webhook URL on startup
+- `[sandbox.env]` support passes environment variables through to sandbox tool execution
+- `project_memory` attribute on prompt nodes for persistent context across stages
+- Dockerfile path syntax (`dockerfile = { path = "..." }`) in snapshot config
+- `arc validate` and the workflow validator now catch unresolved `@file` references before execution
+- Fixed `@file` references with `~` home directory and `..` parent directory paths
 - Compaction progress now visible in non-verbose `arc run` output
-- Run ID printed at start of `arc run start` and on resume for easier cross-referencing
+- Run ID printed at start of `arc run` and on resume for cross-referencing
 - Git checkpoint commit skipped for start node to reduce noise
-- Added `[log]` config section to `server.toml` and `cli.toml` for log level and format control
 </Accordion>
 
 <Accordion title="Improvements">
 - `apply_patch` error responses now include file contents for better debugging of failed edits
 - v4a patch parser/applier rewritten to match canonical OpenAI codex spec
+- Accept bare `@@` hunk headers in v4a `apply_patch` parser
+- Added Sprites (Fly.io) VM sandbox provider
 </Accordion>
 
 <Accordion title="Fixes">
+- Fixed sandbox file-write validation incorrectly blocking valid operations
+- Fixed stall watchdog killing agent during long LLM reasoning turns
+- Added 5-minute stream read timeout with 5-second retry backoff for sandbox connections
+- Increased default stall watchdog timeout from 10 to 30 minutes
 - Fixed subagent and system prompt handling when prompt text is empty
 - Fixed parallel stage compaction bars interfering with each other
 </Accordion>

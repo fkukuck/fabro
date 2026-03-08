@@ -71,3 +71,4 @@ Use only the categories that apply to a given post. Order them as listed:
 - Don't include changes that aren't meaningful to users (e.g., demo scaffolding, internal tooling)
 - Don't use marketing superlatives ("revolutionary", "game-changing")
 - Don't explain things the reader already knows — assume technical literacy
+- Don't use internal names (Rust struct/module names, crate names, internal error types) — describe the behavior users see, not the code that changed. For example, "Fixed sandbox file-write validation incorrectly blocking valid operations" instead of "Fixed ReadBeforeWriteSandbox"
