@@ -421,7 +421,7 @@ impl Graph {
             .map_or(3, |v| v as usize)
     }
 
-    /// Graph-level `stall_timeout`. Defaults to 600s. Returns `None` when set to zero (disabled).
+    /// Graph-level `stall_timeout`. Defaults to 1800s. Returns `None` when set to zero (disabled).
     pub fn stall_timeout(&self) -> Option<Duration> {
         match self
             .attrs
@@ -430,7 +430,7 @@ impl Graph {
         {
             Some(d) if d.is_zero() => None,
             Some(d) => Some(d),
-            None => Some(Duration::from_secs(600)),
+            None => Some(Duration::from_secs(1800)),
         }
     }
 
@@ -732,7 +732,7 @@ mod tests {
     #[test]
     fn graph_stall_timeout_default() {
         let g = Graph::new("empty");
-        assert_eq!(g.stall_timeout(), Some(Duration::from_secs(600)));
+        assert_eq!(g.stall_timeout(), Some(Duration::from_secs(1800)));
     }
 
     #[test]

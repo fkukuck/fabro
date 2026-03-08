@@ -12406,7 +12406,7 @@ impl Handler for SlowTestHandler {
 
 #[tokio::test]
 async fn e2e_stall_watchdog_with_explicit_timeout_override() {
-    // A short stall_timeout of 50ms should trigger faster than the default 600s.
+    // A short stall_timeout of 50ms should trigger faster than the default 1800s.
     // This tests that the graph attribute is actually respected.
     let dot = r#"digraph StallOverrideTest {
         graph [goal="Test stall override", stall_timeout="50ms", default_max_retry=0]

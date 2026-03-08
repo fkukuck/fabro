@@ -183,7 +183,7 @@ See [Private repositories](#private-repositories) above. You need a GitHub App c
 
 ### Stall watchdog kills the run
 
-Long-running commands in Daytona sandboxes may trigger the 600-second stall watchdog if they don't produce events. For workflows with long-running operations, increase the `stall_timeout` in the workflow graph:
+Long-running commands in Daytona sandboxes may trigger the 1800-second stall watchdog if they don't produce events. For workflows with long-running operations, increase the `stall_timeout` in the workflow graph:
 
 ```dot
 digraph Example {
