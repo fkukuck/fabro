@@ -668,6 +668,19 @@ impl ProgressUI {
         }
     }
 
+    pub fn show_time(&mut self, time: &str) {
+        match &self.renderer {
+            ProgressRenderer::Tty(tty) => {
+                let bar = tty.multi.add(ProgressBar::new_spinner());
+                bar.set_style(style_static_dim());
+                bar.finish_with_message(format!("Time: {time}"));
+            }
+            ProgressRenderer::Plain => {
+                eprintln!("    Time: {time}");
+            }
+        }
+    }
+
     // ── Stages ──────────────────────────────────────────────────────────
 
     fn on_stage_started(&mut self, node_id: &str, name: &str, script: Option<&str>) {
