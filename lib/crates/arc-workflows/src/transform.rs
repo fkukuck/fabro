@@ -114,9 +114,9 @@ impl Transform for StylesheetApplicationTransform {
 
 /// Resolve a potential `@path` file reference.
 ///
-/// If `value` starts with `@`, the referenced file exists locally, and is NOT
-/// tracked by git, the file contents are returned (inlined). Otherwise the
-/// original value is returned unchanged.
+/// If `value` starts with `@` and the referenced file exists locally, the file
+/// contents are returned (inlined). Otherwise the original value is returned
+/// unchanged.
 pub fn resolve_file_ref(value: &str, base_dir: &Path) -> String {
     let path_str = match value.strip_prefix('@') {
         Some(p) => p,
@@ -140,21 +140,6 @@ pub fn resolve_file_ref(value: &str, base_dir: &Path) -> String {
         _ => return value.to_string(),
     };
 
-    // Discover repo root from base_dir
-    let repo_root = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(base_dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim().to_string()));
-
-    if let Some(root) = repo_root {
-        if crate::git::is_tracked(&root, &file_path) {
-            return value.to_string();
-        }
-    }
-
     match std::fs::read_to_string(&file_path) {
         Ok(contents) => contents,
         Err(e) => {
@@ -164,7 +149,7 @@ pub fn resolve_file_ref(value: &str, base_dir: &Path) -> String {
     }
 }
 
-/// Inlines untracked `@file` references in node prompts and the graph-level goal.
+/// Inlines `@file` references in node prompts and the graph-level goal.
 pub struct FileInliningTransform {
     base_dir: PathBuf,
 }
@@ -627,64 +612,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_file_ref_passthrough_tracked_file() {
+    fn resolve_file_ref_inlines_existing_file() {
         let dir = tempfile::tempdir().unwrap();
-        // Init repo and commit a file
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::fs::write(dir.path().join("tracked.md"), "tracked content").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "tracked.md"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test",
-                "commit",
-                "-m",
-                "add",
-            ])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
+        std::fs::write(dir.path().join("prompt.md"), "inlined content").unwrap();
 
-        assert_eq!(resolve_file_ref("@tracked.md", dir.path()), "@tracked.md");
-    }
-
-    #[test]
-    fn resolve_file_ref_inlines_untracked_file() {
-        let dir = tempfile::tempdir().unwrap();
-        // Init repo
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "init",
-            ])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-
-        std::fs::write(dir.path().join("local.md"), "inlined content").unwrap();
-
-        assert_eq!(resolve_file_ref("@local.md", dir.path()), "inlined content");
+        assert_eq!(
+            resolve_file_ref("@prompt.md", dir.path()),
+            "inlined content"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -756,26 +691,6 @@ mod tests {
         });
 
         let dir = tempfile::tempdir().unwrap();
-        // Init repo so the git-tracking check doesn't block inlining
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "init",
-            ])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
 
         assert_eq!(
             resolve_file_ref("@~/.arc_test_tilde_tmp", dir.path()),
@@ -786,81 +701,12 @@ mod tests {
     #[test]
     fn resolve_file_ref_resolves_dotdot() {
         let dir = tempfile::tempdir().unwrap();
-        // Init repo
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "init",
-            ])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-
         std::fs::write(dir.path().join("file.md"), "dotdot content").unwrap();
         std::fs::create_dir(dir.path().join("subdir")).unwrap();
 
         assert_eq!(
             resolve_file_ref("@subdir/../file.md", dir.path()),
             "dotdot content"
-        );
-    }
-
-    #[test]
-    fn file_inlining_transform_leaves_tracked_files() {
-        let dir = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::fs::write(dir.path().join("prompt.md"), "committed content").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "prompt.md"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test",
-                "commit",
-                "-m",
-                "add",
-            ])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-
-        let mut graph = Graph::new("test");
-        let mut node = Node::new("work");
-        node.attrs.insert(
-            "prompt".to_string(),
-            AttrValue::String("@prompt.md".to_string()),
-        );
-        graph.nodes.insert("work".to_string(), node);
-
-        let transform = FileInliningTransform::new(dir.path().to_path_buf());
-        transform.apply(&mut graph);
-
-        assert_eq!(
-            graph.nodes["work"]
-                .attrs
-                .get("prompt")
-                .and_then(AttrValue::as_str),
-            Some("@prompt.md")
         );
     }
 }
