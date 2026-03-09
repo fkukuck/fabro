@@ -164,7 +164,9 @@ impl ExeSandbox {
             rg_available: tokio::sync::OnceCell::const_new(),
             event_callback: None,
             data_ssh_factory: Box::new(|_: &str| {
-                Box::pin(async { Err("from_existing sandbox cannot create new SSH connections".to_string()) })
+                Box::pin(async {
+                    Err("from_existing sandbox cannot create new SSH connections".to_string())
+                })
             }),
             config: ExeConfig::default(),
             clone_params: None,

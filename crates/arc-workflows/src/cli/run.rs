@@ -519,7 +519,7 @@ pub async fn run_command(
     };
 
     // Set up git worktree for local execution (must happen before cwd is captured)
-    let (worktree_work_dir, worktree_path, worktree_branch, worktree_base_sha) = if git_clean {
+    let (worktree_work_dir, _worktree_path, worktree_branch, worktree_base_sha) = if git_clean {
         match setup_worktree(&original_cwd, &logs_dir, &run_id) {
             Ok((wd, wt, branch, base)) => (Some(wd), Some(wt), Some(branch), Some(base)),
             Err(e) => {
@@ -617,7 +617,11 @@ pub async fn run_command(
     {
         let sandbox_info_opt = {
             let info = sandbox.sandbox_info();
-            if info.is_empty() { None } else { Some(info) }
+            if info.is_empty() {
+                None
+            } else {
+                Some(info)
+            }
         };
         let record = match sandbox_provider {
             SandboxProvider::Local => crate::sandbox_record::SandboxRecord {
@@ -933,11 +937,8 @@ pub async fn run_command(
     };
     let run_duration_ms = run_start.elapsed().as_millis() as u64;
 
-    // Restore cwd and clean up worktree (best-effort)
+    // Restore cwd (worktree is kept for `arc cp` access; pruned separately)
     let _ = std::env::set_current_dir(&original_cwd);
-    if let Some(ref wt) = worktree_path {
-        let _ = crate::git::remove_worktree(&original_cwd, wt);
-    }
 
     {
         let (status, failure_reason) = match &engine_result {
@@ -1447,11 +1448,8 @@ async fn run_from_branch(
         .await;
     let run_duration_ms = run_start.elapsed().as_millis() as u64;
 
-    // Clean up
+    // Restore cwd (worktree is kept for `arc cp` access; pruned separately)
     let _ = std::env::set_current_dir(&original_cwd);
-    if let Some(ref wt) = worktree_path {
-        let _ = crate::git::remove_worktree(&original_cwd, wt);
-    }
     if sandbox_provider == SandboxProvider::Exe {
         let _ = sandbox.cleanup().await;
     }

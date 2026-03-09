@@ -53,7 +53,9 @@ fn parse_direction(src: &str, dst: &str) -> Result<CopyDirection> {
             run_prefix: run_prefix.to_string(),
             remote_path: remote_path.to_string(),
         }),
-        (Some(_), Some(_)) => bail!("Cannot copy between two sandboxes; one argument must be a local path"),
+        (Some(_), Some(_)) => {
+            bail!("Cannot copy between two sandboxes; one argument must be a local path")
+        }
         (None, None) => bail!("One argument must contain a run-id prefix (e.g. <run-id>:<path>)"),
     }
 }
@@ -104,9 +106,7 @@ fn find_run_by_prefix(base: &Path, prefix: &str) -> Result<PathBuf> {
 /// Returns a sandbox that can perform file operations.
 /// Note: for Docker and Local sandboxes, the container/directory may still
 /// need to be alive. For Daytona and Exe, we reconnect via their APIs.
-async fn reconnect(
-    record: &SandboxRecord,
-) -> Result<Box<dyn arc_agent::sandbox::Sandbox>> {
+pub async fn reconnect(record: &SandboxRecord) -> Result<Box<dyn arc_agent::sandbox::Sandbox>> {
     debug!(
         provider = %record.provider,
         identifier = record.identifier.as_deref().unwrap_or(""),
@@ -115,8 +115,9 @@ async fn reconnect(
 
     match record.provider.as_str() {
         "local" => {
-            let sandbox =
-                arc_agent::local_sandbox::LocalSandbox::new(PathBuf::from(&record.working_directory));
+            let sandbox = arc_agent::local_sandbox::LocalSandbox::new(PathBuf::from(
+                &record.working_directory,
+            ));
             Ok(Box::new(sandbox))
         }
         "docker" => {
@@ -153,15 +154,12 @@ async fn reconnect(
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to create Daytona client: {e}"))?;
 
-            let sdk_sandbox = client
-                .get(name)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to reconnect to Daytona sandbox '{name}': {e}"))?;
+            let sdk_sandbox = client.get(name).await.map_err(|e| {
+                anyhow::anyhow!("Failed to reconnect to Daytona sandbox '{name}': {e}")
+            })?;
 
-            let sandbox = crate::daytona_sandbox::DaytonaSandbox::from_existing(
-                client,
-                sdk_sandbox,
-            );
+            let sandbox =
+                crate::daytona_sandbox::DaytonaSandbox::from_existing(client, sdk_sandbox);
             Ok(Box::new(sandbox))
         }
         "exe" => {
@@ -172,7 +170,9 @@ async fn reconnect(
 
             let data_ssh = arc_exe::OpensshRunner::connect(data_host)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to exe sandbox '{data_host}': {e}"))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to connect to exe sandbox '{data_host}': {e}")
+                })?;
 
             let sandbox = arc_exe::ExeSandbox::from_existing(Box::new(data_ssh));
             Ok(Box::new(sandbox))
@@ -194,8 +194,9 @@ pub async fn cp_command(args: CpArgs) -> Result<()> {
             let run_dir = find_run_by_prefix(&base, &run_prefix)?;
             let sandbox_json = run_dir.join("sandbox.json");
             debug!(path = %sandbox_json.display(), "Loading sandbox record");
-            let record = SandboxRecord::load(&sandbox_json)
-                .context("Failed to load sandbox.json — was this run started with a recent version of arc?")?;
+            let record = SandboxRecord::load(&sandbox_json).context(
+                "Failed to load sandbox.json — was this run started with a recent version of arc?",
+            )?;
 
             info!(run_id = %run_prefix, provider = %record.provider, "Connecting to sandbox");
             let sandbox = reconnect(&record).await?;
@@ -219,8 +220,9 @@ pub async fn cp_command(args: CpArgs) -> Result<()> {
             let run_dir = find_run_by_prefix(&base, &run_prefix)?;
             let sandbox_json = run_dir.join("sandbox.json");
             debug!(path = %sandbox_json.display(), "Loading sandbox record");
-            let record = SandboxRecord::load(&sandbox_json)
-                .context("Failed to load sandbox.json — was this run started with a recent version of arc?")?;
+            let record = SandboxRecord::load(&sandbox_json).context(
+                "Failed to load sandbox.json — was this run started with a recent version of arc?",
+            )?;
 
             info!(run_id = %run_prefix, provider = %record.provider, "Connecting to sandbox");
             let sandbox = reconnect(&record).await?;
@@ -278,7 +280,8 @@ async fn upload_recursive(
     remote_path: &str,
 ) -> Result<()> {
     let mut file_count = 0usize;
-    let mut stack: Vec<(PathBuf, String)> = vec![(local_path.to_path_buf(), remote_path.to_string())];
+    let mut stack: Vec<(PathBuf, String)> =
+        vec![(local_path.to_path_buf(), remote_path.to_string())];
 
     while let Some((dir_path, dir_remote)) = stack.pop() {
         let mut entries = tokio::fs::read_dir(&dir_path)

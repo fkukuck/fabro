@@ -81,10 +81,7 @@ mod tests {
             loaded.host_working_directory.as_deref(),
             Some("/home/user/project")
         );
-        assert_eq!(
-            loaded.container_mount_point.as_deref(),
-            Some("/workspace")
-        );
+        assert_eq!(loaded.container_mount_point.as_deref(), Some("/workspace"));
         assert!(loaded.data_host.is_none());
     }
 

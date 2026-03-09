@@ -8926,7 +8926,11 @@ impl arc_agent::Sandbox for RemoteMockEnv {
         Err("not implemented".to_string())
     }
 
-    async fn upload_file_from_local(&self, _: &std::path::Path, _: &str) -> std::result::Result<(), String> {
+    async fn upload_file_from_local(
+        &self,
+        _: &std::path::Path,
+        _: &str,
+    ) -> std::result::Result<(), String> {
         Err("not implemented".to_string())
     }
 
