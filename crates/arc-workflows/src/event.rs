@@ -117,6 +117,10 @@ pub enum WorkflowRunEvent {
         status: String,
         git_commit_sha: String,
     },
+    GitCheckpointFailed {
+        node_id: String,
+        error: String,
+    },
     EdgeSelected {
         from_node: String,
         to_node: String,
@@ -381,6 +385,9 @@ impl WorkflowRunEvent {
                 ..
             } => {
                 debug!(run_id, node_id, status, "Git checkpoint");
+            }
+            Self::GitCheckpointFailed { node_id, error } => {
+                error!(node_id, error, "Git checkpoint commit failed");
             }
             Self::EdgeSelected {
                 from_node,
@@ -773,6 +780,7 @@ fn rename_fields(event_name: &str, fields: &mut serde_json::Map<String, serde_js
     } else if event_name == "SubgraphCompleted"
         || event_name == "CheckpointSaved"
         || event_name == "GitCheckpoint"
+        || event_name == "GitCheckpointFailed"
     {
         default_node_label(fields);
     }
@@ -1684,6 +1692,22 @@ mod tests {
         assert_eq!(name, "CheckpointSaved");
         assert_eq!(fields["node_id"], "plan");
         assert_eq!(fields["node_label"], "plan");
+    }
+
+    #[test]
+    fn rename_fields_git_checkpoint_failed() {
+        let event = WorkflowRunEvent::GitCheckpointFailed {
+            node_id: "fix_lints".to_string(),
+            error: "git add failed (exit 1): fatal: not a git repository".to_string(),
+        };
+        let (name, fields) = flatten_event(&event);
+        assert_eq!(name, "GitCheckpointFailed");
+        assert_eq!(fields["node_id"], "fix_lints");
+        assert_eq!(fields["node_label"], "fix_lints");
+        assert_eq!(
+            fields["error"],
+            "git add failed (exit 1): fatal: not a git repository"
+        );
     }
 
     #[test]

@@ -2048,6 +2048,12 @@ impl WorkflowRunEngine {
                             last_git_sha = Some(sha);
                         }
                         Err(e) => {
+                            self.services
+                                .emitter
+                                .emit(&WorkflowRunEvent::GitCheckpointFailed {
+                                    node_id: node.id.clone(),
+                                    error: e.clone(),
+                                });
                             return Err(ArcError::Engine {
                                 message: format!(
                                     "git checkpoint commit failed for node '{}': {e}",
