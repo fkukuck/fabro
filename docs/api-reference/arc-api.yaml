@@ -1162,10 +1162,11 @@ paths:
       tags: [Completions]
       summary: Create Completion
       description: |
-        Generate a text completion. Set `stream: true` for Anthropic-style SSE streaming.
+        Generate a text completion. Set `stream: true` for SSE streaming.
 
-        SSE event types: message_start, content_block_start, content_block_delta,
-        content_block_stop, message_delta, message_stop, ping, error.
+        All SSE frames use `event: stream_event` with a JSON-serialized StreamEvent
+        payload. StreamEvent types: stream_start, text_start, text_delta, text_end,
+        tool_call_start, tool_call_delta, tool_call_end, finish, error.
       requestBody:
         required: true
         content:

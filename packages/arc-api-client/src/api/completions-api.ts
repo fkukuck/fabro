@@ -33,7 +33,7 @@ import type { ErrorResponse } from '../models';
 export const CompletionsApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * Generate a text completion. Set `stream: true` for Anthropic-style SSE streaming.  SSE event types: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop, ping, error. 
+         * Generate a text completion. Set `stream: true` for SSE streaming.  All SSE frames use `event: stream_event` with a JSON-serialized StreamEvent payload. StreamEvent types: stream_start, text_start, text_delta, text_end, tool_call_start, tool_call_delta, tool_call_end, finish, error. 
          * @summary Create Completion
          * @param {CreateCompletionRequest} createCompletionRequest 
          * @param {*} [options] Override http request option.
@@ -84,7 +84,7 @@ export const CompletionsApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = CompletionsApiAxiosParamCreator(configuration)
     return {
         /**
-         * Generate a text completion. Set `stream: true` for Anthropic-style SSE streaming.  SSE event types: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop, ping, error. 
+         * Generate a text completion. Set `stream: true` for SSE streaming.  All SSE frames use `event: stream_event` with a JSON-serialized StreamEvent payload. StreamEvent types: stream_start, text_start, text_delta, text_end, tool_call_start, tool_call_delta, tool_call_end, finish, error. 
          * @summary Create Completion
          * @param {CreateCompletionRequest} createCompletionRequest 
          * @param {*} [options] Override http request option.
@@ -106,7 +106,7 @@ export const CompletionsApiFactory = function (configuration?: Configuration, ba
     const localVarFp = CompletionsApiFp(configuration)
     return {
         /**
-         * Generate a text completion. Set `stream: true` for Anthropic-style SSE streaming.  SSE event types: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop, ping, error. 
+         * Generate a text completion. Set `stream: true` for SSE streaming.  All SSE frames use `event: stream_event` with a JSON-serialized StreamEvent payload. StreamEvent types: stream_start, text_start, text_delta, text_end, tool_call_start, tool_call_delta, tool_call_end, finish, error. 
          * @summary Create Completion
          * @param {CreateCompletionRequest} createCompletionRequest 
          * @param {*} [options] Override http request option.
@@ -123,7 +123,7 @@ export const CompletionsApiFactory = function (configuration?: Configuration, ba
  */
 export class CompletionsApi extends BaseAPI {
     /**
-     * Generate a text completion. Set `stream: true` for Anthropic-style SSE streaming.  SSE event types: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop, ping, error. 
+     * Generate a text completion. Set `stream: true` for SSE streaming.  All SSE frames use `event: stream_event` with a JSON-serialized StreamEvent payload. StreamEvent types: stream_start, text_start, text_delta, text_end, tool_call_start, tool_call_delta, tool_call_end, finish, error. 
      * @summary Create Completion
      * @param {CreateCompletionRequest} createCompletionRequest 
      * @param {*} [options] Override http request option.
