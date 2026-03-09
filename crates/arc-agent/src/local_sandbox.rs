@@ -210,6 +210,28 @@ impl Sandbox for LocalSandbox {
         let timeout_duration = std::time::Duration::from_millis(timeout_ms);
         let token = cancel_token.unwrap_or_default();
 
+        // Take stdout/stderr handles before entering the select! so we can
+        // drain them concurrently.  Without this, the child can deadlock: if
+        // it writes more than the OS pipe buffer (~64 KB) the write() syscall
+        // blocks until the parent drains the pipe, but the parent is blocked
+        // on child.wait().
+        let mut stdout_pipe = child.stdout.take();
+        let mut stderr_pipe = child.stderr.take();
+        let stdout_task = tokio::spawn(async move {
+            let mut buf = String::new();
+            if let Some(ref mut r) = stdout_pipe {
+                let _ = r.read_to_string(&mut buf).await;
+            }
+            buf
+        });
+        let stderr_task = tokio::spawn(async move {
+            let mut buf = String::new();
+            if let Some(ref mut r) = stderr_pipe {
+                let _ = r.read_to_string(&mut buf).await;
+            }
+            buf
+        });
+
         let (timed_out, exit_code) = tokio::select! {
             status_result = child.wait() => {
                 let status = status_result.map_err(|e| format!("Failed to wait for process: {e}"))?;
@@ -227,14 +249,8 @@ impl Sandbox for LocalSandbox {
 
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-        let mut stdout_str = String::new();
-        if let Some(mut stdout) = child.stdout.take() {
-            let _ = stdout.read_to_string(&mut stdout_str).await;
-        }
-        let mut stderr_str = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            let _ = stderr.read_to_string(&mut stderr_str).await;
-        }
+        let stdout_str = stdout_task.await.unwrap_or_default();
+        let stderr_str = stderr_task.await.unwrap_or_default();
 
         Ok(ExecResult {
             stdout: stdout_str,
