@@ -10,7 +10,7 @@ digraph ImplementAndSimplify {
     start [shape=Mdiamond, label="Start"]
     exit  [shape=Msquare, label="Exit"]
 
-    toolchain         [label="Toolchain", shape=parallelogram, script="cargo --version 2>&1", max_retries=0]
+    toolchain         [label="Toolchain", shape=parallelogram, script="command -v cargo >/dev/null || (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env) && cargo --version 2>&1", max_retries=0]
     preflight_compile [label="Preflight Compile", shape=parallelogram, script="cargo check 2>&1", max_retries=0]
     preflight_lint    [label="Preflight Lint", shape=parallelogram, script="cargo clippy -- -D warnings 2>&1", max_retries=0]
     fix_lints         [label="Fix Lints", prompt="The preflight lint step failed. Read the build output from context and fix all clippy lint warnings.", max_visits=3]
