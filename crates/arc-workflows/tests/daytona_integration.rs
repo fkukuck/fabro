@@ -400,6 +400,7 @@ async fn daytona_pipeline_artifact_offload_and_sync() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine
@@ -596,6 +597,7 @@ async fn daytona_git_checkpoint_remote_emits_events() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine
@@ -784,6 +786,7 @@ async fn daytona_parallel_git_branching_e2e() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine
@@ -1160,6 +1163,7 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine
@@ -1302,6 +1306,7 @@ async fn daytona_asset_collection() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine
@@ -1558,6 +1563,7 @@ async fn daytona_git_push_run_branch_to_origin() {
         git_author: arc_workflows::git::GitAuthor::default(),
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let outcome = engine

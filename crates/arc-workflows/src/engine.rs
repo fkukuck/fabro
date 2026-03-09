@@ -855,6 +855,8 @@ pub struct RunConfig {
     pub base_branch: Option<String>,
     /// Whether to auto-create a PR on successful completion.
     pub pull_request_enabled: bool,
+    /// Glob patterns for asset collection. Empty = no asset collection.
+    pub asset_globs: Vec<String>,
 }
 
 /// The workflow run execution engine.
@@ -983,20 +985,13 @@ impl WorkflowRunEngine {
         policy: &RetryPolicy,
         stage_index: usize,
         visit: usize,
+        asset_globs: &[String],
     ) -> Result<(Outcome, u32)> {
         let handler = self.services.registry.resolve(node);
 
         let node_timeout = node.timeout();
 
         for attempt in 1..=policy.max_attempts {
-            // Take baseline asset snapshot before handler execution
-            let baseline = match asset_snapshot::snapshot(self.services.sandbox.as_ref()).await {
-                Ok(fp) => fp,
-                Err(e) => {
-                    tracing::warn!(node = %node.id, error = %e, "Asset baseline snapshot failed");
-                    std::collections::HashMap::new()
-                }
-            };
             // Floor to integer seconds: macOS stat reports mtime as integer seconds,
             // so a fractional epoch would reject files created in the same second.
             let command_start_epoch = std::time::SystemTime::now()
@@ -1038,8 +1033,8 @@ impl WorkflowRunEngine {
                 }
             };
 
-            // Collect assets after handler completes (both success and error)
-            {
+            // Collect assets after handler completes (only when globs are configured)
+            if !asset_globs.is_empty() {
                 let node_slug = if visit <= 1 {
                     node.id.clone()
                 } else {
@@ -1053,7 +1048,7 @@ impl WorkflowRunEngine {
                 match asset_snapshot::collect_assets(
                     self.services.sandbox.as_ref(),
                     &assets_dir,
-                    &baseline,
+                    asset_globs,
                     command_start_epoch,
                 )
                 .await
@@ -1636,7 +1631,7 @@ impl WorkflowRunEngine {
             let (mut outcome, attempts_used) = if let Some((ref token, _)) = stall_token {
                 tokio::select! {
                     result = self.execute_with_retry(
-                        node, &context, graph, &config.logs_root, &retry_policy, stage_index, visit,
+                        node, &context, graph, &config.logs_root, &retry_policy, stage_index, visit, &config.asset_globs,
                     ) => result?,
                     () = token.cancelled() => {
                         let idle_secs = graph.stall_timeout().map_or(0, |d| d.as_secs());
@@ -1659,6 +1654,7 @@ impl WorkflowRunEngine {
                     &retry_policy,
                     stage_index,
                     visit,
+                    &config.asset_globs,
                 )
                 .await?
             };
@@ -2878,6 +2874,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -2904,6 +2901,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
         let checkpoint_path = dir.path().join("checkpoint.json");
@@ -2938,6 +2936,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -2968,6 +2967,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -2994,6 +2994,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3033,6 +3034,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -3096,6 +3098,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3186,6 +3189,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3219,6 +3223,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3247,6 +3252,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3275,6 +3281,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3307,6 +3314,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3467,6 +3475,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3510,6 +3519,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 
@@ -3571,6 +3581,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
 
@@ -3635,6 +3646,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
 
@@ -3703,6 +3715,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_ok());
@@ -3760,6 +3773,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -3818,6 +3832,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
 
@@ -3851,6 +3866,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -3880,6 +3896,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -3908,6 +3925,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -3949,6 +3967,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
 
         // Set cancel after a short delay (while the slow handler is running)
@@ -4027,6 +4046,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4058,6 +4078,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4091,6 +4112,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4129,6 +4151,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4165,6 +4188,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4198,6 +4222,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4292,6 +4317,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
 
         // The engine returns Err because the Fail outcome has no outgoing fail edge,
@@ -4501,6 +4527,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4537,6 +4564,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4580,6 +4608,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4663,6 +4692,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4757,6 +4787,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let result = engine.run(&g, &config).await;
         assert!(result.is_err());
@@ -4828,6 +4859,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -4886,6 +4918,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let outcome = engine.run(&g, &config).await.unwrap();
         assert_eq!(outcome.status, StageStatus::Success);
@@ -4945,6 +4978,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         let _outcome = engine.run(&g, &config).await.unwrap();
 
@@ -5031,6 +5065,7 @@ mod tests {
             git_author: crate::git::GitAuthor::default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
         engine.run(&g, &config).await.unwrap();
 

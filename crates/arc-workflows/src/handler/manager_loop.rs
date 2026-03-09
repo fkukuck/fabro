@@ -153,6 +153,7 @@ impl Handler for SubWorkflowHandler {
                 .unwrap_or_default(),
             base_branch: None,
             pull_request_enabled: false,
+            asset_globs: Vec::new(),
         };
 
         // Clone parent context for child; inject parent preamble

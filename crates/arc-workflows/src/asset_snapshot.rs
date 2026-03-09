@@ -1,15 +1,7 @@
 use arc_agent::Sandbox;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, warn};
-
-/// Fingerprint of a file for change detection between snapshots.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FileFingerprint {
-    pub size: u64,
-    pub mtime_epoch_secs: f64,
-}
 
 /// A file discovered by the find command.
 #[derive(Debug, Clone)]
@@ -29,17 +21,6 @@ pub struct AssetCollectionSummary {
     pub copied_paths: Vec<String>,
 }
 
-/// Directory path segments that identify asset directories.
-const DIRECTORY_SEGMENTS: &[&str] = &[
-    "playwright-report",
-    "test-results",
-    "cypress/videos",
-    "cypress/screenshots",
-];
-
-/// Filename glob patterns for individual asset files.
-const FILENAME_GLOBS: &[&str] = &["junit*.xml", "*.trace.zip"];
-
 /// Directories to exclude from the find search.
 const EXCLUDE_DIRS: &[&str] = &[
     ".git",
@@ -51,17 +32,18 @@ const EXCLUDE_DIRS: &[&str] = &[
     "__pycache__",
 ];
 
-/// Path segments that indicate excluded tool cache directories.
-const EXCLUDE_SEGMENTS: &[&str] = &[".cache/ms-playwright", "playwright/.cache", ".yarn/cache"];
-
 /// Maximum size for a single file (10 MB).
 const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
 /// Maximum total size for all collected files (50 MB).
 const MAX_TOTAL_SIZE: u64 = 50 * 1024 * 1024;
 
-/// Build a platform-aware find command to discover asset files.
-pub fn build_find_command(root: &str, platform: &str) -> String {
+/// Build a platform-aware find command to discover asset files matching the given globs.
+///
+/// Globs without `/` are treated as filename patterns (`-name`).
+/// Globs with `/` are treated as directory patterns: the trailing `/**` (if any) is stripped
+/// and the remainder is matched via `-path '*/{dir}/*'`.
+pub fn build_find_command(root: &str, platform: &str, globs: &[String]) -> String {
     let mut cmd = format!("find {root}");
 
     // Prune excluded directories
@@ -73,17 +55,21 @@ pub fn build_find_command(root: &str, platform: &str) -> String {
     cmd.push_str(&prune_parts.join(" -o "));
     cmd.push_str(" \\) -prune -o");
 
-    // Match conditions: not a symlink, is a file, matches asset patterns
+    // Match conditions: not a symlink, is a file, matches user globs
     cmd.push_str(" -not -type l -type f \\(");
 
-    let mut path_conditions: Vec<String> = Vec::new();
-    for segment in DIRECTORY_SEGMENTS {
-        path_conditions.push(format!(" -path '*/{segment}/*'"));
+    let mut conditions: Vec<String> = Vec::new();
+    for glob in globs {
+        if glob.contains('/') {
+            // Directory-style glob: strip trailing /** and match as path
+            let dir = glob.trim_end_matches("/**").trim_end_matches("/*");
+            conditions.push(format!(" -path '*/{dir}/*'"));
+        } else {
+            // Filename glob
+            conditions.push(format!(" -name '{glob}'"));
+        }
     }
-    for glob in FILENAME_GLOBS {
-        path_conditions.push(format!(" -name '{glob}'"));
-    }
-    cmd.push_str(&path_conditions.join(" -o"));
+    cmd.push_str(&conditions.join(" -o"));
     cmd.push_str(" \\)");
 
     // Platform-specific output format
@@ -177,94 +163,14 @@ fn parse_find_output_darwin(output: &str) -> Vec<DiscoveredFile> {
     files
 }
 
-/// Check whether a path matches known asset patterns.
-pub fn is_asset_candidate(path: &str) -> bool {
-    // Check excluded segments first
-    for seg in EXCLUDE_SEGMENTS {
-        if path.contains(seg) {
-            return false;
-        }
-    }
-
-    // Check directory segments — must appear as a complete path segment
-    for segment in DIRECTORY_SEGMENTS {
-        // segment may contain a slash (e.g., "cypress/videos"), so check
-        // that it appears bounded by / or start/end of string
-        if let Some(pos) = path.find(segment) {
-            let before_ok = pos == 0 || path.as_bytes()[pos - 1] == b'/';
-            let after_pos = pos + segment.len();
-            let after_ok = after_pos >= path.len() || path.as_bytes()[after_pos] == b'/';
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-    }
-
-    // Check filename globs against the last path component
-    if let Some(filename) = path.rsplit('/').next() {
-        for glob_pattern in FILENAME_GLOBS {
-            if matches_simple_glob(glob_pattern, filename) {
-                return true;
-            }
-        }
-        // Also check at root level (no slash in path)
-        if !path.contains('/') {
-            for glob_pattern in FILENAME_GLOBS {
-                if matches_simple_glob(glob_pattern, path) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
-/// Simple glob matching supporting only `*` wildcard.
-fn matches_simple_glob(pattern: &str, text: &str) -> bool {
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return pattern == text;
-    }
-
-    // Check prefix
-    if !text.starts_with(parts[0]) {
-        return false;
-    }
-    // Check suffix
-    if !text.ends_with(parts[parts.len() - 1]) {
-        return false;
-    }
-
-    // For patterns like "junit*.xml", verify the middle parts appear in order
-    let mut pos = parts[0].len();
-    for part in &parts[1..parts.len() - 1] {
-        if let Some(found) = text[pos..].find(part) {
-            pos += found + part.len();
-        } else {
-            return false;
-        }
-    }
-
-    true
-}
-
-/// Select which files should be collected based on fingerprint changes, timing, and size budgets.
+/// Select which files should be collected based on timing and size budgets.
 pub fn select_files_to_collect(
     discovered: &[DiscoveredFile],
-    baseline: &HashMap<String, FileFingerprint>,
     command_start_epoch: f64,
 ) -> Vec<DiscoveredFile> {
     let mut candidates: Vec<DiscoveredFile> = discovered
         .iter()
         .filter(|f| {
-            // Skip files that haven't changed since baseline
-            if let Some(fp) = baseline.get(&f.relative_path) {
-                if fp.size == f.size && (fp.mtime_epoch_secs - f.mtime_epoch_secs).abs() < 0.01 {
-                    return false;
-                }
-            }
-
             // Skip files older than command start
             if f.mtime_epoch_secs < command_start_epoch {
                 return false;
@@ -326,62 +232,27 @@ fn normalize_paths(discovered: Vec<DiscoveredFile>, root: &str) -> Vec<Discovere
         .collect()
 }
 
-/// Take a snapshot of current asset files in the sandbox.
-/// Returns a fingerprint map of discovered files.
-pub async fn snapshot(sandbox: &dyn Sandbox) -> Result<HashMap<String, FileFingerprint>, String> {
-    let root = sandbox.working_directory();
-    let platform = sandbox.platform();
-    let cmd = build_find_command(root, platform);
-
-    debug!("Taking asset snapshot");
-    let result = sandbox
-        .exec_command(&cmd, FIND_TIMEOUT_MS, None, None, None)
-        .await?;
-
-    // Ignore non-zero exit codes — find may return 1 if some dirs are unreadable
-    let discovered = parse_find_output(&result.stdout, platform);
-    let discovered = normalize_paths(discovered, root);
-
-    let mut fingerprints = HashMap::new();
-    for f in discovered {
-        if is_asset_candidate(&f.relative_path) {
-            fingerprints.insert(
-                f.relative_path,
-                FileFingerprint {
-                    size: f.size,
-                    mtime_epoch_secs: f.mtime_epoch_secs,
-                },
-            );
-        }
-    }
-
-    Ok(fingerprints)
-}
-
-/// Collect asset files that changed since the baseline snapshot.
+/// Collect asset files matching the configured globs that were created during this stage.
 pub async fn collect_assets(
     sandbox: &dyn Sandbox,
     stage_dir: &Path,
-    baseline: &HashMap<String, FileFingerprint>,
+    globs: &[String],
     command_start_epoch: f64,
 ) -> Result<AssetCollectionSummary, String> {
     let root = sandbox.working_directory();
     let platform = sandbox.platform();
-    let cmd = build_find_command(root, platform);
+    let cmd = build_find_command(root, platform, globs);
 
+    debug!(cmd = cmd.as_str(), "Collecting assets");
     let result = sandbox
         .exec_command(&cmd, FIND_TIMEOUT_MS, None, None, None)
         .await?;
 
     let discovered = parse_find_output(&result.stdout, platform);
     let discovered = normalize_paths(discovered, root);
-    let candidates: Vec<DiscoveredFile> = discovered
-        .into_iter()
-        .filter(|f| is_asset_candidate(&f.relative_path))
-        .collect();
 
-    let total_discovered = candidates.len();
-    let to_collect = select_files_to_collect(&candidates, baseline, command_start_epoch);
+    let total_discovered = discovered.len();
+    let to_collect = select_files_to_collect(&discovered, command_start_epoch);
     let files_skipped = total_discovered - to_collect.len();
 
     let mut files_copied: usize = 0;
@@ -437,6 +308,7 @@ pub async fn collect_assets(
 mod tests {
     use super::*;
     use arc_agent::sandbox::ExecResult;
+    use std::collections::HashMap;
 
     /// Minimal mock sandbox for asset_snapshot tests.
     struct AssetMockSandbox {
@@ -547,50 +419,6 @@ mod tests {
     }
 
     #[test]
-    fn is_asset_candidate_matches_directory_segments() {
-        assert!(is_asset_candidate("playwright-report/index.html"));
-    }
-
-    #[test]
-    fn is_asset_candidate_matches_nested_segments() {
-        assert!(is_asset_candidate("frontend/playwright-report/index.html"));
-    }
-
-    #[test]
-    fn is_asset_candidate_rejects_partial_segments() {
-        assert!(!is_asset_candidate("playwright-reporter/index.html"));
-    }
-
-    #[test]
-    fn is_asset_candidate_matches_filename_globs() {
-        assert!(is_asset_candidate("junit-report.xml"));
-        assert!(is_asset_candidate("some/dir/junit.xml"));
-        assert!(is_asset_candidate("output/results.trace.zip"));
-    }
-
-    #[test]
-    fn is_asset_candidate_rejects_excluded_paths() {
-        assert!(!is_asset_candidate(
-            ".cache/ms-playwright/chromium/file.txt"
-        ));
-        assert!(!is_asset_candidate("playwright/.cache/some-file"));
-        assert!(!is_asset_candidate(".yarn/cache/something.zip"));
-    }
-
-    #[test]
-    fn is_asset_candidate_matches_cypress_directories() {
-        assert!(is_asset_candidate("cypress/videos/test.mp4"));
-        assert!(is_asset_candidate("cypress/screenshots/fail.png"));
-    }
-
-    #[test]
-    fn is_asset_candidate_rejects_unrelated_paths() {
-        assert!(!is_asset_candidate("src/main.rs"));
-        assert!(!is_asset_candidate("package.json"));
-        assert!(!is_asset_candidate("report.xml"));
-    }
-
-    #[test]
     fn parse_find_output_linux() {
         let output = "1024\t1709312400.0\ttest-results/r.xml\n";
         let files = parse_find_output(output, "linux");
@@ -621,33 +449,13 @@ mod tests {
     }
 
     #[test]
-    fn select_files_skips_unchanged() {
-        let discovered = vec![DiscoveredFile {
-            relative_path: "test-results/r.xml".to_string(),
-            size: 1024,
-            mtime_epoch_secs: 1000.0,
-        }];
-        let mut baseline = HashMap::new();
-        baseline.insert(
-            "test-results/r.xml".to_string(),
-            FileFingerprint {
-                size: 1024,
-                mtime_epoch_secs: 1000.0,
-            },
-        );
-        let selected = select_files_to_collect(&discovered, &baseline, 500.0);
-        assert_eq!(selected.len(), 0);
-    }
-
-    #[test]
     fn select_files_skips_old_mtime() {
         let discovered = vec![DiscoveredFile {
             relative_path: "test-results/old.xml".to_string(),
             size: 1024,
             mtime_epoch_secs: 500.0,
         }];
-        let baseline = HashMap::new();
-        let selected = select_files_to_collect(&discovered, &baseline, 1000.0);
+        let selected = select_files_to_collect(&discovered, 1000.0);
         assert_eq!(selected.len(), 0);
     }
 
@@ -658,8 +466,7 @@ mod tests {
             size: MAX_FILE_SIZE + 1,
             mtime_epoch_secs: 2000.0,
         }];
-        let baseline = HashMap::new();
-        let selected = select_files_to_collect(&discovered, &baseline, 1000.0);
+        let selected = select_files_to_collect(&discovered, 1000.0);
         assert_eq!(selected.len(), 0);
     }
 
@@ -682,8 +489,7 @@ mod tests {
                 mtime_epoch_secs: 2000.0,
             },
         ];
-        let baseline = HashMap::new();
-        let selected = select_files_to_collect(&discovered, &baseline, 1000.0);
+        let selected = select_files_to_collect(&discovered, 1000.0);
         assert_eq!(selected.len(), 3);
         assert_eq!(selected[0].size, 1000);
         assert_eq!(selected[1].size, 2000);
@@ -699,28 +505,46 @@ mod tests {
                 mtime_epoch_secs: 2000.0,
             })
             .collect();
-        let baseline = HashMap::new();
-        let selected = select_files_to_collect(&discovered, &baseline, 1000.0);
+        let selected = select_files_to_collect(&discovered, 1000.0);
         // 50 MB budget / 9 MB each = 5 fit (45 MB), 6th would be 54 MB
         assert_eq!(selected.len(), 5);
     }
 
     #[test]
-    fn build_find_command_linux() {
-        let cmd = build_find_command("/workspace", "linux");
+    fn build_find_command_filename_glob() {
+        let globs = vec!["*.trace.zip".to_string()];
+        let cmd = build_find_command("/workspace", "linux", &globs);
+        assert!(cmd.contains("-name '*.trace.zip'"));
         assert!(cmd.contains("-printf"));
-        assert!(cmd.contains("playwright-report"));
-        assert!(cmd.contains("junit*.xml"));
         assert!(cmd.contains("-prune"));
         assert!(cmd.contains("node_modules"));
     }
 
     #[test]
+    fn build_find_command_directory_glob() {
+        let globs = vec!["test-results/**".to_string()];
+        let cmd = build_find_command("/workspace", "linux", &globs);
+        assert!(cmd.contains("-path '*/test-results/*'"));
+    }
+
+    #[test]
+    fn build_find_command_mixed_globs() {
+        let globs = vec![
+            "test-results/**".to_string(),
+            "playwright-report/**".to_string(),
+            "*.trace.zip".to_string(),
+        ];
+        let cmd = build_find_command("/workspace", "linux", &globs);
+        assert!(cmd.contains("-path '*/test-results/*'"));
+        assert!(cmd.contains("-path '*/playwright-report/*'"));
+        assert!(cmd.contains("-name '*.trace.zip'"));
+    }
+
+    #[test]
     fn build_find_command_darwin() {
-        let cmd = build_find_command("/workspace", "darwin");
+        let globs = vec!["test-results/**".to_string()];
+        let cmd = build_find_command("/workspace", "darwin", &globs);
         assert!(cmd.contains("-exec stat -f"));
-        assert!(cmd.contains("playwright-report"));
-        assert!(cmd.contains("junit*.xml"));
         assert!(!cmd.contains("-printf"));
     }
 
@@ -750,21 +574,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn snapshot_uses_exec_command_and_parses() {
-        let mock = AssetMockSandbox::new(
-            HashMap::new(),
-            "1024\t2000.0\ttest-results/r.xml\n512\t2000.0\tsrc/main.rs\n",
-            "linux",
-        );
-
-        let fingerprints = snapshot(&mock).await.unwrap();
-        // Only test-results/r.xml is an asset candidate, src/main.rs is not
-        assert_eq!(fingerprints.len(), 1);
-        assert!(fingerprints.contains_key("test-results/r.xml"));
-        assert_eq!(fingerprints["test-results/r.xml"].size, 1024);
-    }
-
-    #[tokio::test]
     async fn collect_assets_downloads_and_writes_manifest() {
         let stage_dir = tempfile::tempdir().unwrap();
 
@@ -773,8 +582,8 @@ mod tests {
 
         let mock = AssetMockSandbox::new(files, "1024\t2000.0\ttest-results/r.xml\n", "linux");
 
-        let baseline = HashMap::new();
-        let summary = collect_assets(&mock, stage_dir.path(), &baseline, 1000.0)
+        let globs = vec!["test-results/**".to_string()];
+        let summary = collect_assets(&mock, stage_dir.path(), &globs, 1000.0)
             .await
             .unwrap();
 
@@ -795,25 +604,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn collect_assets_skips_unchanged_files() {
+    async fn collect_assets_skips_old_files() {
         let stage_dir = tempfile::tempdir().unwrap();
 
         let mut files = HashMap::new();
         files.insert("test-results/r.xml".to_string(), "<test/>".to_string());
 
-        let mock = AssetMockSandbox::new(files, "1024\t2000.0\ttest-results/r.xml\n", "linux");
+        // File mtime (500.0) is before command_start_epoch (1000.0)
+        let mock = AssetMockSandbox::new(files, "1024\t500.0\ttest-results/r.xml\n", "linux");
 
-        // Provide a baseline with the same fingerprint
-        let mut baseline = HashMap::new();
-        baseline.insert(
-            "test-results/r.xml".to_string(),
-            FileFingerprint {
-                size: 1024,
-                mtime_epoch_secs: 2000.0,
-            },
-        );
-
-        let summary = collect_assets(&mock, stage_dir.path(), &baseline, 1000.0)
+        let globs = vec!["test-results/**".to_string()];
+        let summary = collect_assets(&mock, stage_dir.path(), &globs, 1000.0)
             .await
             .unwrap();
 
@@ -831,8 +632,8 @@ mod tests {
             "linux",
         );
 
-        let baseline = HashMap::new();
-        let summary = collect_assets(&mock, stage_dir.path(), &baseline, 1000.0)
+        let globs = vec!["test-results/**".to_string()];
+        let summary = collect_assets(&mock, stage_dir.path(), &globs, 1000.0)
             .await
             .unwrap();
 

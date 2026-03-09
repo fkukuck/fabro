@@ -22,6 +22,12 @@ pub struct PullRequestConfig {
     pub enabled: bool,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct AssetsConfig {
+    #[serde(default)]
+    pub include: Vec<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowRunConfig {
@@ -38,6 +44,7 @@ pub struct WorkflowRunConfig {
     #[serde(default)]
     pub checkpoint: CheckpointConfig,
     pub pull_request: Option<PullRequestConfig>,
+    pub assets: Option<AssetsConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -76,6 +83,7 @@ pub struct RunDefaults {
     #[serde(default)]
     pub checkpoint: CheckpointConfig,
     pub pull_request: Option<PullRequestConfig>,
+    pub assets: Option<AssetsConfig>,
 }
 
 impl WorkflowRunConfig {
@@ -175,6 +183,10 @@ impl WorkflowRunConfig {
 
         if self.pull_request.is_none() {
             self.pull_request = defaults.pull_request.clone();
+        }
+
+        if self.assets.is_none() {
+            self.assets = defaults.assets.clone();
         }
     }
 }
@@ -1789,5 +1801,78 @@ enabled = true
 "#;
         let defaults: RunDefaults = toml::from_str(toml).unwrap();
         assert!(defaults.pull_request.unwrap().enabled);
+    }
+
+    #[test]
+    fn parse_toml_with_assets() {
+        let toml = r#"
+version = 1
+goal = "Run tests"
+graph = "workflow.dot"
+
+[assets]
+include = ["test-results/**", "playwright-report/**", "*.trace.zip"]
+"#;
+        let config = parse_run_config(toml).unwrap();
+        let assets = config.assets.unwrap();
+        assert_eq!(
+            assets.include,
+            vec!["test-results/**", "playwright-report/**", "*.trace.zip"]
+        );
+    }
+
+    #[test]
+    fn parse_toml_without_assets() {
+        let toml = r#"
+version = 1
+graph = "workflow.dot"
+"#;
+        let config = parse_run_config(toml).unwrap();
+        assert!(config.assets.is_none());
+    }
+
+    #[test]
+    fn apply_defaults_inherits_assets() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            assets: Some(AssetsConfig {
+                include: vec!["test-results/**".into()],
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let assets = cfg.assets.unwrap();
+        assert_eq!(assets.include, vec!["test-results/**"]);
+    }
+
+    #[test]
+    fn apply_defaults_task_assets_wins() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.dot"
+
+[assets]
+include = ["playwright-report/**"]
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            assets: Some(AssetsConfig {
+                include: vec!["test-results/**".into()],
+            }),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        let assets = cfg.assets.unwrap();
+        assert_eq!(assets.include, vec!["playwright-report/**"]);
     }
 }

@@ -770,6 +770,11 @@ pub async fn run_command(
             .as_ref()
             .and_then(|c| c.pull_request.as_ref())
             .is_some_and(|p| p.enabled),
+        asset_globs: run_cfg
+            .as_ref()
+            .and_then(|c| c.assets.as_ref())
+            .map(|a| a.include.clone())
+            .unwrap_or_default(),
     };
 
     let run_start = Instant::now();
@@ -1204,6 +1209,7 @@ async fn run_from_branch(
         git_author,
         base_branch: None,
         pull_request_enabled: false,
+        asset_globs: Vec::new(),
     };
 
     let run_start = Instant::now();
@@ -1764,6 +1770,7 @@ mod tests {
             hooks: Vec::new(),
             checkpoint: Default::default(),
             pull_request: None,
+            assets: None,
         };
         let (model, provider) = resolve_model_provider(
             Some("gpt-5.2"),
@@ -1806,6 +1813,7 @@ mod tests {
             hooks: Vec::new(),
             checkpoint: Default::default(),
             pull_request: None,
+            assets: None,
         };
         let (model, provider) = resolve_model_provider(None, None, Some(&cfg), &defaults, &graph);
         assert_eq!(model, "toml-model");
@@ -1883,6 +1891,7 @@ mod tests {
             hooks: Vec::new(),
             checkpoint: Default::default(),
             pull_request: None,
+            assets: None,
         };
         let (model, provider) = resolve_model_provider(None, None, Some(&cfg), &defaults, &graph);
         assert_eq!(model, "toml-model");
@@ -1909,6 +1918,7 @@ mod tests {
             hooks: Vec::new(),
             checkpoint: Default::default(),
             pull_request: None,
+            assets: None,
         };
         let defaults = RunDefaults::default();
         assert!(resolve_preserve_sandbox(true, Some(&cfg), &defaults));
@@ -1934,6 +1944,7 @@ mod tests {
             hooks: Vec::new(),
             checkpoint: Default::default(),
             pull_request: None,
+            assets: None,
         };
         let defaults = RunDefaults {
             sandbox: Some(run_config::SandboxConfig {
