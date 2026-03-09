@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
-use crate::cli::runs::{default_logs_base, scan_runs};
+use crate::cli::runs::{default_logs_base, find_run_by_prefix};
 use crate::sandbox_record::SandboxRecord;
 
 #[derive(Args)]
@@ -71,34 +71,6 @@ fn split_run_path(s: &str) -> Option<(&str, &str)> {
         return None;
     }
     s.split_once(':')
-}
-
-/// Find a run directory by prefix match against run IDs.
-fn find_run_by_prefix(base: &Path, prefix: &str) -> Result<PathBuf> {
-    let runs = scan_runs(base).context("Failed to scan runs")?;
-    let matches: Vec<_> = runs
-        .iter()
-        .filter(|r| r.run_id.starts_with(prefix))
-        .collect();
-
-    match matches.len() {
-        0 => {
-            warn!(run_id = %prefix, "No matching run found");
-            bail!("No run found matching prefix '{prefix}'")
-        }
-        1 => {
-            let run = &matches[0];
-            debug!(run_id = %prefix, matched = %run.run_id, "Resolved run by prefix");
-            Ok(run.path.clone())
-        }
-        n => {
-            let ids: Vec<&str> = matches.iter().map(|r| r.run_id.as_str()).collect();
-            bail!(
-                "Ambiguous prefix '{prefix}': {n} runs match: {}",
-                ids.join(", ")
-            )
-        }
-    }
 }
 
 /// Reconnect to a sandbox from a saved record.
@@ -395,64 +367,5 @@ mod tests {
             }
             _ => panic!("Expected Upload"),
         }
-    }
-
-    #[test]
-    fn find_run_by_prefix_no_match() {
-        let dir = tempfile::tempdir().unwrap();
-        let result = find_run_by_prefix(dir.path(), "nonexistent");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn find_run_by_prefix_single_match() {
-        let dir = tempfile::tempdir().unwrap();
-        let run_dir = dir.path().join("20260101-ABC123");
-        std::fs::create_dir_all(&run_dir).unwrap();
-        std::fs::write(
-            run_dir.join("manifest.json"),
-            serde_json::to_string_pretty(&serde_json::json!({
-                "run_id": "abc123-full-id",
-                "workflow_name": "test",
-                "goal": "",
-                "start_time": "2026-01-01T12:00:00Z",
-                "node_count": 1,
-                "edge_count": 0
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let result = find_run_by_prefix(dir.path(), "abc123").unwrap();
-        assert_eq!(result, run_dir);
-    }
-
-    #[test]
-    fn find_run_by_prefix_ambiguous() {
-        let dir = tempfile::tempdir().unwrap();
-        for (subdir, run_id) in [("d1", "abc-111"), ("d2", "abc-222")] {
-            let run_dir = dir.path().join(subdir);
-            std::fs::create_dir_all(&run_dir).unwrap();
-            std::fs::write(
-                run_dir.join("manifest.json"),
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "run_id": run_id,
-                    "workflow_name": "test",
-                    "goal": "",
-                    "start_time": "2026-01-01T12:00:00Z",
-                    "node_count": 1,
-                    "edge_count": 0
-                }))
-                .unwrap(),
-            )
-            .unwrap();
-        }
-
-        let result = find_run_by_prefix(dir.path(), "abc");
-        assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("Ambiguous"),
-            "Should mention ambiguity"
-        );
     }
 }

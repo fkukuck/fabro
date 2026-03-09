@@ -313,6 +313,41 @@ pub fn ssh_url_to_https(url: &str) -> String {
     url.to_string()
 }
 
+/// Check whether a branch exists in a GitHub repository.
+///
+/// Uses a GitHub App installation token to query the branches API.
+/// Returns `true` if the branch exists, `false` if it doesn't (404).
+pub async fn branch_exists(
+    creds: &GitHubAppCredentials,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+    base_url: &str,
+) -> Result<bool, String> {
+    let jwt = sign_app_jwt(&creds.app_id, &creds.private_key_pem)?;
+    let client = reqwest::Client::new();
+
+    let token = create_installation_access_token(&client, &jwt, owner, repo, base_url).await?;
+
+    let url = format!("{base_url}/repos/{owner}/{repo}/branches/{branch}");
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "arc")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to check branch existence: {e}"))?;
+
+    match resp.status().as_u16() {
+        200 => Ok(true),
+        404 => Ok(false),
+        status => Err(format!(
+            "Unexpected status {status} checking branch '{branch}'"
+        )),
+    }
+}
+
 /// Resolve git clone credentials for a GitHub repository.
 ///
 /// Returns `(username, password)` for authenticated cloning.
@@ -657,5 +692,103 @@ mod tests {
         assert_eq!(token, "ghs_pr_token");
 
         token_mock.assert_async().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // branch_exists
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn branch_exists_returns_true_on_200() {
+        let mut server = mockito::Server::new_async().await;
+
+        server
+            .mock("GET", "/repos/owner/repo/installation")
+            .with_status(200)
+            .with_body(r#"{"id": 1}"#)
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/app/installations/1/access_tokens")
+            .with_status(201)
+            .with_body(r#"{"token": "ghs_test"}"#)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/repos/owner/repo/branches/my-branch")
+            .with_status(200)
+            .with_body(r#"{"name": "my-branch"}"#)
+            .create_async()
+            .await;
+
+        let pem = test_rsa_key();
+        let creds = GitHubAppCredentials {
+            app_id: "test".to_string(),
+            private_key_pem: pem,
+        };
+        let result = branch_exists(&creds, "owner", "repo", "my-branch", &server.url()).await;
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[tokio::test]
+    async fn branch_exists_returns_false_on_404() {
+        let mut server = mockito::Server::new_async().await;
+
+        server
+            .mock("GET", "/repos/owner/repo/installation")
+            .with_status(200)
+            .with_body(r#"{"id": 1}"#)
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/app/installations/1/access_tokens")
+            .with_status(201)
+            .with_body(r#"{"token": "ghs_test"}"#)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/repos/owner/repo/branches/no-such-branch")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let pem = test_rsa_key();
+        let creds = GitHubAppCredentials {
+            app_id: "test".to_string(),
+            private_key_pem: pem,
+        };
+        let result = branch_exists(&creds, "owner", "repo", "no-such-branch", &server.url()).await;
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[tokio::test]
+    async fn branch_exists_returns_error_on_500() {
+        let mut server = mockito::Server::new_async().await;
+
+        server
+            .mock("GET", "/repos/owner/repo/installation")
+            .with_status(200)
+            .with_body(r#"{"id": 1}"#)
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/app/installations/1/access_tokens")
+            .with_status(201)
+            .with_body(r#"{"token": "ghs_test"}"#)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/repos/owner/repo/branches/broken")
+            .with_status(500)
+            .create_async()
+            .await;
+
+        let pem = test_rsa_key();
+        let creds = GitHubAppCredentials {
+            app_id: "test".to_string(),
+            private_key_pem: pem,
+        };
+        let result = branch_exists(&creds, "owner", "repo", "broken", &server.url()).await;
+        assert!(result.is_err());
     }
 }

@@ -2,6 +2,7 @@ pub mod backend;
 pub mod cli_backend;
 pub mod cp;
 pub mod parse;
+pub mod pr;
 pub mod progress;
 pub mod run;
 pub mod run_config;

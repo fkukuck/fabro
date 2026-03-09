@@ -78,11 +78,22 @@ enum Command {
     Setup,
     /// List workflow runs
     Ps(arc_workflows::cli::runs::RunsListArgs),
+    /// Pull request operations
+    Pr {
+        #[command(subcommand)]
+        command: PrCommand,
+    },
     /// System maintenance commands
     System {
         #[command(subcommand)]
         command: SystemCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum PrCommand {
+    /// Create a pull request from a completed run
+    Create(arc_workflows::cli::pr::PrCreateArgs),
 }
 
 #[derive(Subcommand)]
@@ -141,6 +152,7 @@ async fn main() -> Result<()> {
         Command::Doctor { .. } => "doctor",
         Command::Setup => "setup",
         Command::Ps(_) => "ps",
+        Command::Pr { .. } => "pr",
         Command::System { .. } => "system",
     };
 
@@ -331,6 +343,13 @@ async fn main() -> Result<()> {
         Command::Ps(args) => {
             arc_workflows::cli::runs::list_command(&args)?;
         }
+        Command::Pr { command } => match command {
+            PrCommand::Create(args) => {
+                let server_config = arc_api::server_config::load_server_config(None)?;
+                let github_app = build_github_app_credentials(&server_config);
+                arc_workflows::cli::pr::pr_create_command(args, github_app).await?;
+            }
+        },
         Command::System { command } => match command {
             SystemCommand::Prune(args) => {
                 arc_workflows::cli::runs::prune_command(&args)?;
