@@ -186,6 +186,55 @@ fn resolve_exe_config(
         .or_else(|| run_defaults.sandbox.as_ref().and_then(|s| s.exe.clone()))
 }
 
+/// Resolve exe.dev git clone parameters from the current repo.
+///
+/// Returns `None` if no git repo is detected or credential resolution fails.
+async fn resolve_exe_clone_params(
+    cwd: &std::path::Path,
+    github_app: Option<&crate::github_app::GitHubAppCredentials>,
+) -> Option<arc_exe::GitCloneParams> {
+    let (detected_url, branch) = match crate::daytona_sandbox::detect_repo_info(cwd) {
+        Ok(info) => info,
+        Err(e) => {
+            tracing::warn!("No git repo detected for exe.dev clone: {e}");
+            return None;
+        }
+    };
+    let display_url = crate::github_app::ssh_url_to_https(&detected_url);
+    let token = match github_app {
+        Some(creds) => {
+            let (owner, repo) = match crate::github_app::parse_github_owner_repo(&display_url) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    tracing::warn!("Failed to parse GitHub URL for clone: {e}");
+                    return None;
+                }
+            };
+            match crate::github_app::resolve_clone_credentials(creds, &owner, &repo).await {
+                Ok((_username, password)) => password,
+                Err(e) => {
+                    tracing::warn!("Failed to get GitHub App credentials for clone: {e}");
+                    return None;
+                }
+            }
+        }
+        None => None,
+    };
+    let clone_url = match &token {
+        Some(t) => display_url.replacen(
+            "https://",
+            &format!("https://x-access-token:{t}@"),
+            1,
+        ),
+        None => display_url.clone(),
+    };
+    Some(arc_exe::GitCloneParams {
+        clone_url,
+        display_url,
+        branch,
+    })
+}
+
 /// Resolve the fallback chain from config.
 ///
 /// `apply_defaults` must be called on `run_cfg` before this — it merges
@@ -231,7 +280,8 @@ pub async fn run_command(
 ) -> anyhow::Result<()> {
     // Handle --run-branch resume: read everything from git metadata
     if let Some(branch) = args.run_branch.clone() {
-        return run_from_branch(args, &branch, styles, git_author).await;
+        return run_from_branch(args, &branch, styles, git_author, run_defaults, github_app)
+            .await;
     }
 
     let workflow_path = args
@@ -532,46 +582,8 @@ pub async fn run_command(
             daytona_arc
         }
         SandboxProvider::Exe => {
-            // Resolve git clone params before creating the sandbox
-            let clone_params = match crate::daytona_sandbox::detect_repo_info(&original_cwd) {
-                Ok((detected_url, branch)) => {
-                    let display_url = crate::github_app::ssh_url_to_https(&detected_url);
-                    let token = match &github_app {
-                        Some(creds) => {
-                            let (owner, repo) = crate::github_app::parse_github_owner_repo(
-                                &display_url,
-                            )
-                            .map_err(|e| {
-                                anyhow::anyhow!("Failed to parse GitHub URL for clone: {e}")
-                            })?;
-                            let (_username, password) =
-                                crate::github_app::resolve_clone_credentials(creds, &owner, &repo)
-                                    .await
-                                    .map_err(|e| {
-                                        anyhow::anyhow!(
-                                            "Failed to get GitHub App credentials for clone: {e}"
-                                        )
-                                    })?;
-                            password
-                        }
-                        None => None,
-                    };
-                    let clone_url = match &token {
-                        Some(t) => display_url.replacen(
-                            "https://",
-                            &format!("https://x-access-token:{t}@"),
-                            1,
-                        ),
-                        None => display_url.clone(),
-                    };
-                    Some(arc_exe::GitCloneParams {
-                        clone_url,
-                        display_url,
-                        branch,
-                    })
-                }
-                Err(_) => None,
-            };
+            let clone_params =
+                resolve_exe_clone_params(&original_cwd, github_app.as_ref()).await;
 
             let mgmt_ssh = arc_exe::OpensshRunner::connect_raw("exe.dev")
                 .await
@@ -1158,6 +1170,8 @@ async fn run_from_branch(
     run_branch: &str,
     styles: &'static Styles,
     git_author: crate::git::GitAuthor,
+    run_defaults: RunDefaults,
+    github_app: Option<crate::github_app::GitHubAppCredentials>,
 ) -> anyhow::Result<()> {
     // Extract run_id from branch name: "arc/run/{run_id}" -> "{run_id}"
     let run_id = run_branch
@@ -1221,25 +1235,103 @@ async fn run_from_branch(
     tokio::fs::create_dir_all(&logs_dir).await?;
     tokio::fs::write(logs_dir.join("graph.dot"), &source).await?;
 
-    // Re-attach worktree to the existing run branch
-    let worktree_path = logs_dir.join("worktree");
-    crate::git::replace_worktree(&original_cwd, &worktree_path, run_branch)
-        .map_err(|e| anyhow::anyhow!("failed to attach worktree to {run_branch}: {e}"))?;
-    std::env::set_current_dir(&worktree_path)?;
-
     let base_sha =
         crate::git::MetadataStore::read_manifest(&original_cwd, &run_id)?.and_then(|m| m.base_sha);
 
-    // Build minimal sandbox (local only for now)
-    let emitter = Arc::new(EventEmitter::new());
-    let sandbox: Arc<dyn arc_agent::Sandbox> = {
-        let mut env = arc_agent::LocalSandbox::new(worktree_path.clone());
-        let emitter_cb = Arc::clone(&emitter);
-        env.set_event_callback(Arc::new(move |event| {
-            emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
-        }));
-        Arc::new(env)
+    // Resolve sandbox provider
+    let sandbox_provider = if args.dry_run {
+        SandboxProvider::Local
+    } else {
+        resolve_sandbox_provider(args.sandbox, None, &run_defaults)?
     };
+
+    let emitter = Arc::new(EventEmitter::new());
+    let mut worktree_path: Option<PathBuf> = None;
+    let mut exe_sandbox_ref: Option<Arc<arc_exe::ExeSandbox>> = None;
+
+    let sandbox: Arc<dyn arc_agent::Sandbox> = match sandbox_provider {
+        SandboxProvider::Local | SandboxProvider::Docker => {
+            // Re-attach worktree to the existing run branch
+            let wt = logs_dir.join("worktree");
+            crate::git::replace_worktree(&original_cwd, &wt, run_branch)
+                .map_err(|e| anyhow::anyhow!("failed to attach worktree to {run_branch}: {e}"))?;
+            std::env::set_current_dir(&wt)?;
+            let mut env = arc_agent::LocalSandbox::new(wt.clone());
+            let emitter_cb = Arc::clone(&emitter);
+            env.set_event_callback(Arc::new(move |event| {
+                emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
+            }));
+            worktree_path = Some(wt);
+            Arc::new(env)
+        }
+        SandboxProvider::Exe => {
+            let exe_config = resolve_exe_config(None, &run_defaults);
+            let clone_params =
+                resolve_exe_clone_params(&original_cwd, github_app.as_ref()).await;
+            let mgmt_ssh = arc_exe::OpensshRunner::connect_raw("exe.dev")
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to connect to exe.dev: {e}"))?;
+            let config = exe_config.unwrap_or_default();
+            let mut env = arc_exe::ExeSandbox::new(
+                Box::new(mgmt_ssh),
+                config,
+                clone_params,
+                Some(run_id.clone()),
+            );
+            let emitter_cb = Arc::clone(&emitter);
+            env.set_event_callback(Arc::new(move |event| {
+                emitter_cb.emit(&crate::event::WorkflowRunEvent::Sandbox { event });
+            }));
+            let exe_arc = Arc::new(env);
+            exe_sandbox_ref = Some(Arc::clone(&exe_arc));
+            exe_arc
+        }
+        SandboxProvider::Daytona => {
+            bail!("--run-branch resume is not yet supported with --sandbox daytona");
+        }
+    };
+
+    // Initialize remote sandboxes and checkout the run branch
+    if sandbox_provider == SandboxProvider::Exe {
+        sandbox
+            .initialize()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize exe.dev sandbox: {e}"))?;
+
+        // Fetch and checkout the run branch inside the sandbox
+        let fetch_cmd = format!(
+            "git fetch origin {run_branch} && git checkout {run_branch}"
+        );
+        let result = sandbox
+            .exec_command(&fetch_cmd, 60_000, None, None, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to checkout run branch in sandbox: {e}"))?;
+        if result.exit_code != 0 {
+            bail!(
+                "Failed to checkout run branch in sandbox (exit {}): {}",
+                result.exit_code,
+                result.stderr
+            );
+        }
+    }
+
+    // Wrap exe.dev sandbox with GitCredentialSandbox for push credential refresh
+    let sandbox: Arc<dyn arc_agent::Sandbox> = if sandbox_provider == SandboxProvider::Exe {
+        let origin_url = exe_sandbox_ref
+            .as_ref()
+            .and_then(|e| e.origin_url().map(String::from));
+        Arc::new(crate::git_credential_sandbox::GitCredentialSandbox::new(
+            sandbox,
+            origin_url,
+            github_app.clone(),
+        ))
+    } else {
+        sandbox
+    };
+
+    // Wrap with ReadBeforeWriteSandbox to enforce read-before-write guard
+    let sandbox: Arc<dyn arc_agent::Sandbox> =
+        Arc::new(arc_agent::ReadBeforeWriteSandbox::new(sandbox));
 
     // Build interviewer
     let interviewer: Arc<dyn crate::interviewer::Interviewer> = if args.auto_approve {
@@ -1289,13 +1381,20 @@ async fn run_from_branch(
         cancel_token: None,
         dry_run: dry_run_mode,
         run_id,
-        git_checkpoint: Some(GitCheckpointMode::Host(worktree_path.clone())),
+        git_checkpoint: match sandbox_provider {
+            SandboxProvider::Local | SandboxProvider::Docker => {
+                worktree_path.as_ref().map(|wt| GitCheckpointMode::Host(wt.clone()))
+            }
+            SandboxProvider::Daytona | SandboxProvider::Exe => {
+                Some(GitCheckpointMode::Remote(original_cwd.clone()))
+            }
+        },
         base_sha,
         run_branch: Some(run_branch.to_string()),
         meta_branch,
         labels: HashMap::new(),
         checkpoint_exclude_globs: Vec::new(),
-        github_app: None,
+        github_app: github_app.clone(),
         git_author,
         base_branch: None,
         pull_request_enabled: false,
@@ -1310,7 +1409,12 @@ async fn run_from_branch(
 
     // Clean up
     let _ = std::env::set_current_dir(&original_cwd);
-    let _ = crate::git::remove_worktree(&original_cwd, &worktree_path);
+    if let Some(ref wt) = worktree_path {
+        let _ = crate::git::remove_worktree(&original_cwd, wt);
+    }
+    if sandbox_provider == SandboxProvider::Exe {
+        let _ = sandbox.cleanup().await;
+    }
 
     // Auto-derive retro
     if !args.no_retro {
@@ -1484,7 +1588,10 @@ async fn run_preflight(
         SandboxProvider::Exe => match arc_exe::OpensshRunner::connect_raw("exe.dev").await {
             Ok(mgmt_ssh) => {
                 let config = exe_config.unwrap_or_default();
-                let env = arc_exe::ExeSandbox::new(Box::new(mgmt_ssh), config, None, None);
+                let clone_params =
+                    resolve_exe_clone_params(&original_cwd, github_app.as_ref()).await;
+                let env =
+                    arc_exe::ExeSandbox::new(Box::new(mgmt_ssh), config, clone_params, None);
                 Ok(Arc::new(env) as Arc<dyn Sandbox>)
             }
             Err(e) => Err(format!("exe.dev SSH connection failed: {e}")),

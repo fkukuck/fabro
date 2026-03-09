@@ -22,6 +22,7 @@ models/aggregate-usage.ts
 models/api-configuration.ts
 models/api-question-option.ts
 models/api-question.ts
+models/assets-configuration.ts
 models/assistant-stage-turn.ts
 models/assistant-turn.ts
 models/auth-configuration.ts
@@ -51,6 +52,7 @@ models/diff-file.ts
 models/diff-stats.ts
 models/error-response-entry.ts
 models/error-response.ts
+models/exe-configuration.ts
 models/execute-query-request.ts
 models/execute-query-response-rows-inner-inner.ts
 models/execute-query-response.ts

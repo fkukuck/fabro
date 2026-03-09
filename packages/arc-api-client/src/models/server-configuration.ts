@@ -18,6 +18,9 @@
 import type { ApiConfiguration } from './api-configuration';
 // May contain unused imports in some cases
 // @ts-ignore
+import type { AssetsConfiguration } from './assets-configuration';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { CheckpointConfiguration } from './checkpoint-configuration';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -78,5 +81,6 @@ export interface ServerConfiguration {
     'checkpoint'?: CheckpointConfiguration;
     'pull_request'?: PullRequestConfiguration;
     'hooks'?: Array<HookDefinition>;
+    'assets'?: AssetsConfiguration;
 }
 

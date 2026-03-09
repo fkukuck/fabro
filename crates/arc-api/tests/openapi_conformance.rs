@@ -298,7 +298,7 @@ fn fully_populated_server_config() -> ServerConfig {
                     }),
                     network: Some(DaytonaNetwork::Block),
                 }),
-                exe: Some(arc_exe::ExeConfig {}),
+                exe: Some(arc_exe::ExeConfig { image: None }),
                 env: Some(Default::default()),
             }),
             vars: Some(Default::default()),

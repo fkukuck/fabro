@@ -3869,6 +3869,10 @@ components:
     ExeConfiguration:
       description: exe.dev sandbox configuration.
       type: object
+      properties:
+        image:
+          type: string
+          description: VM image to use for the exe.dev sandbox.
 
     DaytonaConfiguration:
       description: Daytona-specific sandbox settings.
