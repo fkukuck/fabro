@@ -731,6 +731,7 @@ pub async fn run_install() -> Result<()> {
     }
 
     // Additional providers
+    eprintln!();
     let add_more =
         tokio::task::spawn_blocking(|| prompt_confirm("Set up additional LLM providers?", false))
             .await??;
