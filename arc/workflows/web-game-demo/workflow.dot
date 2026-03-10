@@ -8,7 +8,7 @@ digraph WebGameDemo {
     start [shape=Mdiamond, label="Start"]
     exit  [shape=Msquare, label="Exit"]
 
-    install_playwright [label="Install Playwright", shape=parallelogram, script="npm install playwright && npx playwright install --with-deps chromium 2>&1 || true"]
+    install_playwright [label="Install Playwright", shape=parallelogram, script="npx playwright install --with-deps chromium 2>&1 || true"]
 
     verify_skill [label="Verify Skill Setup", prompt="@verify-prompt.md"]
 
