@@ -19,3 +19,10 @@ name = "daytona-medium"
 
 [assets]
 include = ["output/**"]
+
+[mcp_servers.playwright]
+type = "sandbox"
+command = ["npx", "@playwright/mcp@latest", "--port", "3100", "--headless", "--browser", "chromium"]
+port = 3100
+startup_timeout_secs = 60
+tool_timeout_secs = 120
