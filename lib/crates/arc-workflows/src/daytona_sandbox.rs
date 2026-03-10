@@ -684,7 +684,7 @@ impl Sandbox for DaytonaSandbox {
                     Err(e) if self.github_app.is_none() => {
                         let err = format!(
                             "Git clone failed: {e}. If this is a private repository, \
-                             configure a GitHub App with `arc setup` and install it \
+                             configure a GitHub App with `arc install` and install it \
                              for your organization."
                         );
                         self.emit(SandboxEvent::GitCloneFailed {

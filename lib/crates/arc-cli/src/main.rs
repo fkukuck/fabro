@@ -1,7 +1,7 @@
 mod cli_config;
 mod doctor;
+mod install;
 mod logging;
-mod setup;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -85,8 +85,8 @@ enum Command {
         #[arg(short, long)]
         live: bool,
     },
-    /// Interactive setup wizard for Arc
-    Setup,
+    /// Set up the Arc environment (LLMs, certs, GitHub)
+    Install,
     /// List workflow runs
     #[command(hide = true)]
     Ps(arc_workflows::cli::runs::RunsListArgs),
@@ -191,7 +191,7 @@ async fn main_inner() -> Result<()> {
         #[cfg(feature = "server")]
         Command::Serve(_) => "serve",
         Command::Doctor { .. } => "doctor",
-        Command::Setup => "setup",
+        Command::Install => "install",
         Command::Ps(_) => "ps",
         Command::Pr { .. } => "pr",
         Command::System { .. } => "system",
@@ -396,8 +396,8 @@ async fn main_inner() -> Result<()> {
             let exit_code = doctor::run_doctor(verbose, live).await;
             std::process::exit(exit_code);
         }
-        Command::Setup => {
-            setup::run_setup().await?;
+        Command::Install => {
+            install::run_install().await?;
         }
         Command::Ps(args) => {
             arc_workflows::cli::runs::list_command(&args)?;

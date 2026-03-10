@@ -9,10 +9,10 @@ Two new authentication methods for the API server. Mutual TLS provides strong id
 
 ## Setup wizard
 
-Previously, getting Arc running meant manually editing config files and setting environment variables. Now run `arc setup` for an interactive walkthrough that configures API keys, server settings, and authentication.
+Previously, getting Arc running meant manually editing config files and setting environment variables. Now run `arc install` for an interactive walkthrough that configures API keys, server settings, and authentication.
 
 ```bash
-arc setup
+arc install
 ```
 
 The wizard detects your current configuration, prompts for missing values, and writes everything to `~/.arc/arc.toml`.
@@ -36,7 +36,7 @@ If something is misconfigured, `arc doctor` tells you exactly what's wrong and h
 
 <Accordion title="Fixes">
 - Fixed JWT `sub` claim using the GitHub API URL instead of the profile URL, causing identity mismatches
-- Fixed stale configuration persisting after `arc setup` until a manual restart
+- Fixed stale configuration persisting after `arc install` until a manual restart
 </Accordion>
 
 <Accordion title="Improvements">

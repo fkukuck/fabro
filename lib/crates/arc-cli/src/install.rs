@@ -280,9 +280,9 @@ fn prompt_multiselect(prompt: &str, items: &[String]) -> Result<Vec<usize>> {
     )
 }
 
-pub async fn run_setup() -> Result<()> {
-    eprintln!("Arc Setup");
-    eprintln!("=========");
+pub async fn run_install() -> Result<()> {
+    eprintln!("Arc Install");
+    eprintln!("===========");
     eprintln!();
 
     let arc_dir = dirs::home_dir()
