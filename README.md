@@ -96,12 +96,6 @@ cargo build --release
 arc install
 ```
 
-### Verify your installation
-
-```bash
-arc doctor --live
-```
-
 ### Run your first workflow
 
 ```bash
