@@ -413,61 +413,127 @@ pub fn check_sandbox(status: &SandboxStatus) -> CheckResult {
     }
 }
 
-#[cfg(feature = "server")]
 pub struct GithubAppStatus {
-    pub app_id: bool,
+    pub app_id: Option<String>,
+    pub slug: Option<String>,
+    pub private_key_set: bool,
+    /// Result of attempting to sign a JWT with the configured credentials.
+    /// `None` if app_id or private key is missing.
+    pub sign_result: Option<Result<(), String>>,
+    #[cfg(feature = "server")]
     pub client_id: bool,
+    #[cfg(feature = "server")]
     pub client_secret: bool,
+    #[cfg(feature = "server")]
     pub webhook_secret: bool,
-    pub private_key: bool,
 }
 
-#[cfg(feature = "server")]
 impl GithubAppStatus {
-    fn all_set(&self) -> bool {
-        self.app_id
-            && self.client_id
-            && self.client_secret
-            && self.webhook_secret
-            && self.private_key
+    fn core_set(&self) -> bool {
+        self.app_id.is_some() && self.private_key_set
     }
 
     fn none_set(&self) -> bool {
-        !self.app_id
-            && !self.client_id
-            && !self.client_secret
-            && !self.webhook_secret
-            && !self.private_key
+        let core_none = self.app_id.is_none() && !self.private_key_set;
+        #[cfg(feature = "server")]
+        {
+            core_none && !self.client_id && !self.client_secret && !self.webhook_secret
+        }
+        #[cfg(not(feature = "server"))]
+        {
+            core_none
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn all_set(&self) -> bool {
+        self.core_set() && self.client_id && self.client_secret && self.webhook_secret
     }
 }
 
-#[cfg(feature = "server")]
 pub fn check_github_app(status: &GithubAppStatus) -> CheckResult {
-    let fields = [
-        ("git.app_id", status.app_id),
-        ("git.client_id", status.client_id),
-        ("GITHUB_APP_CLIENT_SECRET", status.client_secret),
-        ("GITHUB_APP_WEBHOOK_SECRET", status.webhook_secret),
-        ("GITHUB_APP_PRIVATE_KEY", status.private_key),
+    let mut details: Vec<CheckDetail> = Vec::new();
+
+    match (&status.app_id, &status.slug) {
+        (Some(id), Some(slug)) => details.push(CheckDetail {
+            text: format!("App: {slug} (ID {id})"),
+        }),
+        (Some(id), None) => details.push(CheckDetail {
+            text: format!("App ID: {id}"),
+        }),
+        _ => details.push(CheckDetail {
+            text: "git.app_id: not set".to_string(),
+        }),
+    }
+
+    details.push(CheckDetail {
+        text: format!(
+            "GITHUB_APP_PRIVATE_KEY: {}",
+            if status.private_key_set {
+                "set"
+            } else {
+                "not set"
+            }
+        ),
+    });
+
+    #[allow(unused_mut)]
+    let mut fields: Vec<(&str, bool)> = vec![
+        ("git.app_id", status.app_id.is_some()),
+        ("GITHUB_APP_PRIVATE_KEY", status.private_key_set),
     ];
 
-    let details: Vec<CheckDetail> = fields
-        .iter()
-        .map(|(name, set)| CheckDetail {
-            text: format!("{name}: {}", if *set { "set" } else { "not set" }),
-        })
-        .collect();
-
-    if status.all_set() {
-        CheckResult {
-            name: "GitHub App".to_string(),
-            status: CheckStatus::Pass,
-            summary: "fully configured".to_string(),
-            details,
-            remediation: None,
+    #[cfg(feature = "server")]
+    {
+        let server_fields: Vec<(&str, bool)> = vec![
+            ("git.client_id", status.client_id),
+            ("GITHUB_APP_CLIENT_SECRET", status.client_secret),
+            ("GITHUB_APP_WEBHOOK_SECRET", status.webhook_secret),
+        ];
+        for (name, set) in &server_fields {
+            details.push(CheckDetail {
+                text: format!("{name}: {}", if *set { "set" } else { "not set" }),
+            });
         }
-    } else if status.none_set() {
-        CheckResult {
+        fields.extend(server_fields);
+    }
+
+    // Add key validation detail
+    if let Some(ref result) = status.sign_result {
+        match result {
+            Ok(()) => details.push(CheckDetail {
+                text: "Private key: valid (JWT signing OK)".to_string(),
+            }),
+            Err(e) => details.push(CheckDetail {
+                text: format!("Private key: invalid ({e})"),
+            }),
+        }
+    }
+
+    let has_sign_error = matches!(&status.sign_result, Some(Err(_)));
+
+    if has_sign_error {
+        let msg = status
+            .sign_result
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .clone();
+        return CheckResult {
+            name: "GitHub App".to_string(),
+            status: CheckStatus::Error,
+            summary: "private key invalid".to_string(),
+            details,
+            remediation: Some(format!(
+                "GITHUB_APP_PRIVATE_KEY failed JWT signing: {msg}. \
+                 Generate a new private key from your GitHub App settings."
+            )),
+        };
+    }
+
+    if status.none_set() {
+        return CheckResult {
             name: "GitHub App".to_string(),
             status: CheckStatus::Warning,
             summary: "not configured".to_string(),
@@ -476,20 +542,42 @@ pub fn check_github_app(status: &GithubAppStatus) -> CheckResult {
                 "Configure GitHub App in server.toml and set env vars to enable GitHub integration"
                     .to_string(),
             ),
-        }
-    } else {
-        let missing: Vec<_> = fields
-            .iter()
-            .filter(|(_, set)| !set)
-            .map(|(name, _)| *name)
-            .collect();
-        CheckResult {
+        };
+    }
+
+    #[cfg(feature = "server")]
+    if status.all_set() {
+        return CheckResult {
             name: "GitHub App".to_string(),
-            status: CheckStatus::Error,
-            summary: "partially configured".to_string(),
+            status: CheckStatus::Pass,
+            summary: "fully configured".to_string(),
             details,
-            remediation: Some(format!("Missing: {}", missing.join(", "))),
-        }
+            remediation: None,
+        };
+    }
+
+    #[cfg(not(feature = "server"))]
+    if status.core_set() {
+        return CheckResult {
+            name: "GitHub App".to_string(),
+            status: CheckStatus::Pass,
+            summary: "configured".to_string(),
+            details,
+            remediation: None,
+        };
+    }
+
+    let missing: Vec<_> = fields
+        .iter()
+        .filter(|(_, set)| !set)
+        .map(|(name, _)| *name)
+        .collect();
+    CheckResult {
+        name: "GitHub App".to_string(),
+        status: CheckStatus::Error,
+        summary: "partially configured".to_string(),
+        details,
+        remediation: Some(format!("Missing: {}", missing.join(", "))),
     }
 }
 
@@ -913,7 +1001,6 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
 
     let daytona_configured = std::env::var("DAYTONA_API_KEY").is_ok();
 
-    #[cfg(feature = "server")]
     let server_config = arc_config::server::load_server_config(None).unwrap_or_default();
 
     #[cfg(feature = "server")]
@@ -929,13 +1016,42 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         allowed_usernames_count: server_config.web.auth.allowed_usernames.len(),
     };
 
-    #[cfg(feature = "server")]
+    let git_app_id = server_config.git.app_id.clone();
+    let private_key_raw = std::env::var("GITHUB_APP_PRIVATE_KEY").ok();
+    let sign_result = match (&git_app_id, &private_key_raw) {
+        (Some(app_id), Some(raw)) => {
+            let pem = if raw.starts_with("-----") {
+                Ok(raw.clone())
+            } else {
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw)
+                    .map_err(|e| format!("base64 decode failed: {e}"))
+                    .and_then(|bytes| {
+                        String::from_utf8(bytes)
+                            .map_err(|e| format!("decoded key is not valid UTF-8: {e}"))
+                    })
+            };
+            match pem {
+                Ok(pem) => Some(
+                    arc_github::sign_app_jwt(app_id, &pem)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                ),
+                Err(e) => Some(Err(e)),
+            }
+        }
+        _ => None,
+    };
     let github_status = GithubAppStatus {
-        app_id: server_config.git.app_id.is_some(),
+        app_id: git_app_id,
+        slug: server_config.git.slug.clone(),
+        private_key_set: private_key_raw.is_some(),
+        sign_result,
+        #[cfg(feature = "server")]
         client_id: server_config.git.client_id.is_some(),
+        #[cfg(feature = "server")]
         client_secret: std::env::var("GITHUB_APP_CLIENT_SECRET").is_ok(),
+        #[cfg(feature = "server")]
         webhook_secret: std::env::var("GITHUB_APP_WEBHOOK_SECRET").is_ok(),
-        private_key: std::env::var("GITHUB_APP_PRIVATE_KEY").is_ok(),
     };
 
     #[cfg(feature = "server")]
@@ -1062,13 +1178,13 @@ pub async fn run_doctor(verbose: bool, live: bool) -> i32 {
         check_llm_providers(&llm_statuses, llm_live_results.as_deref()),
         check_brave_search(brave_key_set, brave_live_result.as_ref()),
         check_sandbox(&sandbox_status),
+        check_github_app(&github_status),
     ];
 
     #[cfg(feature = "server")]
     {
         checks.push(check_api(&api_status, api_live_result.as_ref()));
         checks.push(check_web(&web_status, web_live_result.as_ref()));
-        checks.push(check_github_app(&github_status));
         checks.push(check_crypto(&crypto_input));
     }
 
@@ -1273,7 +1389,54 @@ mod tests {
         assert_eq!(result.status, CheckStatus::Error);
     }
 
-    // -- Server-only checks (check_github_app, check_api, check_web, check_crypto) --
+    // -- check_github_app --
+
+    #[test]
+    fn check_github_sign_error_reports_error() {
+        let status = GithubAppStatus {
+            app_id: Some("12345".to_string()),
+            slug: None,
+            private_key_set: true,
+            sign_result: Some(Err(
+                "Signing failed: signature error: UnexpectedError".to_string()
+            )),
+            #[cfg(feature = "server")]
+            client_id: true,
+            #[cfg(feature = "server")]
+            client_secret: true,
+            #[cfg(feature = "server")]
+            webhook_secret: true,
+        };
+        let result = check_github_app(&status);
+        assert_eq!(result.status, CheckStatus::Error);
+        assert!(
+            result.summary.contains("invalid"),
+            "got: {}",
+            result.summary
+        );
+        let rem = result.remediation.unwrap();
+        assert!(rem.contains("Generate a new private key"), "got: {rem}");
+    }
+
+    #[test]
+    fn check_github_not_configured() {
+        let status = GithubAppStatus {
+            app_id: None,
+            slug: None,
+            private_key_set: false,
+            sign_result: None,
+            #[cfg(feature = "server")]
+            client_id: false,
+            #[cfg(feature = "server")]
+            client_secret: false,
+            #[cfg(feature = "server")]
+            webhook_secret: false,
+        };
+        let result = check_github_app(&status);
+        assert_eq!(result.status, CheckStatus::Warning);
+    }
+
+    // -- Server-only checks (check_api, check_web, check_crypto) --
 
     #[cfg(feature = "server")]
     mod server_tests {
@@ -1282,11 +1445,13 @@ mod tests {
         #[test]
         fn check_github_all_set() {
             let status = GithubAppStatus {
-                app_id: true,
+                app_id: Some("12345".to_string()),
+                slug: Some("my-app".to_string()),
+                private_key_set: true,
+                sign_result: Some(Ok(())),
                 client_id: true,
                 client_secret: true,
                 webhook_secret: true,
-                private_key: true,
             };
             let result = check_github_app(&status);
             assert_eq!(result.status, CheckStatus::Pass);
@@ -1295,11 +1460,13 @@ mod tests {
         #[test]
         fn check_github_none_set() {
             let status = GithubAppStatus {
-                app_id: false,
+                app_id: None,
+                slug: None,
+                private_key_set: false,
+                sign_result: None,
                 client_id: false,
                 client_secret: false,
                 webhook_secret: false,
-                private_key: false,
             };
             let result = check_github_app(&status);
             assert_eq!(result.status, CheckStatus::Warning);
@@ -1308,11 +1475,13 @@ mod tests {
         #[test]
         fn check_github_partial() {
             let status = GithubAppStatus {
-                app_id: true,
+                app_id: Some("12345".to_string()),
+                slug: None,
+                private_key_set: false,
+                sign_result: None,
                 client_id: true,
                 client_secret: false,
                 webhook_secret: false,
-                private_key: false,
             };
             let result = check_github_app(&status);
             assert_eq!(result.status, CheckStatus::Error);
