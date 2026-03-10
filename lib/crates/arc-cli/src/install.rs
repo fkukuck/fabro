@@ -642,10 +642,7 @@ pub async fn run_install() -> Result<()> {
     let mut github_env_pairs: Vec<(String, String)> = Vec::new();
     {
         let setup_github = tokio::task::spawn_blocking(|| {
-            prompt_confirm(
-                "Set up a GitHub App? (creates a new GitHub App for PR creation and repo access)",
-                true,
-            )
+            prompt_confirm("Set up a GitHub App? (Recommended)", true)
         })
         .await??;
 
