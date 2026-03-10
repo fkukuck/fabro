@@ -203,10 +203,7 @@ pub async fn run_retro_agent(
     // Extract result / determine outcome
     let (outcome, failure_reason, narrative_result) = match process_result {
         Ok(()) => {
-            let maybe_narrative = captured
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take();
+            let maybe_narrative = captured.lock().unwrap_or_else(|e| e.into_inner()).take();
             match maybe_narrative {
                 Some(narrative) => ("success", None, Ok(narrative)),
                 None => (
@@ -441,14 +438,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let retro_dir = dir.path().join("retro");
         std::fs::create_dir_all(&retro_dir).unwrap();
-        write_retro_artifacts(
-            &retro_dir,
-            "resp",
-            "openai",
-            "gpt-4o",
-            "success",
-            None,
-        );
+        write_retro_artifacts(&retro_dir, "resp", "openai", "gpt-4o", "success", None);
         let content = std::fs::read_to_string(retro_dir.join("provider_used.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed["mode"], "agent");

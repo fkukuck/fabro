@@ -203,17 +203,12 @@ fn read_dot_source(logs_dir: &Path) -> Option<String> {
 /// Entries are sorted alphabetically so `plan` is preferred over `planning`.
 fn read_plan_text(logs_dir: &Path) -> Option<String> {
     let nodes_dir = logs_dir.join("nodes");
-    let mut entries: Vec<_> = std::fs::read_dir(&nodes_dir)
-        .ok()?
-        .flatten()
-        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(&nodes_dir).ok()?.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
         let dir_name = entry.file_name();
         let dir_name_str = dir_name.to_string_lossy();
-        if dir_name_str.starts_with("plan")
-            && entry.file_type().is_ok_and(|ft| ft.is_dir())
-        {
+        if dir_name_str.starts_with("plan") && entry.file_type().is_ok_and(|ft| ft.is_dir()) {
             let response_path = entry.path().join("response.md");
             if let Ok(content) = std::fs::read_to_string(&response_path) {
                 debug!(node_dir = %dir_name_str, "Found plan node response for PR body");
