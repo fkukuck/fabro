@@ -1,5 +1,5 @@
 use arc_agent::Sandbox;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -12,7 +12,7 @@ pub struct DiscoveredFile {
 }
 
 /// Summary of an asset collection run.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetCollectionSummary {
     pub files_copied: usize,
     pub total_bytes: u64,
@@ -302,6 +302,35 @@ pub async fn collect_assets(
     }
 
     Ok(summary)
+}
+
+/// Collect all asset paths from manifest files under `{logs_dir}/artifacts/assets/*/retry_*/manifest.json`.
+pub fn collect_asset_paths(logs_dir: &Path) -> Vec<String> {
+    let assets_dir = logs_dir.join("artifacts/assets");
+    let Ok(nodes) = std::fs::read_dir(&assets_dir) else {
+        return Vec::new();
+    };
+
+    let mut all_paths = Vec::new();
+    for node_entry in nodes.flatten() {
+        if !node_entry.path().is_dir() {
+            continue;
+        }
+        let Ok(retries) = std::fs::read_dir(node_entry.path()) else {
+            continue;
+        };
+        for retry_entry in retries.flatten() {
+            let manifest = retry_entry.path().join("manifest.json");
+            let Ok(contents) = std::fs::read_to_string(&manifest) else {
+                continue;
+            };
+            let Ok(summary) = serde_json::from_str::<AssetCollectionSummary>(&contents) else {
+                continue;
+            };
+            all_paths.extend(summary.copied_paths);
+        }
+    }
+    all_paths
 }
 
 #[cfg(test)]
@@ -646,5 +675,58 @@ mod tests {
 
         assert_eq!(summary.files_copied, 0);
         assert_eq!(summary.download_errors, 2);
+    }
+
+    #[test]
+    fn collect_asset_paths_from_manifests() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+
+        // Create two node directories with manifests
+        let node_a = base.join("artifacts/assets/node_a/retry_1");
+        std::fs::create_dir_all(&node_a).unwrap();
+        std::fs::write(
+            node_a.join("manifest.json"),
+            serde_json::to_string(&AssetCollectionSummary {
+                files_copied: 2,
+                total_bytes: 2048,
+                files_skipped: 0,
+                download_errors: 0,
+                copied_paths: vec![
+                    "test-results/report.xml".to_string(),
+                    "test-results/screenshot.png".to_string(),
+                ],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let node_b = base.join("artifacts/assets/node_b/retry_1");
+        std::fs::create_dir_all(&node_b).unwrap();
+        std::fs::write(
+            node_b.join("manifest.json"),
+            serde_json::to_string(&AssetCollectionSummary {
+                files_copied: 1,
+                total_bytes: 512,
+                files_skipped: 0,
+                download_errors: 0,
+                copied_paths: vec!["coverage/lcov.info".to_string()],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let paths = collect_asset_paths(base);
+        assert_eq!(paths.len(), 3);
+        assert!(paths.contains(&"test-results/report.xml".to_string()));
+        assert!(paths.contains(&"test-results/screenshot.png".to_string()));
+        assert!(paths.contains(&"coverage/lcov.info".to_string()));
+    }
+
+    #[test]
+    fn collect_asset_paths_empty_when_no_assets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = collect_asset_paths(tmp.path());
+        assert!(paths.is_empty());
     }
 }

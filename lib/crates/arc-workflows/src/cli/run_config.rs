@@ -1068,6 +1068,7 @@ preserve = true
                 preserve: Some(false),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1096,6 +1097,7 @@ provider = "docker"
                 preserve: Some(true),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1127,6 +1129,7 @@ provider = "daytona"
                     auto_stop_interval: Some(30),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1165,6 +1168,7 @@ auto_stop_interval = 60
                     labels: Some(HashMap::from([("env".into(), "prod".into())])),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1202,6 +1206,7 @@ env = "from_task"
                     ])),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1243,6 +1248,7 @@ cpu = 2
                     }),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1283,6 +1289,7 @@ auto_stop_interval = 60
                     }),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1506,6 +1513,7 @@ network = "block"
                     network: Some(crate::daytona_sandbox::DaytonaNetwork::AllowAll),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1542,6 +1550,7 @@ auto_stop_interval = 60
                     ])),
                     ..DaytonaConfig::default()
                 }),
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -1750,6 +1759,7 @@ SHARED = "from_task"
                 preserve: None,
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: Some(HashMap::from([
                     ("DEFAULT_KEY".into(), "default_val".into()),
@@ -1784,6 +1794,7 @@ provider = "daytona"
                 preserve: None,
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: Some(HashMap::from([("KEY".into(), "val".into())])),
             }),

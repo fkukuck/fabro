@@ -1230,6 +1230,7 @@ pub async fn run_command(
     }
 
     print_final_output(&logs_dir, styles);
+    print_assets(&logs_dir, styles);
 
     // 9. Cleanup sandbox (defuse the scopeguard so we await properly)
     scopeguard::ScopeGuard::into_inner(cleanup_guard);
@@ -1624,6 +1625,7 @@ async fn run_from_branch(
     );
 
     print_final_output(&logs_dir, styles);
+    print_assets(&logs_dir, styles);
 
     match outcome.status {
         StageStatus::Success | StageStatus::PartialSuccess => Ok(()),
@@ -1649,6 +1651,18 @@ fn print_final_output(logs_dir: &std::path::Path, styles: &Styles) {
             }
             return;
         }
+    }
+}
+
+/// Print collected asset paths, if any.
+fn print_assets(logs_dir: &std::path::Path, styles: &Styles) {
+    let paths = crate::asset_snapshot::collect_asset_paths(logs_dir);
+    if paths.is_empty() {
+        return;
+    }
+    eprintln!("\n{}", styles.bold.apply_to("=== Assets ==="));
+    for path in &paths {
+        eprintln!("{path}");
     }
 }
 
@@ -2274,6 +2288,7 @@ mod tests {
                 preserve: Some(false),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2302,6 +2317,7 @@ mod tests {
                 preserve: Some(true),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2318,6 +2334,7 @@ mod tests {
                 preserve: Some(false),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2334,6 +2351,7 @@ mod tests {
                 preserve: Some(true),
                 local: None,
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2373,6 +2391,7 @@ mod tests {
                     worktree_mode: run_config::WorktreeMode::Always,
                 }),
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2400,6 +2419,7 @@ mod tests {
                     worktree_mode: run_config::WorktreeMode::Dirty,
                 }),
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2427,6 +2447,7 @@ mod tests {
                     worktree_mode: run_config::WorktreeMode::Never,
                 }),
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
@@ -2445,6 +2466,7 @@ mod tests {
                     worktree_mode: run_config::WorktreeMode::Dirty,
                 }),
                 daytona: None,
+                #[cfg(feature = "exedev")]
                 exe: None,
                 env: None,
             }),
