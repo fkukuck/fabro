@@ -48,6 +48,9 @@ rustls-pemfile = "2"
 x509-parser = "0.16"
 rand.workspace = true
 dialoguer.workspace = true
+axum = "0.8"
+open = "5"
+serde_json.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -40,6 +40,7 @@ pub struct ExecDefaults {
 pub struct CliGitConfig {
     pub app_id: Option<String>,
     pub slug: Option<String>,
+    pub client_id: Option<String>,
     #[serde(default)]
     pub author: crate::server::GitAuthorConfig,
 }
@@ -88,6 +89,10 @@ impl CliConfig {
 
     pub fn slug(&self) -> Option<&str> {
         self.git.as_ref().and_then(|g| g.slug.as_deref())
+    }
+
+    pub fn client_id(&self) -> Option<&str> {
+        self.git.as_ref().and_then(|g| g.client_id.as_deref())
     }
 
     pub fn git_author(&self) -> Option<&crate::server::GitAuthorConfig> {
@@ -309,6 +314,20 @@ email = "arc@test.com"
         assert_eq!(git.app_id.as_deref(), Some("12345"));
         assert_eq!(git.slug.as_deref(), Some("my-app"));
         assert_eq!(git.author.name.as_deref(), Some("arc-bot"));
+    }
+
+    #[test]
+    fn parse_git_config_with_client_id() {
+        let toml = r#"
+[git]
+app_id = "12345"
+slug = "my-app"
+client_id = "Iv1.abc123"
+"#;
+        let config: CliConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.client_id(), Some("Iv1.abc123"));
+        let git = config.git.unwrap();
+        assert_eq!(git.client_id.as_deref(), Some("Iv1.abc123"));
     }
 
     #[test]

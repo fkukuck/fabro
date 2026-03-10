@@ -32,8 +32,6 @@ pub enum ProbeOutcome {
 static OPENSSL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:OpenSSL|LibreSSL)\s+(\d+)\.(\d+)\.(\d+)").unwrap());
 static NODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"v(\d+)\.(\d+)\.(\d+)").unwrap());
-static GH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"gh version (\d+)\.(\d+)\.(\d+)").unwrap());
 static DOT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"graphviz version (\d+)\.(\d+)\.(\d+)").unwrap());
 
@@ -60,13 +58,6 @@ pub const DEP_SPECS: &[DepSpec] = &[
         required: true,
         min_version: Version::new(20, 0, 0),
         pattern: &NODE_RE,
-    },
-    DepSpec {
-        name: "gh",
-        command: &["gh", "--version"],
-        required: false,
-        min_version: Version::new(2, 0, 0),
-        pattern: &GH_RE,
     },
     DepSpec {
         name: "dot",
@@ -1642,17 +1633,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_gh() {
-        assert_eq!(
-            parse_version(
-                &GH_RE,
-                "gh version 2.67.0 (2025-01-31)\nhttps://github.com/cli/cli/releases/tag/v2.67.0"
-            ),
-            Some(Version::new(2, 67, 0)),
-        );
-    }
-
-    #[test]
     fn parse_version_dot() {
         assert_eq!(
             parse_version(&DOT_RE, "dot - graphviz version 12.2.1 (20241206.2024)"),
@@ -1664,7 +1644,6 @@ mod tests {
     fn parse_version_garbage_returns_none() {
         assert_eq!(parse_version(&OPENSSL_RE, "not a version"), None);
         assert_eq!(parse_version(&NODE_RE, "node not found"), None);
-        assert_eq!(parse_version(&GH_RE, "something else"), None);
         assert_eq!(parse_version(&DOT_RE, "no version here"), None);
     }
 

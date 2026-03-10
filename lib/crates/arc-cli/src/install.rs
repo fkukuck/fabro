@@ -1,19 +1,28 @@
+#[cfg(feature = "server")]
 use std::io::Write as _;
+use std::net::SocketAddr;
 use std::path::Path;
+#[cfg(feature = "server")]
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 use arc_llm::provider::Provider;
+use axum::extract::Query;
+use axum::response::Html;
+use axum::routing::get;
 use dialoguer::{Confirm, Input, MultiSelect};
 use rand::Rng;
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 
 use crate::doctor;
 
 // ---------------------------------------------------------------------------
-// OpenSSL helpers
+// OpenSSL helpers (server mode only)
 // ---------------------------------------------------------------------------
 
 /// Run an openssl subcommand and return stdout on success.
+#[cfg(feature = "server")]
 fn run_openssl(args: &[&str], description: &str) -> Result<Vec<u8>> {
     let output = Command::new("openssl")
         .args(args)
@@ -29,6 +38,7 @@ fn run_openssl(args: &[&str], description: &str) -> Result<Vec<u8>> {
 }
 
 /// Run an openssl subcommand that reads key material from stdin.
+#[cfg(feature = "server")]
 fn run_openssl_with_stdin(args: &[&str], stdin_data: &[u8], description: &str) -> Result<Vec<u8>> {
     let mut child = Command::new("openssl")
         .args(args)
@@ -56,9 +66,10 @@ fn run_openssl_with_stdin(args: &[&str], stdin_data: &[u8], description: &str) -
 }
 
 // ---------------------------------------------------------------------------
-// Session secret
+// Session secret (server mode only)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 fn generate_session_secret() -> String {
     let mut rng = rand::thread_rng();
     let bytes: [u8; 32] = rng.gen();
@@ -66,9 +77,10 @@ fn generate_session_secret() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// JWT keypair generation
+// JWT keypair generation (server mode only)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 fn generate_jwt_keypair() -> Result<(String, String)> {
     let private_pem = run_openssl(&["genpkey", "-algorithm", "Ed25519"], "generate keypair")?;
     let public_pem =
@@ -80,9 +92,10 @@ fn generate_jwt_keypair() -> Result<(String, String)> {
 }
 
 // ---------------------------------------------------------------------------
-// mTLS certificate generation
+// mTLS certificate generation (server mode only)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 fn generate_mtls_certs(dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir).context("failed to create certs directory")?;
 
@@ -161,9 +174,10 @@ fn generate_mtls_certs(dir: &Path) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Config TOML generation
+// Config TOML generation (server mode only)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 fn format_config_toml(username: &str) -> String {
     format!(
         r#"[web]
@@ -280,6 +294,201 @@ fn prompt_multiselect(prompt: &str, items: &[String]) -> Result<Vec<usize>> {
     )
 }
 
+// ---------------------------------------------------------------------------
+// GitHub App manifest flow
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct CallbackParams {
+    code: String,
+}
+
+/// Run the GitHub App manifest registration flow via a temporary local server.
+/// Returns env var pairs (key, value) for secrets to merge into `.env`.
+async fn setup_github_app(arc_dir: &Path) -> Result<Vec<(String, String)>> {
+    // Random suffix so app names don't collide
+    let mut rng = rand::thread_rng();
+    let suffix: String = (0..6)
+        .map(|_| format!("{:x}", rng.gen::<u8>() % 16))
+        .collect();
+    let app_name = format!("Arc-{suffix}");
+
+    // Bind to random port
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("failed to bind local server")?;
+    let addr: SocketAddr = listener.local_addr()?;
+    let port = addr.port();
+
+    let manifest = serde_json::json!({
+        "name": app_name,
+        "url": "https://github.com/apps/arc",
+        "redirect_url": format!("http://127.0.0.1:{port}/callback"),
+        "public": false,
+        "default_permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write",
+            "checks": "write",
+            "issues": "write",
+            "emails": "read"
+        },
+        "default_events": []
+    });
+    let manifest_json = serde_json::to_string(&manifest)?;
+    let escaped_manifest = manifest_json
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;");
+
+    // Channel to receive the code from the callback
+    let (code_tx, code_rx) = oneshot::channel::<String>();
+    // Channel to trigger graceful shutdown
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let code_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(code_tx)));
+    let shutdown_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(shutdown_tx)));
+
+    let index_html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<body>
+  <p>Redirecting to GitHub...</p>
+  <form id="f" method="post" action="https://github.com/settings/apps/new">
+    <input type="hidden" name="manifest" value="{escaped_manifest}">
+  </form>
+  <script>document.getElementById('f').submit();</script>
+</body>
+</html>"#
+    );
+
+    let app = axum::Router::new()
+        .route(
+            "/",
+            get(move || async move { Html(index_html.clone()) }),
+        )
+        .route(
+            "/callback",
+            get(move |Query(params): Query<CallbackParams>| async move {
+                if let Some(tx) = code_tx.lock().unwrap().take() {
+                    let _ = tx.send(params.code);
+                }
+                if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                Html(
+                    "<!DOCTYPE html><html><body><p>GitHub App created! You can close this tab.</p></body></html>".to_string(),
+                )
+            }),
+        );
+
+    // Spawn server with graceful shutdown
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+
+    // Open browser
+    let url = format!("http://127.0.0.1:{port}/");
+    eprintln!("  Opening browser to {url}");
+    if let Err(e) = open::that(&url) {
+        eprintln!("  Could not open browser automatically: {e}");
+        eprintln!("  Please open this URL manually: {url}");
+    }
+
+    eprintln!("  Waiting for GitHub... (press Ctrl+C to cancel)");
+
+    // Wait for the code
+    let code = code_rx
+        .await
+        .context("did not receive callback from GitHub (was the browser flow completed?)")?;
+
+    // Exchange code for app credentials
+    eprintln!("  Exchanging code with GitHub...");
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!(
+            "https://api.github.com/app-manifests/{code}/conversions"
+        ))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "arc-cli")
+        .send()
+        .await
+        .context("failed to exchange code with GitHub")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        bail!("GitHub manifest conversion failed ({status}): {body}");
+    }
+
+    let body: serde_json::Value = resp.json().await.context("invalid JSON from GitHub")?;
+
+    let app_id = body["id"]
+        .as_i64()
+        .context("missing 'id' in GitHub response")?
+        .to_string();
+    let slug = body["slug"]
+        .as_str()
+        .context("missing 'slug' in GitHub response")?
+        .to_string();
+    let client_id = body["client_id"]
+        .as_str()
+        .context("missing 'client_id' in GitHub response")?
+        .to_string();
+    let client_secret = body["client_secret"]
+        .as_str()
+        .context("missing 'client_secret' in GitHub response")?
+        .to_string();
+    let webhook_secret = body["webhook_secret"].as_str().map(String::from);
+    let pem = body["pem"]
+        .as_str()
+        .context("missing 'pem' in GitHub response")?
+        .to_string();
+
+    // Write non-secret config to cli.toml
+    let cli_toml_path = arc_dir.join("cli.toml");
+    let existing = std::fs::read_to_string(&cli_toml_path).unwrap_or_default();
+    let mut doc: toml::Value = if existing.is_empty() {
+        toml::Value::Table(Default::default())
+    } else {
+        toml::from_str(&existing).context("failed to parse existing cli.toml")?
+    };
+    let table = doc.as_table_mut().context("cli.toml root is not a table")?;
+    let git = table
+        .entry("git")
+        .or_insert(toml::Value::Table(Default::default()));
+    let git_table = git
+        .as_table_mut()
+        .context("cli.toml [git] is not a table")?;
+    git_table.insert("app_id".into(), toml::Value::String(app_id));
+    git_table.insert("slug".into(), toml::Value::String(slug.clone()));
+    git_table.insert("client_id".into(), toml::Value::String(client_id));
+    std::fs::write(&cli_toml_path, toml::to_string_pretty(&doc)?)?;
+    eprintln!("  Wrote GitHub App config to {}", cli_toml_path.display());
+    eprintln!("  App: https://github.com/apps/{slug}");
+
+    // Return secrets as env pairs
+    let pem_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, pem.as_bytes());
+
+    let mut env_pairs = vec![
+        ("GITHUB_APP_PRIVATE_KEY".to_string(), pem_b64),
+        ("GITHUB_APP_CLIENT_SECRET".to_string(), client_secret),
+    ];
+    if let Some(secret) = webhook_secret {
+        env_pairs.push(("GITHUB_APP_WEBHOOK_SECRET".to_string(), secret));
+    }
+
+    Ok(env_pairs)
+}
+
 pub async fn run_install() -> Result<()> {
     eprintln!("Arc Install");
     eprintln!("===========");
@@ -290,86 +499,120 @@ pub async fn run_install() -> Result<()> {
         .join(".arc");
     std::fs::create_dir_all(&arc_dir)?;
 
-    // Step 0: Pre-flight checks
-    eprintln!("[Step 0/7] Pre-flight checks");
-    let dep_outcomes = doctor::probe_system_deps();
-    let dep_check = doctor::check_system_deps(doctor::DEP_SPECS, &dep_outcomes);
+    // Pre-flight checks (server mode only — standalone doesn't need openssl/node/dot)
+    #[cfg(feature = "server")]
+    {
+        eprintln!("[Pre-flight] System dependency checks");
+        let dep_outcomes = doctor::probe_system_deps();
+        let dep_check = doctor::check_system_deps(doctor::DEP_SPECS, &dep_outcomes);
 
-    if dep_check.status == doctor::CheckStatus::Error {
-        eprintln!("  Missing required system dependencies:");
-        for detail in &dep_check.details {
-            eprintln!("    {}", detail.text);
+        if dep_check.status == doctor::CheckStatus::Error {
+            eprintln!("  Missing required system dependencies:");
+            for detail in &dep_check.details {
+                eprintln!("    {}", detail.text);
+            }
+            bail!("Install missing required tools before running setup");
         }
-        bail!("Install missing required tools before running setup");
-    }
 
-    // Check if dot is missing and offer to install
-    let dot_idx = doctor::DEP_SPECS.iter().position(|s| s.name == "dot");
-    if let Some(idx) = dot_idx {
-        if matches!(dep_outcomes[idx], doctor::ProbeOutcome::NotFound) {
-            let install = tokio::task::spawn_blocking(|| {
-                prompt_confirm("Graphviz (dot) not found. Install via Homebrew?", true)
-            })
-            .await??;
+        // Check if dot is missing and offer to install
+        let dot_idx = doctor::DEP_SPECS.iter().position(|s| s.name == "dot");
+        if let Some(idx) = dot_idx {
+            if matches!(dep_outcomes[idx], doctor::ProbeOutcome::NotFound) {
+                let install = tokio::task::spawn_blocking(|| {
+                    prompt_confirm("Graphviz (dot) not found. Install via Homebrew?", true)
+                })
+                .await??;
 
-            if install {
-                let status = Command::new("brew")
-                    .args(["install", "graphviz"])
-                    .status()
-                    .context("failed to run brew install graphviz")?;
-                if !status.success() {
-                    eprintln!("  Warning: brew install graphviz failed");
+                if install {
+                    let status = Command::new("brew")
+                        .args(["install", "graphviz"])
+                        .status()
+                        .context("failed to run brew install graphviz")?;
+                    if !status.success() {
+                        eprintln!("  Warning: brew install graphviz failed");
+                    }
                 }
             }
         }
+
+        for detail in &dep_check.details {
+            eprintln!("  {}", detail.text);
+        }
+        eprintln!();
     }
 
-    for detail in &dep_check.details {
-        eprintln!("  {}", detail.text);
-    }
-    eprintln!();
-
-    // Step 1: Configuration
-    eprintln!("[Step 1/7] Configuration");
-    let config_path = arc_dir.join("server.toml");
-    let write_config = if config_path.exists() {
-        tokio::task::spawn_blocking(|| {
-            prompt_confirm("~/.arc/server.toml already exists. Overwrite?", false)
+    // Step 1: GitHub App setup
+    eprintln!("[Step 1/4] GitHub App");
+    let mut github_env_pairs: Vec<(String, String)> = Vec::new();
+    {
+        let setup_github = tokio::task::spawn_blocking(|| {
+            prompt_confirm(
+                "Set up a GitHub App? (creates a new GitHub App for PR creation and repo access)",
+                true,
+            )
         })
-        .await??
-    } else {
-        true
-    };
+        .await??;
 
-    if write_config {
-        let username: String =
-            tokio::task::spawn_blocking(|| prompt_input("GitHub username for allowed access"))
-                .await??;
-
-        let toml_content = format_config_toml(&username);
-        std::fs::write(&config_path, &toml_content)?;
-        eprintln!("  Wrote {}", config_path.display());
-    } else {
-        eprintln!("  Keeping existing server.toml");
+        if setup_github {
+            github_env_pairs = setup_github_app(&arc_dir).await?;
+            eprintln!("  [ok] GitHub App registered");
+        } else {
+            eprintln!("  Skipped");
+        }
     }
     eprintln!();
 
-    // Step 2: Generating secrets and certificates
-    eprintln!("[Step 2/7] Generating secrets and certificates");
+    // Server configuration (server mode only)
+    #[cfg(feature = "server")]
+    {
+        eprintln!("[Server] Configuration");
+        let config_path = arc_dir.join("server.toml");
+        let write_config = if config_path.exists() {
+            tokio::task::spawn_blocking(|| {
+                prompt_confirm("~/.arc/server.toml already exists. Overwrite?", false)
+            })
+            .await??
+        } else {
+            true
+        };
 
-    let session_secret = generate_session_secret();
-    eprintln!("  [ok] Session secret generated");
+        if write_config {
+            let username: String =
+                tokio::task::spawn_blocking(|| prompt_input("GitHub username for allowed access"))
+                    .await??;
 
-    let (jwt_private_pem, jwt_public_pem) = generate_jwt_keypair()?;
-    eprintln!("  [ok] Ed25519 JWT keypair generated");
+            let toml_content = format_config_toml(&username);
+            std::fs::write(&config_path, &toml_content)?;
+            eprintln!("  Wrote {}", config_path.display());
+        } else {
+            eprintln!("  Keeping existing server.toml");
+        }
+        eprintln!();
+    }
 
-    let certs_dir = arc_dir.join("certs");
-    generate_mtls_certs(&certs_dir)?;
-    eprintln!("  [ok] mTLS CA + server certificates generated");
-    eprintln!();
+    // Secrets and certificates (server mode only)
+    #[cfg(feature = "server")]
+    let (session_secret, jwt_private_pem, jwt_public_pem);
+    #[cfg(feature = "server")]
+    {
+        eprintln!("[Server] Generating secrets and certificates");
 
-    // Step 3: LLM providers
-    eprintln!("[Step 3/7] LLM providers");
+        session_secret = generate_session_secret();
+        eprintln!("  [ok] Session secret generated");
+
+        let (priv_pem, pub_pem) = generate_jwt_keypair()?;
+        jwt_private_pem = priv_pem;
+        jwt_public_pem = pub_pem;
+        eprintln!("  [ok] Ed25519 JWT keypair generated");
+
+        let certs_dir = arc_dir.join("certs");
+        generate_mtls_certs(&certs_dir)?;
+        eprintln!("  [ok] mTLS CA + server certificates generated");
+        eprintln!();
+    }
+
+    // Step 2: LLM providers
+    eprintln!("[Step 2/4] LLM providers");
     let provider_labels: Vec<String> = Provider::ALL
         .iter()
         .map(|p| {
@@ -398,22 +641,26 @@ pub async fn run_install() -> Result<()> {
     }
     eprintln!();
 
-    // Step 4: Writing ~/.arc/.env
-    eprintln!("[Step 4/7] Writing ~/.arc/.env");
+    // Step 3: Writing ~/.arc/.env
+    eprintln!("[Step 3/4] Writing ~/.arc/.env");
     let env_path = arc_dir.join(".env");
 
-    let jwt_private_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        jwt_private_pem.as_bytes(),
-    );
-    let jwt_public_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        jwt_public_pem.as_bytes(),
-    );
+    #[cfg(feature = "server")]
+    {
+        let jwt_private_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            jwt_private_pem.as_bytes(),
+        );
+        let jwt_public_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            jwt_public_pem.as_bytes(),
+        );
 
-    env_pairs.push(("ARC_JWT_PRIVATE_KEY".to_string(), jwt_private_b64));
-    env_pairs.push(("ARC_JWT_PUBLIC_KEY".to_string(), jwt_public_b64));
-    env_pairs.push(("SESSION_SECRET".to_string(), session_secret));
+        env_pairs.push(("ARC_JWT_PRIVATE_KEY".to_string(), jwt_private_b64));
+        env_pairs.push(("ARC_JWT_PUBLIC_KEY".to_string(), jwt_public_b64));
+        env_pairs.push(("SESSION_SECRET".to_string(), session_secret));
+    }
+    env_pairs.extend(github_env_pairs);
 
     let existing_env = std::fs::read_to_string(&env_path).unwrap_or_default();
     let env_refs: Vec<(&str, &str)> = env_pairs
@@ -436,20 +683,25 @@ pub async fn run_install() -> Result<()> {
     );
     eprintln!();
 
-    // Step 5: Start servers
-    eprintln!("[Step 5/7] Start servers");
-    eprintln!("  To start Arc, run these commands:");
-    eprintln!();
-    eprintln!("    arc serve");
-    eprintln!("    cd apps/arc-web && npx react-router dev");
-    eprintln!();
+    // Start servers (server mode only)
+    #[cfg(feature = "server")]
+    {
+        eprintln!("[Server] Start servers");
+        eprintln!("  To start Arc, run these commands:");
+        eprintln!();
+        eprintln!("    arc serve");
+        eprintln!("    cd apps/arc-web && npx react-router dev");
+        eprintln!();
+    }
 
-    // Step 6: Verify setup
-    eprintln!("[Step 6/7] Verify setup");
+    // Step 4: Verify setup
+    eprintln!("[Step 4/4] Verify setup");
     let run_doctor =
         tokio::task::spawn_blocking(|| prompt_confirm("Run arc doctor to verify?", true)).await??;
 
     if run_doctor {
+        // Reload .env so doctor sees the values we just wrote
+        let _ = dotenvy::from_path(&env_path);
         eprintln!();
         doctor::run_doctor(true, true).await;
     }
@@ -460,9 +712,10 @@ pub async fn run_install() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Hex encoding (avoid adding a dep just for this)
+// Hex encoding (server mode only — used by generate_session_secret)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "server")]
 mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -475,33 +728,35 @@ mod hex {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
-    // -- Session secret --
+    // -- Session secret (server only) --
 
     #[test]
+    #[cfg(feature = "server")]
     fn session_secret_length() {
         let secret = generate_session_secret();
         assert_eq!(secret.len(), 64);
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn session_secret_is_hex() {
         let secret = generate_session_secret();
         assert!(secret.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn session_secret_is_lowercase() {
         let secret = generate_session_secret();
         assert!(secret.chars().all(|c| !c.is_ascii_uppercase()));
     }
 
-    // -- JWT keypair --
+    // -- JWT keypair (server only) --
 
     #[test]
+    #[cfg(feature = "server")]
     fn jwt_keypair_private_pem_header() {
         let (private, _) = generate_jwt_keypair().unwrap();
         assert!(
@@ -511,6 +766,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn jwt_keypair_public_pem_header() {
         let (_, public) = generate_jwt_keypair().unwrap();
         assert!(
@@ -520,14 +776,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn jwt_keypair_public_parses() {
         let (_, public) = generate_jwt_keypair().unwrap();
         jsonwebtoken::DecodingKey::from_ed_pem(public.as_bytes()).expect("public key should parse");
     }
 
-    // -- mTLS cert generation --
+    // -- mTLS cert generation (server only) --
 
     #[test]
+    #[cfg(feature = "server")]
     fn mtls_certs_creates_files() {
         let dir = tempfile::tempdir().unwrap();
         let certs_dir = dir.path().join("certs");
@@ -540,6 +798,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn mtls_ca_cert_is_pem() {
         let dir = tempfile::tempdir().unwrap();
         let certs_dir = dir.path().join("certs");
@@ -553,6 +812,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn mtls_server_cert_is_pem() {
         let dir = tempfile::tempdir().unwrap();
         let certs_dir = dir.path().join("certs");
@@ -566,6 +826,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn mtls_certs_parse_via_rustls() {
         let dir = tempfile::tempdir().unwrap();
         let certs_dir = dir.path().join("certs");
@@ -586,9 +847,10 @@ mod tests {
         assert_eq!(server_certs.len(), 1);
     }
 
-    // -- Config TOML generation --
+    // -- Config TOML generation (server only) --
 
     #[test]
+    #[cfg(feature = "server")]
     fn config_toml_roundtrips() {
         let toml_str = format_config_toml("brynary");
         let config: arc_config::server::ServerConfig =
@@ -597,6 +859,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn config_toml_has_auth_strategies() {
         let toml_str = format_config_toml("alice");
         let config: arc_config::server::ServerConfig = toml::from_str(&toml_str).unwrap();
@@ -610,7 +873,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "server")]
     fn config_toml_has_tls_paths() {
+        use std::path::PathBuf;
         let toml_str = format_config_toml("bob");
         let config: arc_config::server::ServerConfig = toml::from_str(&toml_str).unwrap();
         let tls = config.api.tls.expect("tls should be set");
