@@ -10,7 +10,7 @@ name = "arc"
 path = "src/main.rs"
 
 [features]
-default = ["server"]
+default = []
 server = ["dep:arc-api"]
 
 [dependencies]
