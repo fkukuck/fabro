@@ -11,10 +11,6 @@ use tracing::debug;
 #[derive(Parser)]
 #[command(name = "arc", version, long_version = arc_util::version::LONG_VERSION.as_str())]
 struct Cli {
-    /// Skip loading .env file
-    #[arg(long, global = true)]
-    no_dotenv: bool,
-
     /// Enable DEBUG-level logging (default is INFO)
     #[arg(long, global = true)]
     debug: bool,
@@ -176,11 +172,11 @@ async fn main_inner() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let cli = Cli::parse();
-    if !cli.no_dotenv {
-        if let Some(home) = dirs::home_dir() {
-            let _ = dotenvy::from_path(home.join(".arc").join(".env"));
+    if let Some(home) = dirs::home_dir() {
+        let env_path = home.join(".arc").join(".env");
+        if dotenvy::from_path(&env_path).is_ok() {
+            debug!(path = %env_path.display(), "Loaded environment file");
         }
-        dotenvy::dotenv().ok();
     }
 
     let command_name = match &cli.command {

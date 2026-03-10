@@ -631,7 +631,6 @@ pub async fn run_with_args_and_client(
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    let _ = dotenvy::dotenv();
     let cli = Cli::parse();
     let mut args = cli.args;
     args.apply_cli_defaults(None, None, None, None);

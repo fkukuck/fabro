@@ -6,12 +6,6 @@ fn arc() -> Command {
     Command::cargo_bin("arc").unwrap()
 }
 
-/// Load .env into the process so subprocess inherits API keys
-/// even when current_dir is set to a tempdir.
-fn load_dotenv() {
-    dotenvy::dotenv().ok();
-}
-
 // == Models ===================================================================
 
 #[test]
@@ -99,14 +93,7 @@ fn prompt_errors_without_prompt_text() {
 #[test]
 fn prompt_reads_from_stdin() {
     let result = arc()
-        .args([
-            "--no-dotenv",
-            "llm",
-            "prompt",
-            "--no-stream",
-            "-m",
-            "test-model",
-        ])
+        .args(["llm", "prompt", "--no-stream", "-m", "test-model"])
         .write_stdin("hello from stdin")
         .assert()
         .failure();
@@ -119,7 +106,6 @@ fn prompt_reads_from_stdin() {
 fn prompt_concatenates_stdin_and_arg() {
     let result = arc()
         .args([
-            "--no-dotenv",
             "llm",
             "prompt",
             "--no-stream",
@@ -198,7 +184,6 @@ fn prompt_usage_shows_tokens() {
 fn prompt_schema_rejects_invalid_json() {
     arc()
         .args([
-            "--no-dotenv",
             "llm",
             "prompt",
             "--no-stream",
@@ -320,11 +305,12 @@ fn exec_help_flag_prints_help() {
 
 #[test]
 fn exec_missing_api_key_exits_with_error() {
-    let tmp = std::env::temp_dir();
+    let tmp = tempfile::tempdir().expect("tempdir");
     arc()
-        .args(["--no-dotenv", "exec", "test prompt"])
+        .args(["exec", "test prompt"])
         .env_clear()
-        .current_dir(&tmp)
+        .env("HOME", tmp.path().to_str().unwrap())
+        .current_dir(tmp.path())
         .assert()
         .failure()
         .stderr(predicate::str::contains("API key not set"));
@@ -343,7 +329,7 @@ fn exec_invalid_permissions_value() {
 #[test]
 #[ignore = "requires API key"]
 fn exec_creates_file() {
-    load_dotenv();
+    dotenvy::dotenv().ok();
     let tmp = tempfile::tempdir().expect("tempdir");
     arc()
         .args([
@@ -373,7 +359,7 @@ fn exec_creates_file() {
 #[test]
 #[ignore = "requires API key"]
 fn exec_shell_command() {
-    load_dotenv();
+    dotenvy::dotenv().ok();
     let tmp = tempfile::tempdir().expect("tempdir");
     arc()
         .args([
@@ -396,7 +382,7 @@ fn exec_shell_command() {
 #[test]
 #[ignore = "requires API key"]
 fn exec_read_only_blocks_write() {
-    load_dotenv();
+    dotenvy::dotenv().ok();
     let tmp = tempfile::tempdir().expect("tempdir");
     arc()
         .args([
@@ -423,7 +409,7 @@ fn exec_read_only_blocks_write() {
 #[test]
 #[ignore = "requires API key"]
 fn exec_json_output_format() {
-    load_dotenv();
+    dotenvy::dotenv().ok();
     let tmp = tempfile::tempdir().expect("tempdir");
     let output = arc()
         .args([
@@ -462,7 +448,7 @@ fn exec_json_output_format() {
 #[test]
 #[ignore = "requires API key"]
 fn exec_read_and_edit() {
-    load_dotenv();
+    dotenvy::dotenv().ok();
     let tmp = tempfile::tempdir().expect("tempdir");
     std::fs::write(tmp.path().join("data.txt"), "old content").expect("write data.txt");
     arc()
@@ -648,12 +634,23 @@ fn dry_run_legacy_tool() {
         .success();
 }
 
+// == Dotenv ===================================================================
+
+#[test]
+fn no_dotenv_flag_is_rejected() {
+    arc()
+        .args(["--no-dotenv", "doctor"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument"));
+}
+
 // == Doctor ===================================================================
 
 #[test]
 fn doctor_runs_and_prints_header() {
     arc()
-        .args(["--no-dotenv", "doctor"])
+        .args(["doctor"])
         .env_clear()
         .assert()
         .stdout(predicate::str::contains("Arc Doctor"));
@@ -662,7 +659,7 @@ fn doctor_runs_and_prints_header() {
 #[test]
 fn doctor_verbose_runs_and_prints_header() {
     arc()
-        .args(["--no-dotenv", "doctor", "-v"])
+        .args(["doctor", "-v"])
         .env_clear()
         .assert()
         .stdout(predicate::str::contains("Arc Doctor"));
@@ -671,7 +668,7 @@ fn doctor_verbose_runs_and_prints_header() {
 #[test]
 fn doctor_no_color_when_no_color_set() {
     arc()
-        .args(["--no-dotenv", "doctor"])
+        .args(["doctor"])
         .env_clear()
         .env("NO_COLOR", "1")
         .assert()
@@ -681,7 +678,7 @@ fn doctor_no_color_when_no_color_set() {
 #[test]
 fn doctor_dry_run_flag_accepted() {
     arc()
-        .args(["--no-dotenv", "doctor", "--dry-run"])
+        .args(["doctor", "--dry-run"])
         .env_clear()
         .assert()
         .stdout(predicate::str::contains("Arc Doctor"));
