@@ -225,6 +225,28 @@ impl DaytonaSandbox {
         Ok(dto.ssh_command)
     }
 
+    /// Get a preview link (URL + token) for a port on this sandbox.
+    pub async fn get_preview_link(&self, port: u16) -> Result<daytona_sdk::PreviewLink, String> {
+        let sandbox = self.sandbox()?;
+        sandbox
+            .get_preview_link(port)
+            .await
+            .map_err(|e| format!("Failed to get preview link for port {port}: {e}"))
+    }
+
+    /// Get a signed preview URL for a port on this sandbox.
+    pub async fn get_signed_preview_url(
+        &self,
+        port: u16,
+        expires_in_seconds: Option<i32>,
+    ) -> Result<daytona_sdk::api_types::SignedPortPreviewUrl, String> {
+        let sandbox = self.sandbox()?;
+        sandbox
+            .get_signed_preview_url(port as i32, expires_in_seconds)
+            .await
+            .map_err(|e| format!("Failed to get signed preview URL for port {port}: {e}"))
+    }
+
     fn emit(&self, event: SandboxEvent) {
         event.trace();
         if let Some(ref cb) = self.event_callback {

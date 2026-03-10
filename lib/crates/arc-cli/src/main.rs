@@ -60,6 +60,8 @@ enum Command {
     Parse(arc_workflows::cli::ParseArgs),
     /// Copy files to/from a run's sandbox
     Cp(arc_workflows::cli::cp::CpArgs),
+    /// Get a preview URL for a port on a run's sandbox
+    Preview(arc_workflows::cli::preview::PreviewArgs),
     /// List and test LLM models
     Model {
         #[command(subcommand)]
@@ -177,6 +179,7 @@ async fn main_inner() -> Result<()> {
         Command::Validate(_) => "validate",
         Command::Parse(_) => "parse",
         Command::Cp(_) => "cp",
+        Command::Preview(_) => "preview",
         Command::Model { .. } => "model",
         #[cfg(feature = "server")]
         Command::Serve(_) => "serve",
@@ -348,6 +351,9 @@ async fn main_inner() -> Result<()> {
         }
         Command::Cp(args) => {
             arc_workflows::cli::cp::cp_command(args).await?;
+        }
+        Command::Preview(args) => {
+            arc_workflows::cli::preview::preview_command(args).await?;
         }
         Command::Model { command } => {
             let cli_config = cli_config::load_cli_config(None)?;
