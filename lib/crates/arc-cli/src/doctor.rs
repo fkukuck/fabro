@@ -926,7 +926,7 @@ async fn probe_docker() -> Option<Result<(), String>> {
     Some(docker.ping().await.map(|_| ()).map_err(|e| e.to_string()))
 }
 
-fn cheapest_model(provider: Provider) -> String {
+pub(crate) fn cheapest_model(provider: Provider) -> String {
     let models = arc_llm::catalog::list_models(Some(provider.as_str()));
     models
         .iter()

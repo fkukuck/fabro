@@ -597,13 +597,8 @@ pub async fn run_install() -> Result<()> {
 
     let first_provider = primary_providers[primary_idx];
     {
-        let env_var = first_provider.api_key_env_vars()[0];
-        let url = provider_key_url(first_provider);
-        eprintln!("  Get your API key at: {url}");
-
-        let prompt = env_var.to_string();
-        let key: String = tokio::task::spawn_blocking(move || prompt_password(&prompt)).await??;
-        env_pairs.push((env_var.to_string(), key));
+        let (env_var, key) = prompt_and_validate_key(first_provider).await?;
+        env_pairs.push((env_var, key));
         configured_providers.push(first_provider);
     }
 
@@ -635,14 +630,8 @@ pub async fn run_install() -> Result<()> {
 
         for idx in selected_indices {
             let provider = remaining_providers[idx];
-            let env_var = provider.api_key_env_vars()[0];
-            let url = provider_key_url(provider);
-            eprintln!("  Get your API key at: {url}");
-
-            let prompt = env_var.to_string();
-            let key: String =
-                tokio::task::spawn_blocking(move || prompt_password(&prompt)).await??;
-            env_pairs.push((env_var.to_string(), key));
+            let (env_var, key) = prompt_and_validate_key(provider).await?;
+            env_pairs.push((env_var, key));
         }
     }
     eprintln!();
@@ -798,6 +787,64 @@ mod hex {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// API key validation
+// ---------------------------------------------------------------------------
+
+async fn validate_api_key(provider: Provider, api_key: &str) -> Result<(), String> {
+    // Temporarily set the env var so Client::from_env() picks it up
+    let env_var = provider.api_key_env_vars()[0];
+    std::env::set_var(env_var, api_key);
+
+    let client = arc_llm::client::Client::from_env()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let params = arc_llm::generate::GenerateParams::new(doctor::cheapest_model(provider))
+        .provider(provider.as_str())
+        .prompt("Say OK")
+        .max_tokens(16)
+        .client(std::sync::Arc::new(client));
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        arc_llm::generate::generate(params),
+    )
+    .await
+    .map_err(|_| "timeout (30s)".to_string())?
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+async fn prompt_and_validate_key(provider: Provider) -> Result<(String, String)> {
+    let env_var = provider.api_key_env_vars()[0];
+    let url = provider_key_url(provider);
+    eprintln!("  Get your API key at: {url}");
+
+    loop {
+        let prompt = env_var.to_string();
+        let key: String = tokio::task::spawn_blocking(move || prompt_password(&prompt)).await??;
+
+        eprintln!("  Validating API key...");
+        match validate_api_key(provider, &key).await {
+            Ok(()) => {
+                eprintln!("  [ok] API key is valid");
+                return Ok((env_var.to_string(), key));
+            }
+            Err(e) => {
+                eprintln!("  [error] API key validation failed: {e}");
+                let retry = tokio::task::spawn_blocking(|| {
+                    prompt_confirm("Try again with a different key?", true)
+                })
+                .await??;
+                if !retry {
+                    return Ok((env_var.to_string(), key));
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -999,5 +1046,13 @@ mod tests {
             assert!(!url.is_empty(), "{provider:?} has empty URL");
             assert!(url.starts_with("https://"), "{provider:?} URL: {url}");
         }
+    }
+
+    // -- API key validation --
+
+    #[tokio::test]
+    async fn validate_api_key_rejects_invalid_key() {
+        let result = validate_api_key(Provider::Anthropic, "sk-invalid-key-12345").await;
+        assert!(result.is_err(), "expected invalid key to be rejected");
     }
 }
