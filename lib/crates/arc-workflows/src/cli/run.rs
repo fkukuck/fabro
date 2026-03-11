@@ -536,17 +536,26 @@ pub async fn run_command(
         ))
     };
 
-    // Set up git worktree for local execution (must happen before cwd is captured)
+    // Set up git worktree for local execution (must happen before cwd is captured).
+    // Remote sandboxes (Daytona, Exe) clone into their own environment, so a local
+    // worktree is unnecessary and wastes disk.
     let worktree_mode = resolve_worktree_mode(run_cfg.as_ref(), &run_defaults);
-    let should_create_worktree = match worktree_mode {
-        run_config::WorktreeMode::Always => true,
-        run_config::WorktreeMode::Clean => git_clean,
-        run_config::WorktreeMode::Dirty => !git_clean,
-        run_config::WorktreeMode::Never => false,
+    let should_create_worktree = if sandbox_provider.is_remote() {
+        false
+    } else {
+        match worktree_mode {
+            run_config::WorktreeMode::Always => true,
+            run_config::WorktreeMode::Clean => git_clean,
+            run_config::WorktreeMode::Dirty => !git_clean,
+            run_config::WorktreeMode::Never => false,
+        }
     };
     debug!(
         ?worktree_mode,
-        git_clean, should_create_worktree, "Resolved worktree mode"
+        ?sandbox_provider,
+        git_clean,
+        should_create_worktree,
+        "Resolved worktree mode"
     );
 
     if should_create_worktree && !git_clean {
