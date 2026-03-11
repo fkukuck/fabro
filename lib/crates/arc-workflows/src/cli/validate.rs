@@ -4,7 +4,7 @@ use arc_util::terminal::Styles;
 use crate::validation::Severity;
 use crate::workflow::prepare_from_file;
 
-use super::{print_diagnostics, ValidateArgs};
+use super::{print_diagnostics, relative_path, ValidateArgs};
 
 /// Parse and validate a workflow file without executing it.
 ///
@@ -21,6 +21,11 @@ pub fn validate_command(args: &ValidateArgs, styles: &Styles) -> anyhow::Result<
         styles.bold.apply_to(format!("Workflow: {}", graph.name)),
         graph.nodes.len(),
         graph.edges.len(),
+    );
+    eprintln!(
+        "{} {}",
+        styles.dim.apply_to("Graph:"),
+        styles.dim.apply_to(relative_path(&dot_path)),
     );
 
     print_diagnostics(&diagnostics, styles);

@@ -10,7 +10,7 @@ use arc_util::terminal::Styles;
 use chrono::{Local, Utc};
 use tracing::debug;
 
-use super::tilde_path;
+use super::{relative_path, tilde_path};
 use crate::checkpoint::Checkpoint;
 use crate::engine::{RunConfig, WorkflowRunEngine};
 use crate::event::EventEmitter;
@@ -358,6 +358,11 @@ pub async fn run_command(
             graph.nodes.len(),
             graph.edges.len()
         )),
+    );
+    eprintln!(
+        "{} {}",
+        styles.dim.apply_to("Graph:"),
+        styles.dim.apply_to(relative_path(&dot_path)),
     );
 
     let goal = graph.goal();

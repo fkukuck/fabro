@@ -250,6 +250,16 @@ pub fn format_tokens_human(tokens: i64) -> String {
     }
 }
 
+/// Produce a relative path from cwd; falls back to `tilde_path` if not under cwd.
+pub fn relative_path(path: &Path) -> String {
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(rel) = path.strip_prefix(&cwd) {
+            return rel.display().to_string();
+        }
+    }
+    tilde_path(path)
+}
+
 /// Shorten an absolute path by replacing the home directory prefix with `~`.
 pub fn tilde_path(path: &Path) -> String {
     if let Some(home) = dirs::home_dir() {
