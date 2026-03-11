@@ -4,6 +4,8 @@ mod init;
 mod install;
 mod logging;
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing::debug;
@@ -101,6 +103,12 @@ enum Command {
     System {
         #[command(subcommand)]
         command: SystemCommand,
+    },
+    /// Send a queued analytics event (internal)
+    #[command(name = "__send_analytics", hide = true)]
+    SendAnalytics {
+        /// Path to the JSON event file
+        path: PathBuf,
     },
 }
 
@@ -206,6 +214,7 @@ async fn main_inner() -> Result<()> {
         Command::Ps(_) => "ps",
         Command::Pr { .. } => "pr",
         Command::System { .. } => "system",
+        Command::SendAnalytics { .. } => "__send_analytics",
     };
 
     let config_log_level = {
@@ -475,6 +484,13 @@ async fn main_inner() -> Result<()> {
                 arc_workflows::cli::runs::df_command(&args)?;
             }
         },
+        Command::SendAnalytics { path } => {
+            let json = std::fs::read(&path)?;
+            let track: arc_util::telemetry::event::Track = serde_json::from_slice(&json)?;
+            let result = arc_util::telemetry::sender::send_to_segment(&track).await;
+            let _ = std::fs::remove_file(&path);
+            result?;
+        }
     }
 
     Ok(())

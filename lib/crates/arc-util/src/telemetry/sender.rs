@@ -6,41 +6,67 @@ use super::event::Track;
 const SEGMENT_API_URL: &str = "https://api.segment.io/v1/track";
 const SEGMENT_WRITE_KEY: Option<&str> = option_env!("SEGMENT_WRITE_KEY");
 
-/// Spawns a fire-and-forget tokio task to send a track event to Segment.
+/// Serializes the track event to a temp file and spawns a detached subprocess
+/// (`arc __send_analytics <path>`) to deliver it. This ensures the event is
+/// sent even if the parent CLI process exits immediately.
+///
 /// No-ops if the SEGMENT_WRITE_KEY was not set at compile time.
 pub fn send(track: Track) {
-    let Some(write_key) = SEGMENT_WRITE_KEY else {
+    if SEGMENT_WRITE_KEY.is_none() {
         tracing::debug!("telemetry: no SEGMENT_WRITE_KEY, skipping send");
         return;
-    };
+    }
 
-    tokio::spawn(send_track(track, write_key));
+    if let Err(err) = spawn_sender(track) {
+        tracing::debug!(%err, "telemetry: failed to spawn analytics sender");
+    }
 }
 
-async fn send_track(track: Track, write_key: &str) {
+fn spawn_sender(track: Track) -> std::io::Result<()> {
+    let tmp_dir = dirs::home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home directory"))?
+        .join(".arc")
+        .join("tmp");
+
+    std::fs::create_dir_all(&tmp_dir)?;
+
+    let path = tmp_dir.join(format!("arc-event-{}.json", track.message_id));
+    let json = serde_json::to_vec(&track)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, json)?;
+
+    let exe = std::env::current_exe()?;
+    std::process::Command::new(exe)
+        .arg("__send_analytics")
+        .arg(&path)
+        .env("ARC_TELEMETRY", "off")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+
+    Ok(())
+}
+
+/// Sends a track event to Segment. Called by the `__send_analytics` subcommand.
+pub async fn send_to_segment(track: &Track) -> anyhow::Result<()> {
+    let write_key = SEGMENT_WRITE_KEY
+        .ok_or_else(|| anyhow::anyhow!("SEGMENT_WRITE_KEY not set at compile time"))?;
+
     let auth = STANDARD.encode(format!("{write_key}:"));
 
-    let result = reqwest::Client::new()
+    let resp = reqwest::Client::new()
         .post(SEGMENT_API_URL)
         .header("Authorization", format!("Basic {auth}"))
-        .json(&track)
+        .json(track)
         .send()
-        .await;
+        .await?;
 
-    match result {
-        Ok(resp) if !resp.status().is_success() => {
-            tracing::warn!(
-                status = %resp.status(),
-                "telemetry: segment API returned non-success status"
-            );
-        }
-        Err(err) => {
-            tracing::warn!(%err, "telemetry: failed to send event to segment");
-        }
-        Ok(_) => {
-            tracing::debug!("telemetry: event sent successfully");
-        }
+    if !resp.status().is_success() {
+        anyhow::bail!("segment API returned status {}", resp.status());
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
