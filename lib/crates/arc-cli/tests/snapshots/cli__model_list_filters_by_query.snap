@@ -1,0 +1,6 @@
+---
+source: lib/crates/arc-cli/tests/cli.rs
+expression: stdout
+---
+MODEL                          PROVIDER     ALIASES                     CONTEXT     COST                SPEED
+claude-opus-4-6                anthropic    opus, claude-opus                1m    $15.0 / $75.0      25 tok/s

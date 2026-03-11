@@ -98,7 +98,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arc-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-llm",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "arc-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-agent",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "arc-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-agent",
@@ -205,6 +205,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "httpmock",
+ "insta",
  "jsonwebtoken",
  "open",
  "predicates",
@@ -227,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "arc-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-agent",
@@ -242,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "arc-db"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "sqlx",
@@ -253,8 +254,9 @@ dependencies = [
 
 [[package]]
 name = "arc-devcontainer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "insta",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -267,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "arc-exe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-agent",
  "arc-github",
@@ -286,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "arc-git-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "git2",
  "tempfile",
@@ -297,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "arc-github"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "chrono",
@@ -312,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "arc-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-util",
@@ -339,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "arc-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -353,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "arc-openai-oauth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64",
@@ -371,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "arc-slack"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-workflows",
  "futures-util",
@@ -389,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "arc-sprites"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-agent",
  "async-trait",
@@ -406,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "arc-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "prettyplease",
@@ -421,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "arc-util"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -446,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "arc-workflows"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arc-agent",
@@ -2323,6 +2325,18 @@ dependencies = [
  "unicode-width 0.2.2",
  "unit-prefix",
  "web-time",
+]
+
+[[package]]
+name = "insta"
+version = "1.46.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e82db8c87c7f1ccecb34ce0c24399b8a73081427f3c7c50a5d597925356115e4"
+dependencies = [
+ "console 0.15.11",
+ "once_cell",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]

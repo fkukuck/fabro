@@ -10,72 +10,62 @@ fn arc() -> Command {
 
 #[test]
 fn model_list_prints_all_models() {
-    arc()
-        .args(["model", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("claude-opus-4-6"))
-        .stdout(predicate::str::contains("claude-sonnet-4-5"))
-        .stdout(predicate::str::contains("gpt-5.2"))
-        .stdout(predicate::str::contains("gemini-3.1-pro-preview"))
-        .stdout(predicate::str::contains("anthropic"))
-        .stdout(predicate::str::contains("openai"))
-        .stdout(predicate::str::contains("gemini"))
-        .stdout(predicate::str::contains("gpt-5.4"));
+    let output = arc().args(["model", "list"]).output().expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
 fn model_list_filters_by_provider() {
-    let assert = arc()
+    let output = arc()
         .args(["model", "list", "--provider", "anthropic"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("claude-opus-4-6"))
-        .stdout(predicate::str::contains("claude-sonnet-4-5"));
-
-    // Should NOT contain other providers
-    assert
-        .stdout(predicate::str::contains("gpt-5.2").not())
-        .stdout(predicate::str::contains("gemini-3.1-pro-preview").not());
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
 fn model_list_filters_by_query() {
-    arc()
+    let output = arc()
         .args(["model", "list", "--query", "opus"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("claude-opus-4-6"))
-        .stdout(predicate::str::contains("claude-sonnet-4-5").not());
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
 fn model_list_query_is_case_insensitive() {
-    arc()
+    let output = arc()
         .args(["model", "list", "--query", "OPUS"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("claude-opus-4-6"));
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
 fn model_list_query_matches_aliases() {
-    arc()
+    let output = arc()
         .args(["model", "list", "--query", "codex"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("gpt-5.2-codex"));
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
 fn model_bare_defaults_to_list() {
-    arc()
-        .args(["model"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("claude-opus-4-6"))
-        .stdout(predicate::str::contains("gpt-5.2"))
-        .stdout(predicate::str::contains("gemini-3.1-pro-preview"));
+    let output = arc().args(["model"]).output().expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 // == LLM: prompt ==============================================================
@@ -296,11 +286,10 @@ fn exec_no_prompt_prints_usage() {
 
 #[test]
 fn exec_help_flag_prints_help() {
-    arc()
-        .args(["exec", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Task prompt"));
+    let output = arc().args(["exec", "--help"]).output().expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 #[test]
@@ -543,15 +532,10 @@ fn validate_invalid() {
 #[test]
 #[cfg(feature = "server")]
 fn serve_help() {
-    arc()
-        .args(["serve", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--port"))
-        .stdout(predicate::str::contains("--host"))
-        .stdout(predicate::str::contains("--dry-run"))
-        .stdout(predicate::str::contains("--model"))
-        .stdout(predicate::str::contains("--provider"));
+    let output = arc().args(["serve", "--help"]).output().expect("runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    insta::assert_snapshot!(stdout);
 }
 
 // == Arc: run --dry-run =================================================

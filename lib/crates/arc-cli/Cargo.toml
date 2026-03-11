@@ -54,6 +54,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2"
+insta = { workspace = true }
 predicates = "3"
 tempfile = "3"
 serde_json.workspace = true

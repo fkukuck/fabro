@@ -1,0 +1,21 @@
+---
+source: lib/crates/arc-cli/tests/cli.rs
+expression: stdout
+---
+Run an agentic coding session
+
+Usage: arc exec [OPTIONS] <PROMPT>
+
+Arguments:
+  <PROMPT>  Task prompt
+
+Options:
+      --provider <PROVIDER>            LLM provider (anthropic, openai, gemini, kimi, zai, minimax, inception)
+      --model <MODEL>                  Model name (defaults per provider)
+      --permissions <PERMISSIONS>      Permission level for tool execution [possible values: read-only, read-write, full]
+      --auto-approve                   Skip interactive prompts; deny tools outside permission level
+      --debug                          Print LLM request/response debug info to stderr
+      --verbose                        Print full LLM request/response JSON to stderr
+      --skills-dir <SKILLS_DIR>        Directory containing skill files (overrides default discovery)
+      --output-format <OUTPUT_FORMAT>  Output format (text for human-readable, json for NDJSON event stream) [possible values: text, json]
+  -h, --help                           Print help
