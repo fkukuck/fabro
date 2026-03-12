@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 pub const LINEAR_API_ENDPOINT: &str = "https://api.linear.app/graphql";
+
+const BLOCKS_RELATION_TYPE: &str = "blocks";
 
 #[derive(Clone, Debug)]
 pub struct LinearConfig {
@@ -99,7 +103,7 @@ fn normalize_issue(node: &Value) -> Result<Issue, String> {
                 .filter(|rel| {
                     rel["type"]
                         .as_str()
-                        .is_some_and(|t| t.eq_ignore_ascii_case("blocks"))
+                        .is_some_and(|t| t.eq_ignore_ascii_case(BLOCKS_RELATION_TYPE))
                 })
                 .filter_map(|rel| {
                     let issue = &rel["issue"];
@@ -133,7 +137,7 @@ fn normalize_issue(node: &Value) -> Result<Issue, String> {
     })
 }
 
-pub async fn execute_graphql(
+async fn execute_graphql(
     client: &reqwest::Client,
     config: &LinearConfig,
     query: &str,
@@ -157,6 +161,7 @@ pub async fn execute_graphql(
     let status = resp.status();
     if !status.is_success() {
         let body_text = resp.text().await.unwrap_or_default();
+        tracing::warn!(status = %status, "Linear API error");
         return Err(format!("Linear API returned HTTP {status}: {body_text}"));
     }
 
@@ -182,6 +187,7 @@ pub async fn fetch_viewer_id(
     client: &reqwest::Client,
     config: &LinearConfig,
 ) -> Result<String, String> {
+    tracing::debug!("Fetching viewer ID from Linear");
     let query = "query { viewer { id } }";
     let response = execute_graphql(client, config, query, serde_json::json!({})).await?;
 
@@ -197,6 +203,7 @@ pub async fn create_comment(
     issue_id: &str,
     body: &str,
 ) -> Result<(), String> {
+    tracing::debug!(issue_id, "Creating comment on Linear issue");
     let query = r#"
         mutation($issueId: String!, $body: String!) {
             commentCreate(input: { issueId: $issueId, body: $body }) {
@@ -228,6 +235,7 @@ pub async fn update_issue_state(
     issue_id: &str,
     state_name: &str,
 ) -> Result<(), String> {
+    tracing::debug!(issue_id, state_name, "Updating Linear issue state");
     // Step 1: Resolve state name to ID via the issue's team
     let resolve_query = r#"
         query($issueId: String!, $stateName: String!) {
@@ -281,12 +289,26 @@ pub async fn update_issue_state(
     Ok(())
 }
 
+fn extract_issues(response: &Value) -> Result<Vec<Issue>, String> {
+    let nodes = response["data"]["issues"]["nodes"]
+        .as_array()
+        .ok_or("Missing issues nodes in response")?;
+
+    nodes.iter().map(normalize_issue).collect()
+}
+
 pub async fn fetch_candidate_issues(
     client: &reqwest::Client,
     config: &LinearConfig,
     project_slug: &str,
     state_names: &[&str],
 ) -> Result<Vec<Issue>, String> {
+    tracing::debug!(
+        project_slug,
+        ?state_names,
+        "Fetching candidate issues from Linear"
+    );
+
     let query = format!(
         r#"
         query($slug: String!, $states: [String!]!, $cursor: String) {{
@@ -317,13 +339,7 @@ pub async fn fetch_candidate_issues(
 
         let response = execute_graphql(client, config, &query, variables).await?;
 
-        let nodes = response["data"]["issues"]["nodes"]
-            .as_array()
-            .ok_or("Missing issues nodes in response")?;
-
-        for node in nodes {
-            all_issues.push(normalize_issue(node)?);
-        }
+        all_issues.extend(extract_issues(&response)?);
 
         let page_info = &response["data"]["issues"]["pageInfo"];
         if page_info["hasNextPage"].as_bool() == Some(true) {
@@ -345,6 +361,8 @@ pub async fn fetch_issues_by_ids(
         return Ok(Vec::new());
     }
 
+    tracing::debug!(count = ids.len(), "Fetching issues by ID from Linear");
+
     let query = format!(
         r#"
         query($ids: [ID!]!) {{
@@ -355,30 +373,19 @@ pub async fn fetch_issues_by_ids(
         "#
     );
 
-    let mut all_issues: Vec<Issue> = Vec::new();
+    let mut issue_map: HashMap<String, Issue> = HashMap::with_capacity(ids.len());
 
     for batch in ids.chunks(50) {
         let variables = serde_json::json!({ "ids": batch });
         let response = execute_graphql(client, config, &query, variables).await?;
 
-        let nodes = response["data"]["issues"]["nodes"]
-            .as_array()
-            .ok_or("Missing issues nodes in response")?;
-
-        for node in nodes {
-            all_issues.push(normalize_issue(node)?);
+        for issue in extract_issues(&response)? {
+            issue_map.insert(issue.id.clone(), issue);
         }
     }
 
     // Return in the same order as the input IDs
-    let mut ordered: Vec<Issue> = Vec::with_capacity(ids.len());
-    for id in ids {
-        if let Some(issue) = all_issues.iter().find(|i| i.id == *id) {
-            ordered.push(issue.clone());
-        }
-    }
-
-    Ok(ordered)
+    Ok(ids.iter().filter_map(|id| issue_map.remove(*id)).collect())
 }
 
 #[cfg(test)]
