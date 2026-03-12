@@ -5,13 +5,14 @@ description: "Sandbox providers for workflow execution"
 
 When an agent runs a shell command, edits a file, or searches code, it does so inside a **sandbox**. The sandbox is the execution environment for all tool operations — it controls where commands run, which files are visible, and how much isolation exists between the agent and the host.
 
-Arc supports five sandbox providers. Each one implements the same interface (file I/O, command execution, grep, glob), so workflows run identically regardless of which provider you choose. The difference is in where and how the tools execute.
+Arc supports six sandbox providers. Each one implements the same interface (file I/O, command execution, grep, glob), so workflows run identically regardless of which provider you choose. The difference is in where and how the tools execute.
 
 | Provider | Runs on | Use case | Status |
 |---|---|---|---|
 | `local` | Host machine | Development, trusted workflows | Available |
 | `docker` | Docker container | Reproducible environments, untrusted code | Available |
 | `daytona` | Cloud VM | CI/CD, team-shared runs, SSH debugging | Available |
+| `ssh` | Any SSH host | Existing remote machines, dev servers, NAS boxes | Available |
 | `exe` | Cloud VM ([exe.dev](https://exe.dev)) | Fast ephemeral VMs, lightweight cloud sandboxing | Experimental |
 | `sprites` | Cloud VM | Managed cloud sandboxes | In Development |
 
@@ -24,6 +25,7 @@ Set the sandbox provider via CLI flag, [run config TOML](/execution/run-configur
 arc run workflow.dot --sandbox local
 arc run workflow.dot --sandbox docker
 arc run workflow.dot --sandbox daytona
+arc run workflow.dot --sandbox ssh
 arc run workflow.dot --sandbox exe
 ```
 
@@ -192,6 +194,76 @@ The `auto_stop_interval` setting (in minutes) tells Daytona to stop the sandbox 
 auto_stop_interval = 30
 ```
 
+## SSH
+
+The SSH sandbox runs all tool operations on an existing remote machine over SSH. Unlike cloud providers (Daytona, Exe), there is no VM lifecycle management — the host must already be running and reachable. This makes it ideal for persistent dev servers, NAS boxes, or any machine you SSH into regularly.
+
+### Prerequisites
+
+- SSH access to the target machine (key-based auth recommended)
+- The remote working directory must exist, or the agent must be able to create it
+- A GitHub App configured via `arc install` (for private repository cloning)
+
+### How it works
+
+- **No lifecycle management** — Arc does not create or destroy the remote host. It connects, runs operations, and disconnects. `cleanup()` is a no-op.
+- **Working directory** — Set explicitly in the run config. Relative paths for all file operations resolve against this directory.
+- **Git clone** — Arc detects the local `origin` remote URL and current branch, converts SSH URLs to HTTPS, and clones into the working directory. For private repositories, Arc uses a GitHub App Installation Access Token. Public repositories are cloned without credentials. If no git repo is detected, the working directory is used as-is.
+- **Commands** — Executed via SSH. Commands are base64-encoded and piped through `sh` to support pipes, environment variables, and other shell features.
+- **File I/O** — Reads use `cat` over SSH. Writes upload content via SCP. Parent directories are created automatically.
+
+### Configuration
+
+```toml title="run.toml"
+[sandbox]
+provider = "ssh"
+
+[sandbox.ssh]
+destination = "user@myserver"
+working_directory = "/home/user/workspace"
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `destination` | Yes | SSH destination — `user@host`, a hostname, or an SSH alias from `~/.ssh/config`. |
+| `working_directory` | Yes | Absolute path to the working directory on the remote host. |
+| `config_file` | No | Path to a custom SSH config file. Useful when using a non-default key or jump host. |
+| `preview_url_base` | No | Base URL for port previews (e.g. `"http://myserver"`). When set, preview URLs are returned as `{preview_url_base}:{port}` instead of falling back to `localhost`. |
+
+### SSH config file
+
+Use `config_file` to point Arc at a non-default SSH config — useful when the remote host requires a specific key, ProxyJump, or port:
+
+```toml title="run.toml"
+[sandbox.ssh]
+destination = "devbox"
+working_directory = "/home/user/projects/myapp"
+config_file = "/home/user/.ssh/arc_config"
+```
+
+```ssh-config title="~/.ssh/arc_config"
+Host devbox
+  HostName 192.168.1.42
+  User alice
+  IdentityFile ~/.ssh/id_ed25519_devbox
+  Port 2222
+```
+
+### Port previews
+
+When a workflow stage starts a local server on a port, Arc calls `get_preview_url(port)` to produce a clickable URL. For SSH sandboxes, this requires knowing the host's reachable address — Arc can't infer it automatically.
+
+Set `preview_url_base` to enable preview URLs:
+
+```toml title="run.toml"
+[sandbox.ssh]
+destination = "alice@devbox"
+working_directory = "/home/alice/projects/myapp"
+preview_url_base = "http://devbox"
+```
+
+With this config, port 3000 on the remote host yields `http://devbox:3000`.
+
 ## Exe
 
 <Warning>
@@ -252,6 +324,7 @@ Each provider offers a different level of filesystem isolation:
 | `local` | None | The entire host filesystem. Agents can read and modify any file. |
 | `docker` | Container-level | Only the bind-mounted working directory (`/workspace` by default) and whatever is in the container image. Host files outside the mount are inaccessible. |
 | `daytona` | Full machine | A cloud VM with the repository cloned into `/home/daytona/workspace`. The host filesystem is completely inaccessible. |
+| `ssh` | Remote host | The remote machine's filesystem, rooted at the configured working directory. No isolation from other users or processes on that host. |
 | `exe` | Full machine | A cloud VM with the repository cloned into `/home/exedev`. The host filesystem is completely inaccessible. |
 
 For `local`, Arc filters sensitive environment variables (those ending in `_API_KEY`, `_SECRET`, `_TOKEN`, `_PASSWORD`, or `_CREDENTIAL`) but does not restrict file access. Use `docker`, `daytona`, or `exe` when running untrusted workflows.
@@ -265,6 +338,7 @@ Each provider handles outbound network access differently:
 | `local` | Full access | No network isolation. Agents have the same network access as the host. |
 | `docker` | Bridge network | Set via the `network_mode` config option. Supports all Docker network modes (`bridge`, `none`, `host`, etc.). |
 | `daytona` | Full access | Configurable via the `network` setting with three modes: `"allow_all"`, `"block"`, or CIDR-based allow lists. |
+| `ssh` | Remote host's access | No network controls. Agents have the same outbound access as the remote host. |
 | `exe` | Full access | No network isolation controls. VMs have full outbound access. |
 
 For Daytona, network access is configured in the `[sandbox.daytona]` section:
