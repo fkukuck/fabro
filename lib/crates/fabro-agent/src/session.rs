@@ -697,7 +697,7 @@ impl Session {
                 content: text.clone(),
                 tool_calls: tool_calls.clone(),
                 provider_parts,
-                usage,
+                usage: Box::new(usage),
                 response_id: response.id.clone(),
                 timestamp: SystemTime::now(),
             });

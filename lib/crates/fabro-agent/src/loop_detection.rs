@@ -102,7 +102,7 @@ mod tests {
             content: String::new(),
             tool_calls: vec![ToolCall::new("call_1", name, args)],
             provider_parts: vec![],
-            usage: Usage::default(),
+            usage: Box::new(Usage::default()),
             response_id: "resp".into(),
             timestamp: SystemTime::now(),
         }

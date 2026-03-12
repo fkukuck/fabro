@@ -262,7 +262,7 @@ mod tests {
                     serde_json::json!({"path": "foo.rs"}),
                 )],
                 provider_parts: vec![],
-                usage: Usage::default(),
+                usage: Box::new(Usage::default()),
                 response_id: "resp_1".into(),
                 timestamp: SystemTime::now(),
             },

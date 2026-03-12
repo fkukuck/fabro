@@ -38,7 +38,7 @@ pub enum Turn {
         /// `Anthropic` thinking blocks with signatures) preserved for round-tripping.
         /// Reasoning/thinking text is stored here as `ContentPart::Thinking`.
         provider_parts: Vec<ContentPart>,
-        usage: Usage,
+        usage: Box<Usage>,
         response_id: String,
         timestamp: SystemTime,
     },
