@@ -119,11 +119,6 @@ impl SshSandbox {
         }
     }
 
-    /// The display URL of the cloned origin remote, if a clone was performed.
-    pub fn origin_url(&self) -> Option<&str> {
-        self.origin_url.get().map(String::as_str)
-    }
-
     pub fn set_event_callback(&mut self, cb: SandboxEventCallback) {
         self.event_callback = Some(cb);
     }
