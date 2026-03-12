@@ -161,6 +161,16 @@
         ]
       },
       {
+        "tab": "Web",
+        "icon": "browser",
+        "groups": [
+          {
+            "group": "Web",
+            "pages": []
+          }
+        ]
+      },
+      {
         "tab": "API Reference",
         "icon": "code",
         "openapi": "api-reference/arc-api.yaml",
@@ -268,6 +278,7 @@
             "group": "March 2026",
             "icon": "clock-rotate-left",
             "pages": [
+              "changelog/2026-03-12",
               "changelog/2026-03-11",
               "changelog/2026-03-10",
               "changelog/2026-03-09",

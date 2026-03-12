@@ -1,27 +1,60 @@
 ---
-title: "Shadow branch run records and arc diff improvements"
+title: "SSH sandbox and skill installer"
 date: "2026-03-11"
 ---
 
-## Shadow branch as a complete run record
+## SSH sandbox provider
 
-The shadow branch now stores the full execution trace for each workflow run — prompts, responses, status files, diffs, and retro data per node — alongside the existing checkpoint and manifest data. This makes the shadow branch a self-contained, git-native record of everything that happened during a run, browsable with standard git tools.
+Previously, running workflows on a remote machine meant provisioning a cloud VM through Daytona or exe.dev. Now you can point Arc at any host you can already SSH into — a dev server, a home lab machine, or a NAS box — and run workflows there without any additional setup. The SSH sandbox connects using your existing SSH credentials, optionally clones the current repository, and runs all agent operations directly on the host.
+
+```toml title="run.toml"
+[sandbox]
+provider = "ssh"
+
+[sandbox.ssh]
+destination = "user@myserver"
+working_directory = "/home/user/workspace"
+```
+
+Custom SSH config files and ProxyJump hosts are supported via the `config_file` field.
+
+## arc skill install
+
+Arc now ships with a built-in `arc-create-workflow` skill for AI assistants (Claude Code, Codex) that knows Arc's DOT syntax, workflow attributes, node types, and run configuration. Run `arc skill install` to extract it to your filesystem:
+
+```bash
+# Install for the current project
+arc skill install --for project
+
+# Install for all projects (user-level)
+arc skill install --for user
+```
+
+After installation, AI assistants in your editor can use the skill when generating or editing Arc workflows.
 
 ## More
+
+<Accordion title="CLI">
+- Added `arc graph` subcommand to render workflow DOT graphs as SVG or PNG (requires Graphviz `dot`)
+- `arc run` and `arc validate` now print the resolved workflow path before execution
+- `arc doctor` now groups checks into **Required**, **Optional**, and **Server** sections and shows a spinner while checks run
+- Added warning during `arc init` when no git remote is configured
+- Added `--shortstat` flag to `arc diff` for compact one-line summary output
+- `arc diff` now includes uncommitted changes for in-progress runs
+- Retro step now shows tool call progress while the retro agent works
+</Accordion>
 
 <Accordion title="API">
 - Added `devcontainer` field to `SandboxConfiguration` OpenAPI schema
 </Accordion>
 
-<Accordion title="CLI">
-- Added `--shortstat` flag to `arc diff` for compact summary output
-- `arc diff` now includes uncommitted changes for in-progress runs, not just committed ones
-</Accordion>
-
 <Accordion title="Improvements">
-- Added `gemini-3.1-pro-preview-customtools` to model catalog
-- Parallel fan-out branches now render like subagent info lines in the progress UI
-- Tool call paths now display relative to the sandbox working directory
+- Context compaction now produces higher-quality summaries: the summarization prompt is framed as a handoff document, and recent user messages are preserved through compaction so the agent retains the user's actual words
+- Retro agent limits increased to 20 tool rounds and a 3-minute timeout for complex runs
+- Shadow branch now stores the full execution trace per node — prompts, responses, status files, diffs, and retro data — making it a self-contained, git-native run record
+- Parallel fan-out branches render like subagent info lines in the progress UI
+- Tool call file paths now display relative to the sandbox working directory
 - Remote sandbox runs skip unnecessary local worktree creation
+- `progress.jsonl` events now preserve consistent field order (`ts`, `run_id`, `event`)
 - Added `last_file_touched` as a third fallback for status extraction
 </Accordion>
