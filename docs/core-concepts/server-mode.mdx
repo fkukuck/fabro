@@ -1,0 +1,145 @@
+---
+title: "Server Mode"
+description: "Run Arc as an API server with a web UI, concurrent runs, and team access"
+---
+
+<Warning>
+  Server mode is in private early access. Contact [bryan@qlty.sh](mailto:bryan@qlty.sh) if you're interested in trying it.
+</Warning>
+
+Arc has two modes: **standalone** and **server**. Standalone mode (`arc run`) executes a single workflow synchronously in your terminal. Server mode (`arc serve`) starts an HTTP API that queues runs, streams events, and serves a web UI — so you can close your laptop and let workflows run.
+
+Both modes use the same workflow engine, the same DOT files, and the same sandbox providers. The difference is how you interact with them.
+
+## Standalone vs. server mode
+
+| | Standalone | Server |
+|---|---|---|
+| **Command** | `arc run workflow.dot` | `arc serve` |
+| **Best for** | Local development, one-off runs, CI/CD | Production, team use, running at scale |
+| **Execution** | Synchronous, one run per process | Asynchronous, queued with configurable concurrency |
+| **Human-in-the-loop** | Terminal prompts | Web UI or HTTP endpoints |
+| **Events** | Printed to stderr | Streamed via SSE |
+| **Persistence** | Checkpoint files only | SQLite database + checkpoint files |
+| **Web UI** | Not available | Full React interface |
+| **Authentication** | None | JWT and/or mTLS |
+
+## Starting the server
+
+```bash
+arc serve
+```
+
+This starts the API on `127.0.0.1:3000` by default. To also run the web UI:
+
+```bash
+arc serve                        # API on port 3000
+cd apps/arc-web && bun run dev   # Web UI on port 5173
+```
+
+Common flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port` | `3000` | Port to listen on |
+| `--host` | `127.0.0.1` | Host address to bind to |
+| `--model` | — | Override default LLM model |
+| `--sandbox` | — | Override default sandbox provider |
+| `--max-concurrent-runs` | `5` | Maximum concurrent run executions |
+
+See [Server Configuration](/administration/server-configuration) for the full `server.toml` reference.
+
+## Submitting runs
+
+In server mode, workflows are submitted via the REST API and executed in the background:
+
+```bash
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -d '{"workflow": "implement-feature", "goal": "Add user authentication"}'
+```
+
+The server returns immediately with a run ID. A background scheduler promotes queued runs to `Running` in FIFO order, up to the concurrency limit.
+
+## Run lifecycle
+
+1. **Submit** — `POST /runs` creates the run with status `Queued`.
+2. **Schedule** — The scheduler picks up queued runs up to `max_concurrent_runs`.
+3. **Execute** — The engine walks the graph, streaming events to all subscribers.
+4. **Complete** — The run transitions to `Completed`, `Failed`, or `Cancelled`.
+
+## Web UI
+
+The web UI connects to the API server and provides:
+
+- **Runs board** — Monitor all active runs organized by status
+- **Run detail** — Real-time stage progress, event stream, diffs, and usage stats
+- **Start new run** — Submit workflows from the browser
+- **Human-in-the-loop** — Answer agent questions through the web interface
+- **Workflows** — Browse available workflows, view their graphs, and see run history
+- **Insights** — SQL-based analysis across runs via DuckDB
+
+<Frame caption="The Runs board shows all active runs organized by status.">
+  <img src="/images/web/runs-board.png" alt="Arc web UI Runs board with Working, Pending, Verify, and Merge columns" />
+</Frame>
+
+<Frame caption="The run detail view shows stage progress alongside the workflow graph.">
+  <img src="/images/web/run-overview.png" alt="Arc web UI run detail showing stages and workflow graph" />
+</Frame>
+
+## Event streaming
+
+The API streams run events via [Server-Sent Events (SSE)](/api-reference/runs#get-events). Every stage start, LLM call, tool invocation, and edge selection is emitted as a structured JSON event. Any HTTP client that supports SSE can subscribe — the web UI is just one consumer.
+
+## Human-in-the-loop
+
+In server mode, human-in-the-loop questions are served over HTTP instead of terminal prompts. The engine blocks the current stage until an answer is submitted, then continues execution. See the [Human-in-the-Loop API reference](/api-reference/human-in-the-loop) for the polling and answer endpoints.
+
+## Authentication
+
+Server mode supports two authentication strategies, configurable in `server.toml`:
+
+- **JWT** — EdDSA-signed bearer tokens. Used by the web UI. See [API Overview](/api-reference/overview#jwt-bearer-token) for token format.
+- **mTLS** — Mutual TLS with client certificates. Used for service-to-service communication. See [API Overview](/api-reference/overview#mtls-mutual-tls) for setup.
+
+Both strategies can be enabled simultaneously — the first successful match wins.
+
+## Demo mode
+
+Send the `X-Arc-Demo: 1` header on any API request to get static mock data with authentication disabled. The web UI enables this automatically with the `ARC_DEMO=1` environment variable. This lets you explore the UI without API keys or real workflow execution. See [Demo Mode](/api-reference/demo-mode) for details.
+
+## Pointing the CLI at a server
+
+The CLI can delegate commands to a running Arc server instead of executing locally. Set `mode = "server"` in `~/.arc/cli.toml`:
+
+```toml title="cli.toml"
+mode = "server"
+
+[server]
+base_url = "https://arc.example.com:3000"
+```
+
+Or use the `--mode` flag:
+
+```bash
+arc --mode server --server-url https://arc.example.com:3000 models list
+```
+
+This applies to commands like `arc models list`, `arc llm chat`, and `arc exec`. See [CLI Configuration](/reference/cli-configuration#mode) for the full options including mTLS setup.
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Server Configuration" icon="gear" href="/administration/server-configuration">
+    Full server.toml reference — authentication, TLS, run defaults, and more.
+  </Card>
+  <Card title="Server Deployment" icon="server" href="/administration/deploy-server">
+    Deploy Arc to production infrastructure.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    REST API for submitting runs, streaming events, and managing resources.
+  </Card>
+  <Card title="How Arc Works" icon="lightbulb" href="/core-concepts/how-arc-works">
+    The workflow engine that powers both modes.
+  </Card>
+</Columns>

@@ -30,7 +30,8 @@
               "core-concepts/how-arc-works",
               "core-concepts/workflows",
               "core-concepts/agents",
-              "core-concepts/models"
+              "core-concepts/models",
+              "core-concepts/server-mode"
             ]
           },
           {

@@ -89,14 +89,4 @@ The UI provides:
 
 ## Comparison
 
-| Feature | CLI mode | API mode |
-|---|---|---|
-| Command | `arc run` | `arc serve` |
-| Execution | Synchronous, single run | Async, queued with scheduler |
-| Concurrency | One run per process | Configurable (default 5) |
-| Human-in-the-loop | Terminal prompts | HTTP endpoints |
-| Events | Printed to stderr | SSE stream |
-| Persistence | Checkpoint files | SQLite + checkpoint files |
-| Web UI | Not available | Full web interface |
-| Authentication | None | JWT / mTLS |
-| Best for | Development, one-off runs | Production, integrations |
+See [Server Mode](/core-concepts/server-mode#standalone-vs-server-mode) for a full feature comparison between standalone and server mode.

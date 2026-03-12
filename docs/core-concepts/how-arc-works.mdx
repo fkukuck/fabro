@@ -13,22 +13,10 @@ Arc is a workflow engine that reads a graph definition, executes nodes one at a 
 
 Arc has two interfaces, both backed by the same workflow engine:
 
-| | CLI mode | API mode |
-|---|---|---|
-| **Command** | `arc run workflow.dot` | `arc serve` |
-| **Best for** | Local development, one-off runs | Production use, web UI, integrations |
-| **Execution** | Immediate, single run | Queued, up to N concurrent runs |
-| **Human-in-the-loop** | Terminal prompts | HTTP endpoints |
-| **Events** | Printed to stderr | Streamed via SSE |
-| **Web UI** | Not available | React app connects to the API |
+- **Standalone mode** (`arc run`) — Run a single workflow synchronously in your terminal. Best for local development, one-off runs, and CI/CD.
+- **Server mode** (`arc serve`) — Start an HTTP API server with a web UI, concurrent run scheduling, and team access. Best for production use and running at scale.
 
-In CLI mode, you run a single workflow directly in your terminal. In API mode, `arc serve` starts an HTTP server that accepts runs via `POST /runs`, queues them, and streams events to the web UI or any HTTP client. Both modes parse the same DOT files, use the same execution engine, and support the same sandbox providers.
-
-<Frame caption="The Runs board in the web UI shows all active runs organized by status.">
-  <img src="/images/web/runs-board.png" alt="Arc web UI Runs board with Working, Pending, Verify, and Merge columns" />
-</Frame>
-
-See [Architecture](/reference/architecture) for the full details.
+Both modes parse the same DOT files, use the same execution engine, and support the same sandbox providers. See [Server Mode](/core-concepts/server-mode) for a detailed comparison and setup guide, or [Architecture](/reference/architecture) for internals.
 
 ## Author time
 
