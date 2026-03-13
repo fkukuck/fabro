@@ -42,15 +42,15 @@ pub fn assemble_system_prompt(
     core_prompt: &str,
     env: &dyn Sandbox,
     env_context: &EnvContext,
-    project_docs: &[String],
+    memory: &[String],
     user_instructions: Option<&str>,
     skills: &[Skill],
 ) -> String {
     let env_block = build_env_context_block_with(env, env_context);
-    let docs_section = if project_docs.is_empty() {
+    let docs_section = if memory.is_empty() {
         String::new()
     } else {
-        format!("\n\n{}", project_docs.join("\n\n"))
+        format!("\n\n{}", memory.join("\n\n"))
     };
     let skills_section = {
         let s = format_skills_prompt_section(skills);

@@ -67,7 +67,7 @@ impl ProviderProfile for GeminiProfile {
         &self,
         env: &dyn Sandbox,
         env_context: &EnvContext,
-        project_docs: &[String],
+        memory: &[String],
         user_instructions: Option<&str>,
         skills: &[Skill],
     ) -> String {
@@ -192,7 +192,7 @@ in the project.";
             core_prompt,
             env,
             env_context,
-            project_docs,
+            memory,
             user_instructions,
             skills,
         )
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn gemini_system_prompt_contains_project_docs_convention() {
+    fn gemini_system_prompt_contains_memory_convention() {
         let profile = GeminiProfile::new("gemini-2.0-flash");
         let env = MockSandbox::linux();
         let prompt = profile.build_system_prompt(&env, &EnvContext::default(), &[], None, &[]);

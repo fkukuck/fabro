@@ -27,7 +27,7 @@ pub trait ProviderProfile: Send + Sync {
         &self,
         env: &dyn Sandbox,
         env_context: &EnvContext,
-        project_docs: &[String],
+        memory: &[String],
         user_instructions: Option<&str>,
         skills: &[Skill],
     ) -> String;

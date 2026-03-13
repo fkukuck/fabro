@@ -73,7 +73,7 @@ impl ProviderProfile for AnthropicProfile {
         &self,
         env: &dyn Sandbox,
         env_context: &EnvContext,
-        project_docs: &[String],
+        memory: &[String],
         user_instructions: Option<&str>,
         skills: &[Skill],
     ) -> String {
@@ -157,7 +157,7 @@ in the project. Keep changes minimal and focused on the task.";
             core_prompt,
             env,
             env_context,
-            project_docs,
+            memory,
             user_instructions,
             skills,
         )
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_system_prompt_includes_project_docs() {
+    fn anthropic_system_prompt_includes_memory() {
         let profile = AnthropicProfile::new("claude-sonnet-4-20250514");
         let env = MockSandbox::linux();
         let docs = vec!["# Project README".into(), "# CONTRIBUTING guide".into()];

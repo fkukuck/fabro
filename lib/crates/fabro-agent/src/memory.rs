@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 
 const BUDGET_BYTES: usize = 32768;
 
-pub async fn discover_project_docs(
+pub async fn discover_memory(
     env: &dyn Sandbox,
     git_root: &str,
     working_dir: &str,
@@ -125,7 +125,7 @@ mod tests {
             files,
             ..Default::default()
         });
-        let docs = discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
+        let docs = discover_memory(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0], "Agent instructions");
     }
@@ -143,7 +143,7 @@ mod tests {
             ..Default::default()
         });
         let anthropic_docs =
-            discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
+            discover_memory(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
         assert_eq!(anthropic_docs.len(), 2);
         assert_eq!(anthropic_docs[0], "agents");
         assert_eq!(anthropic_docs[1], "claude");
@@ -152,8 +152,7 @@ mod tests {
             files: files.clone(),
             ..Default::default()
         });
-        let openai_docs =
-            discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::OpenAi).await;
+        let openai_docs = discover_memory(env.as_ref(), "/repo", "/repo", Provider::OpenAi).await;
         assert_eq!(openai_docs.len(), 2);
         assert_eq!(openai_docs[0], "agents");
         assert_eq!(openai_docs[1], "copilot");
@@ -162,8 +161,7 @@ mod tests {
             files,
             ..Default::default()
         });
-        let gemini_docs =
-            discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::Gemini).await;
+        let gemini_docs = discover_memory(env.as_ref(), "/repo", "/repo", Provider::Gemini).await;
         assert_eq!(gemini_docs.len(), 2);
         assert_eq!(gemini_docs[0], "agents");
         assert_eq!(gemini_docs[1], "gemini");
@@ -182,7 +180,7 @@ mod tests {
             files,
             ..Default::default()
         });
-        let docs = discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
+        let docs = discover_memory(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
         assert_eq!(docs.len(), 2);
         assert_eq!(docs[0], large_content);
         // Second doc should be truncated to fit remaining budget
@@ -199,7 +197,7 @@ mod tests {
             files,
             ..Default::default()
         });
-        let docs = discover_project_docs(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
+        let docs = discover_memory(env.as_ref(), "/repo", "/repo", Provider::Anthropic).await;
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0], "shared instructions");
     }
@@ -213,8 +211,7 @@ mod tests {
             files,
             ..Default::default()
         });
-        let docs =
-            discover_project_docs(env.as_ref(), "/repo", "/repo/src", Provider::Anthropic).await;
+        let docs = discover_memory(env.as_ref(), "/repo", "/repo/src", Provider::Anthropic).await;
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0], "shared instructions");
     }
@@ -231,8 +228,7 @@ mod tests {
             ..Default::default()
         });
         let docs =
-            discover_project_docs(env.as_ref(), "/repo", "/repo/src/app", Provider::Anthropic)
-                .await;
+            discover_memory(env.as_ref(), "/repo", "/repo/src/app", Provider::Anthropic).await;
         assert_eq!(docs.len(), 3);
         assert_eq!(docs[0], "root agents");
         assert_eq!(docs[1], "src agents");

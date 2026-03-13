@@ -77,7 +77,7 @@ impl ProviderProfile for OpenAiProfile {
         &self,
         env: &dyn Sandbox,
         env_context: &EnvContext,
-        project_docs: &[String],
+        memory: &[String],
         user_instructions: Option<&str>,
         skills: &[Skill],
     ) -> String {
@@ -184,7 +184,7 @@ in the project.";
             core_prompt,
             env,
             env_context,
-            project_docs,
+            memory,
             user_instructions,
             skills,
         )
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_system_prompt_includes_project_docs() {
+    fn openai_system_prompt_includes_memory() {
         let profile = OpenAiProfile::new("o3-mini");
         let env = MockSandbox::linux();
         let docs = vec!["# Project README".into(), "# CONTRIBUTING guide".into()];

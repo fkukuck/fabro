@@ -4,8 +4,8 @@ use crate::event::EventEmitter;
 use crate::file_tracker::FileTracker;
 use crate::history::History;
 use crate::loop_detection::detect_loop;
+use crate::memory::discover_memory;
 use crate::profiles::EnvContext;
-use crate::project_docs::discover_project_docs;
 use crate::provider_profile::ProviderProfile;
 use crate::sandbox::Sandbox;
 use crate::skills::{
@@ -37,7 +37,7 @@ pub struct Session {
     followup_queue: Arc<Mutex<VecDeque<String>>>,
     cancel_token: CancellationToken,
     abort_reason: Arc<Mutex<Option<AbortReason>>>,
-    project_docs: Vec<String>,
+    memory: Vec<String>,
     env_context: EnvContext,
     skills: Vec<Skill>,
     system_prompt: String,
@@ -66,7 +66,7 @@ impl Session {
             followup_queue: Arc::new(Mutex::new(VecDeque::new())),
             cancel_token: CancellationToken::new(),
             abort_reason: Arc::new(Mutex::new(None)),
-            project_docs: Vec::new(),
+            memory: Vec::new(),
             env_context: EnvContext::default(),
             skills: Vec::new(),
             system_prompt: String::new(),
@@ -90,7 +90,7 @@ impl Session {
             .git_root
             .clone()
             .unwrap_or_else(|| self.sandbox.working_directory().to_string());
-        self.project_docs = discover_project_docs(
+        self.memory = discover_memory(
             self.sandbox.as_ref(),
             &doc_root,
             self.sandbox.working_directory(),
@@ -172,7 +172,7 @@ impl Session {
         self.system_prompt = self.provider_profile.build_system_prompt(
             self.sandbox.as_ref(),
             &self.env_context,
-            &self.project_docs,
+            &self.memory,
             self.config.user_instructions.as_deref(),
             &self.skills,
         );

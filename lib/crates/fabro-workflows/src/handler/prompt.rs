@@ -57,7 +57,7 @@ impl Handler for PromptHandler {
                 .provider()
                 .and_then(|s| s.parse::<Provider>().ok())
                 .unwrap_or(Provider::Anthropic);
-            let docs = fabro_agent::discover_project_docs(
+            let docs = fabro_agent::discover_memory(
                 &*services.sandbox,
                 working_dir,
                 working_dir,

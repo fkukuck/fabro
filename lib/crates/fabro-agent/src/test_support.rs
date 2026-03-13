@@ -461,7 +461,7 @@ impl ProviderProfile for TestProfile {
         &self,
         _env: &dyn Sandbox,
         _env_context: &EnvContext,
-        _project_docs: &[String],
+        _memory: &[String],
         user_instructions: Option<&str>,
         skills: &[Skill],
     ) -> String {
