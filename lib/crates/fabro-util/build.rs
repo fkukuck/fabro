@@ -54,7 +54,7 @@ fn escape_rust_string(s: &str) -> String {
 
 fn main() {
     // Emit git SHA and build date for version info
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../../.git/HEAD");
     let sha = std::process::Command::new("git")
         .args(["rev-list", "-1", "HEAD"])
         .output()
