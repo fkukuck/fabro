@@ -50,7 +50,14 @@ pub struct GitHubAppCredentials {
 /// - `https://github.com/owner/repo.git`
 /// - `https://github.com/owner/repo`
 /// - `https://github.com/owner/repo/`
+/// - `https://x-access-token:TOKEN@github.com/owner/repo.git`
 pub fn parse_github_owner_repo(url: &str) -> Result<(String, String), String> {
+    // Strip credentials from URLs like https://x-access-token:TOKEN@github.com/...
+    let stripped = url.strip_prefix("https://").and_then(|rest| {
+        rest.split_once('@')
+            .map(|(_, after)| format!("https://{after}"))
+    });
+    let url = stripped.as_deref().unwrap_or(url);
     let path = url
         .strip_prefix("https://github.com/")
         .ok_or_else(|| format!("Not a GitHub HTTPS URL: {url}"))?;
@@ -1190,6 +1197,31 @@ mod tests {
             ssh_url_to_https("https://github.com/brynary/arc.git"),
             "https://github.com/brynary/arc.git"
         );
+    }
+
+    #[test]
+    fn parse_github_url_with_credentials() {
+        let (owner, repo) = parse_github_owner_repo(
+            "https://x-access-token:ghs_abc123@github.com/acme/widgets.git",
+        )
+        .unwrap();
+        assert_eq!(owner, "acme");
+        assert_eq!(repo, "widgets");
+    }
+
+    #[test]
+    fn parse_github_url_with_credentials_no_password() {
+        let (owner, repo) =
+            parse_github_owner_repo("https://token@github.com/acme/widgets.git").unwrap();
+        assert_eq!(owner, "acme");
+        assert_eq!(repo, "widgets");
+    }
+
+    #[test]
+    fn parse_credentials_non_github_still_errors() {
+        let result = parse_github_owner_repo("https://user:pass@gitlab.com/owner/repo");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Not a GitHub HTTPS URL"));
     }
 
     #[test]
