@@ -82,6 +82,10 @@ pub fn parse_target(s: &str) -> Result<RewindTarget> {
 }
 
 /// Build the checkpoint timeline by walking the metadata branch oldest-first.
+///
+/// The metadata branch checkpoint.json may not contain `git_commit_sha` (the engine
+/// only writes it to the on-disk checkpoint). As a fallback, we walk the run branch
+/// and match commits by message pattern `fabro({run_id}): {node_name}`.
 pub fn build_timeline(store: &Store, run_id: &str) -> Result<Vec<TimelineEntry>> {
     let branch = MetadataStore::branch_name(run_id);
     let sig = Signature::now("Fabro", "noreply@fabro.sh")?;
@@ -120,7 +124,64 @@ pub fn build_timeline(store: &Store, run_id: &str) -> Result<Vec<TimelineEntry>>
         });
     }
 
+    // Backfill missing git_commit_sha from run branch commit messages
+    backfill_run_shas(store, run_id, &mut timeline);
+
     Ok(timeline)
+}
+
+/// Walk the run branch and match commits by message pattern to backfill missing SHAs.
+fn backfill_run_shas(store: &Store, run_id: &str, timeline: &mut [TimelineEntry]) {
+    let needs_backfill = timeline.iter().any(|e| e.run_commit_sha.is_none());
+    if !needs_backfill {
+        return;
+    }
+
+    let run_branch = format!("arc/run/{run_id}");
+    let sig = match Signature::now("Fabro", "noreply@fabro.sh") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let bs = BranchStore::new(store, &run_branch, &sig);
+    let run_commits = match bs.log(10_000) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Build a map from node_name to Vec<commit SHA> (newest-first from log)
+    let prefix = format!("fabro({run_id}): ");
+    let mut node_commits: HashMap<String, Vec<String>> = HashMap::new();
+    for commit in &run_commits {
+        if let Some(rest) = commit.message.strip_prefix(&prefix) {
+            // Message format: "fabro({run_id}): {node_name} ({status})"
+            if let Some(node_name) = rest.split_whitespace().next() {
+                node_commits
+                    .entry(node_name.to_string())
+                    .or_default()
+                    .push(commit.oid.to_string());
+            }
+        }
+    }
+
+    // Assign SHAs to timeline entries that are missing them.
+    // For each node, pop from the end (oldest) to match visit order.
+    for (_, shas) in node_commits.iter_mut() {
+        shas.reverse(); // oldest-first
+    }
+    let mut node_indices: HashMap<String, usize> = HashMap::new();
+
+    for entry in timeline.iter_mut() {
+        if entry.run_commit_sha.is_some() {
+            continue;
+        }
+        if let Some(shas) = node_commits.get(&entry.node_name) {
+            let idx = node_indices.entry(entry.node_name.clone()).or_insert(0);
+            if *idx < shas.len() {
+                entry.run_commit_sha = Some(shas[*idx].clone());
+                *idx += 1;
+            }
+        }
+    }
 }
 
 /// Map interior parallel nodes to their fan-out parallel node ID.
