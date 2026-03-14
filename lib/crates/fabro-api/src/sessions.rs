@@ -456,6 +456,7 @@ mod tests {
             true,
             5,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         build_router(state, AuthMode::Disabled)
     }

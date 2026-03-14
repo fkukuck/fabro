@@ -1,8 +1,6 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use fabro_agent::cli::{OutputFormat, PermissionLevel};
-use fabro_mcp::config::{McpServerConfig, McpTransport};
 use fabro_workflows::cli::run_config::RunDefaults;
 use serde::Deserialize;
 use tracing::debug;
@@ -45,27 +43,6 @@ pub struct CliGitConfig {
     pub author: crate::server::GitAuthorConfig,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct McpServerEntry {
-    #[serde(flatten)]
-    pub transport: McpTransport,
-    #[serde(default = "fabro_mcp::config::default_startup_timeout_secs")]
-    pub startup_timeout_secs: u64,
-    #[serde(default = "fabro_mcp::config::default_tool_timeout_secs")]
-    pub tool_timeout_secs: u64,
-}
-
-impl McpServerEntry {
-    pub fn into_config(self, name: String) -> McpServerConfig {
-        McpServerConfig {
-            name,
-            transport: self.transport,
-            startup_timeout_secs: self.startup_timeout_secs,
-            tool_timeout_secs: self.tool_timeout_secs,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct CliConfig {
     pub mode: Option<ExecutionMode>,
@@ -78,8 +55,6 @@ pub struct CliConfig {
     pub log: crate::server::LogConfig,
     #[serde(flatten)]
     pub run_defaults: RunDefaults,
-    #[serde(default)]
-    pub mcp_servers: HashMap<String, McpServerEntry>,
 }
 
 impl CliConfig {
@@ -125,6 +100,9 @@ pub fn load_cli_config(path: Option<&Path>) -> anyhow::Result<CliConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fabro_mcp::config::McpTransport;
+    use fabro_workflows::cli::run_config::McpServerEntry;
+    use std::collections::HashMap;
 
     #[test]
     fn parse_empty_config_defaults() {
@@ -367,8 +345,8 @@ tool_timeout_secs = 90
 NODE_ENV = "production"
 "#;
         let config: CliConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.mcp_servers.len(), 1);
-        let entry = &config.mcp_servers["filesystem"];
+        assert_eq!(config.run_defaults.mcp_servers.len(), 1);
+        let entry = &config.run_defaults.mcp_servers["filesystem"];
         assert_eq!(entry.startup_timeout_secs, 15);
         assert_eq!(entry.tool_timeout_secs, 90);
         match &entry.transport {
@@ -399,8 +377,8 @@ url = "https://mcp.sentry.dev/mcp"
 Authorization = "Bearer sk-xxx"
 "#;
         let config: CliConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.mcp_servers.len(), 1);
-        let entry = &config.mcp_servers["sentry"];
+        assert_eq!(config.run_defaults.mcp_servers.len(), 1);
+        let entry = &config.run_defaults.mcp_servers["sentry"];
         match &entry.transport {
             McpTransport::Http { url, headers } => {
                 assert_eq!(url, "https://mcp.sentry.dev/mcp");
@@ -413,7 +391,7 @@ Authorization = "Bearer sk-xxx"
     #[test]
     fn parse_mcp_empty_backward_compat() {
         let config: CliConfig = toml::from_str("").unwrap();
-        assert!(config.mcp_servers.is_empty());
+        assert!(config.run_defaults.mcp_servers.is_empty());
     }
 
     #[test]
@@ -428,13 +406,13 @@ type = "http"
 url = "https://mcp.example.com"
 "#;
         let config: CliConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.mcp_servers.len(), 2);
+        assert_eq!(config.run_defaults.mcp_servers.len(), 2);
         assert!(matches!(
-            config.mcp_servers["local"].transport,
+            config.run_defaults.mcp_servers["local"].transport,
             McpTransport::Stdio { .. }
         ));
         assert!(matches!(
-            config.mcp_servers["remote"].transport,
+            config.run_defaults.mcp_servers["remote"].transport,
             McpTransport::Http { .. }
         ));
     }
@@ -447,7 +425,7 @@ type = "stdio"
 command = ["echo"]
 "#;
         let config: CliConfig = toml::from_str(toml).unwrap();
-        let entry = &config.mcp_servers["minimal"];
+        let entry = &config.run_defaults.mcp_servers["minimal"];
         assert_eq!(entry.startup_timeout_secs, 10);
         assert_eq!(entry.tool_timeout_secs, 60);
     }

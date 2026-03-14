@@ -45,7 +45,7 @@ export interface RunConfiguration {
     /**
      * Working directory for the run.
      */
-    'directory'?: string;
+    'work_dir'?: string;
     'llm'?: LlmConfiguration;
     'setup'?: SetupConfiguration;
     'sandbox'?: SandboxConfiguration;

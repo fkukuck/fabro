@@ -105,7 +105,7 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     max_concurrent_runs: usize,
     scheduler_notify: tokio::sync::Notify,
-    pub hook_config: fabro_workflows::hook::HookConfig,
+    pub hooks: Vec<fabro_workflows::hook::HookDefinition>,
     git_author: fabro_workflows::git::GitAuthor,
     pub sessions: crate::sessions::SessionStore,
     llm_client: tokio::sync::OnceCell<fabro_llm::client::Client>,
@@ -394,6 +394,7 @@ pub fn create_app_state(
         false,
         5,
         fabro_workflows::git::GitAuthor::default(),
+        Vec::new(),
     )
 }
 
@@ -404,6 +405,7 @@ pub fn create_app_state_with_options(
     dry_run: bool,
     max_concurrent_runs: usize,
     git_author: fabro_workflows::git::GitAuthor,
+    hooks: Vec<fabro_workflows::hook::HookDefinition>,
 ) -> Arc<AppState> {
     Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
@@ -413,7 +415,7 @@ pub fn create_app_state_with_options(
         db,
         max_concurrent_runs,
         scheduler_notify: tokio::sync::Notify::new(),
-        hook_config: fabro_workflows::hook::HookConfig::default(),
+        hooks,
         git_author,
         sessions: crate::sessions::new_session_store(),
         llm_client: tokio::sync::OnceCell::new(),
@@ -581,8 +583,11 @@ async fn execute_run(state: Arc<AppState>, run_id: String) {
     );
 
     // Wire up hook runner from server config
-    if !state.hook_config.hooks.is_empty() {
-        let runner = fabro_workflows::hook::HookRunner::new(state.hook_config.clone());
+    if !state.hooks.is_empty() {
+        let hook_config = fabro_workflows::hook::HookConfig {
+            hooks: state.hooks.clone(),
+        };
+        let runner = fabro_workflows::hook::HookRunner::new(hook_config);
         engine.set_hook_runner(std::sync::Arc::new(runner));
     }
 
@@ -1564,6 +1569,7 @@ mod tests {
             true,
             5,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         let app = build_router(state, AuthMode::Disabled);
 
@@ -1590,6 +1596,7 @@ mod tests {
             true,
             5,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         let app = build_router(state, AuthMode::Disabled);
 
@@ -2280,6 +2287,7 @@ mod tests {
             false,
             1,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         let app = test_app_with_scheduler(state);
 
@@ -2367,6 +2375,7 @@ mod tests {
             true,
             5,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         let app = build_router(state, AuthMode::Disabled);
 
@@ -2403,6 +2412,7 @@ mod tests {
             true,
             5,
             fabro_workflows::git::GitAuthor::default(),
+            Vec::new(),
         );
         let app = build_router(state, AuthMode::Disabled);
 

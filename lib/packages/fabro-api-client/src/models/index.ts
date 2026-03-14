@@ -54,6 +54,7 @@ export * from './learning-category';
 export * from './llm-configuration';
 export * from './local-sandbox-configuration';
 export * from './log-configuration';
+export * from './mcp-server-entry';
 export * from './model';
 export * from './model-costs';
 export * from './model-features';

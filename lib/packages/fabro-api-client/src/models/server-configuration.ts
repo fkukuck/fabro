@@ -39,6 +39,9 @@ import type { LlmConfiguration } from './llm-configuration';
 import type { LogConfiguration } from './log-configuration';
 // May contain unused imports in some cases
 // @ts-ignore
+import type { McpServerEntry } from './mcp-server-entry';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { PullRequestConfiguration } from './pull-request-configuration';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -70,7 +73,7 @@ export interface ServerConfiguration {
     /**
      * Default working directory.
      */
-    'directory'?: string;
+    'work_dir'?: string;
     'llm'?: LlmConfiguration;
     'setup'?: SetupConfiguration;
     'sandbox'?: SandboxConfiguration;
@@ -82,5 +85,9 @@ export interface ServerConfiguration {
     'pull_request'?: PullRequestConfiguration;
     'hooks'?: Array<HookDefinition>;
     'assets'?: AssetsConfiguration;
+    /**
+     * Default MCP server configurations.
+     */
+    'mcp_servers'?: { [key: string]: McpServerEntry; };
 }
 

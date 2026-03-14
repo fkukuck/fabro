@@ -447,6 +447,7 @@ async fn main_inner() -> (String, Result<()>) {
                 let resolved =
                     cli_config::resolve_mode(cli.mode, cli.server_url.as_deref(), &cli_config);
                 let mcp_servers: Vec<fabro_mcp::config::McpServerConfig> = cli_config
+                    .run_defaults
                     .mcp_servers
                     .into_iter()
                     .map(|(name, entry)| entry.into_config(name))

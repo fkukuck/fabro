@@ -277,7 +277,7 @@ fn fully_populated_server_config() -> ServerConfig {
             level: Some("debug".into()),
         },
         run_defaults: RunDefaults {
-            directory: Some("/work".into()),
+            work_dir: Some("/work".into()),
             llm: Some(LlmConfig {
                 model: Some("m".into()),
                 provider: Some("p".into()),
@@ -319,8 +319,6 @@ fn fully_populated_server_config() -> ServerConfig {
             assets: Some(AssetsConfig {
                 include: vec!["test-results/**".into()],
             }),
-        },
-        hook_config: HookConfig {
             // One hook per HookType variant so the key union covers all fields.
             hooks: vec![
                 HookDefinition {
@@ -376,6 +374,7 @@ fn fully_populated_server_config() -> ServerConfig {
                     sandbox: None,
                 },
             ],
+            mcp_servers: Default::default(),
         },
     }
 }

@@ -306,17 +306,50 @@ pub async fn run_command(
         .ok_or_else(|| anyhow::anyhow!("--workflow is required unless --run-branch is provided"))?;
 
     // Apply project-level config overrides (fabro.toml) on top of CLI defaults.
-    // Workflow-level config (workflow.toml) still wins via apply_defaults below.
+    // Precedence: workflow.toml > fabro.toml > cli.toml/server.toml
+    //
+    // We create a temporary WorkflowRunConfig from cli defaults, apply the project
+    // defaults on top, then extract the merged RunDefaults. This reuses the same
+    // field-level merge logic that apply_defaults() already implements.
     if let Ok(Some((_config_path, project_config))) =
         super::project_config::discover_project_config(&std::env::current_dir().unwrap_or_default())
     {
-        if project_config.pull_request.is_some() {
-            tracing::debug!(
-                pull_request = ?project_config.pull_request,
-                "Applying pull_request config from fabro.toml"
-            );
-            run_defaults.pull_request = project_config.pull_request;
+        tracing::debug!("Applying run defaults from fabro.toml");
+        let project_defaults = project_config.into_run_defaults();
+        // Project overrides cli-level defaults. Build a merged RunDefaults
+        // by applying cli as base, then overriding with project values.
+        let mut merged = run_defaults.clone();
+        if project_defaults.work_dir.is_some() {
+            merged.work_dir = project_defaults.work_dir;
         }
+        if project_defaults.llm.is_some() {
+            merged.llm = project_defaults.llm;
+        }
+        if project_defaults.setup.is_some() {
+            merged.setup = project_defaults.setup;
+        }
+        if project_defaults.sandbox.is_some() {
+            merged.sandbox = project_defaults.sandbox;
+        }
+        if project_defaults.vars.is_some() {
+            merged.vars = project_defaults.vars;
+        }
+        if !project_defaults.checkpoint.exclude_globs.is_empty() {
+            merged.checkpoint = project_defaults.checkpoint;
+        }
+        if project_defaults.pull_request.is_some() {
+            merged.pull_request = project_defaults.pull_request;
+        }
+        if project_defaults.assets.is_some() {
+            merged.assets = project_defaults.assets;
+        }
+        if !project_defaults.hooks.is_empty() {
+            merged.hooks = project_defaults.hooks;
+        }
+        if !project_defaults.mcp_servers.is_empty() {
+            merged.mcp_servers = project_defaults.mcp_servers;
+        }
+        run_defaults = merged;
     }
 
     // 0. Resolve workflow arg, load run config if TOML, resolve DOT path, apply defaults
@@ -333,8 +366,8 @@ pub async fn run_command(
 
     let directory = run_cfg
         .as_ref()
-        .and_then(|c| c.directory.as_deref())
-        .or(run_defaults.directory.as_deref());
+        .and_then(|c| c.work_dir.as_deref())
+        .or(run_defaults.work_dir.as_deref());
     if let Some(dir) = directory {
         std::env::set_current_dir(dir)
             .map_err(|e| anyhow::anyhow!("Failed to set working directory to {dir}: {e}"))?;
@@ -1088,16 +1121,17 @@ pub async fn run_command(
         }
         env
     };
-    let mcp_servers: Vec<fabro_mcp::config::McpServerConfig> = run_cfg
-        .as_ref()
-        .map(|c| {
-            c.mcp_servers
-                .clone()
-                .into_iter()
-                .map(|(name, entry)| entry.into_config(name))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mcp_servers: Vec<fabro_mcp::config::McpServerConfig> = {
+        let servers = run_cfg
+            .as_ref()
+            .map(|c| &c.mcp_servers)
+            .unwrap_or(&run_defaults.mcp_servers);
+        servers
+            .clone()
+            .into_iter()
+            .map(|(name, entry)| entry.into_config(name))
+            .collect()
+    };
     let registry = default_registry(interviewer.clone(), {
         let sandbox_env = sandbox_env.clone();
         let model = model.clone();
@@ -1126,11 +1160,15 @@ pub async fn run_command(
         engine.set_env(sandbox_env);
     }
 
-    // Wire up hook runner from run config
-    if let Some(ref cfg) = run_cfg {
-        if !cfg.hooks.is_empty() {
+    // Wire up hook runner from run config or run defaults
+    {
+        let hooks = run_cfg
+            .as_ref()
+            .map(|c| &c.hooks)
+            .unwrap_or(&run_defaults.hooks);
+        if !hooks.is_empty() {
             let hook_config = crate::hook::HookConfig {
-                hooks: cfg.hooks.clone(),
+                hooks: hooks.clone(),
             };
             let runner = crate::hook::HookRunner::new(hook_config);
             engine.set_hook_runner(Arc::new(runner));
@@ -2527,7 +2565,7 @@ mod tests {
             version: 1,
             goal: Some("test".to_string()),
             graph: "test.fabro".to_string(),
-            directory: None,
+            work_dir: None,
             llm: Some(run_config::LlmConfig {
                 model: Some("toml-model".to_string()),
                 provider: Some("openai".to_string()),
@@ -2571,7 +2609,7 @@ mod tests {
             version: 1,
             goal: Some("test".to_string()),
             graph: "test.fabro".to_string(),
-            directory: None,
+            work_dir: None,
             llm: Some(run_config::LlmConfig {
                 model: Some("toml-model".to_string()),
                 provider: Some("openai".to_string()),
@@ -2650,7 +2688,7 @@ mod tests {
             version: 1,
             goal: Some("test".to_string()),
             graph: "test.fabro".to_string(),
-            directory: None,
+            work_dir: None,
             llm: Some(run_config::LlmConfig {
                 model: Some("toml-model".to_string()),
                 provider: Some("openai".to_string()),
@@ -2676,7 +2714,7 @@ mod tests {
             version: 1,
             goal: Some("test".to_string()),
             graph: "w.fabro".into(),
-            directory: None,
+            work_dir: None,
             llm: None,
             setup: None,
             sandbox: Some(run_config::SandboxConfig {
@@ -2707,7 +2745,7 @@ mod tests {
             version: 1,
             goal: Some("test".to_string()),
             graph: "w.fabro".into(),
-            directory: None,
+            work_dir: None,
             llm: None,
             setup: None,
             sandbox: Some(run_config::SandboxConfig {
@@ -2785,7 +2823,7 @@ mod tests {
             version: 1,
             goal: Some("test".into()),
             graph: "w.fabro".into(),
-            directory: None,
+            work_dir: None,
             llm: None,
             setup: None,
             sandbox: Some(run_config::SandboxConfig {
@@ -2845,7 +2883,7 @@ mod tests {
             version: 1,
             goal: Some("test".into()),
             graph: "w.fabro".into(),
-            directory: None,
+            work_dir: None,
             llm: None,
             setup: None,
             sandbox: Some(run_config::SandboxConfig {

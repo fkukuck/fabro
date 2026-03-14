@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use fabro_workflows::cli::run_config::RunDefaults;
-use fabro_workflows::hook::HookConfig;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -142,8 +141,6 @@ pub struct ServerConfig {
     pub log: LogConfig,
     #[serde(flatten)]
     pub run_defaults: RunDefaults,
-    #[serde(flatten)]
-    pub hook_config: HookConfig,
 }
 
 /// Load server config from an explicit path or `~/.fabro/server.toml`, returning defaults if the
@@ -462,21 +459,21 @@ command = "echo 'stage done'"
 matcher = "agent_loop"
 "#;
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.hook_config.hooks.len(), 2);
+        assert_eq!(config.run_defaults.hooks.len(), 2);
         assert_eq!(
-            config.hook_config.hooks[0].event,
+            config.run_defaults.hooks[0].event,
             fabro_workflows::hook::HookEvent::RunStart
         );
         assert_eq!(
-            config.hook_config.hooks[0].command.as_deref(),
+            config.run_defaults.hooks[0].command.as_deref(),
             Some("echo 'run starting'")
         );
         assert_eq!(
-            config.hook_config.hooks[1].event,
+            config.run_defaults.hooks[1].event,
             fabro_workflows::hook::HookEvent::StageComplete
         );
         assert_eq!(
-            config.hook_config.hooks[1].matcher.as_deref(),
+            config.run_defaults.hooks[1].matcher.as_deref(),
             Some("agent_loop")
         );
     }
@@ -499,7 +496,7 @@ matcher = "agent_loop"
     fn parse_config_without_hooks_defaults_empty() {
         let toml = "";
         let config: ServerConfig = toml::from_str(toml).unwrap();
-        assert!(config.hook_config.hooks.is_empty());
+        assert!(config.run_defaults.hooks.is_empty());
     }
 
     #[test]

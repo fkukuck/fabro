@@ -42,7 +42,8 @@ pub struct WorkflowRunConfig {
     pub version: u32,
     pub goal: Option<String>,
     pub graph: String,
-    pub directory: Option<String>,
+    #[serde(alias = "directory")]
+    pub work_dir: Option<String>,
     pub llm: Option<LlmConfig>,
     pub setup: Option<SetupConfig>,
     pub sandbox: Option<SandboxConfig>,
@@ -57,7 +58,7 @@ pub struct WorkflowRunConfig {
     pub mcp_servers: HashMap<String, McpServerEntry>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct McpServerEntry {
     #[serde(flatten)]
     pub transport: McpTransport,
@@ -127,7 +128,8 @@ pub struct SandboxConfig {
 /// Fields mirror `WorkflowRunConfig` but are all optional.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RunDefaults {
-    pub directory: Option<String>,
+    #[serde(alias = "directory")]
+    pub work_dir: Option<String>,
     pub llm: Option<LlmConfig>,
     pub setup: Option<SetupConfig>,
     pub sandbox: Option<SandboxConfig>,
@@ -136,6 +138,10 @@ pub struct RunDefaults {
     pub checkpoint: CheckpointConfig,
     pub pull_request: Option<PullRequestConfig>,
     pub assets: Option<AssetsConfig>,
+    #[serde(default)]
+    pub hooks: Vec<crate::hook::HookDefinition>,
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, McpServerEntry>,
 }
 
 impl WorkflowRunConfig {
@@ -144,8 +150,8 @@ impl WorkflowRunConfig {
     /// Each field uses the first non-`None` value (task config wins).
     /// Vars are merged: defaults first, then task config overwrites.
     pub fn apply_defaults(&mut self, defaults: &RunDefaults) {
-        if self.directory.is_none() {
-            self.directory = defaults.directory.clone();
+        if self.work_dir.is_none() {
+            self.work_dir = defaults.work_dir.clone();
         }
 
         match (&mut self.llm, &defaults.llm) {
@@ -255,6 +261,24 @@ impl WorkflowRunConfig {
 
         if self.assets.is_none() {
             self.assets = defaults.assets.clone();
+        }
+
+        // Merge hooks: defaults as base, workflow overrides by name
+        if !defaults.hooks.is_empty() {
+            let base = crate::hook::HookConfig {
+                hooks: defaults.hooks.clone(),
+            };
+            let overlay = crate::hook::HookConfig {
+                hooks: std::mem::take(&mut self.hooks),
+            };
+            self.hooks = base.merge(overlay).hooks;
+        }
+
+        // Merge mcp_servers: defaults as base, workflow overrides by key
+        if !defaults.mcp_servers.is_empty() {
+            let mut merged = defaults.mcp_servers.clone();
+            merged.extend(std::mem::take(&mut self.mcp_servers));
+            self.mcp_servers = merged;
         }
     }
 }
@@ -639,7 +663,7 @@ graph = "workflow.fabro"
         assert_eq!(config.version, 1);
         assert_eq!(config.goal.as_deref(), Some("Run tests"));
         assert_eq!(config.graph, "workflow.fabro");
-        assert!(config.directory.is_none());
+        assert!(config.work_dir.is_none());
         assert!(config.llm.is_none());
         assert!(config.setup.is_none());
     }
@@ -672,7 +696,7 @@ timeout_ms = 60000
 "#;
         let config = parse_run_config(toml).unwrap();
         assert_eq!(config.goal.as_deref(), Some("Full workflow"));
-        assert_eq!(config.directory.as_deref(), Some("/tmp/repo"));
+        assert_eq!(config.work_dir.as_deref(), Some("/tmp/repo"));
 
         let llm = config.llm.unwrap();
         assert_eq!(llm.model.as_deref(), Some("claude-haiku"));
@@ -681,6 +705,24 @@ timeout_ms = 60000
         let setup = config.setup.unwrap();
         assert_eq!(setup.commands.len(), 2);
         assert_eq!(setup.timeout_ms, Some(60000));
+    }
+
+    #[test]
+    fn parse_toml_with_work_dir() {
+        let toml = r#"
+version = 1
+graph = "workflow.fabro"
+work_dir = "/workspace"
+"#;
+        let config = parse_run_config(toml).unwrap();
+        assert_eq!(config.work_dir.as_deref(), Some("/workspace"));
+    }
+
+    #[test]
+    fn parse_run_defaults_directory_alias() {
+        let toml = r#"directory = "/old""#;
+        let defaults: RunDefaults = toml::from_str(toml).unwrap();
+        assert_eq!(defaults.work_dir.as_deref(), Some("/old"));
     }
 
     #[test]
@@ -827,7 +869,7 @@ provider = "anthropic"
     #[test]
     fn parse_run_defaults_empty() {
         let defaults: RunDefaults = toml::from_str("").unwrap();
-        assert!(defaults.directory.is_none());
+        assert!(defaults.work_dir.is_none());
         assert!(defaults.llm.is_none());
         assert!(defaults.setup.is_none());
         assert!(defaults.sandbox.is_none());
@@ -854,7 +896,7 @@ provider = "daytona"
 key = "value"
 "#;
         let defaults: RunDefaults = toml::from_str(toml).unwrap();
-        assert_eq!(defaults.directory.as_deref(), Some("/work"));
+        assert_eq!(defaults.work_dir.as_deref(), Some("/work"));
         assert!(defaults.llm.is_some());
         assert!(defaults.setup.is_some());
         assert!(defaults.sandbox.is_some());
@@ -2100,5 +2142,144 @@ enabled = true
         let pr = config.pull_request.unwrap();
         assert!(pr.enabled);
         assert!(pr.draft);
+    }
+
+    #[test]
+    fn apply_defaults_merges_mcp_servers() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.fabro"
+
+[mcp_servers.workflow_server]
+type = "stdio"
+command = ["npx", "wf-server"]
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            mcp_servers: HashMap::from([(
+                "default_server".into(),
+                McpServerEntry {
+                    transport: McpTransport::Stdio {
+                        command: vec!["npx".into(), "default-server".into()],
+                        env: HashMap::new(),
+                    },
+                    startup_timeout_secs: 10,
+                    tool_timeout_secs: 60,
+                },
+            )]),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.mcp_servers.len(), 2);
+        assert!(cfg.mcp_servers.contains_key("default_server"));
+        assert!(cfg.mcp_servers.contains_key("workflow_server"));
+    }
+
+    #[test]
+    fn apply_defaults_mcp_servers_workflow_wins_on_collision() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.fabro"
+
+[mcp_servers.shared]
+type = "stdio"
+command = ["npx", "from-workflow"]
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            mcp_servers: HashMap::from([(
+                "shared".into(),
+                McpServerEntry {
+                    transport: McpTransport::Stdio {
+                        command: vec!["npx".into(), "from-default".into()],
+                        env: HashMap::new(),
+                    },
+                    startup_timeout_secs: 10,
+                    tool_timeout_secs: 60,
+                },
+            )]),
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.mcp_servers.len(), 1);
+        match &cfg.mcp_servers["shared"].transport {
+            McpTransport::Stdio { command, .. } => {
+                assert_eq!(command, &["npx", "from-workflow"]);
+            }
+            _ => panic!("expected Stdio transport"),
+        }
+    }
+
+    #[test]
+    fn apply_defaults_merges_hooks() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.fabro"
+
+[[hooks]]
+name = "wf-hook"
+event = "run_complete"
+command = "echo done"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            hooks: vec![crate::hook::HookDefinition {
+                name: Some("default-hook".into()),
+                event: crate::hook::HookEvent::RunStart,
+                command: Some("echo start".into()),
+                hook_type: None,
+                matcher: None,
+                blocking: None,
+                timeout_ms: None,
+                sandbox: None,
+            }],
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.hooks.len(), 2);
+        assert_eq!(cfg.hooks[0].name.as_deref(), Some("default-hook"));
+        assert_eq!(cfg.hooks[1].name.as_deref(), Some("wf-hook"));
+    }
+
+    #[test]
+    fn apply_defaults_hooks_workflow_wins_on_collision() {
+        let mut cfg = parse_run_config(
+            r#"
+version = 1
+goal = "test"
+graph = "w.fabro"
+
+[[hooks]]
+name = "shared"
+event = "run_complete"
+command = "echo from-workflow"
+"#,
+        )
+        .unwrap();
+        let defaults = RunDefaults {
+            hooks: vec![crate::hook::HookDefinition {
+                name: Some("shared".into()),
+                event: crate::hook::HookEvent::RunStart,
+                command: Some("echo from-default".into()),
+                hook_type: None,
+                matcher: None,
+                blocking: None,
+                timeout_ms: None,
+                sandbox: None,
+            }],
+            ..RunDefaults::default()
+        };
+        cfg.apply_defaults(&defaults);
+        assert_eq!(cfg.hooks.len(), 1);
+        assert_eq!(cfg.hooks[0].event, crate::hook::HookEvent::RunComplete);
     }
 }

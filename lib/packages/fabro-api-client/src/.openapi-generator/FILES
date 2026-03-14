@@ -74,6 +74,7 @@ models/learning.ts
 models/llm-configuration.ts
 models/local-sandbox-configuration.ts
 models/log-configuration.ts
+models/mcp-server-entry.ts
 models/model-costs.ts
 models/model-features.ts
 models/model-limits.ts

@@ -1304,7 +1304,7 @@ mod runs {
             version: 1,
             goal: Some("Add rate limiting to auth endpoints".into()),
             graph: "implement.fabro".into(),
-            directory: Some("/workspace/api-server".into()),
+            work_dir: Some("/workspace/api-server".into()),
             llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                 model: Some("claude-opus-4-6".into()),
                 provider: Some("anthropic".into()),
@@ -1481,7 +1481,7 @@ mod workflows {
                     version: 1,
                     goal: Some("Diagnose and fix CI build failures".into()),
                     graph: "fix_build.fabro".into(),
-                    directory: None,
+                    work_dir: None,
                     llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                         model: Some("claude-sonnet".into()),
                         provider: None,
@@ -1549,7 +1549,7 @@ mod workflows {
                     version: 1,
                     goal: Some("Implement feature from technical blueprint".into()),
                     graph: "implement.fabro".into(),
-                    directory: None,
+                    work_dir: None,
                     llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                         model: Some("claude-sonnet".into()),
                         provider: None,
@@ -1635,7 +1635,7 @@ mod workflows {
                     version: 1,
                     goal: Some("Detect and reconcile configuration drift across environments".into()),
                     graph: "sync_drift.fabro".into(),
-                    directory: None,
+                    work_dir: None,
                     llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                         model: Some("claude-sonnet".into()),
                         provider: None,
@@ -1709,7 +1709,7 @@ mod workflows {
                     version: 1,
                     goal: Some("Propose and implement incremental product improvements".into()),
                     graph: "expand.fabro".into(),
-                    directory: None,
+                    work_dir: None,
                     llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                         model: Some("claude-sonnet".into()),
                         provider: None,
@@ -3282,7 +3282,7 @@ mod settings {
             },
             log: Default::default(),
             run_defaults: fabro_workflows::cli::run_config::RunDefaults {
-                directory: None,
+                work_dir: None,
                 llm: Some(fabro_workflows::cli::run_config::LlmConfig {
                     model: Some("claude-sonnet".into()),
                     provider: Some("anthropic".into()),
@@ -3308,8 +3308,9 @@ mod settings {
                 checkpoint: Default::default(),
                 pull_request: None,
                 assets: None,
+                hooks: vec![],
+                mcp_servers: Default::default(),
             },
-            hook_config: fabro_workflows::hook::HookConfig { hooks: vec![] },
         })
         .unwrap()
     }

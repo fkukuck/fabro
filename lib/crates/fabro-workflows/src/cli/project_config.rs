@@ -1,19 +1,56 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 use serde::Deserialize;
 
-use super::run_config::PullRequestConfig;
+use super::run_config::{
+    AssetsConfig, CheckpointConfig, LlmConfig, McpServerEntry, PullRequestConfig, RunDefaults,
+    SandboxConfig, SetupConfig,
+};
+use crate::hook::HookDefinition;
 
 const CONFIG_FILENAME: &str = "fabro.toml";
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
+    #[serde(default)]
     pub version: u32,
     #[serde(default)]
     pub fabro: ProjectFabroConfig,
+    #[serde(alias = "directory")]
+    pub work_dir: Option<String>,
+    pub llm: Option<LlmConfig>,
+    pub setup: Option<SetupConfig>,
+    pub sandbox: Option<SandboxConfig>,
+    pub vars: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub checkpoint: CheckpointConfig,
     pub pull_request: Option<PullRequestConfig>,
+    pub assets: Option<AssetsConfig>,
+    #[serde(default)]
+    pub hooks: Vec<HookDefinition>,
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, McpServerEntry>,
+}
+
+impl ProjectConfig {
+    /// Convert project config fields into `RunDefaults`.
+    pub fn into_run_defaults(self) -> RunDefaults {
+        RunDefaults {
+            work_dir: self.work_dir,
+            llm: self.llm,
+            setup: self.setup,
+            sandbox: self.sandbox,
+            vars: self.vars,
+            checkpoint: self.checkpoint,
+            pull_request: self.pull_request,
+            assets: self.assets,
+            hooks: self.hooks,
+            mcp_servers: self.mcp_servers,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -338,7 +375,7 @@ mod tests {
                     root: ".".to_string(),
                     retro: true,
                 },
-                pull_request: None,
+                ..Default::default()
             }
         );
     }
@@ -375,6 +412,79 @@ mod tests {
                 enabled: true,
                 draft: false,
             })
+        );
+    }
+
+    #[test]
+    fn parse_project_config_with_sandbox() {
+        let toml = r#"
+version = 1
+[sandbox]
+provider = "daytona"
+[sandbox.daytona.snapshot]
+name = "my-snapshot"
+cpu = 4
+memory = 8
+"#;
+        let config = parse_project_config(toml).unwrap();
+        let sandbox = config.sandbox.unwrap();
+        assert_eq!(sandbox.provider.as_deref(), Some("daytona"));
+        let snap = sandbox.daytona.unwrap().snapshot.unwrap();
+        assert_eq!(snap.name, "my-snapshot");
+        assert_eq!(snap.cpu, Some(4));
+        assert_eq!(snap.memory, Some(8));
+    }
+
+    #[test]
+    fn parse_project_config_with_hooks_and_mcp() {
+        let toml = r#"
+version = 1
+[[hooks]]
+event = "run_start"
+command = "echo start"
+[mcp_servers.playwright]
+type = "stdio"
+command = ["npx", "@playwright/mcp@latest"]
+"#;
+        let config = parse_project_config(toml).unwrap();
+        assert_eq!(config.hooks.len(), 1);
+        assert_eq!(config.mcp_servers.len(), 1);
+        assert!(config.mcp_servers.contains_key("playwright"));
+    }
+
+    #[test]
+    fn parse_project_config_with_llm_and_work_dir() {
+        let toml = r#"
+version = 1
+work_dir = "/workspace"
+[llm]
+model = "claude-sonnet-4-6"
+"#;
+        let config = parse_project_config(toml).unwrap();
+        assert_eq!(config.work_dir.as_deref(), Some("/workspace"));
+        assert_eq!(
+            config.llm.unwrap().model.as_deref(),
+            Some("claude-sonnet-4-6")
+        );
+    }
+
+    #[test]
+    fn into_run_defaults_preserves_fields() {
+        let toml = r#"
+version = 1
+work_dir = "/ws"
+[llm]
+model = "m"
+[sandbox]
+provider = "daytona"
+"#;
+        let config = parse_project_config(toml).unwrap();
+        let defaults = config.into_run_defaults();
+        assert_eq!(defaults.work_dir.as_deref(), Some("/ws"));
+        assert_eq!(defaults.llm.unwrap().model.as_deref(), Some("m"));
+        assert_eq!(
+            defaults.sandbox.unwrap().provider.as_deref(),
+            Some("daytona")
         );
     }
 
@@ -423,7 +533,7 @@ mod tests {
                 root: "fabro/".to_string(),
                 ..Default::default()
             },
-            pull_request: None,
+            ..Default::default()
         };
         assert_eq!(
             resolve_fabro_root(config_path, &config),
@@ -440,7 +550,7 @@ mod tests {
                 root: ".".to_string(),
                 ..Default::default()
             },
-            pull_request: None,
+            ..Default::default()
         };
         assert_eq!(
             resolve_fabro_root(config_path, &config),

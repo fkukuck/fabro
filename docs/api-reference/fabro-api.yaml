@@ -4008,7 +4008,7 @@ components:
           type: string
           description: DOT graph filename.
           example: fix_build.fabro
-        directory:
+        work_dir:
           type: string
           description: Working directory for the run.
         llm:
@@ -4277,7 +4277,7 @@ components:
           $ref: "#/components/schemas/FeatureFlags"
         log:
           $ref: "#/components/schemas/LogConfiguration"
-        directory:
+        work_dir:
           type: string
           description: Default working directory.
         llm:
@@ -4301,6 +4301,43 @@ components:
             $ref: "#/components/schemas/HookDefinition"
         assets:
           $ref: "#/components/schemas/AssetsConfiguration"
+        mcp_servers:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/McpServerEntry"
+          description: Default MCP server configurations.
+
+    McpServerEntry:
+      description: MCP server connection entry.
+      type: object
+      properties:
+        type:
+          type: string
+          description: Transport type (stdio or http).
+        command:
+          type: array
+          items:
+            type: string
+          description: Command and arguments for stdio transport.
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: Environment variables for stdio transport.
+        url:
+          type: string
+          description: URL for http transport.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: HTTP headers for http transport.
+        startup_timeout_secs:
+          type: integer
+          description: Startup timeout in seconds.
+        tool_timeout_secs:
+          type: integer
+          description: Tool call timeout in seconds.
 
     AssetsConfiguration:
       description: Asset collection configuration.
