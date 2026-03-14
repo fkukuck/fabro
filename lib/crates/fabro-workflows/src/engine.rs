@@ -388,12 +388,18 @@ fn best_by_weight_then_lexical<'a>(edges: &[&'a Edge]) -> Option<&'a Edge> {
 
 /// Select the next edge from a node's outgoing edges (spec Section 3.3).
 #[must_use]
+/// Result of edge selection: the chosen edge and the reason it was selected.
+pub struct EdgeSelection<'a> {
+    pub edge: &'a Edge,
+    pub reason: &'static str,
+}
+
 pub fn select_edge<'a>(
     node_id: &str,
     outcome: &Outcome,
     context: &Context,
     graph: &'a Graph,
-) -> Option<&'a Edge> {
+) -> Option<EdgeSelection<'a>> {
     let edges = graph.outgoing_edges(node_id);
     if edges.is_empty() {
         return None;
@@ -409,7 +415,10 @@ pub fn select_edge<'a>(
         .copied()
         .collect();
     if !condition_matched.is_empty() {
-        return best_by_weight_then_lexical(&condition_matched);
+        return best_by_weight_then_lexical(&condition_matched).map(|edge| EdgeSelection {
+            edge,
+            reason: "condition",
+        });
     }
 
     // Step 2: Preferred label match
@@ -418,7 +427,10 @@ pub fn select_edge<'a>(
         for edge in &edges {
             if let Some(label) = edge.label() {
                 if normalize_label(label) == normalized_pref {
-                    return Some(edge);
+                    return Some(EdgeSelection {
+                        edge,
+                        reason: "preferred_label",
+                    });
                 }
             }
         }
@@ -428,7 +440,10 @@ pub fn select_edge<'a>(
     for suggested_id in &outcome.suggested_next_ids {
         for edge in &edges {
             if edge.to == *suggested_id {
-                return Some(edge);
+                return Some(EdgeSelection {
+                    edge,
+                    reason: "suggested_next",
+                });
             }
         }
     }
@@ -440,11 +455,17 @@ pub fn select_edge<'a>(
         .copied()
         .collect();
     if !unconditional.is_empty() {
-        return best_by_weight_then_lexical(&unconditional);
+        return best_by_weight_then_lexical(&unconditional).map(|edge| EdgeSelection {
+            edge,
+            reason: "unconditional",
+        });
     }
 
     // Fallback: any edge
-    best_by_weight_then_lexical(&edges)
+    best_by_weight_then_lexical(&edges).map(|edge| EdgeSelection {
+        edge,
+        reason: "fallback",
+    })
 }
 
 // --- Goal gate enforcement ---
@@ -1548,10 +1569,10 @@ impl WorkflowRunEngine {
                         previous_node_id = Some(node.id.clone());
                         stage_index += 1;
                         // Select next edge and continue
-                        let edge = select_edge(&node.id, &Outcome::skipped(), &context, graph);
-                        if let Some(e) = edge {
-                            current_node_id = e.to.clone();
-                            incoming_edge = Some(e);
+                        let selection = select_edge(&node.id, &Outcome::skipped(), &context, graph);
+                        if let Some(sel) = selection {
+                            current_node_id = sel.edge.to.clone();
+                            incoming_edge = Some(sel.edge);
                         } else {
                             break;
                         }
@@ -1750,25 +1771,36 @@ impl WorkflowRunEngine {
             // Step 5: Select next edge (done before checkpoint so we can store next_node_id)
             // If the handler specified a direct jump (e.g., parallel -> fan-in),
             // bypass edge selection entirely.
+            let stage_status = outcome.status.to_string();
             let (next_edge, jump_target) = if let Some(ref target) = outcome.jump_to_node {
                 self.services.emitter.emit(&WorkflowRunEvent::EdgeSelected {
                     from_node: node.id.clone(),
                     to_node: target.clone(),
                     label: None,
                     condition: None,
+                    reason: "jump".to_string(),
+                    preferred_label: outcome.preferred_label.clone(),
+                    suggested_next_ids: outcome.suggested_next_ids.clone(),
+                    stage_status,
+                    is_jump: true,
                 });
                 (None, Some(target.clone()))
             } else {
-                let edge = select_edge(&node.id, &outcome, &context, graph);
-                if let Some(e) = &edge {
+                let selection = select_edge(&node.id, &outcome, &context, graph);
+                if let Some(sel) = &selection {
                     self.services.emitter.emit(&WorkflowRunEvent::EdgeSelected {
                         from_node: node.id.clone(),
-                        to_node: e.to.clone(),
-                        label: e.label().map(String::from),
-                        condition: e.condition().map(String::from),
+                        to_node: sel.edge.to.clone(),
+                        label: sel.edge.label().map(String::from),
+                        condition: sel.edge.condition().map(String::from),
+                        reason: sel.reason.to_string(),
+                        preferred_label: outcome.preferred_label.clone(),
+                        suggested_next_ids: outcome.suggested_next_ids.clone(),
+                        stage_status,
+                        is_jump: false,
                     });
                 }
-                (edge, None)
+                (selection.map(|s| s.edge), None)
             };
 
             // EdgeSelected hook (blocking — can override routing)
@@ -2498,8 +2530,9 @@ mod tests {
         let g = make_graph_with_edges(vec![Edge::new("a", "b")]);
         let outcome = Outcome::success();
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "b");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "b");
+        assert_eq!(sel.reason, "unconditional");
     }
 
     #[test]
@@ -2517,8 +2550,9 @@ mod tests {
         let g = make_graph_with_edges(vec![e1, e2]);
         let outcome = Outcome::success();
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "success_path");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "success_path");
+        assert_eq!(sel.reason, "condition");
     }
 
     #[test]
@@ -2537,8 +2571,9 @@ mod tests {
         let mut outcome = Outcome::success();
         outcome.preferred_label = Some("Fix".to_string());
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "fix");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "fix");
+        assert_eq!(sel.reason, "preferred_label");
     }
 
     #[test]
@@ -2549,8 +2584,9 @@ mod tests {
         let mut outcome = Outcome::success();
         outcome.suggested_next_ids = vec!["path2".to_string()];
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "path2");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "path2");
+        assert_eq!(sel.reason, "suggested_next");
     }
 
     #[test]
@@ -2563,8 +2599,9 @@ mod tests {
         let g = make_graph_with_edges(vec![e1, e2]);
         let outcome = Outcome::success();
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "high");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "high");
+        assert_eq!(sel.reason, "unconditional");
     }
 
     #[test]
@@ -2574,8 +2611,9 @@ mod tests {
         let g = make_graph_with_edges(vec![e1, e2]);
         let outcome = Outcome::success();
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "alpha");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "alpha");
+        assert_eq!(sel.reason, "unconditional");
     }
 
     #[test]
@@ -2589,8 +2627,9 @@ mod tests {
         let g = make_graph_with_edges(vec![e_cond, e_uncond]);
         let outcome = Outcome::success();
         let context = Context::new();
-        let edge = select_edge("a", &outcome, &context, &g).unwrap();
-        assert_eq!(edge.to, "cond_path");
+        let sel = select_edge("a", &outcome, &context, &g).unwrap();
+        assert_eq!(sel.edge.to, "cond_path");
+        assert_eq!(sel.reason, "condition");
     }
 
     // --- check_goal_gates tests ---

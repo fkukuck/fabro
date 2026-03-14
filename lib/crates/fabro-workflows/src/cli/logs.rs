@@ -345,17 +345,19 @@ pub fn format_event_pretty(line: &str, styles: &fabro_util::terminal::Styles) ->
 
         "EdgeSelected" => {
             let to = str_field(&envelope, "to_node_id").unwrap_or("?");
+            let reason = str_field(&envelope, "reason").unwrap_or("?");
             let condition = str_field(&envelope, "condition");
-            let suffix = match condition {
+            let detail = match condition {
                 Some(c) => format!("  [{c}]"),
                 None => String::new(),
             };
             Some(format!(
-                "{}   {} {}{}",
+                "{}    {} {} {}{}",
                 styles.dim.apply_to(&ts),
                 styles.dim.apply_to("\u{2192}"),
                 to,
-                styles.dim.apply_to(&suffix),
+                styles.dim.apply_to(reason),
+                styles.dim.apply_to(&detail),
             ))
         }
 

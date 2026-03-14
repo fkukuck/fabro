@@ -410,6 +410,7 @@ impl ProgressUI {
                 to_node,
                 label,
                 condition,
+                ..
             } if self.verbose => {
                 let detail = if let Some(c) = condition {
                     format!("  [{c}]")

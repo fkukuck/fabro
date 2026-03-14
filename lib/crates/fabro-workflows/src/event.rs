@@ -126,6 +126,18 @@ pub enum WorkflowRunEvent {
         to_node: String,
         label: Option<String>,
         condition: Option<String>,
+        /// Which selection step chose this edge (e.g. "condition", "preferred_label", "jump").
+        reason: String,
+        /// The stage's preferred label hint, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preferred_label: Option<String>,
+        /// The stage's suggested next node IDs, if any.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        suggested_next_ids: Vec<String>,
+        /// The stage outcome status that influenced routing.
+        stage_status: String,
+        /// Whether this was a direct jump (bypassing normal edge selection).
+        is_jump: bool,
     },
     LoopRestart {
         from_node: String,
@@ -434,12 +446,14 @@ impl WorkflowRunEvent {
                 from_node,
                 to_node,
                 label,
+                reason,
                 ..
             } => {
                 debug!(
                     from_node,
                     to_node,
                     label = label.as_deref().unwrap_or(""),
+                    reason,
                     "Edge selected"
                 );
             }
@@ -1297,6 +1311,11 @@ mod tests {
             to_node: "code".to_string(),
             label: Some("success".to_string()),
             condition: Some("outcome == 'success'".to_string()),
+            reason: "condition".to_string(),
+            preferred_label: None,
+            suggested_next_ids: Vec::new(),
+            stage_status: "success".to_string(),
+            is_jump: false,
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("EdgeSelected"));
@@ -1304,6 +1323,8 @@ mod tests {
         assert!(json.contains("\"to_node\":\"code\""));
         assert!(json.contains("\"label\":\"success\""));
         assert!(json.contains("\"condition\":\"outcome == 'success'\""));
+        assert!(json.contains("\"reason\":\"condition\""));
+        assert!(json.contains("\"stage_status\":\"success\""));
 
         let deserialized: WorkflowRunEvent = serde_json::from_str(&json).unwrap();
         assert!(
@@ -1316,6 +1337,11 @@ mod tests {
             to_node: "b".to_string(),
             label: None,
             condition: None,
+            reason: "unconditional".to_string(),
+            preferred_label: None,
+            suggested_next_ids: Vec::new(),
+            stage_status: "success".to_string(),
+            is_jump: false,
         };
         let json_none = serde_json::to_string(&event_none).unwrap();
         assert!(json_none.contains("\"label\":null"));
@@ -1723,6 +1749,11 @@ mod tests {
             to_node: "code".to_string(),
             label: Some("success".to_string()),
             condition: None,
+            reason: "preferred_label".to_string(),
+            preferred_label: Some("success".to_string()),
+            suggested_next_ids: Vec::new(),
+            stage_status: "success".to_string(),
+            is_jump: false,
         };
         let (name, fields) = flatten_event(&event);
         assert_eq!(name, "EdgeSelected");
