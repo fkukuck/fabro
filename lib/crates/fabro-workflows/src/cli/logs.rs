@@ -22,7 +22,7 @@ pub struct LogsArgs {
     #[arg(short = 'n', long)]
     pub tail: Option<usize>,
     /// Formatted colored output with rendered assistant text
-    #[arg(long)]
+    #[arg(short = 'p', long)]
     pub pretty: bool,
 }
 
