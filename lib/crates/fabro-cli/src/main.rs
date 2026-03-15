@@ -72,6 +72,11 @@ enum Command {
     /// Parse a DOT file and print its AST
     #[command(hide = true)]
     Parse(fabro_workflows::cli::ParseArgs),
+    /// Inspect and copy run assets (screenshots, reports, traces)
+    Asset {
+        #[command(subcommand)]
+        command: AssetCommand,
+    },
     /// Copy files to/from a run's sandbox
     Cp(fabro_workflows::cli::cp::CpArgs),
     /// Get a preview URL for a port on a run's sandbox
@@ -178,6 +183,14 @@ enum WorkflowCommand {
     List(fabro_workflows::cli::workflow::WorkflowListArgs),
     /// Create a new workflow
     Create(fabro_workflows::cli::workflow::WorkflowCreateArgs),
+}
+
+#[derive(Subcommand)]
+enum AssetCommand {
+    /// List assets for a workflow run
+    List(fabro_workflows::cli::asset::AssetListArgs),
+    /// Copy assets from a workflow run
+    Cp(fabro_workflows::cli::asset::AssetCpArgs),
 }
 
 #[derive(Subcommand)]
@@ -379,6 +392,10 @@ async fn main_inner() -> (String, Result<()>) {
         Command::Llm { command } => match command {
             LlmCommand::Prompt(_) => "llm prompt",
             LlmCommand::Chat(_) => "llm chat",
+        },
+        Command::Asset { command } => match command {
+            AssetCommand::List(_) => "asset list",
+            AssetCommand::Cp(_) => "asset cp",
         },
         Command::Exec(_) => "exec",
         Command::Run(_) => "run",
@@ -636,6 +653,14 @@ async fn main_inner() -> (String, Result<()>) {
             Command::Parse(args) => {
                 fabro_workflows::cli::parse::parse_command(&args)?;
             }
+            Command::Asset { command } => match command {
+                AssetCommand::List(args) => {
+                    fabro_workflows::cli::asset::list_command(&args)?;
+                }
+                AssetCommand::Cp(args) => {
+                    fabro_workflows::cli::asset::cp_command(&args)?;
+                }
+            },
             Command::Cp(args) => {
                 fabro_workflows::cli::cp::cp_command(args).await?;
             }
