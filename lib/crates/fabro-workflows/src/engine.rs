@@ -1229,6 +1229,7 @@ impl WorkflowRunEngine {
                 } else {
                     None
                 },
+                goal: (!graph.goal().is_empty()).then(|| graph.goal().to_string()),
             });
 
         // Resolve work_dir from config for hooks
