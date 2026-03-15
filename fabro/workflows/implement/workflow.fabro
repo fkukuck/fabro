@@ -18,6 +18,7 @@ digraph ImplementAndSimplify {
     simplify          [label="Simplify", prompt="@prompts/simplify.md"]
     verify            [label="Verify", shape=parallelogram, script="cargo clippy -- -D warnings 2>&1 && cargo test 2>&1", goal_gate=true, retry_target="fixup"]
     fixup             [label="Fixup", prompt="The verify step failed. Read the build output from context and fix all clippy lint warnings and test failures.", max_visits=3]
+    fmt               [label="Format", shape=parallelogram, script="cargo fmt --all 2>&1", goal_gate=true, max_retries=0]
 
     start -> toolchain
     toolchain -> preflight_compile [condition="outcome=success"]
@@ -28,7 +29,8 @@ digraph ImplementAndSimplify {
     preflight_lint -> fix_lints
     fix_lints -> preflight_lint
     implement -> simplify -> verify
-    verify -> exit  [condition="outcome=success"]
+    verify -> fmt   [condition="outcome=success"]
     verify -> fixup
     fixup -> verify
+    fmt -> exit
 }
