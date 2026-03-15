@@ -4,6 +4,7 @@ mod init;
 mod install;
 mod logging;
 mod skill;
+mod upgrade;
 
 use std::path::PathBuf;
 
@@ -26,6 +27,10 @@ struct Cli {
     /// Enable DEBUG-level logging (default is INFO)
     #[arg(long, global = true)]
     debug: bool,
+
+    /// Disable automatic upgrade check
+    #[arg(long, global = true)]
+    no_upgrade_check: bool,
 
     /// Execution mode: standalone (in-process) or server (delegate to API)
     #[cfg(feature = "server")]
@@ -136,6 +141,8 @@ enum Command {
         #[command(subcommand)]
         command: WorkflowCommand,
     },
+    /// Upgrade fabro to the latest version
+    Upgrade(upgrade::UpgradeArgs),
     /// System maintenance commands
     System {
         #[command(subcommand)]
@@ -436,6 +443,7 @@ async fn main_inner() -> (String, Result<()>) {
         Command::Skill { command } => match command {
             SkillCommand::Install(_) => "skill install",
         },
+        Command::Upgrade(_) => "upgrade",
         Command::System { command } => match command {
             SystemCommand::Prune(_) => "system prune",
             SystemCommand::Df(_) => "system df",
@@ -445,17 +453,17 @@ async fn main_inner() -> (String, Result<()>) {
 
     let command_name = command_name.to_string();
 
-    let config_log_level = {
+    let (config_log_level, upgrade_check_enabled) = {
         #[cfg(feature = "server")]
         {
             if let Command::Serve(ref args) = cli.command {
                 match fabro_config::server::load_server_config(args.config.as_deref()) {
-                    Ok(server_config) => server_config.log.level,
+                    Ok(server_config) => (server_config.log.level, false),
                     Err(err) => return (command_name, Err(err)),
                 }
             } else {
                 match fabro_config::cli::load_cli_config(None) {
-                    Ok(cli_config) => cli_config.log.level,
+                    Ok(cli_config) => (cli_config.log.level, cli_config.upgrade_check),
                     Err(err) => return (command_name, Err(err)),
                 }
             }
@@ -463,7 +471,7 @@ async fn main_inner() -> (String, Result<()>) {
         #[cfg(not(feature = "server"))]
         {
             match fabro_config::cli::load_cli_config(None) {
-                Ok(cli_config) => cli_config.log.level,
+                Ok(cli_config) => (cli_config.log.level, cli_config.upgrade_check),
                 Err(err) => return (command_name, Err(err)),
             }
         }
@@ -479,6 +487,15 @@ async fn main_inner() -> (String, Result<()>) {
     }
 
     debug!(command = %command_name, "CLI command started");
+
+    let upgrade_handle = if matches!(
+        cli.command,
+        Command::Run(_) | Command::Exec(_) | Command::Init | Command::Install
+    ) {
+        upgrade::spawn_upgrade_check(cli.no_upgrade_check, upgrade_check_enabled)
+    } else {
+        None
+    };
 
     let result = async {
         match cli.command {
@@ -776,6 +793,9 @@ async fn main_inner() -> (String, Result<()>) {
                     skill::run_skill_install(&args)?;
                 }
             },
+            Command::Upgrade(args) => {
+                upgrade::run_upgrade(args).await?;
+            }
             Command::System { command } => match command {
                 SystemCommand::Prune(args) => {
                     fabro_workflows::cli::runs::prune_command(&args)?;
@@ -799,6 +819,11 @@ async fn main_inner() -> (String, Result<()>) {
         Ok(())
     }
     .await;
+
+    // Print upgrade notice after command completes (non-blocking during execution)
+    if let Some(handle) = upgrade_handle {
+        let _ = handle.await;
+    }
 
     (command_name, result)
 }
