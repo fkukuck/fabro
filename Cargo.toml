@@ -63,6 +63,9 @@ daytona-api-client = { git = "https://github.com/brynary/daytona-sdk-rust", rev 
 lto = "thin"
 strip = true
 
+[profile.dev.package."*"]
+debug = false # Disable debug info for all dependencies
+
 # regex is extremely slow in debug builds (~10s to compile gitleaks patterns)
 [profile.dev.package.regex]
 opt-level = 2
