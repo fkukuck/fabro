@@ -41,7 +41,10 @@ fi
 sed -i '' "s/^version = \"$current_version\"/version = \"$new_version\"/" "$CARGO_TOML"
 echo "Updated $CARGO_TOML"
 
-git add "$CARGO_TOML"
+cargo update --workspace
+echo "Updated Cargo.lock"
+
+git add "$CARGO_TOML" Cargo.lock
 git commit -m "Bump version to $new_version"
 git tag -a "$tag" -m "$tag"
 git push origin main "$tag"
