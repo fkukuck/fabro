@@ -399,6 +399,15 @@ fn collapse_separators(s: &str) -> String {
     s.chars().filter(|c| *c != '-' && *c != '_').collect()
 }
 
+/// Truncate a run ID to a short display form (12 characters).
+fn short_run_id(id: &str) -> &str {
+    if id.len() > 12 {
+        &id[..12]
+    } else {
+        id
+    }
+}
+
 fn style_status(status: &RunStatus, styles: &Styles) -> String {
     let text = status.to_string();
     match status {
@@ -457,11 +466,7 @@ pub fn list_command(args: &RunsListArgs, styles: &Styles) -> Result<()> {
     println!("{}", styles.dim.apply_to("-".repeat(header.len())));
 
     for run in &display_runs {
-        let run_id_display = if run.run_id.len() > 12 {
-            run.run_id[..12].to_string()
-        } else {
-            run.run_id.clone()
-        };
+        let run_id_display = short_run_id(&run.run_id);
         let duration_display = run
             .duration_ms
             .map(super::progress::format_duration_ms)
@@ -651,11 +656,7 @@ pub fn df_from(args: &DfArgs, data_dir: &Path, runs_base: &Path, logs_base: &Pat
 
         let now = chrono::Utc::now();
         for detail in &run_details {
-            let run_id_display = if detail.run_id.len() > 12 {
-                detail.run_id[..12].to_string()
-            } else {
-                detail.run_id.clone()
-            };
+            let run_id_display = short_run_id(&detail.run_id);
             let workflow_display = if detail.workflow_name.len() > 16 {
                 format!("{}...", &detail.workflow_name[..13])
             } else {
