@@ -1,6 +1,6 @@
 ---
 interface Props {
-  currentPage?: "blog" | "roadmap";
+  currentPage?: "blog" | "roadmap" | "showcase";
 }
 
 const { currentPage } = Astro.props;
@@ -19,6 +19,8 @@ const linkClass = (page?: string) =>
       </a>
       <a href="https://docs.fabro.sh" class={`hidden md:inline-flex text-sm font-medium transition-colors ${linkClass()}`}>Docs</a>
       <a href="/blog" class={`hidden md:inline-flex text-sm font-medium transition-colors ${linkClass("blog")}`}>Blog</a>
+      <a href="/showcase" class={`hidden md:inline-flex text-sm font-medium transition-colors ${linkClass("showcase")}`}>Showcase</a>
+      <a href="/roadmap" class={`hidden md:inline-flex text-sm font-medium transition-colors ${linkClass("roadmap")}`}>Roadmap</a>
       <a href="https://docs.fabro.sh/changelog" class={`hidden md:inline-flex text-sm font-medium transition-colors ${linkClass()}`}>Changelog</a>
     </div>
     <div class="flex items-center gap-5">
@@ -45,6 +47,8 @@ const linkClass = (page?: string) =>
     <div class="px-6 py-5 space-y-4">
       <a href="https://docs.fabro.sh" class="block text-sm font-medium text-ice-100 hover:text-ice-50 transition-colors">Docs</a>
       <a href="/blog" class={`block text-sm font-medium transition-colors ${linkClass("blog")}`}>Blog</a>
+      <a href="/showcase" class={`block text-sm font-medium transition-colors ${linkClass("showcase")}`}>Showcase</a>
+      <a href="/roadmap" class={`block text-sm font-medium transition-colors ${linkClass("roadmap")}`}>Roadmap</a>
       <a href="https://docs.fabro.sh/changelog" class="block text-sm font-medium text-ice-100 hover:text-ice-50 transition-colors">Changelog</a>
       <hr class="border-navy-800/60" />
       <div class="flex items-center gap-5">

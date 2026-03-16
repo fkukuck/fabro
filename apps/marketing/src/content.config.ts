@@ -22,4 +22,21 @@ const blog = defineCollection({
   }),
 });
 
-export const collections = { roadmap, blog };
+const showcase = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/showcase" }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    thumbnail: z.string(),
+    tags: z.array(z.string()),
+    languages: z.array(z.enum(["python", "rust", "typescript", "ruby"])),
+    github: z.string(),
+    models: z.array(z.string()),
+    skills: z.array(z.string()),
+    prompt: z.string(),
+    workflow: z.string(),
+    sortOrder: z.number(),
+  }),
+});
+
+export const collections = { roadmap, blog, showcase };
