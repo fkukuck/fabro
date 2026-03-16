@@ -32,7 +32,8 @@ python run_eval.py \
 
 **Monitor:**
 ```bash
-tail -f results/haiku-baseline/eval.log   # live per-instance results
+python status.py results/haiku-baseline    # quick summary
+tail -f results/haiku-baseline/eval.log    # live per-instance results
 fabro ps                                   # active sandboxes
 fabro logs <RUN_ID>                        # stream a specific run
 ```
@@ -55,6 +56,7 @@ python evaluate_daytona.py \
 
 **Monitor:**
 ```bash
+python status.py results/haiku-baseline/eval   # quick summary
 tail -f results/haiku-baseline/eval/eval_grade.log
 ```
 
@@ -98,6 +100,7 @@ cat scoreboard/leaderboard.json | python3 -m json.tool
 
 | File | Purpose |
 |------|---------|
+| `status.py` | Check progress of a running or completed generation/evaluation |
 | `run_eval.py` | Generate patches (step 1) |
 | `evaluate_daytona.py` | Evaluate patches on Daytona (step 2) |
 | `evaluate.py` | Evaluate patches via official swebench Docker harness (alternative to step 2) |
