@@ -71,8 +71,8 @@ use fabro_llm::providers::AnthropicAdapter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-let adapter = AnthropicAdapter::new("sk-ant-...".to_string())
-    .with_base_url("https://custom-proxy.example.com".to_string());
+let adapter = AnthropicAdapter::new("sk-ant-...")
+    .with_base_url("https://custom-proxy.example.com");
 
 let mut providers = HashMap::new();
 providers.insert("anthropic".to_string(), Arc::new(adapter) as _);
@@ -173,6 +173,8 @@ result.tool_calls();      // Vec<ToolCall> from the final response
 result.reasoning();       // Option<String> — extended thinking content
 
 // GenerateResult fields
+result.response;          // Response — the final LLM response
+result.tool_results;      // Vec<ToolResult> — from the final step
 result.total_usage;       // Usage — aggregated across all steps
 result.steps;             // Vec<StepResult> — one per tool round
 result.output;            // Option<Value> — for structured output
@@ -336,9 +338,9 @@ while let Some(event) = stream_result.next().await {
 | Variant | Description |
 |---|---|
 | `StreamStart` | Stream opened |
-| `TextStart` | Text block started |
+| `TextStart { text_id }` | Text block started |
 | `TextDelta { delta, text_id }` | Incremental text chunk |
-| `TextEnd` | Text block ended |
+| `TextEnd { text_id }` | Text block ended |
 | `ReasoningStart` | Extended thinking started |
 | `ReasoningDelta { delta }` | Incremental reasoning chunk |
 | `ReasoningEnd` | Extended thinking ended |
@@ -493,8 +495,8 @@ Every `SdkError` exposes classification methods:
 | `InvalidRequest` | 400 | No | No |
 | `RateLimit` | 429 | Yes | Yes |
 | `Server` | 500, 502, 503 | Yes | Yes |
-| `ContentFilter` | varies | No | Yes |
-| `ContextLength` | varies | No | Yes |
+| `ContentFilter` | varies | No | No |
+| `ContextLength` | varies | No | No |
 | `QuotaExceeded` | varies | No | Yes |
 
 ## Retries
