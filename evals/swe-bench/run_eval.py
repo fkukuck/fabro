@@ -291,12 +291,39 @@ def run_instance(
     except subprocess.TimeoutExpired:
         result["status"] = "timeout"
         result["error"] = f"Timed out after {timeout}s"
+        _cleanup_sandbox(instance_id)
     except Exception as e:
         result["error"] = str(e)
         log.debug(f"[{instance_id}] Exception: {e}")
 
     result["duration_s"] = round(time.time() - start_time, 1)
     return result
+
+
+def _cleanup_sandbox(label_value: str):
+    """Best-effort delete of orphaned Daytona sandbox after timeout.
+
+    Finds the sandbox via `fabro ps --label --json` to get the run ID,
+    then deletes any Daytona sandbox whose name contains that run ID.
+    """
+    try:
+        ps = subprocess.run(
+            ["fabro", "ps", "--label", f"swe-bench={label_value}", "--json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        runs = json.loads(ps.stdout) if ps.stdout.strip() else []
+        for run in runs:
+            run_id = run.get("run_id", "")
+            if not run_id:
+                continue
+            sandbox_name = f"fabro-{run_id}"
+            subprocess.run(
+                ["daytona", "sandbox", "delete", sandbox_name],
+                capture_output=True, timeout=15,
+            )
+            log.debug(f"[{label_value}] Deleted sandbox {sandbox_name}")
+    except Exception as e:
+        log.debug(f"[{label_value}] Sandbox cleanup failed (non-fatal): {e}")
 
 
 # ---------------------------------------------------------------------------
