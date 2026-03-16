@@ -12,7 +12,7 @@ Both crates can be used independently of Fabro's workflow engine.
 
 ## Agent (`fabro-agent`)
 
-The `fabro-agent` crate provides a session-based AI agent that runs an LLM with tool use in a sandboxed environment. The agent loop streams LLM responses, executes tool calls (Bash, Read, Write, Edit, Glob, Grep, WebFetch), feeds results back, and repeats until the model responds with text or hits a safety limit.
+The `fabro-agent` crate provides a session-based AI agent that runs an LLM with tool use in a sandboxed environment. The agent loop streams LLM responses, executes tool calls (`shell`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `web_fetch`, `web_search`), feeds results back, and repeats until the model responds with text or hits a safety limit.
 
 ```toml title="Cargo.toml"
 [dependencies]
@@ -35,11 +35,8 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::from_env().await?;
     let sandbox = Arc::new(LocalSandbox::new(PathBuf::from(".")));
+    let profile = Arc::new(AnthropicProfile::new("claude-sonnet-4-5"));
     let config = SessionConfig::default();
-    let profile = Arc::new(AnthropicProfile::new(
-        "claude-sonnet-4-5".into(),
-        config.clone(),
-    ));
 
     let mut session = Session::new(client, profile, sandbox, config);
     session.initialize().await;
@@ -237,7 +234,7 @@ impl ToolHookCallback for MyHooks {
         tool_name: &str,
         tool_input: &serde_json::Value,
     ) -> ToolHookDecision {
-        if tool_name == "Bash" {
+        if tool_name == "shell" {
             println!("Agent wants to run: {}", tool_input["command"]);
         }
         ToolHookDecision::Proceed // or Block { reason }
@@ -270,8 +267,8 @@ use std::sync::Arc;
 
 let config = SessionConfig {
     tool_hooks: Some(Arc::new(ToolApprovalAdapter(Arc::new(|tool_name, _args| {
-        if tool_name == "Bash" {
-            Err("Bash is not allowed".into())
+        if tool_name == "shell" {
+            Err("shell is not allowed".into())
         } else {
             Ok(())
         }
