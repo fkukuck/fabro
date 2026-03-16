@@ -12,4 +12,14 @@ const roadmap = defineCollection({
   }),
 });
 
-export const collections = { roadmap };
+const blog = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/blog" }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    date: z.coerce.date(),
+    author: z.string(),
+  }),
+});
+
+export const collections = { roadmap, blog };
