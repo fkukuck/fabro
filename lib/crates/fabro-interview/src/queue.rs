@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use super::{Answer, Interviewer, Question};
+use crate::{Answer, Interviewer, Question};
 
 /// Reads answers from a pre-filled queue. Returns Skipped when empty.
 pub struct QueueInterviewer {
@@ -30,7 +30,7 @@ impl Interviewer for QueueInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::{AnswerValue, QuestionType};
+    use crate::{AnswerValue, QuestionType};
 
     #[tokio::test]
     async fn returns_queued_answers_in_order() {

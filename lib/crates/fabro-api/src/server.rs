@@ -20,13 +20,12 @@ use fabro_agent::LocalSandbox;
 
 use crate::error::ApiError;
 use crate::jwt_auth::{AuthMode, AuthenticatedService, AuthenticatedUser};
+use fabro_interview::{Answer, Interviewer, QuestionType, WebInterviewer};
 use fabro_workflows::checkpoint::Checkpoint;
 use fabro_workflows::context::Context;
 use fabro_workflows::engine::{RunConfig, WorkflowRunEngine};
 use fabro_workflows::event::{EventEmitter, WorkflowRunEvent};
 use fabro_workflows::handler::HandlerRegistry;
-use fabro_workflows::interviewer::web::WebInterviewer;
-use fabro_workflows::interviewer::{Answer, Interviewer, QuestionType};
 
 pub use fabro_types::{
     ApiQuestion, ApiQuestionOption, PaginatedRunList, PaginationMeta,
@@ -1474,9 +1473,7 @@ mod tests {
         start -> exit
     }"#;
 
-    fn test_registry(
-        _interviewer: Arc<dyn fabro_workflows::interviewer::Interviewer>,
-    ) -> HandlerRegistry {
+    fn test_registry(_interviewer: Arc<dyn fabro_interview::Interviewer>) -> HandlerRegistry {
         let mut registry = HandlerRegistry::new(Box::new(StartHandler));
         registry.register("start", Box::new(StartHandler));
         registry.register("exit", Box::new(ExitHandler));

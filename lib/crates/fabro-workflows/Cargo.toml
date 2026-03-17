@@ -28,6 +28,7 @@ fabro-exe = { path = "../fabro-exe", optional = true }
 fabro-ssh = { path = "../fabro-ssh" }
 fabro-mcp = { path = "../fabro-mcp" }
 fabro-github = { path = "../fabro-github" }
+fabro-interview = { path = "../fabro-interview" }
 fabro-util = { path = "../fabro-util" }
 fabro-daytona = { path = "../fabro-daytona" }
 fabro-git-storage = { path = "../fabro-git-storage" }
@@ -45,7 +46,6 @@ futures.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 toml.workspace = true
 dirs = "6"
-dialoguer.workspace = true
 regex.workspace = true
 scopeguard = "1"
 hex.workspace = true

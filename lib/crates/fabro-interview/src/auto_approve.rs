@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::{Answer, AnswerValue, Interviewer, Question, QuestionType};
+use crate::{Answer, AnswerValue, Interviewer, Question, QuestionType};
 
 /// Always approves: YES for yes/no, first option for multiple choice, "auto-approved" for freeform.
 pub struct AutoApproveInterviewer;
@@ -29,7 +29,7 @@ impl Interviewer for AutoApproveInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::QuestionOption;
+    use crate::QuestionOption;
 
     #[tokio::test]
     async fn yes_no_returns_yes() {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fabro_workflows::interviewer::web::WebInterviewer;
+use fabro_interview::WebInterviewer;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
@@ -187,7 +187,7 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fabro_workflows::interviewer::AnswerValue;
+    use fabro_interview::AnswerValue;
 
     fn registry() -> ThreadRegistry {
         ThreadRegistry::new()
@@ -304,7 +304,7 @@ mod tests {
         let i_clone = Arc::clone(&interviewer);
 
         let handle = tokio::spawn(async move {
-            use fabro_workflows::interviewer::{Interviewer, Question, QuestionType};
+            use fabro_interview::{Interviewer, Question, QuestionType};
             let q = Question::new("approve?", QuestionType::YesNo);
             i_clone.ask(q).await
         });

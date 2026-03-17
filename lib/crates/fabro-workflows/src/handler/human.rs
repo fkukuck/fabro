@@ -8,12 +8,10 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::{EventEmitter, WorkflowRunEvent};
-use crate::interviewer::{
-    Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType,
-};
 use crate::millis_u64;
 use crate::outcome::Outcome;
 use fabro_graphviz::graph::{Graph, Node};
+use fabro_interview::{Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType};
 
 use super::{EngineServices, Handler};
 
@@ -327,9 +325,8 @@ fn answer_text(answer: &Answer) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::auto_approve::AutoApproveInterviewer;
-    use crate::interviewer::recording::RecordingInterviewer;
     use fabro_graphviz::graph::{AttrValue, Edge};
+    use fabro_interview::{AutoApproveInterviewer, RecordingInterviewer};
 
     fn make_services() -> EngineServices {
         EngineServices::test_default()
@@ -437,9 +434,9 @@ mod tests {
 
     #[tokio::test]
     async fn wait_human_with_freeform_edge() {
-        let interviewer = Arc::new(crate::interviewer::callback::CallbackInterviewer::new(
-            |_| Answer::text("custom input"),
-        ));
+        let interviewer = Arc::new(fabro_interview::CallbackInterviewer::new(|_| {
+            Answer::text("custom input")
+        }));
         let handler = HumanHandler::new(interviewer);
 
         let mut graph = Graph::new("test");
@@ -474,9 +471,9 @@ mod tests {
 
     #[tokio::test]
     async fn freeform_only_gate_uses_freeform_question_type() {
-        let inner = Box::new(crate::interviewer::callback::CallbackInterviewer::new(
-            |_| Answer::text("hello"),
-        ));
+        let inner = Box::new(fabro_interview::CallbackInterviewer::new(|_| {
+            Answer::text("hello")
+        }));
         let recorder = Arc::new(RecordingInterviewer::new(inner));
         let handler = HumanHandler::new(recorder.clone());
 

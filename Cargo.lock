@@ -1286,6 +1286,7 @@ dependencies = [
  "fabro-exe",
  "fabro-github",
  "fabro-graphviz",
+ "fabro-interview",
  "fabro-llm",
  "fabro-retro",
  "fabro-types",
@@ -1505,6 +1506,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fabro-interview"
+version = "0.174.0"
+dependencies = [
+ "async-trait",
+ "dialoguer",
+ "fabro-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "fabro-linear"
 version = "0.174.0"
 dependencies = [
@@ -1598,6 +1612,7 @@ dependencies = [
 name = "fabro-slack"
 version = "0.174.0"
 dependencies = [
+ "fabro-interview",
  "fabro-workflows",
  "futures-util",
  "reqwest 0.12.28",
@@ -1721,7 +1736,6 @@ dependencies = [
  "clap",
  "cli-table",
  "console 0.15.11",
- "dialoguer",
  "dirs",
  "dotenvy",
  "fabro-agent",
@@ -1731,6 +1745,7 @@ dependencies = [
  "fabro-git-storage",
  "fabro-github",
  "fabro-graphviz",
+ "fabro-interview",
  "fabro-llm",
  "fabro-mcp",
  "fabro-retro",

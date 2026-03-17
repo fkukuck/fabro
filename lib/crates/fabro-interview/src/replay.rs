@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use super::{Answer, Interviewer, Question};
+use crate::{Answer, Interviewer, Question};
 
 /// Replays recorded answers in sequence. When recordings are exhausted,
 /// returns `Answer::skipped()`.
@@ -37,7 +37,7 @@ impl Interviewer for ReplayInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::{AnswerValue, QuestionType};
+    use crate::{AnswerValue, QuestionType};
 
     #[tokio::test]
     async fn replays_recorded_answers() {

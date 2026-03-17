@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use tokio::sync::oneshot;
 
-use super::{Answer, Interviewer, Question};
+use crate::{Answer, Interviewer, Question};
 
 /// A pending question waiting for an answer from an external source (e.g., HTTP endpoint).
 #[derive(Debug)]
@@ -109,7 +109,7 @@ impl Interviewer for WebInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::{AnswerValue, QuestionType};
+    use crate::{AnswerValue, QuestionType};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -169,7 +169,7 @@ mod tests {
         q.timeout_seconds = Some(0.05);
 
         // Use ask_with_timeout from the parent module
-        let answer = crate::interviewer::ask_with_timeout(interviewer.as_ref(), q).await;
+        let answer = crate::ask_with_timeout(interviewer.as_ref(), q).await;
         assert_eq!(answer.value, AnswerValue::Timeout);
     }
 

@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
 use fabro_graphviz::parser::parse;
+use fabro_interview::{
+    Answer, AnswerValue, AutoApproveInterviewer, Interviewer, QueueInterviewer,
+    RecordingInterviewer,
+};
 use fabro_llm::provider::Provider;
 use fabro_validate::{validate, validate_or_raise, Severity};
 use fabro_workflows::checkpoint::Checkpoint;
@@ -23,10 +27,6 @@ use fabro_workflows::handler::manager_loop::SubWorkflowHandler;
 use fabro_workflows::handler::start::StartHandler;
 use fabro_workflows::handler::wait::WaitHandler;
 use fabro_workflows::handler::{Handler, HandlerRegistry};
-use fabro_workflows::interviewer::auto_approve::AutoApproveInterviewer;
-use fabro_workflows::interviewer::queue::QueueInterviewer;
-use fabro_workflows::interviewer::recording::RecordingInterviewer;
-use fabro_workflows::interviewer::{Answer, AnswerValue, Interviewer};
 use fabro_workflows::outcome::{Outcome, StageStatus};
 use fabro_workflows::stylesheet::{apply_stylesheet, parse_stylesheet};
 use fabro_workflows::transform::{
@@ -6106,6 +6106,7 @@ mod real_llm {
 
     use super::local_env;
     use fabro_graphviz::graph::{AttrValue, Edge, Graph};
+    use fabro_interview::AutoApproveInterviewer;
     use fabro_workflows::checkpoint::Checkpoint;
     use fabro_workflows::engine::{RunConfig, WorkflowRunEngine};
     use fabro_workflows::event::EventEmitter;
@@ -6113,7 +6114,6 @@ mod real_llm {
     use fabro_workflows::handler::human::HumanHandler;
     use fabro_workflows::handler::start::StartHandler;
     use fabro_workflows::handler::HandlerRegistry;
-    use fabro_workflows::interviewer::auto_approve::AutoApproveInterviewer;
     use fabro_workflows::outcome::StageStatus;
 
     #[tokio::test]

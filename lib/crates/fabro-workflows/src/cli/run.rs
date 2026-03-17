@@ -15,11 +15,9 @@ use crate::checkpoint::Checkpoint;
 use crate::engine::{RunConfig, WorkflowRunEngine};
 use crate::event::EventEmitter;
 use crate::handler::default_registry;
-use crate::interviewer::auto_approve::AutoApproveInterviewer;
-use crate::interviewer::console::ConsoleInterviewer;
-use crate::interviewer::Interviewer;
 use crate::outcome::StageStatus;
 use crate::workflow::WorkflowBuilder;
+use fabro_interview::{AutoApproveInterviewer, ConsoleInterviewer, Interviewer};
 use fabro_validate::Severity;
 
 use fabro_llm::provider::Provider;
@@ -1708,10 +1706,10 @@ async fn run_from_branch(
     };
 
     // Build interviewer
-    let interviewer: Arc<dyn crate::interviewer::Interviewer> = if args.auto_approve {
-        Arc::new(crate::interviewer::auto_approve::AutoApproveInterviewer)
+    let interviewer: Arc<dyn fabro_interview::Interviewer> = if args.auto_approve {
+        Arc::new(fabro_interview::AutoApproveInterviewer)
     } else {
-        Arc::new(crate::interviewer::console::ConsoleInterviewer::new(styles))
+        Arc::new(fabro_interview::ConsoleInterviewer::new(styles))
     };
 
     // Build engine with a backend

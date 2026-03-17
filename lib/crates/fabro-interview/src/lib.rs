@@ -1,10 +1,10 @@
-pub mod auto_approve;
-pub mod callback;
-pub mod console;
-pub mod queue;
-pub mod recording;
-pub mod replay;
-pub mod web;
+mod auto_approve;
+mod callback;
+mod console;
+mod queue;
+mod recording;
+mod replay;
+mod web;
 
 use std::collections::HashMap;
 
@@ -199,6 +199,15 @@ pub trait Interviewer: Send + Sync {
     }
 }
 
+// Re-export all implementors at the crate root
+pub use auto_approve::AutoApproveInterviewer;
+pub use callback::CallbackInterviewer;
+pub use console::ConsoleInterviewer;
+pub use queue::QueueInterviewer;
+pub use recording::RecordingInterviewer;
+pub use replay::ReplayInterviewer;
+pub use web::{PendingQuestion, WebInterviewer};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn ask_with_timeout_no_timeout_returns_normally() {
-        let interviewer = crate::interviewer::auto_approve::AutoApproveInterviewer;
+        let interviewer = AutoApproveInterviewer;
         let q = Question::new("approve?", QuestionType::YesNo);
 
         let answer = ask_with_timeout(&interviewer, q).await;

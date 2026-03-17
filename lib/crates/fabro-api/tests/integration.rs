@@ -13,11 +13,11 @@ mod mtls_e2e {
     use fabro_api::server::{build_router, create_app_state};
     use fabro_api::server_config::TlsConfig;
     use fabro_api::tls::{build_rustls_config, ClientAuth};
+    use fabro_interview::Interviewer;
     use fabro_workflows::handler::agent::AgentHandler;
     use fabro_workflows::handler::exit::ExitHandler;
     use fabro_workflows::handler::start::StartHandler;
     use fabro_workflows::handler::HandlerRegistry;
-    use fabro_workflows::interviewer::Interviewer;
     use tokio::net::TcpListener;
 
     fn simple_registry(_interviewer: Arc<dyn Interviewer>) -> HandlerRegistry {
@@ -431,12 +431,12 @@ mod server_lifecycle {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use fabro_api::server::{build_router, create_app_state};
+    use fabro_interview::Interviewer;
     use fabro_workflows::handler::agent::AgentHandler;
     use fabro_workflows::handler::exit::ExitHandler;
     use fabro_workflows::handler::human::HumanHandler;
     use fabro_workflows::handler::start::StartHandler;
     use fabro_workflows::handler::HandlerRegistry;
-    use fabro_workflows::interviewer::Interviewer;
     use tower::ServiceExt;
 
     fn gate_registry(interviewer: Arc<dyn Interviewer>) -> HandlerRegistry {
@@ -627,11 +627,11 @@ mod sse_events {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use fabro_api::server::{build_router, create_app_state};
+    use fabro_interview::Interviewer;
     use fabro_workflows::handler::agent::AgentHandler;
     use fabro_workflows::handler::exit::ExitHandler;
     use fabro_workflows::handler::start::StartHandler;
     use fabro_workflows::handler::HandlerRegistry;
-    use fabro_workflows::interviewer::Interviewer;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -789,8 +789,8 @@ mod serve_dry_run {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use fabro_api::server::{build_router, create_app_state};
+    use fabro_interview::Interviewer;
     use fabro_workflows::handler::default_registry;
-    use fabro_workflows::interviewer::Interviewer;
     use tower::ServiceExt;
 
     const MINIMAL_DOT: &str = r#"digraph Test {

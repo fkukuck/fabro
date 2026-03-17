@@ -6,10 +6,10 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use fabro_api::jwt_auth::AuthMode;
 use fabro_api::server::{build_router, create_app_state};
+use fabro_interview::Interviewer;
 use fabro_workflows::handler::exit::ExitHandler;
 use fabro_workflows::handler::start::StartHandler;
 use fabro_workflows::handler::HandlerRegistry;
-use fabro_workflows::interviewer::Interviewer;
 use tower::ServiceExt;
 
 fn test_registry(_interviewer: Arc<dyn Interviewer>) -> HandlerRegistry {

@@ -6,7 +6,7 @@ use dialoguer::theme::ColorfulTheme;
 use fabro_util::terminal::Styles;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use super::{Answer, AnswerValue, Interviewer, Question, QuestionType};
+use crate::{Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType};
 
 /// Reads from stdin to collect answers. Displays formatted prompts per spec 6.4.
 pub struct ConsoleInterviewer {
@@ -20,7 +20,7 @@ impl ConsoleInterviewer {
     }
 }
 
-fn find_matching_option(response: &str, options: &[super::QuestionOption]) -> Option<Answer> {
+fn find_matching_option(response: &str, options: &[QuestionOption]) -> Option<Answer> {
     let trimmed = response.trim();
     // Try matching by key (case-insensitive)
     for opt in options {
@@ -228,11 +228,11 @@ mod tests {
     #[test]
     fn find_matching_option_by_key() {
         let options = vec![
-            super::super::QuestionOption {
+            crate::QuestionOption {
                 key: "A".to_string(),
                 label: "Approve".to_string(),
             },
-            super::super::QuestionOption {
+            crate::QuestionOption {
                 key: "R".to_string(),
                 label: "Reject".to_string(),
             },
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_by_key_case_insensitive() {
-        let options = vec![super::super::QuestionOption {
+        let options = vec![crate::QuestionOption {
             key: "Y".to_string(),
             label: "Yes".to_string(),
         }];
@@ -256,11 +256,11 @@ mod tests {
     #[test]
     fn find_matching_option_by_index() {
         let options = vec![
-            super::super::QuestionOption {
+            crate::QuestionOption {
                 key: "A".to_string(),
                 label: "Alpha".to_string(),
             },
-            super::super::QuestionOption {
+            crate::QuestionOption {
                 key: "B".to_string(),
                 label: "Beta".to_string(),
             },
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_no_match() {
-        let options = vec![super::super::QuestionOption {
+        let options = vec![crate::QuestionOption {
             key: "A".to_string(),
             label: "Alpha".to_string(),
         }];
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_index_out_of_range() {
-        let options = vec![super::super::QuestionOption {
+        let options = vec![crate::QuestionOption {
             key: "A".to_string(),
             label: "Alpha".to_string(),
         }];

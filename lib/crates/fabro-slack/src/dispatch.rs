@@ -1,4 +1,4 @@
-use fabro_workflows::interviewer::Answer;
+use fabro_interview::Answer;
 
 use crate::interaction;
 use crate::socket::{classify_envelope, SocketEnvelope, SocketEventKind};
@@ -50,7 +50,7 @@ pub fn dispatch(envelope: &SocketEnvelope, thread_registry: &ThreadRegistry) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fabro_workflows::interviewer::AnswerValue;
+    use fabro_interview::AnswerValue;
 
     #[test]
     fn hello_produces_connected() {

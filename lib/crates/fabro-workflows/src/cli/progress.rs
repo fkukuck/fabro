@@ -8,9 +8,9 @@ use console::Style;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use crate::event::{EventEmitter, WorkflowRunEvent};
-use crate::interviewer::{Answer, Interviewer, Question};
 use crate::outcome::StageStatus;
 use fabro_agent::AgentEvent;
+use fabro_interview::{Answer, ConsoleInterviewer, Interviewer, Question};
 
 use super::{compute_stage_cost, format_cost, format_tokens_human};
 
@@ -1266,15 +1266,12 @@ impl ProgressUI {
 /// Wraps a `ConsoleInterviewer` so that progress bars are hidden during
 /// interactive prompts (avoids garbled output from concurrent writes).
 pub struct ProgressAwareInterviewer {
-    inner: crate::interviewer::console::ConsoleInterviewer,
+    inner: ConsoleInterviewer,
     progress: Arc<Mutex<ProgressUI>>,
 }
 
 impl ProgressAwareInterviewer {
-    pub fn new(
-        inner: crate::interviewer::console::ConsoleInterviewer,
-        progress: Arc<Mutex<ProgressUI>>,
-    ) -> Self {
+    pub fn new(inner: ConsoleInterviewer, progress: Arc<Mutex<ProgressUI>>) -> Self {
         Self { inner, progress }
     }
 

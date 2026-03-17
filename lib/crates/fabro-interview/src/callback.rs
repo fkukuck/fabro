@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::{Answer, Interviewer, Question};
+use crate::{Answer, Interviewer, Question};
 
 /// Delegates question answering to a provided callback function.
 pub struct CallbackInterviewer {
@@ -25,7 +25,7 @@ impl Interviewer for CallbackInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::{AnswerValue, QuestionType};
+    use crate::{AnswerValue, QuestionType};
 
     #[tokio::test]
     async fn calls_callback_with_question() {

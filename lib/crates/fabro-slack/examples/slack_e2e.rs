@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
+use fabro_interview::{
+    Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType, WebInterviewer,
+};
 use fabro_slack::blocks::{answered_blocks, question_to_blocks};
 use fabro_slack::client::{PostedMessage, SlackClient};
 use fabro_slack::connection;
 use fabro_slack::threads::ThreadRegistry;
-use fabro_workflows::interviewer::web::WebInterviewer;
-use fabro_workflows::interviewer::{
-    Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType,
-};
 
 struct TestCase {
     label: &'static str,

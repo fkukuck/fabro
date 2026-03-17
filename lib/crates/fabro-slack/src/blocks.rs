@@ -1,4 +1,4 @@
-use fabro_workflows::interviewer::{Question, QuestionType};
+use fabro_interview::{Question, QuestionType};
 use serde_json::{json, Value};
 
 fn text_block(text: &str) -> Value {
@@ -95,7 +95,7 @@ pub fn question_to_blocks(question_id: &str, question: &Question) -> Vec<Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fabro_workflows::interviewer::QuestionOption;
+    use fabro_interview::QuestionOption;
 
     #[test]
     fn yes_no_produces_two_buttons() {

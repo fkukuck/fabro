@@ -9,6 +9,7 @@ description = "Slack Socket Mode integration for Fabro interviewer"
 doctest = false
 
 [dependencies]
+fabro-interview = { path = "../fabro-interview" }
 fabro-workflows = { path = "../fabro-workflows" }
 futures-util.workspace = true
 serde.workspace = true

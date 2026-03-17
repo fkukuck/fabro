@@ -1,4 +1,4 @@
-use fabro_workflows::interviewer::Answer;
+use fabro_interview::Answer;
 use serde_json::Value;
 
 /// Parses a Slack interaction payload and returns (question_id, Answer).
@@ -63,7 +63,7 @@ fn extract_checkbox_selections(question_id: &str, payload: &Value) -> Answer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fabro_workflows::interviewer::AnswerValue;
+    use fabro_interview::AnswerValue;
 
     #[test]
     fn parse_yes_button_click() {

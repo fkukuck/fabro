@@ -14,10 +14,10 @@ use fabro_config::server::ServerConfig;
 use crate::jwt_auth::{AuthMode, AuthStrategy};
 use crate::server::build_router;
 use crate::tls::ClientAuth;
+use fabro_interview::Interviewer;
 use fabro_workflows::cli::backend::AgentApiBackend;
 use fabro_workflows::cli::SandboxProvider;
 use fabro_workflows::handler::default_registry;
-use fabro_workflows::interviewer::Interviewer;
 
 #[derive(Args)]
 pub struct ServeArgs {

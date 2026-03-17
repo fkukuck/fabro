@@ -3,8 +3,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use super::{Answer, Interviewer, Question};
-use crate::error::FabroError;
+use crate::{Answer, Interviewer, Question};
 
 /// Wraps another interviewer and records all question-answer pairs.
 pub struct RecordingInterviewer {
@@ -35,24 +34,26 @@ impl RecordingInterviewer {
     ///
     /// # Errors
     /// Returns an error if serialization fails.
-    pub fn to_json(&self) -> Result<String, FabroError> {
+    pub fn to_json(&self) -> std::io::Result<String> {
         let recordings = self.recordings();
-        serde_json::to_string_pretty(&recordings).map_err(|e| FabroError::Io(e.to_string()))
+        serde_json::to_string_pretty(&recordings)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     /// Deserializes recordings from a JSON string.
     ///
     /// # Errors
     /// Returns an error if deserialization fails.
-    pub fn from_json(json: &str) -> Result<Vec<(Question, Answer)>, FabroError> {
-        serde_json::from_str(json).map_err(|e| FabroError::Io(e.to_string()))
+    pub fn from_json(json: &str) -> std::io::Result<Vec<(Question, Answer)>> {
+        serde_json::from_str(json)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     /// Saves recordings to a file as JSON.
     ///
     /// # Errors
     /// Returns an error if serialization or file writing fails.
-    pub fn save_to_file(&self, path: &Path) -> Result<(), FabroError> {
+    pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
         let json = self.to_json()?;
         std::fs::write(path, json)?;
         Ok(())
@@ -62,7 +63,7 @@ impl RecordingInterviewer {
     ///
     /// # Errors
     /// Returns an error if file reading or deserialization fails.
-    pub fn load_from_file(path: &Path) -> Result<Vec<(Question, Answer)>, FabroError> {
+    pub fn load_from_file(path: &Path) -> std::io::Result<Vec<(Question, Answer)>> {
         let json = std::fs::read_to_string(path)?;
         Self::from_json(&json)
     }
@@ -83,8 +84,8 @@ impl Interviewer for RecordingInterviewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interviewer::auto_approve::AutoApproveInterviewer;
-    use crate::interviewer::{AnswerValue, QuestionType};
+    use crate::AutoApproveInterviewer;
+    use crate::{AnswerValue, QuestionType};
 
     #[tokio::test]
     async fn records_question_answer_pairs() {

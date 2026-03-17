@@ -433,9 +433,7 @@ mod tests {
     use fabro_workflows::handler::start::StartHandler;
     use fabro_workflows::handler::HandlerRegistry;
 
-    fn test_registry(
-        _interviewer: Arc<dyn fabro_workflows::interviewer::Interviewer>,
-    ) -> HandlerRegistry {
+    fn test_registry(_interviewer: Arc<dyn fabro_interview::Interviewer>) -> HandlerRegistry {
         let mut registry = HandlerRegistry::new(Box::new(StartHandler));
         registry.register("start", Box::new(StartHandler));
         registry.register("exit", Box::new(ExitHandler));
