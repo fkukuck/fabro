@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use crate::error::FabroError;
-use crate::graph::Graph;
 use crate::transform::{
     FileInliningTransform, ProviderInferenceTransform, StylesheetApplicationTransform, Transform,
     VariableExpansionTransform,
 };
 use crate::validation::{self, Diagnostic};
+use fabro_graphviz::graph::Graph;
 
 /// Builder for configuring and executing a workflow preparation.
 /// Collects custom transforms that run after the built-in ones.
@@ -56,7 +56,7 @@ impl WorkflowBuilder {
         dot_source: &str,
         base_dir: Option<&Path>,
     ) -> Result<(Graph, Vec<Diagnostic>), FabroError> {
-        let mut graph = crate::parser::parse(dot_source)?;
+        let mut graph = fabro_graphviz::parser::parse(dot_source)?;
 
         // Built-in transforms (PreambleTransform moved to engine execution time)
         VariableExpansionTransform.apply(&mut graph);
@@ -113,7 +113,7 @@ pub fn prepare_from_source(dot_source: &str) -> Result<Graph, FabroError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
+    use fabro_graphviz::graph::AttrValue;
 
     const MINIMAL_DOT: &str = r#"digraph Test {
         graph [goal="Build feature"]
@@ -184,7 +184,7 @@ mod tests {
     fn pipeline_builder_custom_transform() {
         struct TagTransform;
         impl Transform for TagTransform {
-            fn apply(&self, graph: &mut crate::graph::Graph) {
+            fn apply(&self, graph: &mut fabro_graphviz::graph::Graph) {
                 for node in graph.nodes.values_mut() {
                     node.attrs
                         .insert("tagged".to_string(), AttrValue::Boolean(true));

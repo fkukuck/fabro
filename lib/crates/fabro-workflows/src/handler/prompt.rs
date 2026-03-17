@@ -7,8 +7,8 @@ use fabro_llm::provider::Provider;
 use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
-use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::agent::{
     expand_variables, extract_status_fields, truncate, CodergenBackend, CodergenResult,
@@ -158,7 +158,7 @@ impl Handler for PromptHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
+    use fabro_graphviz::graph::AttrValue;
     use std::sync::Arc;
     use tempfile::TempDir;
 

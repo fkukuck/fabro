@@ -9,8 +9,8 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::EventEmitter;
-use crate::graph::{Graph, Node};
 use crate::outcome::{Outcome, StageUsage};
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::{EngineServices, Handler};
 
@@ -375,7 +375,7 @@ impl Handler for AgentHandler {
 mod tests {
     use super::*;
     use crate::event::EventEmitter;
-    use crate::graph::AttrValue;
+    use fabro_graphviz::graph::AttrValue;
     use tempfile::TempDir;
 
     fn make_services() -> EngineServices {

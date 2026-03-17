@@ -15,7 +15,7 @@ pub fn parse_command(args: &ParseArgs) -> anyhow::Result<()> {
 fn parse_command_to(args: &ParseArgs, mut out: impl Write) -> anyhow::Result<()> {
     let (dot_path, _cfg) = super::project_config::resolve_workflow(&args.workflow)?;
     let source = read_workflow_file(&dot_path)?;
-    let ast = crate::parser::parse_ast(&source)?;
+    let ast = fabro_graphviz::parser::parse_ast(&source)?;
     serde_json::to_writer_pretty(&mut out, &ast)?;
     writeln!(out)?;
     Ok(())
@@ -24,7 +24,7 @@ fn parse_command_to(args: &ParseArgs, mut out: impl Write) -> anyhow::Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::DotGraph;
+    use fabro_graphviz::parser::ast::DotGraph;
     use std::io::Write;
     use std::path::PathBuf;
 

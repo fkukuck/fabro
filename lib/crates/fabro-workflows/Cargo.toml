@@ -21,6 +21,7 @@ clap.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true
 fabro-agent = { path = "../fabro-agent" }
+fabro-graphviz = { path = "../fabro-graphviz" }
 fabro-devcontainer = { path = "../fabro-devcontainer" }
 fabro-exe = { path = "../fabro-exe", optional = true }
 fabro-ssh = { path = "../fabro-ssh" }
@@ -39,7 +40,6 @@ rand.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 chrono = { workspace = true, features = ["serde"] }
-nom = "7"
 toml.workspace = true
 dirs = "6"
 dialoguer.workspace = true

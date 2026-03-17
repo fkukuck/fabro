@@ -65,7 +65,7 @@ impl<T: serde::Serialize> ListResponse<T> {
 /// Snapshot of a managed run.
 struct ManagedRun {
     dot_source: String,
-    graph: fabro_workflows::graph::Graph,
+    graph: fabro_graphviz::graph::Graph,
     status: RunStatus,
     error: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,

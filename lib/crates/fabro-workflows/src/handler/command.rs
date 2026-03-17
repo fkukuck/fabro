@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
-use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::{EngineServices, Handler};
 
@@ -177,8 +177,8 @@ impl Handler for CommandHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
     use crate::outcome::StageStatus;
+    use fabro_graphviz::graph::AttrValue;
     use std::time::Duration;
 
     fn make_services() -> EngineServices {

@@ -21,10 +21,10 @@ use crate::context::Context;
 use crate::engine::GitState;
 use crate::error::FabroError;
 use crate::event::EventEmitter;
-use crate::graph::{shape_to_handler_type, Graph, Node};
 use crate::hook::{HookContext, HookDecision, HookRunner};
 use crate::interviewer::Interviewer;
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{shape_to_handler_type, Graph, Node};
 
 /// Shared services available to all handlers during execution.
 pub struct EngineServices {
@@ -222,7 +222,7 @@ pub fn default_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
+    use fabro_graphviz::graph::AttrValue;
 
     struct TestHandler {
         _name: String,

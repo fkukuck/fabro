@@ -15,9 +15,9 @@ use fabro_llm::provider::Provider;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::WorkflowRunEvent;
-use crate::graph::Node;
 use crate::handler::agent::{CodergenBackend, CodergenResult};
 use crate::outcome::StageUsage;
+use fabro_graphviz::graph::Node;
 
 fn build_profile(model: &str, provider: Provider) -> Box<dyn ProviderProfile> {
     match provider {

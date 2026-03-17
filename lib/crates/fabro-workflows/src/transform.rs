@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::graph::{AttrValue, Edge, Graph, Node};
 use crate::stylesheet::{apply_stylesheet, parse_stylesheet};
+use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
 
 /// A transform that modifies the pipeline graph after parsing and before validation.
 pub trait Transform {

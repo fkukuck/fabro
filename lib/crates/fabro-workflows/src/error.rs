@@ -417,6 +417,14 @@ impl From<SdkError> for FabroError {
     }
 }
 
+impl From<fabro_graphviz::error::GraphvizError> for FabroError {
+    fn from(e: fabro_graphviz::error::GraphvizError) -> Self {
+        match e {
+            fabro_graphviz::error::GraphvizError::Parse(msg) => FabroError::Parse(msg),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, FabroError>;
 
 #[cfg(test)]

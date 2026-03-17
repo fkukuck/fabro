@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 use crate::context::Context;
 use crate::error::FabroError;
-use crate::graph::{AttrValue, Graph, Node};
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{AttrValue, Graph, Node};
 
 use super::{EngineServices, Handler};
 

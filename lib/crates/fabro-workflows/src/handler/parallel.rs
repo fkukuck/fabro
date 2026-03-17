@@ -10,11 +10,11 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::WorkflowRunEvent;
-use crate::graph::{Graph, Node};
 use crate::hook::{HookContext, HookEvent};
 use crate::millis_u64;
 use crate::outcome::{Outcome, StageStatus};
 use fabro_agent::LocalSandbox;
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::{EngineServices, Handler};
 
@@ -312,7 +312,7 @@ impl Handler for ParallelHandler {
         let max_parallel = node
             .attrs
             .get("max_parallel")
-            .and_then(super::super::graph::types::AttrValue::as_i64)
+            .and_then(fabro_graphviz::graph::types::AttrValue::as_i64)
             .unwrap_or(4);
         let max_parallel = usize::try_from(max_parallel).unwrap_or(4).max(1);
 
@@ -830,7 +830,7 @@ fn find_join_node(results: &[BranchResult], graph: &Graph) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{AttrValue, Edge};
+    use fabro_graphviz::graph::{AttrValue, Edge};
 
     fn make_services() -> EngineServices {
         EngineServices::test_default()

@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 fabro-config = { path = "../fabro-config" }
+fabro-graphviz = { path = "../fabro-graphviz" }
 fabro-workflows = { path = "../fabro-workflows", features = ["exedev"] }
 fabro-github = { path = "../fabro-github" }
 fabro-agent = { path = "../fabro-agent" }

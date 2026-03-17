@@ -3,7 +3,7 @@ pub mod rules;
 use serde::{Deserialize, Serialize};
 
 use crate::error::FabroError;
-use crate::graph::Graph;
+use fabro_graphviz::graph::Graph;
 
 /// Severity level for validation diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,7 +80,7 @@ pub fn validate_or_raise(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{AttrValue, Edge, Graph, Node};
+    use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
 
     fn minimal_valid_graph() -> Graph {
         let mut g = Graph::new("test");

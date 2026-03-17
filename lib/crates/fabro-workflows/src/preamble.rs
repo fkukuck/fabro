@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::artifact::{artifact_path, format_artifact_reference};
 use crate::context::keys;
 use crate::context::Context;
-use crate::graph::{is_llm_handler_type, Graph, Node};
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{is_llm_handler_type, Graph, Node};
 
 const COMPACT_OUTPUT_MAX_LINES: usize = 25;
 const SUMMARY_HIGH_OUTPUT_MAX_LINES: usize = 50;
@@ -612,8 +612,8 @@ fn build_summary_preamble(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
     use crate::outcome::StageUsage;
+    use fabro_graphviz::graph::AttrValue;
 
     // --- truncate mode ---
 

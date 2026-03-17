@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
 
 use crate::condition::parse_condition;
-use crate::graph::{is_llm_handler_type, AttrValue, Graph};
+use fabro_graphviz::graph::{is_llm_handler_type, AttrValue, Graph};
 
 use super::{Diagnostic, LintRule, Severity};
 
@@ -1165,7 +1165,7 @@ impl LintRule for RandomSelectionNoConditionsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{AttrValue, Edge, Node};
+    use fabro_graphviz::graph::{AttrValue, Edge, Node};
 
     fn minimal_graph() -> Graph {
         let mut g = Graph::new("test");

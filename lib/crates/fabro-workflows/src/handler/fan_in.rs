@@ -8,8 +8,8 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::EventEmitter;
-use crate::graph::{Graph, Node};
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::agent::{CodergenBackend, CodergenResult};
 use super::{EngineServices, Handler};
@@ -402,7 +402,7 @@ mod tests {
         let mut node = Node::new("fan_in");
         node.attrs.insert(
             "prompt".to_string(),
-            crate::graph::AttrValue::String("Pick the best branch".to_string()),
+            fabro_graphviz::graph::AttrValue::String("Pick the best branch".to_string()),
         );
         let context = Context::new();
         context.set(
@@ -461,7 +461,7 @@ mod tests {
         let mut node = Node::new("fan_in");
         node.attrs.insert(
             "prompt".to_string(),
-            crate::graph::AttrValue::String("Pick the best branch".to_string()),
+            fabro_graphviz::graph::AttrValue::String("Pick the best branch".to_string()),
         );
         let context = Context::new();
         context.set(

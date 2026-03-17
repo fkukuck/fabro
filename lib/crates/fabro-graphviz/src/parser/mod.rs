@@ -3,7 +3,7 @@ pub mod grammar;
 pub mod lexer;
 pub mod semantic;
 
-use crate::error::FabroError;
+use crate::error::GraphvizError;
 use crate::graph::types::Graph;
 
 use self::ast::DotGraph;
@@ -17,14 +17,14 @@ use self::ast::DotGraph;
 ///
 /// Returns an error if the input is not valid DOT syntax or contains
 /// trailing content after the graph definition.
-pub fn parse_ast(input: &str) -> Result<DotGraph, FabroError> {
+pub fn parse_ast(input: &str) -> Result<DotGraph, GraphvizError> {
     let stripped = lexer::strip_comments(input);
     let (rest, dot_graph) = grammar::parse_dot_graph(&stripped)
-        .map_err(|e| FabroError::Parse(format!("grammar error: {e}")))?;
+        .map_err(|e| GraphvizError::Parse(format!("grammar error: {e}")))?;
 
     let remaining = rest.trim();
     if !remaining.is_empty() {
-        return Err(FabroError::Parse(format!(
+        return Err(GraphvizError::Parse(format!(
             "unexpected trailing content: {:?}",
             &remaining[..remaining.len().min(50)]
         )));
@@ -42,7 +42,7 @@ pub fn parse_ast(input: &str) -> Result<DotGraph, FabroError> {
 ///
 /// Returns an error if the input is not valid DOT syntax or contains
 /// trailing content after the graph definition.
-pub fn parse(input: &str) -> Result<Graph, FabroError> {
+pub fn parse(input: &str) -> Result<Graph, GraphvizError> {
     let dot_graph = parse_ast(input)?;
     semantic::ast_to_graph(&dot_graph)
 }

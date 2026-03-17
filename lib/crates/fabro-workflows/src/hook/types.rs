@@ -104,7 +104,7 @@ pub struct HookContext {
 
 impl HookContext {
     /// Populate node-related fields from a graph `Node`.
-    pub fn set_node(&mut self, node: &crate::graph::Node) {
+    pub fn set_node(&mut self, node: &fabro_graphviz::graph::Node) {
         self.node_id = Some(node.id.clone());
         self.node_label = Some(node.label().to_string());
         self.handler_type = node.handler_type().map(String::from);

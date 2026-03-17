@@ -184,7 +184,7 @@ fn format_arc_details_section(conclusion: &Conclusion, dot_source: Option<&str>)
 
 /// Parse a DOT source string to extract graph name, node count, and edge count.
 fn parse_dot_summary(dot: &str) -> (String, usize, usize) {
-    match crate::parser::parse(dot) {
+    match fabro_graphviz::parser::parse(dot) {
         Ok(graph) => (
             format!("{}.fabro", graph.name),
             graph.nodes.len(),

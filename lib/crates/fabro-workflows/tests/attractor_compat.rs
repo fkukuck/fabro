@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use fabro_workflows::parser::parse;
+use fabro_graphviz::parser::parse;
 
-fn parse_attractor_dot(filename: &str) -> Result<fabro_workflows::graph::types::Graph, String> {
+fn parse_attractor_dot(filename: &str) -> Result<fabro_graphviz::graph::types::Graph, String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test/attractor")
         .join(filename);

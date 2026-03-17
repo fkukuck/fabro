@@ -8,12 +8,12 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::{EventEmitter, WorkflowRunEvent};
-use crate::graph::{Graph, Node};
 use crate::interviewer::{
     Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType,
 };
 use crate::millis_u64;
 use crate::outcome::Outcome;
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::{EngineServices, Handler};
 
@@ -327,9 +327,9 @@ fn answer_text(answer: &Answer) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{AttrValue, Edge};
     use crate::interviewer::auto_approve::AutoApproveInterviewer;
     use crate::interviewer::recording::RecordingInterviewer;
+    use fabro_graphviz::graph::{AttrValue, Edge};
 
     fn make_services() -> EngineServices {
         EngineServices::test_default()

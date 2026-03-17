@@ -1284,6 +1284,7 @@ dependencies = [
  "fabro-db",
  "fabro-exe",
  "fabro-github",
+ "fabro-graphviz",
  "fabro-llm",
  "fabro-types",
  "fabro-util",
@@ -1467,6 +1468,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "fabro-graphviz"
+version = "0.174.0"
+dependencies = [
+ "nom",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1671,6 +1681,7 @@ dependencies = [
  "fabro-exe",
  "fabro-git-storage",
  "fabro-github",
+ "fabro-graphviz",
  "fabro-llm",
  "fabro-mcp",
  "fabro-ssh",
@@ -1680,7 +1691,6 @@ dependencies = [
  "hex",
  "indicatif",
  "mockito",
- "nom",
  "predicates",
  "rand 0.8.5",
  "regex",

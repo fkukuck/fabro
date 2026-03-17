@@ -1,5 +1,5 @@
 use crate::error::FabroError;
-use crate::graph::types::{AttrValue, Graph};
+use fabro_graphviz::graph::types::{AttrValue, Graph};
 
 /// A parsed stylesheet selector.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,7 +235,7 @@ pub fn apply_stylesheet(stylesheet: &Stylesheet, graph: &mut Graph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::types::Node;
+    use fabro_graphviz::graph::types::Node;
 
     #[test]
     fn parse_empty_stylesheet() {

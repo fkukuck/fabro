@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::error::FabroError;
+use crate::error::GraphvizError;
 use crate::graph::types::{AttrValue, Edge, Graph, Node};
 use crate::parser::ast::{AstValue, AttrBlock, DotGraph, Statement};
 
@@ -267,7 +267,7 @@ impl SemanticState {
 /// # Errors
 ///
 /// Returns an error if the AST cannot be converted to a valid graph.
-pub fn ast_to_graph(dot: &DotGraph) -> Result<Graph, FabroError> {
+pub fn ast_to_graph(dot: &DotGraph) -> Result<Graph, GraphvizError> {
     let mut state = SemanticState::new(dot.name.clone());
     let empty = HashMap::new();
     state.process_statements(&dot.statements, None, &empty, &empty);

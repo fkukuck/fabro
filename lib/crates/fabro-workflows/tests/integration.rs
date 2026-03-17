@@ -3,6 +3,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
+use fabro_graphviz::parser::parse;
 use fabro_llm::provider::Provider;
 use fabro_workflows::checkpoint::Checkpoint;
 use fabro_workflows::cli::backend::AgentApiBackend;
@@ -10,7 +12,6 @@ use fabro_workflows::context::Context;
 use fabro_workflows::engine::{RunConfig, WorkflowRunEngine};
 use fabro_workflows::error::FabroError;
 use fabro_workflows::event::{EventEmitter, WorkflowRunEvent};
-use fabro_workflows::graph::{AttrValue, Edge, Graph, Node};
 use fabro_workflows::handler::agent::{AgentHandler, CodergenBackend, CodergenResult};
 use fabro_workflows::handler::command::CommandHandler;
 use fabro_workflows::handler::conditional::ConditionalHandler;
@@ -26,7 +27,6 @@ use fabro_workflows::interviewer::queue::QueueInterviewer;
 use fabro_workflows::interviewer::recording::RecordingInterviewer;
 use fabro_workflows::interviewer::{Answer, AnswerValue, Interviewer};
 use fabro_workflows::outcome::{Outcome, StageStatus};
-use fabro_workflows::parser::parse;
 use fabro_workflows::stylesheet::{apply_stylesheet, parse_stylesheet};
 use fabro_workflows::transform::{
     StylesheetApplicationTransform, Transform, VariableExpansionTransform,
@@ -6015,9 +6015,9 @@ mod real_llm {
 
     use async_trait::async_trait;
 
+    use fabro_graphviz::graph::Node;
     use fabro_workflows::context::Context;
     use fabro_workflows::error::FabroError;
-    use fabro_workflows::graph::Node;
     use fabro_workflows::handler::agent::{AgentHandler, CodergenBackend, CodergenResult};
 
     use fabro_llm::client::Client;
@@ -6105,10 +6105,10 @@ mod real_llm {
     }
 
     use super::local_env;
+    use fabro_graphviz::graph::{AttrValue, Edge, Graph};
     use fabro_workflows::checkpoint::Checkpoint;
     use fabro_workflows::engine::{RunConfig, WorkflowRunEngine};
     use fabro_workflows::event::EventEmitter;
-    use fabro_workflows::graph::{AttrValue, Edge, Graph};
     use fabro_workflows::handler::exit::ExitHandler;
     use fabro_workflows::handler::human::HumanHandler;
     use fabro_workflows::handler::start::StartHandler;

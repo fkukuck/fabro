@@ -10,9 +10,9 @@ use fabro_llm::provider::Provider;
 use crate::context::Context;
 use crate::error::FabroError;
 use crate::event::{EventEmitter, WorkflowRunEvent};
-use crate::graph::Node;
 use crate::handler::agent::{CodergenBackend, CodergenResult};
 use crate::outcome::StageUsage;
+use fabro_graphviz::graph::Node;
 
 /// Maps a provider to its corresponding CLI tool metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -796,7 +796,7 @@ impl CodergenBackend for BackendRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
+    use fabro_graphviz::graph::AttrValue;
 
     // -- AgentCli --
 

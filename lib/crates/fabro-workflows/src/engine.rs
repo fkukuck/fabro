@@ -22,13 +22,13 @@ use crate::context;
 use crate::context::Context;
 use crate::error::{FabroError, FailureClass, FailureSignature, Result};
 use crate::event::{EventEmitter, WorkflowRunEvent};
-use crate::graph::{Edge, Graph, Node};
 use crate::handler::{EngineServices, HandlerRegistry};
 use crate::hook::{HookContext, HookDecision, HookEvent, HookRunner};
 use crate::interviewer::Interviewer;
 use crate::millis_u64;
 use crate::outcome::{Outcome, StageStatus};
 use crate::preamble::build_preamble;
+use fabro_graphviz::graph::{Edge, Graph, Node};
 
 /// Classify the failure mode of a completed outcome.
 ///
@@ -2499,10 +2499,10 @@ impl WorkflowRunEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
     use crate::handler::start::StartHandler;
     use crate::handler::Handler as HandlerTrait;
     use async_trait::async_trait;
+    use fabro_graphviz::graph::AttrValue;
     use std::time::Duration;
 
     fn local_env() -> Arc<dyn Sandbox> {

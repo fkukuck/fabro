@@ -366,7 +366,7 @@ mod tests {
         let content =
             fs::read_to_string(tmp.path().join("fabro/workflows/test-wf/workflow.fabro")).unwrap();
 
-        let graph = crate::parser::parse(&content).expect("generated .fabro should parse");
+        let graph = fabro_graphviz::parser::parse(&content).expect("generated .fabro should parse");
         let diagnostics = crate::validation::validate(&graph, &[]);
         let errors: Vec<_> = diagnostics
             .iter()

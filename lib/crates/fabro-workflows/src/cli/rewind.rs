@@ -11,7 +11,7 @@ use git2::{Oid, Repository, Signature};
 
 use crate::checkpoint::Checkpoint;
 use crate::git::MetadataStore;
-use crate::graph::types::Graph;
+use fabro_graphviz::graph::types::Graph;
 
 /// Rewind a workflow run to an earlier checkpoint.
 #[derive(Debug, Args)]
@@ -484,7 +484,7 @@ pub fn load_parallel_map(store: &Store, run_id: &str) -> HashMap<String, String>
         _ => return HashMap::new(),
     };
     let dot_source = String::from_utf8_lossy(&graph_bytes);
-    let graph = match crate::parser::parse(&dot_source) {
+    let graph = match fabro_graphviz::parser::parse(&dot_source) {
         Ok(g) => g,
         Err(_) => return HashMap::new(),
     };
@@ -708,50 +708,50 @@ mod tests {
     #[test]
     fn parallel_interior_detection() {
         let mut graph = Graph::new("test");
-        let mut parallel_node = crate::graph::types::Node::new("parallel1");
+        let mut parallel_node = fabro_graphviz::graph::types::Node::new("parallel1");
         parallel_node.attrs.insert(
             "shape".to_string(),
-            crate::graph::types::AttrValue::String("component".to_string()),
+            fabro_graphviz::graph::types::AttrValue::String("component".to_string()),
         );
         graph.nodes.insert("parallel1".to_string(), parallel_node);
 
-        let mut fan_in = crate::graph::types::Node::new("fan_in1");
+        let mut fan_in = fabro_graphviz::graph::types::Node::new("fan_in1");
         fan_in.attrs.insert(
             "shape".to_string(),
-            crate::graph::types::AttrValue::String("tripleoctagon".to_string()),
+            fabro_graphviz::graph::types::AttrValue::String("tripleoctagon".to_string()),
         );
         graph.nodes.insert("fan_in1".to_string(), fan_in);
 
-        let mut a = crate::graph::types::Node::new("a");
+        let mut a = fabro_graphviz::graph::types::Node::new("a");
         a.attrs.insert(
             "shape".to_string(),
-            crate::graph::types::AttrValue::String("box".to_string()),
+            fabro_graphviz::graph::types::AttrValue::String("box".to_string()),
         );
         graph.nodes.insert("a".to_string(), a);
 
-        let mut b = crate::graph::types::Node::new("b");
+        let mut b = fabro_graphviz::graph::types::Node::new("b");
         b.attrs.insert(
             "shape".to_string(),
-            crate::graph::types::AttrValue::String("box".to_string()),
+            fabro_graphviz::graph::types::AttrValue::String("box".to_string()),
         );
         graph.nodes.insert("b".to_string(), b);
 
-        graph.edges.push(crate::graph::types::Edge {
+        graph.edges.push(fabro_graphviz::graph::types::Edge {
             from: "parallel1".to_string(),
             to: "a".to_string(),
             attrs: HashMap::new(),
         });
-        graph.edges.push(crate::graph::types::Edge {
+        graph.edges.push(fabro_graphviz::graph::types::Edge {
             from: "parallel1".to_string(),
             to: "b".to_string(),
             attrs: HashMap::new(),
         });
-        graph.edges.push(crate::graph::types::Edge {
+        graph.edges.push(fabro_graphviz::graph::types::Edge {
             from: "a".to_string(),
             to: "fan_in1".to_string(),
             attrs: HashMap::new(),
         });
-        graph.edges.push(crate::graph::types::Edge {
+        graph.edges.push(fabro_graphviz::graph::types::Edge {
             from: "b".to_string(),
             to: "fan_in1".to_string(),
             attrs: HashMap::new(),

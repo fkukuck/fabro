@@ -11,10 +11,10 @@ use crate::context::keys;
 use crate::context::Context;
 use crate::engine::{RunConfig, WorkflowRunEngine};
 use crate::error::FabroError;
-use crate::graph::{Graph, Node};
 use crate::outcome::{Outcome, StageStatus};
 use crate::validation;
 use crate::workflow::{prepare_from_file, prepare_from_source};
+use fabro_graphviz::graph::{Graph, Node};
 
 use super::{EngineServices, Handler};
 
@@ -95,7 +95,7 @@ impl Handler for SubWorkflowHandler {
         let poll_interval = node
             .attrs
             .get("manager.poll_interval")
-            .and_then(super::super::graph::types::AttrValue::as_duration)
+            .and_then(fabro_graphviz::graph::types::AttrValue::as_duration)
             .unwrap_or_else(|| {
                 let raw = node
                     .attrs
@@ -108,7 +108,7 @@ impl Handler for SubWorkflowHandler {
         let max_cycles = node
             .attrs
             .get("manager.max_cycles")
-            .and_then(super::super::graph::types::AttrValue::as_i64)
+            .and_then(fabro_graphviz::graph::types::AttrValue::as_i64)
             .unwrap_or(1000);
         let max_cycles = u64::try_from(max_cycles).unwrap_or(1000).max(1);
 
@@ -254,10 +254,10 @@ impl Handler for SubWorkflowHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::AttrValue;
     use crate::handler::exit::ExitHandler;
     use crate::handler::start::StartHandler;
     use crate::handler::HandlerRegistry;
+    use fabro_graphviz::graph::AttrValue;
 
     fn make_services() -> EngineServices {
         let mut services = EngineServices::test_default();
