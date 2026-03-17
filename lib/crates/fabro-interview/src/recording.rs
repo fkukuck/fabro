@@ -36,8 +36,7 @@ impl RecordingInterviewer {
     /// Returns an error if serialization fails.
     pub fn to_json(&self) -> std::io::Result<String> {
         let recordings = self.recordings();
-        serde_json::to_string_pretty(&recordings)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        serde_json::to_string_pretty(&recordings).map_err(std::io::Error::other)
     }
 
     /// Deserializes recordings from a JSON string.
@@ -45,8 +44,7 @@ impl RecordingInterviewer {
     /// # Errors
     /// Returns an error if deserialization fails.
     pub fn from_json(json: &str) -> std::io::Result<Vec<(Question, Answer)>> {
-        serde_json::from_str(json)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        serde_json::from_str(json).map_err(std::io::Error::other)
     }
 
     /// Saves recordings to a file as JSON.

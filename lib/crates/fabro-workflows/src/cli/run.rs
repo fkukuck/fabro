@@ -1706,10 +1706,10 @@ async fn run_from_branch(
     };
 
     // Build interviewer
-    let interviewer: Arc<dyn fabro_interview::Interviewer> = if args.auto_approve {
-        Arc::new(fabro_interview::AutoApproveInterviewer)
+    let interviewer: Arc<dyn Interviewer> = if args.auto_approve {
+        Arc::new(AutoApproveInterviewer)
     } else {
-        Arc::new(fabro_interview::ConsoleInterviewer::new(styles))
+        Arc::new(ConsoleInterviewer::new(styles))
     };
 
     // Build engine with a backend
