@@ -106,7 +106,7 @@ pub fn prepare_from_file(path: &Path) -> Result<(Graph, Vec<Diagnostic>), FabroE
 pub fn prepare_from_source(dot_source: &str) -> Result<Graph, FabroError> {
     let builder = WorkflowBuilder::new();
     let (graph, diagnostics) = builder.prepare(dot_source)?;
-    fabro_validate::raise_on_errors(&diagnostics).map_err(|e| FabroError::Validation(e.0))?;
+    fabro_validate::raise_on_errors(&diagnostics)?;
     Ok(graph)
 }
 

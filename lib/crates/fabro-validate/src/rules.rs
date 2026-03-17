@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use fabro_graphviz::condition::parse_condition;
 use fabro_graphviz::graph::{is_llm_handler_type, AttrValue, Graph};
+use fabro_graphviz::stylesheet::{parse_stylesheet, Selector};
 
 use crate::{Diagnostic, LintRule, Severity};
 
@@ -348,7 +349,7 @@ impl LintRule for StylesheetSyntaxRule {
         if stylesheet.is_empty() {
             return Vec::new();
         }
-        match fabro_graphviz::stylesheet::parse_stylesheet(stylesheet) {
+        match parse_stylesheet(stylesheet) {
             Ok(_) => Vec::new(),
             Err(e) => vec![Diagnostic {
                 rule: self.name().to_string(),
@@ -902,12 +903,12 @@ impl LintRule for ScriptAbsoluteCdRule {
 struct StylesheetModelKnownRule;
 
 impl StylesheetModelKnownRule {
-    fn selector_label(selector: &fabro_graphviz::stylesheet::Selector) -> String {
+    fn selector_label(selector: &Selector) -> String {
         match selector {
-            fabro_graphviz::stylesheet::Selector::Universal => "*".to_string(),
-            fabro_graphviz::stylesheet::Selector::Shape(s) => s.clone(),
-            fabro_graphviz::stylesheet::Selector::Class(c) => format!(".{c}"),
-            fabro_graphviz::stylesheet::Selector::Id(id) => format!("#{id}"),
+            Selector::Universal => "*".to_string(),
+            Selector::Shape(s) => s.clone(),
+            Selector::Class(c) => format!(".{c}"),
+            Selector::Id(id) => format!("#{id}"),
         }
     }
 }
@@ -922,7 +923,7 @@ impl LintRule for StylesheetModelKnownRule {
         if stylesheet_str.is_empty() {
             return Vec::new();
         }
-        let stylesheet = match fabro_graphviz::stylesheet::parse_stylesheet(stylesheet_str) {
+        let stylesheet = match parse_stylesheet(stylesheet_str) {
             Ok(ss) => ss,
             Err(_) => return Vec::new(), // syntax errors caught by stylesheet_syntax rule
         };

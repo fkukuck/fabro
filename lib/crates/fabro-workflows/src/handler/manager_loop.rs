@@ -61,7 +61,7 @@ fn parse_child_graph(node: &Node) -> Result<Graph, FabroError> {
         .and_then(|v| v.as_str())
     {
         let (graph, diagnostics) = prepare_from_file(std::path::Path::new(path))?;
-        fabro_validate::raise_on_errors(&diagnostics).map_err(|e| FabroError::Validation(e.0))?;
+        fabro_validate::raise_on_errors(&diagnostics)?;
         return Ok(graph);
     }
     Err(FabroError::handler("No child workflow source".to_string()))

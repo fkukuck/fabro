@@ -426,6 +426,12 @@ impl From<fabro_graphviz::error::GraphvizError> for FabroError {
     }
 }
 
+impl From<fabro_validate::ValidationError> for FabroError {
+    fn from(e: fabro_validate::ValidationError) -> Self {
+        Self::Validation(e.0)
+    }
+}
+
 pub type Result<T> = std::result::Result<T, FabroError>;
 
 #[cfg(test)]

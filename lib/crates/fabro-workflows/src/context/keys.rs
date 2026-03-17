@@ -1,7 +1,7 @@
-// Static context key constants and helper functions for dynamic keys.
-//
-// All context keys used across the engine, handlers, and preamble are
-// defined here to prevent typos and improve discoverability.
+//! Static context key constants and helper functions for dynamic keys.
+//!
+//! All context keys used across the engine, handlers, and preamble are
+//! defined here to prevent typos and improve discoverability.
 
 // --- Top-level keys ---
 pub const CURRENT_NODE: &str = "current_node";

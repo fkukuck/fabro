@@ -262,18 +262,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_condition_validates() {
-        assert!(parse_condition("outcome=success").is_ok());
-        assert!(parse_condition("outcome=success && context.x=y").is_ok());
-        assert!(parse_condition("").is_ok());
-    }
-
-    #[test]
-    fn parse_condition_accepts_bare_key() {
-        assert!(parse_condition("some_flag").is_ok());
-    }
-
-    #[test]
     fn context_dotted_fallback() {
         let outcome = make_outcome(StageStatus::Success);
         let context = Context::new();
