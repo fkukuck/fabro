@@ -332,7 +332,7 @@
   "styling": {
     "codeblocks": {
       "languages": {
-        "custom": ["/languages/dot.json"]
+        "custom": ["/languages/dot.json", "/languages/fabro.json"]
       }
     }
   },
