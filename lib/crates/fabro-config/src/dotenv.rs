@@ -65,23 +65,29 @@ pub fn merge_env(existing: &str, new_vars: &[(&str, &str)]) -> String {
 }
 
 /// Remove a key from an env file's raw contents. Comments and blank lines are
-/// preserved. Returns the new file contents.
-pub fn remove_env_key(contents: &str, key_to_remove: &str) -> String {
+/// preserved. Returns `Some(new_contents)` if the key was found and removed,
+/// or `None` if the key was not present.
+pub fn remove_env_key(contents: &str, key_to_remove: &str) -> Option<String> {
     let mut result_lines: Vec<String> = Vec::new();
+    let mut found = false;
     for line in contents.lines() {
         if let Some(eq_pos) = line.find('=') {
             let key = line[..eq_pos].trim();
             if !key.is_empty() && !key.starts_with('#') && key == key_to_remove {
+                found = true;
                 continue;
             }
         }
         result_lines.push(line.to_string());
     }
+    if !found {
+        return None;
+    }
     let mut result = result_lines.join("\n");
     if !result.ends_with('\n') {
         result.push('\n');
     }
-    result
+    Some(result)
 }
 
 /// Write content to the env file, creating parent directories if needed.
@@ -180,29 +186,27 @@ mod tests {
 
     #[test]
     fn remove_env_key_removes_target() {
-        let result = remove_env_key("FOO=bar\nBAZ=qux\n", "FOO");
+        let result = remove_env_key("FOO=bar\nBAZ=qux\n", "FOO").unwrap();
         assert!(!result.contains("FOO"));
         assert!(result.contains("BAZ=qux"));
     }
 
     #[test]
     fn remove_env_key_preserves_others() {
-        let result = remove_env_key("A=1\nB=2\nC=3\n", "B");
+        let result = remove_env_key("A=1\nB=2\nC=3\n", "B").unwrap();
         assert!(result.contains("A=1"));
         assert!(!result.contains("B=2"));
         assert!(result.contains("C=3"));
     }
 
     #[test]
-    fn remove_env_key_handles_missing_key() {
-        let original = "FOO=bar\n";
-        let result = remove_env_key(original, "MISSING");
-        assert_eq!(result, original);
+    fn remove_env_key_returns_none_for_missing_key() {
+        assert!(remove_env_key("FOO=bar\n", "MISSING").is_none());
     }
 
     #[test]
     fn remove_env_key_preserves_comments() {
-        let result = remove_env_key("# keep me\nFOO=bar\nBAZ=qux\n", "FOO");
+        let result = remove_env_key("# keep me\nFOO=bar\nBAZ=qux\n", "FOO").unwrap();
         assert!(result.contains("# keep me"));
         assert!(result.contains("BAZ=qux"));
         assert!(!result.contains("FOO"));

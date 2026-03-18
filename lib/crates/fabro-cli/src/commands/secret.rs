@@ -68,15 +68,15 @@ pub fn rm_command(args: &SecretRmArgs) -> Result<()> {
         }
         Err(e) => bail!("failed to read {}: {e}", path.display()),
     };
-    // Check the key actually exists before removing
-    let pairs = dotenv::parse_env(&contents);
-    if !pairs.iter().any(|(k, _)| k == &args.key) {
-        bail!("secret not found: {}", args.key);
-    }
     let updated = dotenv::remove_env_key(&contents, &args.key);
-    dotenv::write_env_file(&path, &updated)?;
-    eprintln!("Removed {}", args.key);
-    Ok(())
+    match updated {
+        Some(new_contents) => {
+            dotenv::write_env_file(&path, &new_contents)?;
+            eprintln!("Removed {}", args.key);
+            Ok(())
+        }
+        None => bail!("secret not found: {}", args.key),
+    }
 }
 
 pub fn set_command(args: &SecretSetArgs) -> Result<()> {

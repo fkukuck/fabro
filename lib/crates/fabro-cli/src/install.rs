@@ -200,14 +200,6 @@ ca = "~/.fabro/certs/ca.crt"
 }
 
 // ---------------------------------------------------------------------------
-// .env merge (delegates to fabro_config::dotenv)
-// ---------------------------------------------------------------------------
-
-fn merge_env(existing: &str, new_vars: &[(&str, &str)]) -> String {
-    fabro_config::dotenv::merge_env(existing, new_vars)
-}
-
-// ---------------------------------------------------------------------------
 // Provider key URLs
 // ---------------------------------------------------------------------------
 
@@ -549,7 +541,7 @@ fn write_env_file(arc_dir: &Path, env_pairs: &[(String, String)], s: &Styles) ->
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let merged = merge_env(&existing, &refs);
+    let merged = fabro_config::dotenv::merge_env(&existing, &refs);
     fabro_config::dotenv::write_env_file(&env_path, &merged)?;
     eprintln!(
         "  {}",
@@ -1158,39 +1150,6 @@ mod tests {
         assert_eq!(tls.cert, PathBuf::from("~/.fabro/certs/server.crt"));
         assert_eq!(tls.key, PathBuf::from("~/.fabro/certs/server.key"));
         assert_eq!(tls.ca, PathBuf::from("~/.fabro/certs/ca.crt"));
-    }
-
-    // -- .env merge --
-
-    #[test]
-    fn merge_env_replaces_existing() {
-        let result = merge_env("FOO=old\nBAR=keep\n", &[("FOO", "new"), ("BAZ", "added")]);
-        assert!(result.contains("FOO=new"));
-        assert!(result.contains("BAR=keep"));
-        assert!(result.contains("BAZ=added"));
-    }
-
-    #[test]
-    fn merge_env_empty_existing() {
-        let result = merge_env("", &[("FOO", "bar"), ("BAZ", "qux")]);
-        assert!(result.contains("FOO=bar"));
-        assert!(result.contains("BAZ=qux"));
-    }
-
-    #[test]
-    fn merge_env_preserves_comments_and_blanks() {
-        let existing = "# A comment\n\nFOO=old\n# Another\nBAR=keep\n";
-        let result = merge_env(existing, &[("FOO", "new")]);
-        assert!(result.contains("# A comment"));
-        assert!(result.contains("# Another"));
-        assert!(result.contains("FOO=new"));
-        assert!(result.contains("BAR=keep"));
-    }
-
-    #[test]
-    fn merge_env_full_scenario() {
-        let result = merge_env("FOO=old\nBAR=keep", &[("FOO", "new"), ("BAZ", "added")]);
-        assert_eq!(result, "FOO=new\nBAR=keep\nBAZ=added\n");
     }
 
     // -- Provider key URLs --
