@@ -129,6 +129,26 @@ fabro init             # per project
 
 ---
 
+## Contributing to Fabro
+
+Fabro uses an **issue-based contribution model**. Instead of accepting outside pull requests, we accept bug reports and feature requests as GitHub Issues.
+
+AI can rapidly write or edit large amounts of plausible-looking code. Accepting these patches from external sources opens up risks to security and quality. To mitigate these risks, we are tightly controlling the inputs into the software development process.
+
+Contributions follow these steps:
+
+1. **Open an issue** -- File an issue with a bug report or feature request. The more detail your issue contains, the easier it will be for us to address it quickly and successfully.
+
+2. **We build it** -- A Fabro maintainer will follow our software development process to create a patch, supervising AI coding agents and workflows.
+
+3. **You get credit** -- We will include you as a co-author on the commit which lands the change.
+
+As a result, you get the feature you need, without needing to keep a fork in sync.
+
+If you need a capability which is not in-scope for Fabro, you always have the option to maintain a fork of Fabro as it is distributed under the MIT license.
+
+---
+
 ## Help or Feedback
 
 - [Bug reports](https://github.com/fabro-sh/fabro/issues) via GitHub Issues
