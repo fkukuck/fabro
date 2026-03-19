@@ -330,7 +330,7 @@ pub async fn run_upgrade(args: UpgradeArgs) -> Result<()> {
     }
 
     // Atomic binary replacement
-    let extracted_binary = tmp_dir.path().join("fabro");
+    let extracted_binary = tmp_dir.path().join(format!("fabro-{triple}")).join("fabro");
     let backup = exe_dir.join(".fabro-upgrade-backup");
     fs::rename(&current_exe, &backup).context("failed to move current binary to backup")?;
     if let Err(e) = fs::rename(&extracted_binary, &current_exe) {
