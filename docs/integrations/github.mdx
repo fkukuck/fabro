@@ -171,6 +171,16 @@ Or for personal accounts:
 https://github.com/settings/installations
 ```
 
+### "GitHub App is private but this repo belongs to a different owner"
+
+GitHub Apps are **private by default**, meaning they can only be installed on repositories owned by the same account or organization that owns the app. If you need to install the app on a repository owned by a different user or organization, you must make the app public:
+
+1. Go to **GitHub → Settings → Developer settings → GitHub Apps → {your app}**
+2. Scroll to the bottom under **Danger zone**
+3. Click **Make public**
+
+Once the app is public, anyone with the installation link can install it on their repositories. This does not grant the app any additional permissions — repository owners still choose which repositories the app can access during installation.
+
 ### "GitHub App installation is suspended"
 
 The installation was disabled in GitHub's settings. Re-enable it in the organization's GitHub App settings.

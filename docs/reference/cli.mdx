@@ -550,6 +550,8 @@ The command must be run inside a git repository. It creates:
 - `fabro/workflows/hello/workflow.fabro` — a simple greeting workflow
 - `fabro/workflows/hello/workflow.toml` — run config for the hello workflow
 
+After creating files, it checks whether the GitHub App is installed for the repository. If the app is not installed and the repository owner differs from the app owner, it warns that the app may need to be [made public](/integrations/github#github-app-is-private-but-this-repo-belongs-to-a-different-owner) first.
+
 <Note>
 The old `fabro init` still works but prints a deprecation warning. Use `fabro repo init` instead.
 </Note>
