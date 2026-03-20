@@ -546,8 +546,8 @@ pub(crate) fn prepare_workflow(
 
     let goal = graph.goal();
     if !goal.is_empty() {
-        let first_line = goal.lines().next().unwrap_or(goal);
-        eprintln!("{} {first_line}\n", styles.bold.apply_to("Goal:"));
+        let stripped = fabro_util::text::strip_goal_decoration(goal);
+        eprintln!("{} {stripped}\n", styles.bold.apply_to("Goal:"));
     }
 
     print_diagnostics(&diagnostics, styles);

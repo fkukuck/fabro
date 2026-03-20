@@ -227,10 +227,7 @@ fn short_run_id(id: &str) -> &str {
 }
 
 fn truncate_goal(goal: &str, max_len: usize) -> String {
-    let line = goal.lines().next().unwrap_or("");
-    let line = line.trim_start_matches('#').trim();
-    let line = line.strip_prefix("Plan:").map(|s| s.trim()).unwrap_or(line);
-    truncate_str(line, max_len)
+    truncate_str(fabro_util::text::strip_goal_decoration(goal), max_len)
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {

@@ -33,20 +33,12 @@ impl PullRequestRecord {
 ///
 /// Uses the first line, truncated to 120 characters for readability.
 fn pr_title_from_goal(goal: &str) -> String {
-    let first_line = goal.lines().next().unwrap_or(goal);
-    let first_line = first_line
-        .strip_prefix("## ")
-        .or_else(|| first_line.strip_prefix("# "))
-        .unwrap_or(first_line);
-    let first_line = first_line
-        .strip_prefix("Plan:")
-        .map(|s| s.trim())
-        .unwrap_or(first_line);
-    if first_line.chars().count() > 120 {
-        let truncated: String = first_line.chars().take(119).collect();
+    let stripped = fabro_util::text::strip_goal_decoration(goal);
+    if stripped.chars().count() > 120 {
+        let truncated: String = stripped.chars().take(119).collect();
         format!("{truncated}…")
     } else {
-        first_line.to_string()
+        stripped.to_string()
     }
 }
 
@@ -866,10 +858,10 @@ mod tests {
     }
 
     #[test]
-    fn pr_title_does_not_strip_h3_prefix() {
+    fn pr_title_strips_h3_prefix() {
         assert_eq!(
             pr_title_from_goal("### Add Draft PR Mode"),
-            "### Add Draft PR Mode"
+            "Add Draft PR Mode"
         );
     }
 
