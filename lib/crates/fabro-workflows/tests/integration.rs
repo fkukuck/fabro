@@ -5843,7 +5843,7 @@ async fn fidelity_checkpoint_roundtrip_preserves_fidelity() {
 
 #[tokio::test]
 async fn fidelity_node_thread_id_overrides_edge_thread_id_in_pipeline() {
-    // When both node and edge have thread_id, the node's takes precedence (spec step 1 > step 2).
+    // When both node and edge have thread_id, the edge's takes precedence (step 1 > step 2).
     let mut graph = make_graph_with_start_exit("NodeOverridesEdgeThreadTest");
     let mut work = Node::new("work");
     work.attrs.insert(
@@ -5902,8 +5902,8 @@ async fn fidelity_node_thread_id_overrides_edge_thread_id_in_pipeline() {
     assert_eq!(thread_ids[0].0, "work");
     assert_eq!(
         thread_ids[0].1,
-        Some("node-thread".to_string()),
-        "node thread_id should take precedence over edge thread_id"
+        Some("edge-thread".to_string()),
+        "edge thread_id should take precedence over node thread_id"
     );
 }
 

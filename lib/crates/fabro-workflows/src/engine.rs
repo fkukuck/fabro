@@ -253,9 +253,9 @@ pub fn resolve_fidelity(
 
 // --- Thread ID resolution (spec 5.4) ---
 
-/// Resolve the thread ID for a node, following the precedence (spec lines 1196-1204):
-/// 1. Target node `thread_id` attribute
-/// 2. Incoming edge `thread_id` attribute
+/// Resolve the thread ID for a node, following the precedence:
+/// 1. Incoming edge `thread_id` attribute
+/// 2. Target node `thread_id` attribute
 /// 3. Graph-level default thread
 /// 4. Derived class from enclosing subgraph (first class from the node's classes list)
 /// 5. Fallback to previous node ID
@@ -266,15 +266,15 @@ pub fn resolve_thread_id(
     graph: &Graph,
     previous_node_id: Option<&str>,
 ) -> Option<String> {
-    // Step 1: Node thread_id
-    if let Some(tid) = node.thread_id() {
-        return Some(tid.to_string());
-    }
-    // Step 2: Edge thread_id
+    // Step 1: Edge thread_id
     if let Some(edge) = incoming_edge {
         if let Some(tid) = edge.thread_id() {
             return Some(tid.to_string());
         }
+    }
+    // Step 2: Node thread_id
+    if let Some(tid) = node.thread_id() {
+        return Some(tid.to_string());
     }
     // Step 3: Graph-level default thread
     if let Some(tid) = graph.default_thread() {
@@ -3691,7 +3691,25 @@ mod tests {
     }
 
     #[test]
-    fn thread_id_node_overrides_edge() {
+    fn thread_id_node_used_when_no_edge_thread() {
+        // When the edge has no thread_id, the node's thread_id is used.
+        let mut node = Node::new("work");
+        node.attrs.insert(
+            "thread_id".to_string(),
+            AttrValue::String("node-thread".to_string()),
+        );
+        let edge = Edge::new("prev", "work");
+        let graph = Graph::new("test");
+        assert_eq!(
+            resolve_thread_id(Some(&edge), &node, &graph, Some("prev")),
+            Some("node-thread".to_string())
+        );
+    }
+
+    #[test]
+    fn thread_id_edge_overrides_node() {
+        // Edge thread_id should take precedence over node thread_id,
+        // matching the fidelity precedence where edge > node.
         let mut node = Node::new("work");
         node.attrs.insert(
             "thread_id".to_string(),
@@ -3705,7 +3723,8 @@ mod tests {
         let graph = Graph::new("test");
         assert_eq!(
             resolve_thread_id(Some(&edge), &node, &graph, Some("prev")),
-            Some("node-thread".to_string())
+            Some("edge-thread".to_string()),
+            "edge thread_id should override node thread_id"
         );
     }
 
