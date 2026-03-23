@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 #[cfg(feature = "server")]
 use fabro_config::server::{ApiAuthStrategy, AuthProvider};
-use fabro_model::Provider;
+use fabro_model::{Catalog, Provider};
 pub use fabro_util::check_report::{
     CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus,
 };
@@ -856,8 +856,9 @@ async fn probe_daytona() -> Option<Result<(), String>> {
 }
 
 pub(crate) fn probe_model(provider: Provider) -> String {
-    fabro_model::probe_model_for_provider(provider.as_str())
-        .map(|m| m.id)
+    Catalog::builtin()
+        .probe_for_provider(provider)
+        .map(|m| m.id.clone())
         .unwrap_or_else(|| format!("unknown-{}", provider.as_str()))
 }
 

@@ -6,17 +6,28 @@ use fabro_agent::{
     SessionConfig, SubAgentManager, WebFetchSummarizer,
 };
 use fabro_llm::client::Client;
-use fabro_llm::provider::{ModelId, Provider};
+use fabro_llm::provider::Provider;
+use fabro_model::ModelRef;
 
-fn summarizer_model_id(provider: Provider) -> ModelId {
+fn summarizer_model_id(provider: Provider) -> ModelRef {
     match provider {
         Provider::OpenAi
         | Provider::Kimi
         | Provider::Zai
         | Provider::Minimax
-        | Provider::Inception => ModelId::new(Provider::OpenAi, "gpt-5.4-mini"),
-        Provider::Gemini => ModelId::new(Provider::Gemini, "gemini-3-flash-preview"),
-        Provider::Anthropic => ModelId::new(Provider::Anthropic, "claude-haiku-4-5"),
+        | Provider::Inception
+        | Provider::OpenAiCompatible => ModelRef::ByName {
+            provider: Provider::OpenAi,
+            model: "gpt-5.4-mini".to_string(),
+        },
+        Provider::Gemini => ModelRef::ByName {
+            provider: Provider::Gemini,
+            model: "gemini-3-flash-preview".to_string(),
+        },
+        Provider::Anthropic => ModelRef::ByName {
+            provider: Provider::Anthropic,
+            model: "claude-haiku-4-5".to_string(),
+        },
     }
 }
 
@@ -32,7 +43,11 @@ fn build_profile(provider: Provider, model: &str, client: &Client) -> Box<dyn Pr
     match provider {
         Provider::Anthropic => Box::new(AnthropicProfile::with_summarizer(model, summarizer)),
         Provider::OpenAi => Box::new(OpenAiProfile::with_summarizer(model, summarizer)),
-        Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
+        Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => {
             Box::new(OpenAiProfile::with_summarizer(model, summarizer).with_provider(provider))
         }
         Provider::Gemini => Box::new(GeminiProfile::with_summarizer(model, summarizer)),
@@ -61,12 +76,14 @@ async fn make_session(provider: Provider, model: &str, cwd: &Path) -> Session {
                 Provider::OpenAi => {
                     Arc::new(OpenAiProfile::with_summarizer(&factory_model, summarizer))
                 }
-                Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
-                    Arc::new(
-                        OpenAiProfile::with_summarizer(&factory_model, summarizer)
-                            .with_provider(provider),
-                    )
-                }
+                Provider::Kimi
+                | Provider::Zai
+                | Provider::Minimax
+                | Provider::Inception
+                | Provider::OpenAiCompatible => Arc::new(
+                    OpenAiProfile::with_summarizer(&factory_model, summarizer)
+                        .with_provider(provider),
+                ),
                 Provider::Gemini => {
                     Arc::new(GeminiProfile::with_summarizer(&factory_model, summarizer))
                 }

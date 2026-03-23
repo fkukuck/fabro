@@ -218,11 +218,8 @@ impl HookExecutorImpl {
     /// Resolve a model alias (e.g. "haiku") to a concrete model ID.
     fn resolve_model(model: &Option<String>) -> String {
         let model_id = model.as_deref().unwrap_or("haiku");
-        let model_info = fabro_model::get_model_info(model_id);
-        model_info
-            .as_ref()
-            .map_or(model_id, |m| m.id.as_str())
-            .to_string()
+        let model_info = fabro_model::Catalog::builtin().get(model_id);
+        model_info.map_or(model_id, |m| m.id.as_str()).to_string()
     }
 
     /// Build the user message for prompt/agent hooks.

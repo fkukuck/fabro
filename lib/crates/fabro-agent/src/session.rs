@@ -905,8 +905,9 @@ impl Session {
             temperature: None,
             top_p: None,
             max_tokens: self.config.max_tokens.or_else(|| {
-                fabro_model::get_model_info(self.provider_profile.model())
-                    .and_then(|m| m.limits.max_output)
+                fabro_model::Catalog::builtin()
+                    .get(self.provider_profile.model())
+                    .and_then(fabro_model::LanguageModel::max_output)
             }),
             stop_sequences: None,
             reasoning_effort: self.config.reasoning_effort.clone(),

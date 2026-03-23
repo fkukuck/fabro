@@ -7,7 +7,7 @@ use crate::skills::Skill;
 use crate::tool_registry::ToolRegistry;
 use crate::tools::{register_core_tools, WebFetchSummarizer};
 use crate::v4a_patch::make_apply_patch_tool;
-use fabro_model::Provider;
+use fabro_model::{Catalog, LanguageModel, Provider};
 
 use super::EnvContext;
 
@@ -191,8 +191,9 @@ in the project.";
     }
 
     fn capabilities(&self) -> ProfileCapabilities {
-        let context_window_size = fabro_model::get_model_info(self.model())
-            .map(|info| info.limits.context_window as usize)
+        let context_window_size = Catalog::builtin()
+            .get(self.model())
+            .map(|info| info.context_window() as usize)
             .unwrap_or(128_000);
         ProfileCapabilities {
             supports_reasoning: true,

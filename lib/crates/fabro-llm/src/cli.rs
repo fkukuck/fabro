@@ -13,12 +13,11 @@ use serde::Deserialize;
 
 use fabro_util::terminal::Styles;
 
-use fabro_model as catalog;
+use fabro_model::{Catalog, ModelInfo, Provider};
 
 use crate::generate::{self, GenerateParams};
 use crate::tools::Tool;
 use crate::types::{ContentPart, Message};
-use fabro_model::ModelInfo;
 
 pub struct ServerConnection {
     pub client: reqwest::Client,
@@ -203,12 +202,13 @@ fn resolve_prompt(arg: Option<String>, stdin: Option<String>) -> Result<String> 
 /// Returns (`model_id`, provider) from the catalog, falling back to the first catalog model.
 fn resolve_model(model_arg: Option<String>) -> (String, Option<String>) {
     let raw = model_arg.unwrap_or_else(|| {
-        catalog::list_models(None)
+        Catalog::builtin()
+            .list(None)
             .first()
             .map_or_else(|| "claude-sonnet-4-5".to_string(), |m| m.id.clone())
     });
-    match catalog::get_model_info(&raw) {
-        Some(info) => (info.id, Some(info.provider)),
+    match Catalog::builtin().get(&raw) {
+        Some(info) => (info.id.clone(), Some(info.provider.clone())),
         None => (raw, None),
     }
 }
@@ -1006,7 +1006,10 @@ pub async fn run_models(
                 Some(s) => {
                     fetch_models_from_server(&s.client, &s.base_url, provider.as_deref()).await?
                 }
-                None => catalog::list_models(provider.as_deref()),
+                None => {
+                    let p = provider.as_deref().and_then(|s| s.parse::<Provider>().ok());
+                    Catalog::builtin().list(p).into_iter().cloned().collect()
+                }
             };
 
             if let Some(q) = &query {
@@ -1079,12 +1082,13 @@ async fn test_models(
     use rand::seq::SliceRandom;
 
     let models_to_test = if let Some(model_id) = model {
-        match catalog::get_model_info(model_id) {
-            Some(info) => vec![info],
+        match Catalog::builtin().get(model_id) {
+            Some(info) => vec![info.clone()],
             None => bail!("Unknown model: {model_id}"),
         }
     } else {
-        catalog::list_models(provider)
+        let p = provider.and_then(|s| s.parse::<Provider>().ok());
+        Catalog::builtin().list(p).into_iter().cloned().collect()
     };
 
     if models_to_test.is_empty() {

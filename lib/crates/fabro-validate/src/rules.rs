@@ -907,7 +907,7 @@ fn check_model_known(
     context: &str,
     node_id: Option<String>,
 ) -> Option<Diagnostic> {
-    if fabro_model::get_model_info(model).is_some() {
+    if fabro_model::Catalog::builtin().get(model).is_some() {
         return None;
     }
     Some(Diagnostic {

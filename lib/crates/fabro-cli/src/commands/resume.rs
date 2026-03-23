@@ -9,7 +9,7 @@ use fabro_agent::{DockerSandbox, DockerSandboxConfig, Sandbox, WorktreeConfig, W
 use fabro_config::run::{RunDefaults, WorkflowRunConfig};
 use fabro_graphviz::graph::Graph;
 use fabro_interview::{AutoApproveInterviewer, ConsoleInterviewer, Interviewer};
-use fabro_model::Provider;
+use fabro_model::{Catalog, Provider};
 use fabro_util::terminal::Styles;
 use fabro_workflows::backend::{AgentApiBackend, AgentCliBackend, BackendRouter};
 use fabro_workflows::checkpoint::Checkpoint;
@@ -1102,7 +1102,7 @@ async fn run_resumed(
         resolve_fallback_chain(provider_enum, &model, run_cfg.as_ref())
     } else {
         match run_defaults.llm.as_ref().and_then(|l| l.fallbacks.as_ref()) {
-            Some(map) => fabro_model::build_fallback_chain(provider_enum.as_str(), &model, map),
+            Some(map) => Catalog::builtin().build_fallback_chain(provider_enum, &model, map),
             None => Vec::new(),
         }
     };

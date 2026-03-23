@@ -576,7 +576,14 @@ pub async fn list_models(
     State(_state): State<Arc<AppState>>,
     Query(pagination): Query<PaginationParams>,
 ) -> Response {
-    paginated_response(fabro_model::list_models(None), &pagination)
+    paginated_response(
+        fabro_model::Catalog::builtin()
+            .list(None)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        &pagination,
+    )
 }
 
 // ── Settings ───────────────────────────────────────────────────────────

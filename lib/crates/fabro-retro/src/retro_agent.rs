@@ -326,9 +326,11 @@ fn spawn_retro_event_forwarder(
 fn build_profile(provider: Provider, model: &str) -> Box<dyn ProviderProfile> {
     match provider {
         Provider::OpenAi => Box::new(OpenAiProfile::new(model)),
-        Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
-            Box::new(OpenAiProfile::new(model).with_provider(provider))
-        }
+        Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => Box::new(OpenAiProfile::new(model).with_provider(provider)),
         Provider::Gemini => Box::new(GeminiProfile::new(model)),
         Provider::Anthropic => Box::new(AnthropicProfile::new(model)),
     }

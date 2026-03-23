@@ -1104,12 +1104,12 @@ fn build_api_request(
     // Check whether this model supports the `output_config.effort` parameter.
     // Older reasoning models (e.g. claude-sonnet-4-5) need `thinking` with
     // `budget_tokens` instead.
-    let model_info = fabro_model::get_model_info(&request.model);
-    let supports_effort = model_info.as_ref().is_none_or(|m| m.features.effort);
+    let model_info = fabro_model::Catalog::builtin().get(&request.model);
+    let supports_effort = model_info.is_none_or(|m| m.features.effort);
 
     let mut resolved_max_tokens = request
         .max_tokens
-        .or_else(|| model_info.as_ref().and_then(|m| m.limits.max_output))
+        .or_else(|| model_info.and_then(|m| m.limits.max_output))
         .unwrap_or(65536);
 
     let (thinking, output_config) = if let Some(effort) = &request.reasoning_effort {

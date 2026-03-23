@@ -61,12 +61,13 @@ fn generate_title(content: &str) -> String {
 
 fn resolve_model(model_arg: Option<String>) -> (String, Option<String>) {
     let raw = model_arg.unwrap_or_else(|| {
-        fabro_model::list_models(None)
+        fabro_model::Catalog::builtin()
+            .list(None)
             .first()
             .map_or_else(|| "claude-sonnet-4-5".to_string(), |m| m.id.clone())
     });
-    match fabro_model::get_model_info(&raw) {
-        Some(info) => (info.id, Some(info.provider)),
+    match fabro_model::Catalog::builtin().get(&raw) {
+        Some(info) => (info.id.clone(), Some(info.provider.clone())),
         None => (raw, None),
     }
 }

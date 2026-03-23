@@ -124,9 +124,9 @@ impl Transform for ModelResolutionTransform {
                 .and_then(AttrValue::as_str)
                 .map(String::from);
             if let Some(model) = model {
-                if let Some(info) = fabro_model::get_model_info(&model) {
-                    let canonical_id = info.id;
-                    let provider = info.provider;
+                if let Some(info) = fabro_model::Catalog::builtin().get(&model) {
+                    let canonical_id = info.id.clone();
+                    let provider = info.provider.clone();
                     // Resolve alias to canonical model ID
                     if model != canonical_id {
                         node.attrs

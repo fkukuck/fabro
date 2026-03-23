@@ -17,6 +17,7 @@ pub enum Provider {
     Zai,
     Minimax,
     Inception,
+    OpenAiCompatible,
 }
 
 impl Provider {
@@ -43,6 +44,7 @@ impl Provider {
             Self::Zai => &["ZAI_API_KEY"],
             Self::Minimax => &["MINIMAX_API_KEY"],
             Self::Inception => &["INCEPTION_API_KEY"],
+            Self::OpenAiCompatible => &[],
         }
     }
 
@@ -86,6 +88,7 @@ impl Provider {
             Self::Zai => "zai",
             Self::Minimax => "minimax",
             Self::Inception => "inception",
+            Self::OpenAiCompatible => "openai_compatible",
         }
     }
 }
@@ -108,36 +111,9 @@ impl FromStr for Provider {
             "zai" => Ok(Self::Zai),
             "minimax" => Ok(Self::Minimax),
             "inception" | "inception_labs" => Ok(Self::Inception),
+            "openai_compatible" => Ok(Self::OpenAiCompatible),
             other => Err(format!("unknown provider: {other}")),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ModelId — bundles a provider with a model name
-// ---------------------------------------------------------------------------
-
-/// A model identifier that pairs a [`Provider`] with the provider-specific
-/// model name (e.g. `"claude-opus-4-6"` or `"gpt-4o-mini"`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ModelId {
-    pub provider: Provider,
-    pub model: String,
-}
-
-impl ModelId {
-    #[must_use]
-    pub fn new(provider: Provider, model: impl Into<String>) -> Self {
-        Self {
-            provider,
-            model: model.into(),
-        }
-    }
-}
-
-impl fmt::Display for ModelId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.provider, self.model)
     }
 }
 

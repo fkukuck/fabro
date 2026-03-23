@@ -23,9 +23,11 @@ use fabro_graphviz::graph::Node;
 fn build_profile(model: &str, provider: Provider) -> Box<dyn ProviderProfile> {
     match provider {
         Provider::OpenAi => Box::new(OpenAiProfile::new(model)),
-        Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
-            Box::new(OpenAiProfile::new(model).with_provider(provider))
-        }
+        Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => Box::new(OpenAiProfile::new(model).with_provider(provider)),
         Provider::Gemini => Box::new(GeminiProfile::new(model)),
         Provider::Anthropic => Box::new(AnthropicProfile::new(model)),
     }
@@ -214,7 +216,11 @@ impl AgentApiBackend {
         let factory: SessionFactory = Arc::new(move || {
             let child_profile: Arc<dyn ProviderProfile> = match provider {
                 Provider::OpenAi => Arc::new(OpenAiProfile::new(&factory_model)),
-                Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
+                Provider::Kimi
+                | Provider::Zai
+                | Provider::Minimax
+                | Provider::Inception
+                | Provider::OpenAiCompatible => {
                     Arc::new(OpenAiProfile::new(&factory_model).with_provider(provider))
                 }
                 Provider::Gemini => Arc::new(GeminiProfile::new(&factory_model)),
@@ -269,9 +275,11 @@ impl CodergenBackend for AgentApiBackend {
             .map(String::from)
             .or_else(|| Some(self.provider.as_str().to_string()));
 
-        let max_tokens = node
-            .max_tokens()
-            .or_else(|| fabro_model::get_model_info(model).and_then(|m| m.limits.max_output));
+        let max_tokens = node.max_tokens().or_else(|| {
+            fabro_model::Catalog::builtin()
+                .get(model)
+                .and_then(|m| m.limits.max_output)
+        });
 
         let mut messages = Vec::new();
         if let Some(sys) = system_prompt {
@@ -345,7 +353,9 @@ impl CodergenBackend for AgentApiBackend {
                     );
 
                     let max_tokens = node.max_tokens().or_else(|| {
-                        fabro_model::get_model_info(&target.model).and_then(|m| m.limits.max_output)
+                        fabro_model::Catalog::builtin()
+                            .get(&target.model)
+                            .and_then(|m| m.limits.max_output)
                     });
 
                     let fallback_request = fabro_llm::types::Request {

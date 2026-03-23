@@ -22,6 +22,7 @@ pub(crate) fn provider_key_url(provider: Provider) -> &'static str {
             "https://platform.minimaxi.com/user-center/basic-information/interface-key"
         }
         Provider::Inception => "https://console.inceptionlabs.ai/api-keys",
+        Provider::OpenAiCompatible => "",
     }
 }
 
@@ -34,6 +35,7 @@ pub(crate) fn provider_display_name(provider: Provider) -> &'static str {
         Provider::Zai => "Zai",
         Provider::Minimax => "Minimax",
         Provider::Inception => "Inception",
+        Provider::OpenAiCompatible => "OpenAI Compatible",
     }
 }
 

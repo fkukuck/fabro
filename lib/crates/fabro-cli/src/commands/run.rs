@@ -13,7 +13,7 @@ use fabro_agent::{
 use fabro_config::run::{RunDefaults, WorkflowRunConfig};
 use fabro_config::{project as project_config, run as run_config, sandbox as sandbox_config};
 use fabro_interview::{AutoApproveInterviewer, ConsoleInterviewer, FileInterviewer, Interviewer};
-use fabro_model::Provider;
+use fabro_model::{Catalog, FallbackTarget, Provider};
 use fabro_util::terminal::Styles;
 use fabro_validate::Severity;
 use fabro_workflows::backend::{AgentApiBackend, AgentCliBackend, BackendRouter};
@@ -252,16 +252,18 @@ pub(crate) fn resolve_model_provider(
         .or_else(|| graph.attrs.get("default_model").and_then(|v| v.as_str()))
         .map(String::from)
         .unwrap_or_else(|| {
-            provider
+            let catalog = Catalog::builtin();
+            let info = provider
                 .as_deref()
-                .and_then(fabro_model::default_model_for_provider)
-                .unwrap_or_else(fabro_model::default_model_from_env)
-                .id
+                .and_then(|s| s.parse::<Provider>().ok())
+                .and_then(|p| catalog.default_for_provider(p))
+                .unwrap_or_else(|| catalog.default_from_env());
+            info.id.clone()
         });
 
     // Resolve model alias through catalog
-    match fabro_model::get_model_info(&model) {
-        Some(info) => (info.id, provider.or(Some(info.provider))),
+    match Catalog::builtin().get(&model) {
+        Some(info) => (info.id.clone(), provider.or(Some(info.provider.clone()))),
         None => (model, provider),
     }
 }
@@ -407,13 +409,13 @@ pub(crate) fn resolve_fallback_chain(
     provider: Provider,
     model: &str,
     run_cfg: Option<&WorkflowRunConfig>,
-) -> Vec<fabro_model::FallbackTarget> {
+) -> Vec<FallbackTarget> {
     let fallbacks = run_cfg
         .and_then(|c| c.llm.as_ref())
         .and_then(|l| l.fallbacks.as_ref());
 
     match fallbacks {
-        Some(map) => fabro_model::build_fallback_chain(provider.as_str(), model, map),
+        Some(map) => Catalog::builtin().build_fallback_chain(provider, model, map),
         None => Vec::new(),
     }
 }
@@ -2311,8 +2313,8 @@ async fn run_preflight(
 
                 // Resolve through catalog to get canonical model ID and provider
                 let (resolved_model, resolved_provider) =
-                    if let Some(info) = fabro_model::get_model_info(node_model) {
-                        (info.id, info.provider)
+                    if let Some(info) = Catalog::builtin().get(node_model) {
+                        (info.id.clone(), info.provider.clone())
                     } else {
                         (node_model.to_string(), node_provider.to_string())
                     };
@@ -2330,8 +2332,8 @@ async fn run_preflight(
             // If no LLM nodes found, fall back to the default model/provider
             if model_providers.is_empty() {
                 let (resolved_model, resolved_provider) =
-                    if let Some(info) = fabro_model::get_model_info(&model) {
-                        (info.id, info.provider)
+                    if let Some(info) = Catalog::builtin().get(&model) {
+                        (info.id.clone(), info.provider.clone())
                     } else {
                         (model.clone(), default_provider.to_string())
                     };

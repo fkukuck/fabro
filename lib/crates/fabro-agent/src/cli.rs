@@ -6,7 +6,7 @@ use crate::{
 };
 use clap::{Args, Parser};
 use fabro_llm::client::Client;
-use fabro_model::{ModelId, Provider};
+use fabro_model::{Catalog, ModelRef, Provider};
 use fabro_util::terminal::Styles;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -156,15 +156,20 @@ fn build_tool_approval(
     })
 }
 
-fn summarizer_model_id(provider: Provider) -> ModelId {
-    match provider {
-        Provider::OpenAi => ModelId::new(Provider::OpenAi, "gpt-4o-mini"),
-        Provider::Gemini => ModelId::new(Provider::Gemini, "gemini-2.0-flash"),
-        Provider::Anthropic => ModelId::new(Provider::Anthropic, "claude-haiku-4-5"),
-        Provider::Kimi => ModelId::new(Provider::Kimi, "kimi-k2.5"),
-        Provider::Zai => ModelId::new(Provider::Zai, "glm-4.7"),
-        Provider::Minimax => ModelId::new(Provider::Minimax, "minimax-m2.5"),
-        Provider::Inception => ModelId::new(Provider::Inception, "mercury"),
+fn summarizer_model_id(provider: Provider) -> ModelRef {
+    ModelRef::ByName {
+        provider,
+        model: match provider {
+            Provider::OpenAi => "gpt-4o-mini",
+            Provider::Gemini => "gemini-2.0-flash",
+            Provider::Anthropic => "claude-haiku-4-5",
+            Provider::Kimi => "kimi-k2.5",
+            Provider::Zai => "glm-4.7",
+            Provider::Minimax => "minimax-m2.5",
+            Provider::Inception => "mercury",
+            Provider::OpenAiCompatible => "gpt-4o-mini",
+        }
+        .to_string(),
     }
 }
 
@@ -187,7 +192,11 @@ fn build_profile(
     let summarizer = build_summarizer(provider, llm_client);
     match provider {
         Provider::OpenAi => Box::new(OpenAiProfile::with_summarizer(model, summarizer)),
-        Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
+        Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => {
             Box::new(OpenAiProfile::with_summarizer(model, summarizer).with_provider(provider))
         }
         Provider::Gemini => Box::new(GeminiProfile::with_summarizer(model, summarizer)),
@@ -386,8 +395,10 @@ pub async fn run_with_args_and_client(
 
     // Resolve model and build profile
     let model = args.model.unwrap_or_else(|| {
-        fabro_model::default_model_for_provider(provider.as_str())
-            .unwrap_or_else(fabro_model::default_model_from_env)
+        Catalog::builtin()
+            .default_for_provider(provider)
+            .cloned()
+            .unwrap_or_else(|| Catalog::builtin().default_from_env().clone())
             .id
     });
     eprintln!("{}", styles.dim.apply_to(format!("Using model: {model}")));
@@ -430,7 +441,11 @@ pub async fn run_with_args_and_client(
                 &factory_model,
                 child_summarizer,
             )),
-            Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => Arc::new(
+            Provider::Kimi
+            | Provider::Zai
+            | Provider::Minimax
+            | Provider::Inception
+            | Provider::OpenAiCompatible => Arc::new(
                 OpenAiProfile::with_summarizer(&factory_model, child_summarizer)
                     .with_provider(provider),
             ),

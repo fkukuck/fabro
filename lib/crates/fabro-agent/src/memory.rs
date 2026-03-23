@@ -19,7 +19,8 @@ pub async fn discover_memory(
         | Provider::Kimi
         | Provider::Zai
         | Provider::Minimax
-        | Provider::Inception => {
+        | Provider::Inception
+        | Provider::OpenAiCompatible => {
             vec!["AGENTS.md", ".codex/instructions.md"]
         }
         Provider::Gemini => vec!["AGENTS.md", "GEMINI.md"],

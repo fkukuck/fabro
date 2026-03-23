@@ -1,0 +1,110 @@
+use std::fmt;
+use std::sync::Arc;
+
+use crate::language_model::LanguageModel;
+use crate::provider::Provider;
+
+/// A reference to a model — either a fully resolved `LanguageModel` or a
+/// provider + model-name pair that hasn't been looked up yet.
+#[derive(Clone)]
+pub enum ModelRef {
+    /// A model whose metadata has been resolved from the catalog.
+    Resolved(Arc<dyn LanguageModel>),
+    /// An unresolved provider:model pair (e.g. from CLI input or config).
+    ByName { provider: Provider, model: String },
+}
+
+impl ModelRef {
+    /// The model identifier string (e.g. `"claude-opus-4-6"`).
+    #[must_use]
+    pub fn model_id(&self) -> &str {
+        match self {
+            Self::Resolved(m) => m.id(),
+            Self::ByName { model, .. } => model,
+        }
+    }
+
+    /// The provider for this model.
+    #[must_use]
+    pub fn provider(&self) -> Provider {
+        match self {
+            Self::Resolved(m) => m.provider(),
+            Self::ByName { provider, .. } => *provider,
+        }
+    }
+}
+
+impl fmt::Display for ModelRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.provider(), self.model_id())
+    }
+}
+
+impl fmt::Debug for ModelRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Resolved(m) => write!(f, "ModelRef::Resolved({:?})", m.id()),
+            Self::ByName { provider, model } => f
+                .debug_struct("ModelRef::ByName")
+                .field("provider", provider)
+                .field("model", model)
+                .finish(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn by_name_display() {
+        let r = ModelRef::ByName {
+            provider: Provider::Anthropic,
+            model: "claude-opus-4-6".to_string(),
+        };
+        assert_eq!(r.to_string(), "anthropic:claude-opus-4-6");
+    }
+
+    #[test]
+    fn by_name_accessors() {
+        let r = ModelRef::ByName {
+            provider: Provider::OpenAi,
+            model: "gpt-5.4".to_string(),
+        };
+        assert_eq!(r.model_id(), "gpt-5.4");
+        assert_eq!(r.provider(), Provider::OpenAi);
+    }
+
+    #[test]
+    fn resolved_display() {
+        let info = crate::catalog::Catalog::builtin()
+            .get("claude-opus-4-6")
+            .unwrap()
+            .clone();
+        let r = ModelRef::Resolved(Arc::new(info));
+        assert_eq!(r.to_string(), "anthropic:claude-opus-4-6");
+    }
+
+    #[test]
+    fn resolved_accessors() {
+        let info = crate::catalog::Catalog::builtin()
+            .get("gpt-5.4")
+            .unwrap()
+            .clone();
+        let r = ModelRef::Resolved(Arc::new(info));
+        assert_eq!(r.model_id(), "gpt-5.4");
+        assert_eq!(r.provider(), Provider::OpenAi);
+    }
+
+    #[test]
+    fn debug_format() {
+        let r = ModelRef::ByName {
+            provider: Provider::Gemini,
+            model: "gemini-3.1-pro-preview".to_string(),
+        };
+        let debug = format!("{r:?}");
+        assert!(debug.contains("ByName"));
+        assert!(debug.contains("Gemini"));
+    }
+}

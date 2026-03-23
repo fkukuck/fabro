@@ -1053,7 +1053,7 @@ async fn test_model(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let Some(info) = fabro_model::get_model_info(&id) else {
+    let Some(info) = fabro_model::Catalog::builtin().get(&id) else {
         return ApiError::not_found(format!("Model not found: {id}")).into_response();
     };
 
@@ -1163,17 +1163,18 @@ async fn create_completion(
 ) -> Response {
     // Resolve model
     let model_id = req.model.unwrap_or_else(|| {
-        fabro_model::list_models(None)
+        fabro_model::Catalog::builtin()
+            .list(None)
             .first()
             .map_or_else(|| "claude-sonnet-4-5".to_string(), |m| m.id.clone())
     });
 
-    let catalog_info = fabro_model::get_model_info(&model_id);
+    let catalog_info = fabro_model::Catalog::builtin().get(&model_id);
 
     // Resolve provider: explicit request > catalog > None
     let provider_name = req
         .provider
-        .or_else(|| catalog_info.as_ref().map(|i| i.provider.clone()));
+        .or_else(|| catalog_info.map(|i| i.provider.clone()));
 
     info!(model = %model_id, provider = ?provider_name, "Completion request received");
 

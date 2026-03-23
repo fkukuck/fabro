@@ -32,7 +32,8 @@ impl AgentCli {
             | Provider::Kimi
             | Provider::Zai
             | Provider::Minimax
-            | Provider::Inception => Self::Codex,
+            | Provider::Inception
+            | Provider::OpenAiCompatible => Self::Codex,
         }
     }
 
@@ -174,7 +175,8 @@ pub fn cli_command_for_provider(provider: Provider, model: &str, prompt_file: &s
             | Provider::Kimi
             | Provider::Zai
             | Provider::Minimax
-            | Provider::Inception => {
+            | Provider::Inception
+            | Provider::OpenAiCompatible => {
                 format!(" -m {model}")
             }
             Provider::Anthropic => format!(" --model {model}"),
@@ -185,7 +187,12 @@ pub fn cli_command_for_provider(provider: Provider, model: &str, prompt_file: &s
     // redirects in nested shells. A pipe creates an explicit new stdin.
     match provider {
         // --full-auto: sandboxed auto-execution, escalates on request
-        Provider::OpenAi | Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
+        Provider::OpenAi
+        | Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => {
             format!("cat {prompt_file} | codex exec --json --full-auto{model_flag}")
         }
         // --yolo: auto-approve all tool calls
@@ -349,7 +356,8 @@ pub fn parse_cli_response(provider: Provider, output: &str) -> Option<CliRespons
         | Provider::Kimi
         | Provider::Zai
         | Provider::Minimax
-        | Provider::Inception => parse_codex_ndjson(output),
+        | Provider::Inception
+        | Provider::OpenAiCompatible => parse_codex_ndjson(output),
         Provider::Gemini => parse_gemini_json(output),
         Provider::Anthropic => parse_claude_ndjson(output),
     }
