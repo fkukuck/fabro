@@ -370,7 +370,11 @@ impl Graph {
         if by_shape.is_some() {
             return by_shape;
         }
-        self.nodes.get("exit").or_else(|| self.nodes.get("Exit"))
+        self.nodes
+            .get("exit")
+            .or_else(|| self.nodes.get("Exit"))
+            .or_else(|| self.nodes.get("end"))
+            .or_else(|| self.nodes.get("End"))
     }
 
     /// Graph-level goal attribute.
@@ -683,6 +687,15 @@ mod tests {
         let g = sample_graph();
         let exit = g.find_exit_node().unwrap();
         assert_eq!(exit.id, "exit");
+    }
+
+    #[test]
+    fn graph_find_exit_by_end_id() {
+        let mut g = Graph::new("test");
+        let node = Node::new("end");
+        g.nodes.insert("end".to_string(), node);
+        let exit = g.find_exit_node().unwrap();
+        assert_eq!(exit.id, "end");
     }
 
     #[test]
