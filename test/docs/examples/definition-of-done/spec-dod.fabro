@@ -1,7 +1,7 @@
 digraph SpecDoD {
     graph [
         goal="Satisfy every Definition of Done checkbox across both specs (unified-llm-spec.md, coding-agent-loop-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code.",
-        default_max_retry="3",
+        default_max_retries="3",
         retry_target="triage",
         model_stylesheet="
             * { model: claude-opus-4-6;}

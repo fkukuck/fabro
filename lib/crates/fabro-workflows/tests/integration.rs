@@ -586,15 +586,21 @@ async fn human_gate_aborted_input_fails_closed_without_fail_route() {
         workflow_slug: None,
     };
 
-    let error = engine
+    let outcome = engine
         .run(&graph, &config)
         .await
-        .expect_err("aborted human gate should fail closed");
+        .expect("engine should return Ok with fail outcome");
+    assert_eq!(
+        outcome.status,
+        StageStatus::Fail,
+        "aborted human gate should fail closed"
+    );
     assert!(
-        error
-            .to_string()
-            .contains("stage gate failed with no outgoing fail edge"),
-        "unexpected error: {error}"
+        outcome
+            .failure_reason()
+            .unwrap_or("")
+            .contains("no outgoing fail edge"),
+        "unexpected outcome: {outcome:?}"
     );
 
     let checkpoint = Checkpoint::load(&dir.path().join("checkpoint.json")).unwrap();
@@ -3206,8 +3212,8 @@ async fn manager_loop_max_cycles_exceeded_e2e() {
         .failure_reason()
         .unwrap()
         .contains("Max cycles"));
-    // Overall pipeline outcome is from last completed node (manager) = Fail
-    assert_eq!(outcome.status, StageStatus::Fail);
+    // Pipeline reached exit with goal gates satisfied — per spec, SUCCESS.
+    assert_eq!(outcome.status, StageStatus::Success);
 }
 
 // ===========================================================================
@@ -7833,8 +7839,8 @@ async fn hook_stage_start_skip_bypasses_node() {
     let config = make_run_config(dir.path());
 
     let outcome = engine.run(&graph, &config).await.unwrap();
-    // When the only work node is skipped, the final outcome reflects that
-    assert_eq!(outcome.status, StageStatus::Skipped);
+    // Pipeline reached exit with goal gates satisfied — per spec, SUCCESS.
+    assert_eq!(outcome.status, StageStatus::Success);
 
     // response.md should NOT exist for the work node (it was skipped)
     assert!(
@@ -7889,8 +7895,8 @@ async fn hook_stage_start_matcher_filters_by_node_id() {
     let config = make_run_config(dir.path());
 
     let outcome = engine.run(&graph, &config).await.unwrap();
-    // step2 is the last completed node and was skipped
-    assert_eq!(outcome.status, StageStatus::Skipped);
+    // Pipeline reached exit with goal gates satisfied — per spec, SUCCESS.
+    assert_eq!(outcome.status, StageStatus::Success);
 
     // step1 should have executed (response.md exists)
     assert!(
@@ -8419,8 +8425,8 @@ async fn hook_matcher_regex_pattern() {
     let config = make_run_config(dir.path());
 
     let outcome = engine.run(&graph, &config).await.unwrap();
-    // Both step nodes were skipped, so the last outcome is Skipped
-    assert_eq!(outcome.status, StageStatus::Skipped);
+    // Pipeline reached exit with goal gates satisfied — per spec, SUCCESS.
+    assert_eq!(outcome.status, StageStatus::Success);
 
     // Both step1 and step2 should be skipped
     assert!(
@@ -11709,7 +11715,7 @@ fn circuit_breaker_self_loop_graph(signature_limit: Option<i64>) -> Graph {
     let mut graph = make_graph_with_start_exit("CircuitBreakerSelfLoop");
     graph
         .attrs
-        .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+        .insert("default_max_retries".to_string(), AttrValue::Integer(0));
     // High visit limit so the circuit breaker fires first
     graph
         .attrs
@@ -11752,7 +11758,7 @@ fn circuit_breaker_restart_graph(signature_limit: Option<i64>) -> Graph {
     let mut graph = make_graph_with_start_exit("CircuitBreakerRestart");
     graph
         .attrs
-        .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+        .insert("default_max_retries".to_string(), AttrValue::Integer(0));
     graph
         .attrs
         .insert("max_node_visits".to_string(), AttrValue::Integer(100));
@@ -12150,7 +12156,7 @@ async fn e2e_failure_signature_persisted_in_context() {
     let mut graph = make_graph_with_start_exit("SignatureContextTest");
     graph
         .attrs
-        .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+        .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
     let mut work = Node::new("work");
     work.attrs.insert(
@@ -12194,9 +12200,9 @@ async fn e2e_failure_signature_persisted_in_context() {
     };
 
     let outcome = engine.run(&graph, &config).await.unwrap();
-    // Pipeline reaches exit (terminal), last completed node is "work" (Fail).
-    // The engine doesn't execute exit handlers, just breaks on terminal nodes.
-    assert_eq!(outcome.status, StageStatus::Fail);
+    // Pipeline reaches exit (terminal) with goal gates satisfied.
+    // Per spec, reaching exit with satisfied goal gates returns SUCCESS.
+    assert_eq!(outcome.status, StageStatus::Success);
 
     // Verify checkpoint has failure_signature in context
     let cp = Checkpoint::load(&dir.path().join("checkpoint.json")).unwrap();
@@ -12223,7 +12229,7 @@ async fn e2e_failure_signature_hint_overrides_reason_in_context() {
     let mut graph = make_graph_with_start_exit("SignatureHintTest");
     graph
         .attrs
-        .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+        .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
     let mut work = Node::new("work");
     work.attrs.insert(
@@ -12558,7 +12564,7 @@ async fn e2e_circuit_breaker_multi_stage_impl_verify_cycle() {
     let mut graph = make_graph_with_start_exit("ImplVerifyCycle");
     graph
         .attrs
-        .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+        .insert("default_max_retries".to_string(), AttrValue::Integer(0));
     graph
         .attrs
         .insert("max_node_visits".to_string(), AttrValue::Integer(100));
@@ -13026,7 +13032,7 @@ impl Handler for KeepaliveHandler {
 async fn e2e_stall_watchdog_triggers_from_dot_parsed_pipeline() {
     // Parse a DOT graph with stall_timeout set to 200ms
     let dot = r#"digraph StallTest {
-        graph [goal="Test stall watchdog", stall_timeout="50ms", default_max_retry=0]
+        graph [goal="Test stall watchdog", stall_timeout="50ms", default_max_retries=0]
         start [shape=Mdiamond]
         work  [type="hanging", label="Work"]
         exit  [shape=Msquare]
@@ -13095,7 +13101,7 @@ async fn e2e_stall_watchdog_kept_alive_by_handler_events() {
     // Parse a DOT graph with stall_timeout 200ms, but the handler emits events
     // every 100ms for 500ms total — the watchdog should NOT trigger.
     let dot = r#"digraph StallAliveTest {
-        graph [goal="Test stall keepalive", stall_timeout="100ms", default_max_retry=0]
+        graph [goal="Test stall keepalive", stall_timeout="100ms", default_max_retries=0]
         start [shape=Mdiamond]
         work  [type="keepalive", label="Work"]
         exit  [shape=Msquare]
@@ -13148,7 +13154,7 @@ async fn e2e_stall_watchdog_disabled_with_zero_timeout() {
     // Parse a DOT graph with stall_timeout="0s" — watchdog should be disabled,
     // and a short sleep handler should complete successfully.
     let dot = r#"digraph StallDisabledTest {
-        graph [goal="Test stall disabled", stall_timeout="0s", default_max_retry=0]
+        graph [goal="Test stall disabled", stall_timeout="0s", default_max_retries=0]
         start [shape=Mdiamond]
         work  [type="slow", label="Work"]
         exit  [shape=Msquare]
@@ -13220,7 +13226,7 @@ async fn e2e_stall_watchdog_with_explicit_timeout_override() {
     // A short stall_timeout of 50ms should trigger faster than the default 1800s.
     // This tests that the graph attribute is actually respected.
     let dot = r#"digraph StallOverrideTest {
-        graph [goal="Test stall override", stall_timeout="50ms", default_max_retry=0]
+        graph [goal="Test stall override", stall_timeout="50ms", default_max_retries=0]
         start [shape=Mdiamond]
         work  [type="hanging", label="Work"]
         exit  [shape=Msquare]
@@ -13515,8 +13521,9 @@ async fn asset_collection_local_sandbox_on_failure() {
         .run(&graph, &config)
         .await
         .expect("run should succeed");
-    // The pipeline completes (handler returned Fail, not an error), but assets should still be collected
-    assert_eq!(outcome.status, StageStatus::Fail);
+    // The pipeline completes with goal gates satisfied — per spec, SUCCESS at exit node.
+    // Assets should still be collected regardless of intermediate node failures.
+    assert_eq!(outcome.status, StageStatus::Success);
 
     let assets_dir = run_dir
         .path()

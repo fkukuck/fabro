@@ -2,7 +2,7 @@ digraph SemanticPort {
     graph [
         goal="Port semantic changes from upstream Python repository to our Go implementation",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         model_stylesheet="
             *        { model: claude-sonnet-4-5;}
             .hard    { model: claude-opus-4-6;  }

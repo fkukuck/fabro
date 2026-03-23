@@ -1,7 +1,7 @@
 digraph SpecDoDMultiModel {
     graph [
         goal="Satisfy every Definition of Done checkbox across both specs (unified-llm-spec.md, coding-agent-loop-spec.md). The implementation is in Rust under crates/. Do NOT modify the spec files. Only modify implementation code. Uses multi-model consensus: Opus 4.6 and GPT-5.2 compete on audits and planning, GPT-5.2-codex and Opus 4.6 alternate on implementation.",
-        default_max_retry="3",
+        default_max_retries="3",
         retry_target="triage_merge",
         default_fidelity="full",
         model_stylesheet="

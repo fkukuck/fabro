@@ -2,7 +2,7 @@ digraph linkcheck {
     graph [
         goal="Build a Go CLI tool that crawls URLs, checks links for HTTP status, and reports broken links with robots.txt support",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="impl_setup",
         model_stylesheet="
             * { model: gpt-5.2-codex;reasoning_effort: medium; }

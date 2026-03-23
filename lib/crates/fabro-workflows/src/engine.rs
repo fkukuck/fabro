@@ -206,7 +206,7 @@ fn build_retry_policy(node: &Node, graph: &Graph) -> RetryPolicy {
     }
     let max_retries = node
         .max_retries()
-        .unwrap_or_else(|| graph.default_max_retry());
+        .unwrap_or_else(|| graph.default_max_retries());
     // max_retries=0 means 1 attempt (no retries)
     let max_attempts = u32::try_from(max_retries + 1).unwrap_or(1).max(1);
     RetryPolicy {
@@ -482,25 +482,27 @@ pub fn select_edge<'a>(
         });
     }
 
-    // Step 2: Preferred label match
+    // Step 2: Preferred label match (unconditional edges only)
     if let Some(pref) = &outcome.preferred_label {
         let normalized_pref = normalize_label(pref);
         for edge in &edges {
-            if let Some(label) = edge.label() {
-                if normalize_label(label) == normalized_pref {
-                    return Some(EdgeSelection {
-                        edge,
-                        reason: "preferred_label",
-                    });
+            if edge.condition().is_none_or(str::is_empty) {
+                if let Some(label) = edge.label() {
+                    if normalize_label(label) == normalized_pref {
+                        return Some(EdgeSelection {
+                            edge,
+                            reason: "preferred_label",
+                        });
+                    }
                 }
             }
         }
     }
 
-    // Step 3: Suggested next IDs
+    // Step 3: Suggested next IDs (unconditional edges only)
     for suggested_id in &outcome.suggested_next_ids {
         for edge in &edges {
-            if edge.to == *suggested_id {
+            if edge.condition().is_none_or(str::is_empty) && edge.to == *suggested_id {
                 return Some(EdgeSelection {
                     edge,
                     reason: "suggested_next",
@@ -526,11 +528,7 @@ pub fn select_edge<'a>(
         });
     }
 
-    // Fallback: any edge
-    pick_edge(&edges, selection).map(|edge| EdgeSelection {
-        edge,
-        reason: "fallback",
-    })
+    None
 }
 
 // --- Goal gate enforcement ---
@@ -2324,7 +2322,7 @@ impl WorkflowRunEngine {
                         )
                         .await;
 
-                        return Err(error);
+                        return Ok((error.to_fail_outcome(), context));
                     }
                     break;
                 }
@@ -2394,10 +2392,8 @@ impl WorkflowRunEngine {
             }
         };
 
-        let last_outcome = node_outcomes
-            .get(completed_nodes.last().unwrap_or(&String::new()))
-            .cloned()
-            .unwrap_or_else(Outcome::success);
+        let mut last_outcome = Outcome::success();
+        last_outcome.notes = Some("Pipeline completed".to_string());
 
         let run_usage: Option<fabro_llm::types::Usage> = node_outcomes
             .values()
@@ -2623,17 +2619,17 @@ mod tests {
         let mut graph = Graph::new("test");
         graph
             .attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(2));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(2));
         let policy = build_retry_policy(&node, &graph);
         assert_eq!(policy.max_attempts, 3); // 2 retries + 1 initial
     }
 
     #[test]
-    fn build_retry_policy_no_attrs_uses_graph_default_3() {
+    fn build_retry_policy_no_attrs_uses_graph_default_0() {
         let node = Node::new("n");
         let graph = Graph::new("test");
         let policy = build_retry_policy(&node, &graph);
-        assert_eq!(policy.max_attempts, 4); // default_max_retry=3 + 1
+        assert_eq!(policy.max_attempts, 1); // default_max_retries=0 + 1
     }
 
     #[test]
@@ -2717,8 +2713,8 @@ mod tests {
         );
         let graph = Graph::new("test");
         let policy = build_retry_policy(&node, &graph);
-        // Unknown preset should fall back to graph default_max_retry=3
-        assert_eq!(policy.max_attempts, 4);
+        // Unknown preset should fall back to graph default_max_retries=0
+        assert_eq!(policy.max_attempts, 1);
     }
 
     // --- normalize_label tests ---
@@ -3042,6 +3038,44 @@ mod tests {
         let sel = select_edge(&node, &outcome, &context, &g, "deterministic").unwrap();
         assert_eq!(sel.edge.to, "retry");
         assert_eq!(sel.reason, "condition");
+    }
+
+    #[test]
+    fn select_edge_deterministic_no_fallback_when_no_condition_matches() {
+        let mut e1 = Edge::new("a", "path1");
+        e1.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("outcome=fail".to_string()),
+        );
+        let mut e2 = Edge::new("a", "path2");
+        e2.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("outcome=error".to_string()),
+        );
+        let g = make_graph_with_edges(vec![e1, e2]);
+        let node = g.nodes.get("a").unwrap();
+        let outcome = Outcome::success();
+        let context = Context::new();
+        assert!(select_edge(node, &outcome, &context, &g, "deterministic").is_none());
+    }
+
+    #[test]
+    fn select_edge_random_no_fallback_when_no_condition_matches() {
+        let mut e1 = Edge::new("a", "path1");
+        e1.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("outcome=fail".to_string()),
+        );
+        let mut e2 = Edge::new("a", "path2");
+        e2.attrs.insert(
+            "condition".to_string(),
+            AttrValue::String("outcome=error".to_string()),
+        );
+        let g = make_graph_with_edges(vec![e1, e2]);
+        let node = g.nodes.get("a").unwrap();
+        let outcome = Outcome::success();
+        let context = Context::new();
+        assert!(select_edge(node, &outcome, &context, &g, "random").is_none());
     }
 
     // --- check_goal_gates tests ---
@@ -4006,11 +4040,15 @@ mod tests {
         };
         let outcome = engine.run(&g, &config).await.unwrap();
 
+        // Pipeline outcome is always SUCCESS when goal gates are satisfied
         assert_eq!(outcome.status, StageStatus::Success);
-        assert_eq!(
-            outcome.notes.as_deref(),
-            Some("auto-status: handler completed without writing status")
-        );
+        assert_eq!(outcome.notes.as_deref(), Some("Pipeline completed"));
+
+        // The auto_status note is on the per-node status.json
+        let status_path = dir.path().join("nodes").join("work").join("status.json");
+        let status: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&status_path).unwrap()).unwrap();
+        assert_eq!(status["status"], "success");
     }
 
     #[tokio::test]
@@ -4265,11 +4303,15 @@ mod tests {
         };
         let outcome = engine.run(&g, &config).await.unwrap();
 
+        // Pipeline outcome is always SUCCESS when goal gates are satisfied
         assert_eq!(outcome.status, StageStatus::Success);
-        assert_eq!(
-            outcome.notes.as_deref(),
-            Some("auto-status: handler completed without writing status")
-        );
+        assert_eq!(outcome.notes.as_deref(), Some("Pipeline completed"));
+
+        // The auto_status note is on the per-node status.json
+        let status_path = dir.path().join("nodes").join("work").join("status.json");
+        let status: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&status_path).unwrap()).unwrap();
+        assert_eq!(status["status"], "success");
     }
 
     // --- Gap #15: Interviewer.inform() tests ---
@@ -4429,7 +4471,7 @@ mod tests {
             .insert("goal".to_string(), AttrValue::String("loop".to_string()));
         // Disable default retries to keep test fast
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(
@@ -4771,7 +4813,7 @@ mod tests {
             workflow_slug: None,
         };
 
-        // The engine returns Err because the Fail outcome has no outgoing fail edge,
+        // The engine returns a Fail outcome because there is no outgoing fail edge,
         // but panic.txt should already be written by the panic handler.
         let _result = engine.run(&g, &config).await;
 
@@ -4865,7 +4907,7 @@ mod tests {
         g.attrs
             .insert("goal".to_string(), AttrValue::String("test".to_string()));
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(
@@ -5085,7 +5127,7 @@ mod tests {
         g.attrs
             .insert("goal".to_string(), AttrValue::String("test".to_string()));
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
         g.attrs
             .insert("max_node_visits".to_string(), AttrValue::Integer(100));
 
@@ -5204,7 +5246,7 @@ mod tests {
             AttrValue::Duration(Duration::from_millis(50)),
         );
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(
@@ -5270,7 +5312,7 @@ mod tests {
             AttrValue::Duration(Duration::from_millis(100)),
         );
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(
@@ -5339,7 +5381,7 @@ mod tests {
             AttrValue::Duration(Duration::ZERO),
         );
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(
@@ -5397,7 +5439,7 @@ mod tests {
         g.attrs
             .insert("goal".to_string(), AttrValue::String("test".to_string()));
         g.attrs
-            .insert("default_max_retry".to_string(), AttrValue::Integer(0));
+            .insert("default_max_retries".to_string(), AttrValue::Integer(0));
 
         let mut start = Node::new("start");
         start.attrs.insert(

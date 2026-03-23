@@ -167,7 +167,7 @@ picker -> path_a [weight=3]
 picker -> path_b [weight=1]
 ```
 
-In this example, `path_a` is chosen ~75% of the time and `path_b` ~25%. Edges with weight ≤ 0 are treated as weight 1. The cascade priority (conditions → preferred label → suggested next → unconditional → fallback) is unchanged — randomness only affects the pick-one-from-candidates step within each tier.
+In this example, `path_a` is chosen ~75% of the time and `path_b` ~25%. Edges with weight ≤ 0 are treated as weight 1. The cascade priority (conditions → preferred label → suggested next → unconditional) is unchanged — randomness only affects the pick-one-from-candidates step within each tier.
 
 <Note>
 `selection="random"` cannot be combined with conditional edges on the same node. Validation rejects this combination because condition evaluation order would conflict with random selection. Use unconditional edges with weights instead.

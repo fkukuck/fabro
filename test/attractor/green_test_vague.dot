@@ -2,7 +2,7 @@ digraph solitaire {
     graph [
         goal="Build a terminal-based Klondike Solitaire game in Go with TUI",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="impl_setup",
         model_stylesheet="
             * { model: gpt-5.2-codex;reasoning_effort: medium; }

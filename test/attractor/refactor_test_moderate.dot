@@ -2,7 +2,7 @@ digraph linkcheck {
     graph [
         goal="Build a Go CLI tool that checks URLs for broken links with configurable depth and multiple output formats",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="impl_setup",
         fallback_retry_target="impl_crawler",
         model_stylesheet="

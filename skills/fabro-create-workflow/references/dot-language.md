@@ -45,7 +45,7 @@ Comments: `//` line and `/* */` block.
 | `goal` | String | Workflow objective (required) |
 | `rankdir` | Identifier | Layout: `LR` or `TB` |
 | `model_stylesheet` | String | CSS-like model assignment rules |
-| `default_max_retry` | Integer | Default retry count for all nodes (default: 3) |
+| `default_max_retries` | Integer | Default retry count for all nodes (default: 3) |
 | `retry_target` | String | Default node to jump to on retry |
 | `fallback_retry_target` | String | Fallback retry target |
 | `default_fidelity` | String | Default fidelity for all nodes |

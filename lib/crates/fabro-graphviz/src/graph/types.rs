@@ -389,12 +389,12 @@ impl Graph {
             .unwrap_or("")
     }
 
-    /// Graph-level `default_max_retry` (default 3).
-    pub fn default_max_retry(&self) -> i64 {
+    /// Graph-level `default_max_retries` (default 0).
+    pub fn default_max_retries(&self) -> i64 {
         self.attrs
-            .get("default_max_retry")
+            .get("default_max_retries")
             .and_then(AttrValue::as_i64)
-            .unwrap_or(3)
+            .unwrap_or(0)
     }
 
     /// Graph-level `retry_target`.
@@ -720,9 +720,9 @@ mod tests {
     }
 
     #[test]
-    fn graph_default_max_retry() {
+    fn graph_default_max_retries() {
         let g = Graph::new("empty");
-        assert_eq!(g.default_max_retry(), 3);
+        assert_eq!(g.default_max_retries(), 0);
     }
 
     #[test]

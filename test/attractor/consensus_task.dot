@@ -5,7 +5,7 @@ digraph Workflow {
     rankdir="LR",
     context_fidelity_default="truncate",
     context_thread_default="consensus-task",
-    default_max_retry="3",
+    default_max_retries="3",
     retry_target="CheckDoD",
     fallback_retry_target="Start"
   ];

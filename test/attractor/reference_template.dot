@@ -2,7 +2,7 @@ digraph reference_template {
     graph [
         goal="$goal",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="implement",
         fallback_retry_target="debate_consolidate",
         provenance_version="1",

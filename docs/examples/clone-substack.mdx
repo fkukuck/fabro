@@ -43,7 +43,7 @@ infrastructure: integration tests with canned data, smoke tests with live \
 gemini-2.5-flash-lite, manual test option with real models. Deployment readiness for \
 GitHub to Railway validated by code review only — no live deployment execution.",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="plan_fanout",
         fallback_retry_target="plan_fanout",
         model_stylesheet="

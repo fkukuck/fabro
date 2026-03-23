@@ -2,7 +2,7 @@ digraph dttf {
     graph [
         goal="Build DTTF: a bitmap-to-TrueType font converter with custom quadratic Bezier tracer",
         rankdir=LR,
-        default_max_retry=3,
+        default_max_retries=3,
         retry_target="impl_setup",
         model_stylesheet="
             * { model: gpt-5.2-codex;reasoning_effort: medium; }
