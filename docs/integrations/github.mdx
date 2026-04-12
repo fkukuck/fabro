@@ -45,7 +45,9 @@ The rest of this page describes the `app` strategy, which is required for browse
 
 1. Navigate to the web app (default `http://localhost:3000`). If no GitHub App is configured, you'll be redirected to the setup page automatically.
 
-2. Click **Register GitHub App**. This takes you to GitHub with a pre-filled [App Manifest](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest) containing:
+2. Choose where to register the app. If you have the `gh` CLI installed, Fabro detects your GitHub username and any organizations you administer and lets you pick. For organization-owned apps, the app is registered under that org's settings. If `gh` is not available, the app is registered under your personal account.
+
+3. Click **Register GitHub App**. This takes you to GitHub with a pre-filled [App Manifest](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest) containing:
 
    | Permission | Level | Purpose |
    |---|---|---|
@@ -56,15 +58,15 @@ The rest of this page describes the `app` strategy, which is required for browse
    | Issues | Write | Create issues from workflows |
    | Emails | Read | Read verified email for OAuth login |
 
-3. Review the permissions on GitHub and click **Create GitHub App**.
+4. Review the permissions on GitHub and click **Create GitHub App**.
 
-4. GitHub redirects back to Fabro, which automatically:
+5. GitHub redirects back to Fabro, which automatically:
    - Exchanges the temporary code for permanent app credentials
    - Writes `app_id`, `client_id`, and `slug` to `~/.fabro/settings.toml`
    - Stores `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`, and `GITHUB_APP_PRIVATE_KEY` in `<data_dir>/server.env`
    - Marks the change as restart-bound so the server must be restarted before login
 
-5. **Install the app** on your GitHub account or organization. Go to `https://github.com/settings/apps/<your-app-slug>/installations` and install it on the repositories Fabro should access.
+6. **Install the app** on your GitHub account or organization. Go to `https://github.com/settings/apps/<your-app-slug>/installations` and install it on the repositories Fabro should access.
 
 ### Verify the configuration
 

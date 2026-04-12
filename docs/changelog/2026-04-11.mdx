@@ -1,0 +1,15 @@
+---
+title: "Unified template syntax"
+date: "2026-04-11"
+---
+
+## Unified template syntax
+
+Workflow definitions and configuration files now share the same template syntax for variable interpolation. Previously, workflow DOT files and TOML config files used slightly different templating rules, which made it easy to use the wrong syntax in the wrong context. The unified syntax works everywhere Fabro processes templates.
+
+## More
+
+<Accordion title="Improvements">
+- Project state files moved from the workspace root into `.fabro/` for a cleaner directory layout
+- Config parse errors now show the file path where the error occurred
+</Accordion>
