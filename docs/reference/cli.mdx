@@ -414,14 +414,16 @@ Create a GitHub pull request from a completed workflow run. Uses the run's persi
 ```bash
 fabro pr create <run-id>
 fabro pr create <run-id> --model claude-opus-4-6
+fabro pr create <run-id> --force
 ```
 
 | Argument / Flag | Description |
 |---|---|
 | `<RUN_ID>` | Run ID or prefix (required) |
 | `--model <MODEL>` | LLM model for generating the PR description |
+| `-f, --force` | Create PR even if the run status is not success or partial success |
 
-The run must have completed successfully (or with partial success) and have a stored diff with changes.
+The run must have completed successfully (or with partial success) and have a stored diff with changes. Use `--force` to override the status check.
 
 ### `fabro pr list`
 
@@ -823,6 +825,21 @@ fabro install --web-url https://fabro.example.com
 |---|---|---|
 | `--web-url <URL>` | Web UI base URL for OAuth callback endpoints | `http://localhost:3000` |
 
+When configuring a GitHub App, the wizard detects your GitHub organizations (via the `gh` CLI) and lets you choose whether to register the app under your personal account or an organization.
+
+## `fabro uninstall`
+
+Remove Fabro's local state, server data, and configuration files. Stops the server if it is running, removes the data directory, cleans up shell PATH entries, and optionally removes the binary.
+
+```bash
+fabro uninstall
+fabro uninstall --yes
+```
+
+| Flag | Description |
+|---|---|
+| `--yes` | Skip confirmation prompt |
+
 ---
 
 ## `fabro secret set`
@@ -840,10 +857,11 @@ fabro secret set ANTHROPIC_API_KEY sk-ant-...
 
 ## `fabro secret list`
 
-List server-owned secret names. Values are never returned after storage.
+List server-owned secrets with their name, type, and last-updated timestamp. Values are never returned after storage.
 
 ```bash
 fabro secret list
+fabro secret list --json
 ```
 
 ## `fabro secret rm`
