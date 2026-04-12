@@ -1,7 +1,7 @@
 use fabro_types::settings::cli::{
     CliAuthSettings, CliExecAgentSettings, CliExecLayer, CliExecModelSettings, CliExecSettings,
     CliLayer, CliLoggingSettings, CliOutputSettings, CliSettings, CliTargetLayer,
-    CliTargetSettings, CliTargetTlsSettings, CliUpdatesSettings, OutputFormat, OutputVerbosity,
+    CliTargetSettings, CliTargetTlsSettings, CliUpdatesSettings,
 };
 
 use super::{ResolveError, require_interp};
@@ -18,19 +18,19 @@ pub fn resolve_cli(layer: &CliLayer, errors: &mut Vec<ResolveError>) -> CliSetti
                 .output
                 .as_ref()
                 .and_then(|output| output.format)
-                .unwrap_or(OutputFormat::Text),
+                .expect("defaults.toml should provide cli.output.format"),
             verbosity: layer
                 .output
                 .as_ref()
                 .and_then(|output| output.verbosity)
-                .unwrap_or(OutputVerbosity::Normal),
+                .expect("defaults.toml should provide cli.output.verbosity"),
         },
         updates: CliUpdatesSettings {
             check: layer
                 .updates
                 .as_ref()
                 .and_then(|updates| updates.check)
-                .unwrap_or(true),
+                .expect("defaults.toml should provide cli.updates.check"),
         },
         logging: CliLoggingSettings {
             level: layer
@@ -62,12 +62,12 @@ fn resolve_target(
 }
 
 fn resolve_exec(exec: Option<&CliExecLayer>) -> CliExecSettings {
-    let Some(exec) = exec else {
-        return CliExecSettings::default();
-    };
+    let exec = exec.expect("defaults.toml should provide cli.exec defaults");
 
     CliExecSettings {
-        prevent_idle_sleep: exec.prevent_idle_sleep.unwrap_or(false),
+        prevent_idle_sleep: exec
+            .prevent_idle_sleep
+            .expect("defaults.toml should provide cli.exec.prevent_idle_sleep"),
         model:              CliExecModelSettings {
             provider: exec.model.as_ref().and_then(|model| model.provider.clone()),
             name:     exec.model.as_ref().and_then(|model| model.name.clone()),

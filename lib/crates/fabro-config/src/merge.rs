@@ -10,7 +10,8 @@
 use std::collections::HashMap;
 
 use fabro_types::settings::cli::{
-    CliExecAgentLayer, CliExecLayer, CliExecModelLayer, CliLayer, CliTargetLayer,
+    CliExecAgentLayer, CliExecLayer, CliExecModelLayer, CliLayer, CliOutputLayer, CliTargetLayer,
+    CliUpdatesLayer,
 };
 use fabro_types::settings::layer::SettingsLayer;
 use fabro_types::settings::project::ProjectLayer;
@@ -343,8 +344,8 @@ fn combine_cli(lower: CliLayer, higher: CliLayer) -> CliLayer {
         target:  merge_option(lower.target, higher.target, combine_cli_target),
         auth:    higher.auth.or(lower.auth),
         exec:    merge_option(lower.exec, higher.exec, combine_cli_exec),
-        output:  higher.output.or(lower.output),
-        updates: higher.updates.or(lower.updates),
+        output:  merge_option(lower.output, higher.output, combine_cli_output),
+        updates: merge_option(lower.updates, higher.updates, combine_cli_updates),
         logging: higher.logging.or(lower.logging),
     }
 }
@@ -379,6 +380,19 @@ fn combine_cli_exec_agent(
     CliExecAgentLayer {
         permissions: higher.permissions.or(lower.permissions),
         mcps:        merge_string_map_sticky(lower.mcps, higher.mcps),
+    }
+}
+
+fn combine_cli_output(lower: CliOutputLayer, higher: CliOutputLayer) -> CliOutputLayer {
+    CliOutputLayer {
+        format:    higher.format.or(lower.format),
+        verbosity: higher.verbosity.or(lower.verbosity),
+    }
+}
+
+fn combine_cli_updates(lower: CliUpdatesLayer, higher: CliUpdatesLayer) -> CliUpdatesLayer {
+    CliUpdatesLayer {
+        check: higher.check.or(lower.check),
     }
 }
 
@@ -680,5 +694,53 @@ a = "replaced"
         let meta = merged.project.unwrap().metadata;
         assert_eq!(meta.len(), 1);
         assert_eq!(meta.get("a"), Some(&"replaced".to_string()));
+    }
+
+    #[test]
+    fn cli_output_merges_by_field() {
+        let lower = parse(
+            r#"
+[cli.output]
+format = "text"
+verbosity = "normal"
+"#,
+        );
+        let higher = parse(
+            r#"
+[cli.output]
+verbosity = "verbose"
+"#,
+        );
+
+        let merged = combine_files(lower, higher);
+        let output = merged.cli.unwrap().output.unwrap();
+        assert_eq!(
+            output.format,
+            Some(fabro_types::settings::cli::OutputFormat::Text)
+        );
+        assert_eq!(
+            output.verbosity,
+            Some(fabro_types::settings::cli::OutputVerbosity::Verbose)
+        );
+    }
+
+    #[test]
+    fn cli_updates_merges_by_field() {
+        let lower = parse(
+            r#"
+[cli.updates]
+check = true
+"#,
+        );
+        let higher = parse(
+            r#"
+[cli.logging]
+level = "debug"
+"#,
+        );
+
+        let merged = combine_files(lower, higher);
+        let updates = merged.cli.unwrap().updates.unwrap();
+        assert_eq!(updates.check, Some(true));
     }
 }

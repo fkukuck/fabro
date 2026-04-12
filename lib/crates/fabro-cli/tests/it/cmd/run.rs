@@ -932,9 +932,35 @@ fn json_run_implies_auto_approve_for_human_gates() {
           },
           "run_dir": "[RUN_DIR]",
           "settings": {
+            "workflow": {
+              "graph": "workflow.fabro"
+            },
+            "cli": {
+              "exec": {
+                "prevent_idle_sleep": false
+              },
+              "output": {
+                "format": "text",
+                "verbosity": "normal"
+              },
+              "target": {
+                "path": "[CLI_SOCKET]",
+                "type": "unix"
+              },
+              "updates": {
+                "check": true
+              }
+            },
+            "features": {
+              "session_sandboxes": false
+            },
+            "project": {
+              "directory": "."
+            },
             "run": {
               "execution": {
                 "approval": "auto",
+                "mode": "normal",
                 "retros": false
               },
               "goal": "Route through the default approval path",
@@ -942,14 +968,16 @@ fn json_run_implies_auto_approve_for_human_gates() {
                 "name": "[LLM_MODEL]",
                 "provider": "[LLM_PROVIDER]"
               },
+              "prepare": {
+                "timeout": "5m"
+              },
               "sandbox": {
+                "devcontainer": false,
+                "local": {
+                  "worktree_mode": "clean"
+                },
+                "preserve": false,
                 "provider": "local"
-              }
-            },
-            "cli": {
-              "target": {
-                "path": "[CLI_SOCKET]",
-                "type": "unix"
               }
             }
           },

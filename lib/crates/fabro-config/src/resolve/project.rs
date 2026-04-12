@@ -2,8 +2,6 @@ use fabro_types::settings::project::{ProjectLayer, ProjectSettings};
 
 use super::ResolveError;
 
-const DEFAULT_PROJECT_DIRECTORY: &str = ".";
-
 pub fn resolve_project(layer: &ProjectLayer, _errors: &mut Vec<ResolveError>) -> ProjectSettings {
     ProjectSettings {
         name:        layer.name.clone(),
@@ -11,7 +9,7 @@ pub fn resolve_project(layer: &ProjectLayer, _errors: &mut Vec<ResolveError>) ->
         directory:   layer
             .directory
             .clone()
-            .unwrap_or_else(|| DEFAULT_PROJECT_DIRECTORY.to_string()),
+            .expect("defaults.toml should provide project.directory"),
         metadata:    layer.metadata.clone(),
     }
 }

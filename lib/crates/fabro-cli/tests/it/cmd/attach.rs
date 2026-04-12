@@ -585,8 +585,35 @@ fn attach_json_errors_without_prompting_for_human_input() {
           },
           "run_dir": "[RUN_DIR]",
           "settings": {
+            "workflow": {
+              "graph": "workflow.fabro"
+            },
+            "cli": {
+              "exec": {
+                "prevent_idle_sleep": false
+              },
+              "output": {
+                "format": "text",
+                "verbosity": "normal"
+              },
+              "target": {
+                "path": "[CLI_SOCKET]",
+                "type": "unix"
+              },
+              "updates": {
+                "check": true
+              }
+            },
+            "features": {
+              "session_sandboxes": false
+            },
+            "project": {
+              "directory": "."
+            },
             "run": {
               "execution": {
+                "approval": "prompt",
+                "mode": "normal",
                 "retros": false
               },
               "goal": "Wait for approval",
@@ -594,14 +621,16 @@ fn attach_json_errors_without_prompting_for_human_input() {
                 "name": "gpt-5.4",
                 "provider": "openai"
               },
+              "prepare": {
+                "timeout": "5m"
+              },
               "sandbox": {
+                "devcontainer": false,
+                "local": {
+                  "worktree_mode": "clean"
+                },
+                "preserve": false,
                 "provider": "local"
-              }
-            },
-            "cli": {
-              "target": {
-                "path": "[CLI_SOCKET]",
-                "type": "unix"
               }
             }
           },

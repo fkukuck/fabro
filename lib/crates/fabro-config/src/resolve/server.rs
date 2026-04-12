@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use fabro_types::settings::InterpString;
 use fabro_types::settings::server::{
     DiscordIntegrationSettings, GithubIntegrationSettings, GithubOauthSettings,
@@ -39,7 +37,7 @@ pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> Se
                 .scheduler
                 .as_ref()
                 .and_then(|scheduler| scheduler.max_concurrent_runs)
-                .unwrap_or(5),
+                .expect("defaults.toml should provide server.scheduler.max_concurrent_runs"),
         },
         logging: ServerLoggingSettings {
             level: layer
@@ -107,11 +105,16 @@ fn resolve_tls(
 }
 
 fn resolve_web(_api: Option<&ServerApiLayer>, layer: Option<&ServerWebLayer>) -> ServerWebSettings {
+    let layer = layer.expect("defaults.toml should provide server.web defaults");
+
     ServerWebSettings {
-        enabled: layer.and_then(|web| web.enabled).unwrap_or(true),
+        enabled: layer
+            .enabled
+            .expect("defaults.toml should provide server.web.enabled"),
         url:     layer
-            .and_then(|web| web.url.clone())
-            .unwrap_or_else(|| InterpString::parse("http://localhost:3000")),
+            .url
+            .clone()
+            .expect("defaults.toml should provide server.web.url"),
     }
 }
 
@@ -174,12 +177,12 @@ fn resolve_artifacts(
 ) -> ServerArtifactsSettings {
     let provider = layer
         .and_then(|artifacts| artifacts.provider)
-        .unwrap_or(ObjectStoreProvider::Local);
+        .expect("defaults.toml should provide server.artifacts.provider");
 
     ServerArtifactsSettings {
         prefix: layer
             .and_then(|artifacts| artifacts.prefix.clone())
-            .unwrap_or_else(|| InterpString::parse("artifacts")),
+            .expect("defaults.toml should provide server.artifacts.prefix"),
         store:  resolve_object_store(
             provider,
             layer.and_then(|artifacts| artifacts.local.as_ref()),
@@ -198,12 +201,12 @@ fn resolve_slatedb(
 ) -> ServerSlateDbSettings {
     let provider = layer
         .and_then(|slatedb| slatedb.provider)
-        .unwrap_or(ObjectStoreProvider::Local);
+        .expect("defaults.toml should provide server.slatedb.provider");
 
     ServerSlateDbSettings {
         prefix:         layer
             .and_then(|slatedb| slatedb.prefix.clone())
-            .unwrap_or_else(|| InterpString::parse("")),
+            .expect("defaults.toml should provide server.slatedb.prefix"),
         store:          resolve_object_store(
             provider,
             layer.and_then(|slatedb| slatedb.local.as_ref()),
@@ -214,7 +217,8 @@ fn resolve_slatedb(
         ),
         flush_interval: layer
             .and_then(|slatedb| slatedb.flush_interval)
-            .map_or_else(|| Duration::from_millis(1), |duration| duration.as_std()),
+            .map(|duration| duration.as_std())
+            .expect("defaults.toml should provide server.slatedb.flush_interval"),
     }
 }
 

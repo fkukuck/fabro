@@ -1,0 +1,54 @@
+# Fabro built-in defaults — embedded at compile time.
+# Dynamic and presence-gated defaults remain in Rust.
+_version = 1
+
+[project]
+directory = "."
+
+[workflow]
+graph = "workflow.fabro"
+
+[run.execution]
+mode = "normal"
+approval = "prompt"
+retros = true
+
+[run.prepare]
+timeout = "5m"
+
+[run.sandbox]
+provider = "local"
+preserve = false
+devcontainer = false
+
+[run.sandbox.local]
+worktree_mode = "clean"
+
+[cli.output]
+format = "text"
+verbosity = "normal"
+
+[cli.exec]
+prevent_idle_sleep = false
+
+[cli.updates]
+check = true
+
+[server.web]
+enabled = true
+url = "http://localhost:3000"
+
+[server.scheduler]
+max_concurrent_runs = 5
+
+[server.artifacts]
+provider = "local"
+prefix = "artifacts"
+
+[server.slatedb]
+provider = "local"
+prefix = ""
+flush_interval = "1ms"
+
+[features]
+session_sandboxes = false

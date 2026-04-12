@@ -383,6 +383,32 @@ fn settings_local_merges_cli_and_project_defaults() {
         .clone();
 
     let cfg = parse_settings(&output);
+    assert_eq!(
+        cfg.project
+            .as_ref()
+            .and_then(|project| project.directory.as_deref()),
+        Some(".")
+    );
+    assert_eq!(
+        cfg.workflow
+            .as_ref()
+            .and_then(|workflow| workflow.graph.as_deref()),
+        Some("workflow.fabro")
+    );
+    assert_eq!(
+        cfg.run
+            .as_ref()
+            .and_then(|run| run.execution.as_ref())
+            .and_then(|execution| execution.approval),
+        Some(fabro_types::settings::run::ApprovalMode::Prompt)
+    );
+    assert_eq!(
+        cfg.run
+            .as_ref()
+            .and_then(|run| run.sandbox.as_ref())
+            .and_then(|sandbox| sandbox.provider.as_deref()),
+        Some("daytona")
+    );
     assert_eq!(run_model_name(&cfg).as_deref(), Some("project-model"));
     assert_eq!(run_model_provider(&cfg).as_deref(), Some("openai"));
     assert_eq!(run_goal_inline(&cfg).as_deref(), None);
@@ -852,6 +878,25 @@ shared = "cli"
 
     mock.assert();
     let cfg = parse_settings(&output);
+    assert_eq!(
+        cfg.project
+            .as_ref()
+            .and_then(|project| project.directory.as_deref()),
+        Some(".")
+    );
+    assert_eq!(
+        cfg.workflow
+            .as_ref()
+            .and_then(|workflow| workflow.graph.as_deref()),
+        Some("workflow.fabro")
+    );
+    assert_eq!(
+        cfg.run
+            .as_ref()
+            .and_then(|run| run.execution.as_ref())
+            .and_then(|execution| execution.approval),
+        Some(fabro_types::settings::run::ApprovalMode::Prompt)
+    );
     assert_eq!(run_model_name(&cfg).as_deref(), Some("project-model"));
     assert_eq!(run_model_provider(&cfg).as_deref(), Some("openai"));
     assert_eq!(server_storage_root(&cfg), "/srv/fabro-server");

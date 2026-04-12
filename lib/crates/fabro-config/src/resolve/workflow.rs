@@ -2,8 +2,6 @@ use fabro_types::settings::workflow::{WorkflowLayer, WorkflowSettings};
 
 use super::ResolveError;
 
-const DEFAULT_WORKFLOW_GRAPH: &str = "workflow.fabro";
-
 pub fn resolve_workflow(
     layer: &WorkflowLayer,
     _errors: &mut Vec<ResolveError>,
@@ -14,7 +12,7 @@ pub fn resolve_workflow(
         graph:       layer
             .graph
             .clone()
-            .unwrap_or_else(|| DEFAULT_WORKFLOW_GRAPH.to_string()),
+            .expect("defaults.toml should provide workflow.graph"),
         metadata:    layer.metadata.clone(),
     }
 }

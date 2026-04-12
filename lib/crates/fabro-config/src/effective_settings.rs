@@ -14,7 +14,7 @@ use fabro_types::settings::run::{RunExecutionLayer, RunLayer};
 use fabro_types::settings::server::ServerLayer;
 
 use crate::merge::combine_files;
-use crate::{Error, Result};
+use crate::{Error, Result, apply_builtin_defaults};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EffectiveSettingsMode {
@@ -61,11 +61,10 @@ pub fn resolve_settings(
         user,
     } = layers;
 
-    match mode {
-        EffectiveSettingsMode::LocalOnly => Ok(combine_files(
-            combine_files(combine_files(user, project), workflow),
-            args,
-        )),
+    let settings = match mode {
+        EffectiveSettingsMode::LocalOnly => {
+            combine_files(combine_files(combine_files(user, project), workflow), args)
+        }
         EffectiveSettingsMode::RemoteServer | EffectiveSettingsMode::LocalDaemon => {
             let server_settings = server_settings.ok_or(Error::MissingServerSettings)?;
             // Owner-specific domains (cli, server) may only come from the
@@ -99,9 +98,11 @@ pub fn resolve_settings(
                 let server = settings.server.get_or_insert_with(ServerLayer::default);
                 server.storage = Some(server_root);
             }
-            Ok(settings)
+            settings
         }
-    }
+    };
+
+    Ok(apply_builtin_defaults(settings))
 }
 
 fn strip_owner_domains(file: &mut SettingsLayer) {
@@ -181,7 +182,8 @@ fn apply_local_daemon_overrides(
 
 #[cfg(test)]
 mod tests {
-    use fabro_types::settings::run::RunGoalLayer;
+    use fabro_types::settings::cli::OutputFormat;
+    use fabro_types::settings::run::{ApprovalMode, RunGoalLayer};
     use fabro_types::settings::server::{ServerLayer, ServerSchedulerLayer, ServerStorageLayer};
     use fabro_types::settings::{InterpString, SettingsLayer};
 
@@ -257,6 +259,28 @@ shared = "user"
         assert!(
             !inputs.contains_key("user_only"),
             "project.inputs should replace user.inputs wholesale"
+        );
+        assert_eq!(
+            settings
+                .project
+                .as_ref()
+                .and_then(|project| project.directory.as_deref()),
+            Some(".")
+        );
+        assert_eq!(
+            settings
+                .workflow
+                .as_ref()
+                .and_then(|workflow| workflow.graph.as_deref()),
+            Some("workflow.fabro")
+        );
+        assert_eq!(
+            settings
+                .run
+                .as_ref()
+                .and_then(|run| run.execution.as_ref())
+                .and_then(|execution| execution.approval),
+            Some(ApprovalMode::Prompt)
         );
     }
 
@@ -389,6 +413,21 @@ root = "/tmp/should-be-inert"
             .as_deref(),
             Some("project goal")
         );
+        assert_eq!(
+            settings
+                .workflow
+                .as_ref()
+                .and_then(|workflow| workflow.graph.as_deref()),
+            Some("workflow.fabro")
+        );
+        assert_eq!(
+            settings
+                .run
+                .as_ref()
+                .and_then(|run| run.sandbox.as_ref())
+                .and_then(|sandbox| sandbox.provider.as_deref()),
+            Some("local")
+        );
     }
 
     #[test]
@@ -430,6 +469,22 @@ root = "/tmp/should-be-inert"
                 .and_then(|server| server.scheduler.as_ref())
                 .and_then(|scheduler| scheduler.max_concurrent_runs),
             Some(7)
+        );
+        assert_eq!(
+            settings
+                .run
+                .as_ref()
+                .and_then(|run| run.sandbox.as_ref())
+                .and_then(|sandbox| sandbox.provider.as_deref()),
+            Some("local")
+        );
+        assert_eq!(
+            settings
+                .cli
+                .as_ref()
+                .and_then(|cli| cli.output.as_ref())
+                .and_then(|output| output.format),
+            Some(OutputFormat::Text)
         );
     }
 }

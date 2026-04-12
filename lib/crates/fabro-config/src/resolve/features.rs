@@ -7,6 +7,8 @@ pub fn resolve_features(
     _errors: &mut Vec<ResolveError>,
 ) -> FeaturesSettings {
     FeaturesSettings {
-        session_sandboxes: layer.session_sandboxes.unwrap_or(false),
+        session_sandboxes: layer
+            .session_sandboxes
+            .expect("defaults.toml should provide features.session_sandboxes"),
     }
 }

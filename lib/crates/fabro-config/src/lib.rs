@@ -1,5 +1,7 @@
 extern crate self as fabro_config;
 
+mod defaults;
+
 pub mod effective_settings;
 pub mod envfile;
 pub mod error;
@@ -16,6 +18,7 @@ pub mod user;
 
 use std::path::Path;
 
+pub use defaults::{apply_builtin_defaults, defaults_layer};
 pub use error::{Error, Result};
 use fabro_types::settings::{Settings, SettingsLayer};
 pub use fabro_util::path::expand_tilde;

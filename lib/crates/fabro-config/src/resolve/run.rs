@@ -1,6 +1,6 @@
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    ApprovalMode, ArtifactsSettings, DaytonaDockerfileLayer, DaytonaSandboxLayer, DaytonaSettings,
+    ArtifactsSettings, DaytonaDockerfileLayer, DaytonaSandboxLayer, DaytonaSettings,
     DaytonaSnapshotSettings, DockerfileSource, GitAuthorSettings, HookAgentMarker, HookDefinition,
     HookEntry, HookTlsMode, HookType, InterviewProviderLayer, InterviewProviderSettings,
     InterviewsLayer, LocalSandboxSettings, McpEntryLayer, McpServerSettings, McpTransport,
@@ -8,7 +8,7 @@ use fabro_types::settings::run::{
     NotificationRouteLayer, NotificationRouteSettings, PullRequestSettings, RunAgentLayer,
     RunAgentSettings, RunArtifactsLayer, RunCheckpointLayer, RunCheckpointSettings,
     RunExecutionLayer, RunExecutionSettings, RunGitLayer, RunGitSettings, RunGoal, RunGoalLayer,
-    RunInterviewsSettings, RunLayer, RunMode, RunModelLayer, RunModelSettings, RunPrepareLayer,
+    RunInterviewsSettings, RunLayer, RunModelLayer, RunModelSettings, RunPrepareLayer,
     RunPrepareSettings, RunPullRequestLayer, RunSandboxLayer, RunSandboxSettings, RunScmLayer,
     RunScmSettings, RunSettings, ScmGitHubSettings, StringOrSplice, TlsMode,
 };
@@ -87,9 +87,7 @@ fn resolve_prepare(
     prepare: Option<&RunPrepareLayer>,
     errors: &mut Vec<ResolveError>,
 ) -> RunPrepareSettings {
-    let Some(prepare) = prepare else {
-        return RunPrepareSettings::default();
-    };
+    let prepare = prepare.expect("defaults.toml should provide run.prepare defaults");
 
     let mut commands = Vec::new();
     for (index, step) in prepare.steps.iter().enumerate() {
@@ -117,14 +115,18 @@ fn resolve_prepare(
 }
 
 fn resolve_execution(execution: Option<&RunExecutionLayer>) -> RunExecutionSettings {
-    let Some(execution) = execution else {
-        return RunExecutionSettings::default();
-    };
+    let execution = execution.expect("defaults.toml should provide run.execution defaults");
 
     RunExecutionSettings {
-        mode:     execution.mode.unwrap_or(RunMode::Normal),
-        approval: execution.approval.unwrap_or(ApprovalMode::Prompt),
-        retros:   execution.retros.unwrap_or(true),
+        mode:     execution
+            .mode
+            .expect("defaults.toml should provide run.execution.mode"),
+        approval: execution
+            .approval
+            .expect("defaults.toml should provide run.execution.approval"),
+        retros:   execution
+            .retros
+            .expect("defaults.toml should provide run.execution.retros"),
     }
 }
 
@@ -140,14 +142,12 @@ fn resolve_sandbox(
     sandbox: Option<&RunSandboxLayer>,
     errors: &mut Vec<ResolveError>,
 ) -> RunSandboxSettings {
-    let Some(sandbox) = sandbox else {
-        return RunSandboxSettings::default();
-    };
+    let sandbox = sandbox.expect("defaults.toml should provide run.sandbox defaults");
 
     let provider = sandbox
         .provider
         .clone()
-        .unwrap_or_else(|| "local".to_string());
+        .expect("defaults.toml should provide run.sandbox.provider");
     match provider.as_str() {
         "local" | "docker" | "daytona" => {}
         other => errors.push(ResolveError::Invalid {
@@ -158,8 +158,12 @@ fn resolve_sandbox(
 
     RunSandboxSettings {
         provider,
-        preserve: sandbox.preserve.unwrap_or(false),
-        devcontainer: sandbox.devcontainer.unwrap_or(false),
+        preserve: sandbox
+            .preserve
+            .expect("defaults.toml should provide run.sandbox.preserve"),
+        devcontainer: sandbox
+            .devcontainer
+            .expect("defaults.toml should provide run.sandbox.devcontainer"),
         env: sandbox.env.clone(),
         local: resolve_local_sandbox(sandbox),
         daytona: sandbox.daytona.as_ref().map(resolve_daytona),
@@ -167,12 +171,15 @@ fn resolve_sandbox(
 }
 
 fn resolve_local_sandbox(sandbox: &RunSandboxLayer) -> LocalSandboxSettings {
+    let local = sandbox
+        .local
+        .as_ref()
+        .expect("defaults.toml should provide run.sandbox.local");
+
     LocalSandboxSettings {
-        worktree_mode: sandbox
-            .local
-            .as_ref()
-            .and_then(|local| local.worktree_mode)
-            .unwrap_or_default(),
+        worktree_mode: local
+            .worktree_mode
+            .expect("defaults.toml should provide run.sandbox.local.worktree_mode"),
     }
 }
 

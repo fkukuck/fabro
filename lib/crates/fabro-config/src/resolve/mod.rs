@@ -18,7 +18,10 @@ pub use run::resolve_run;
 pub use server::resolve_server;
 pub use workflow::resolve_workflow;
 
+use crate::apply_builtin_defaults;
+
 pub fn resolve(file: &SettingsLayer) -> Result<Settings, Vec<ResolveError>> {
+    let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let project_layer = file.project.clone().unwrap_or_default();
     let workflow_layer = file.workflow.clone().unwrap_or_default();
