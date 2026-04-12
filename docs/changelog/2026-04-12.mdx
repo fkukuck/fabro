@@ -1,0 +1,15 @@
+---
+title: "Typed secrets and fabro pr create --force"
+date: "2026-04-12"
+---
+
+## Typed secrets
+
+Secrets now carry metadata describing their type and purpose. The new secrets API lets you inspect which secrets are configured, what they're used for, and whether they're present — without exposing the values themselves. This makes it easier to diagnose missing credentials and understand what a workflow needs before running it.
+
+## More
+
+<Accordion title="CLI">
+- Added `--force` option to `fabro pr create` to skip confirmation prompts
+- `fabro doctor` now checks that the storage directory exists and is writable
+</Accordion>
