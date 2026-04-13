@@ -266,7 +266,8 @@ fn detach_uses_configured_server_target_without_server_flag() {
 
 #[test]
 fn run_uses_vault_credentials_for_worker_execution() {
-    let context = test_context!();
+    let mut context = test_context!();
+    context.isolated_server();
     let run_id = unique_run_id();
     let llm_server = MockServer::start();
     seed_anthropic_vault(
