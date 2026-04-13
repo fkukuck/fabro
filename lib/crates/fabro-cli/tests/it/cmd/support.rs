@@ -654,19 +654,50 @@ fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
 
 #[derive(Debug, serde::Deserialize)]
 struct TestServerRecord {
-    bind: Bind,
+    bind:           Bind,
+    #[serde(default)]
+    dev_token_path: Option<PathBuf>,
 }
 
-fn server_endpoint(storage_dir: &Path) -> Option<(fabro_http::HttpClient, String)> {
+fn read_dev_token(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+pub(crate) fn local_dev_token(storage_dir: &Path) -> Option<String> {
+    let server_state = Storage::new(storage_dir).server_state();
+
+    read_dev_token(&server_state.dev_token_path()).or_else(|| {
+        std::fs::read_to_string(server_state.record_path())
+            .ok()
+            .and_then(|content| serde_json::from_str::<TestServerRecord>(&content).ok())
+            .and_then(|record| record.dev_token_path)
+            .as_deref()
+            .and_then(read_dev_token)
+    })
+}
+
+pub(crate) fn server_endpoint(storage_dir: &Path) -> Option<(fabro_http::HttpClient, String)> {
     let record_path = Storage::new(storage_dir).server_state().record_path();
     let record = std::fs::read_to_string(record_path)
         .ok()
         .and_then(|content| serde_json::from_str::<TestServerRecord>(&content).ok())?;
+    let mut headers = fabro_http::HeaderMap::new();
+    if let Some(token) = local_dev_token(storage_dir) {
+        headers.insert(
+            fabro_http::header::AUTHORIZATION,
+            fabro_http::HeaderValue::from_str(&format!("Bearer {token}"))
+                .expect("local dev token should build an authorization header"),
+        );
+    }
     match record.bind {
         Bind::Unix(path) if path.exists() => Some((
             fabro_http::HttpClientBuilder::new()
                 .unix_socket(path)
                 .no_proxy()
+                .default_headers(headers.clone())
                 .build()
                 .expect("test Unix-socket HTTP client should build"),
             "http://fabro".to_string(),
@@ -675,6 +706,7 @@ fn server_endpoint(storage_dir: &Path) -> Option<(fabro_http::HttpClient, String
         Bind::Tcp(addr) => Some((
             fabro_http::HttpClientBuilder::new()
                 .no_proxy()
+                .default_headers(headers)
                 .build()
                 .expect("test TCP HTTP client should build"),
             format!("http://{addr}"),

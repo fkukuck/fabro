@@ -1,5 +1,4 @@
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
 use std::process::{Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -8,33 +7,11 @@ use fabro_test::{apply_filters, fabro_snapshot, test_context};
 use serde_json::Value;
 
 use super::support::{
-    output_stdout, resolve_run, server_target, wait_for_status, write_gated_workflow,
+    output_stdout, resolve_run, server_endpoint, wait_for_status, write_gated_workflow,
 };
 use crate::support::{example_fixture, fabro_json_snapshot, run_output_filters, unique_run_id};
 
 const SHARED_DAEMON_TIMEOUT: Duration = Duration::from_secs(30);
-
-fn server_endpoint(storage_dir: &Path) -> (fabro_http::HttpClient, String) {
-    let target = server_target(storage_dir);
-    if target.starts_with('/') {
-        (
-            fabro_http::HttpClientBuilder::new()
-                .unix_socket(target)
-                .no_proxy()
-                .build()
-                .expect("test Unix-socket HTTP client should build"),
-            "http://fabro".to_string(),
-        )
-    } else {
-        (
-            fabro_http::HttpClientBuilder::new()
-                .no_proxy()
-                .build()
-                .expect("test TCP HTTP client should build"),
-            target,
-        )
-    }
-}
 
 async fn wait_for_server_question(
     client: &fabro_http::HttpClient,
@@ -465,6 +442,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
     fabro_json_snapshot!(context, &progress, @r#"
     [
       {
+        "actor": {
+          "display": "dev",
+          "id": "dev",
+          "kind": "user"
+        },
         "event": "run.created",
         "id": "[EVENT_ID]",
         "properties": {
@@ -580,7 +562,8 @@ fn attach_json_errors_without_prompting_for_human_input() {
               "version": "0.176.2"
             },
             "subject": {
-              "auth_method": "disabled"
+              "auth_method": "dev_token",
+              "login": "dev"
             }
           },
           "run_dir": "[RUN_DIR]",
@@ -847,7 +830,8 @@ fn attach_json_errors_without_prompting_for_human_input() {
     tokio::runtime::Runtime::new()
         .expect("test runtime should build")
         .block_on(async {
-            let (client, base_url) = server_endpoint(&context.storage_dir);
+            let (client, base_url) =
+                server_endpoint(&context.storage_dir).expect("server endpoint should exist");
             let question = wait_for_server_question(&client, &base_url, &run_id).await;
             let question_id = question["id"]
                 .as_str()

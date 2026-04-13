@@ -10,10 +10,7 @@ mod smoke;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fabro_config::Storage;
-use fabro_server::bind::Bind;
-
-use crate::cmd::support::RunProjection;
+use crate::cmd::support::{RunProjection, server_endpoint};
 pub(super) fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/it/workflow/fixtures")
@@ -36,41 +33,11 @@ fn infer_run_id(run_dir: &Path) -> String {
         .expect("run dir should contain resolvable run id")
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct TestServerRecord {
-    bind: Bind,
-}
-
-fn server_endpoint(storage_dir: &Path) -> (fabro_http::HttpClient, String) {
-    let record_path = Storage::new(storage_dir).server_state().record_path();
-    let record: TestServerRecord = serde_json::from_str(
-        &std::fs::read_to_string(record_path).expect("server record should exist"),
-    )
-    .expect("server record should parse");
-    match record.bind {
-        Bind::Unix(path) => (
-            fabro_http::HttpClientBuilder::new()
-                .unix_socket(path)
-                .no_proxy()
-                .build()
-                .expect("test Unix-socket HTTP client should build"),
-            "http://fabro".to_string(),
-        ),
-        Bind::Tcp(addr) => (
-            fabro_http::HttpClientBuilder::new()
-                .no_proxy()
-                .build()
-                .expect("test TCP HTTP client should build"),
-            format!("http://{addr}"),
-        ),
-    }
-}
-
 async fn get_server_json_for_storage<T: serde::de::DeserializeOwned>(
     storage_dir: &Path,
     path: &str,
 ) -> T {
-    let (client, base_url) = server_endpoint(storage_dir);
+    let (client, base_url) = server_endpoint(storage_dir).expect("server endpoint should exist");
     let response = client
         .get(format!("{base_url}{path}"))
         .send()

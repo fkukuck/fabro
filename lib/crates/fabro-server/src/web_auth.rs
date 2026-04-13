@@ -12,6 +12,7 @@ use cookie::time::Duration;
 use cookie::{Cookie, CookieJar, Expiration, Key, SameSite};
 use fabro_config::Storage;
 use fabro_types::settings::{InterpString, SettingsLayer};
+use fabro_util::dev_token::validate_dev_token_format;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, error, info, warn};
@@ -19,21 +20,20 @@ use tracing::{debug, error, info, warn};
 use crate::jwt_auth::{AuthMode, AuthStrategy, dev_token_matches};
 use crate::server::AppState;
 use crate::server_secrets::ServerSecrets;
-use fabro_util::dev_token::validate_dev_token_format;
 
 pub const SESSION_COOKIE_NAME: &str = "__fabro_session";
 const OAUTH_STATE_COOKIE_NAME: &str = "fabro_oauth_state";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionCookie {
-    pub login:      String,
-    pub provider:   String,
-    pub name:       String,
-    pub email:      String,
-    pub avatar_url: String,
-    pub user_url:   String,
+    pub login:       String,
+    pub provider:    String,
+    pub name:        String,
+    pub email:       String,
+    pub avatar_url:  String,
+    pub user_url:    String,
     pub provider_id: Option<i64>,
-    pub exp:        i64,
+    pub exp:         i64,
 }
 
 #[derive(Deserialize)]
@@ -224,8 +224,7 @@ async fn login_dev_token(
         return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
     };
 
-    if !validate_dev_token_format(&payload.token) || !dev_token_matches(&payload.token, &expected)
-    {
+    if !validate_dev_token_format(&payload.token) || !dev_token_matches(&payload.token, &expected) {
         return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
     }
 
@@ -889,7 +888,9 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use super::{GitHubManifestConversion, api_routes, merge_settings_keys, read_private_session, routes};
+    use super::{
+        GitHubManifestConversion, api_routes, merge_settings_keys, read_private_session, routes,
+    };
     use crate::jwt_auth::{AuthMode, AuthStrategy};
     use crate::server;
 

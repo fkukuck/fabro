@@ -40,7 +40,7 @@ fn inspect_created_run_shows_run_record_without_start_or_conclusion() {
     let run = setup_created_fast_dry_run(&context);
     let output = run_success(&context, &["inspect", &run.run_id]);
 
-    assert_snapshot!(serde_json::to_string_pretty(&compact_inspect(&output)).unwrap(), @r###"
+    assert_snapshot!(serde_json::to_string_pretty(&compact_inspect(&output)).unwrap(), @r#"
     [
       {
         "run_id": "[ULID]",
@@ -55,7 +55,7 @@ fn inspect_created_run_shows_run_record_without_start_or_conclusion() {
             "server_version": "[VERSION]",
             "client_name": "fabro-cli",
             "client_version": "[VERSION]",
-            "subject_auth_method": "disabled"
+            "subject_auth_method": "dev_token"
           }
         },
         "start_record": null,
@@ -64,7 +64,7 @@ fn inspect_created_run_shows_run_record_without_start_or_conclusion() {
         "sandbox": null
       }
     ]
-    "###);
+    "#);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn inspect_completed_run_shows_run_start_conclusion_checkpoint() {
             "server_version": "[VERSION]",
             "client_name": "fabro-cli",
             "client_version": "[VERSION]",
-            "subject_auth_method": "disabled"
+            "subject_auth_method": "dev_token"
           }
         },
         "start_record": {
@@ -154,7 +154,7 @@ fn inspect_completed_run_reads_store_without_disk_metadata_files() {
             "server_version": "[VERSION]",
             "client_name": "fabro-cli",
             "client_version": "[VERSION]",
-            "subject_auth_method": "disabled"
+            "subject_auth_method": "dev_token"
           }
         },
         "start_record": {
@@ -205,7 +205,7 @@ fn inspect_git_backed_run_exposes_checkpoint_and_sandbox_state() {
             "server_version": "[VERSION]",
             "client_name": "fabro-cli",
             "client_version": "[VERSION]",
-            "subject_auth_method": "disabled"
+            "subject_auth_method": "dev_token"
           }
         },
         "start_record": {

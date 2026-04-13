@@ -617,7 +617,7 @@ impl AppState {
     pub(crate) fn session_key(&self) -> Option<Key> {
         self.session_key_override.clone().or_else(|| {
             self.server_secret("SESSION_SECRET")
-            .map(|value| Key::derive_from(value.as_bytes()))
+                .map(|value| Key::derive_from(value.as_bytes()))
         })
     }
 
@@ -3172,6 +3172,9 @@ fn worker_command(
         .stderr(Stdio::piped());
 
     cmd.env_remove("FABRO_JSON");
+    if let Some(token) = std::env::var_os("FABRO_DEV_TOKEN") {
+        cmd.env("FABRO_DEV_TOKEN", token);
+    }
 
     #[cfg(unix)]
     fabro_proc::pre_exec_setpgid(cmd.as_std_mut());

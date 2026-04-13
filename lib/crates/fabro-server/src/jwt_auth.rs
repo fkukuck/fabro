@@ -7,6 +7,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use cookie::Key;
 use fabro_types::RunAuthMethod;
 use fabro_types::settings::{ServerListenSettings, ServerSettings as ResolvedServerSettings};
+use fabro_util::dev_token::validate_dev_token_format;
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use rustls_pki_types::CertificateDer;
@@ -15,7 +16,6 @@ use sha2::Sha256;
 
 use crate::error::ApiError;
 use crate::web_auth::SessionCookie;
-use fabro_util::dev_token::validate_dev_token_format;
 
 type HmacSha256 = Hmac<Sha256>;
 const DEV_TOKEN_COMPARE_KEY: &[u8] = b"fabro-dev-token-compare-key";
@@ -1077,14 +1077,14 @@ enabled = true
             .body(Body::empty())
             .unwrap();
         req.extensions_mut().insert(SessionCookie {
-            login:      "brynary".to_string(),
-            provider:   "github".to_string(),
-            name:       "Brynary".to_string(),
-            email:      "b@example.com".to_string(),
-            avatar_url: "https://example.com/avatar.png".to_string(),
-            user_url:   "https://github.com/brynary".to_string(),
+            login:       "brynary".to_string(),
+            provider:    "github".to_string(),
+            name:        "Brynary".to_string(),
+            email:       "b@example.com".to_string(),
+            avatar_url:  "https://example.com/avatar.png".to_string(),
+            user_url:    "https://github.com/brynary".to_string(),
             provider_id: Some(1),
-            exp:        9_999_999_999,
+            exp:         9_999_999_999,
         });
 
         let response = app.oneshot(req).await.unwrap();

@@ -8,10 +8,9 @@ use fabro_config::user::default_socket_path;
 use fabro_server::bind::{Bind, BindRequest};
 use fabro_server::serve;
 use fabro_server::serve::{DEFAULT_TCP_PORT, ServeArgs};
-use fabro_util::Home;
-use fabro_util::dev_token;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
+use fabro_util::{Home, dev_token};
 use tokio::process::Command as TokioCommand;
 use tokio::time;
 

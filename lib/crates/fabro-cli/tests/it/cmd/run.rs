@@ -812,6 +812,11 @@ fn json_run_implies_auto_approve_for_human_gates() {
     fabro_json_snapshot!(context, &progress, @r#"
     [
       {
+        "actor": {
+          "display": "dev",
+          "id": "dev",
+          "kind": "user"
+        },
         "event": "run.created",
         "id": "[EVENT_ID]",
         "properties": {
@@ -927,7 +932,8 @@ fn json_run_implies_auto_approve_for_human_gates() {
               "version": "0.176.2"
             },
             "subject": {
-              "auth_method": "disabled"
+              "auth_method": "dev_token",
+              "login": "dev"
             }
           },
           "run_dir": "[RUN_DIR]",

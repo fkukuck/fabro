@@ -55,7 +55,9 @@ pub fn load_or_create_dev_token(path: &Path) -> Result<String> {
     let token = generate_dev_token();
     let temp_path = path.with_file_name(format!(
         ".{}.tmp-{:x}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("dev-token"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dev-token"),
         rand::random::<u64>()
     ));
     write_private_token_file(&temp_path, &token)?;
@@ -75,7 +77,9 @@ pub fn write_dev_token(path: &Path, token: &str) -> Result<()> {
 
     let temp_path = path.with_file_name(format!(
         ".{}.tmp-{:x}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("dev-token"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dev-token"),
         rand::random::<u64>()
     ));
     write_private_token_file(&temp_path, token)?;

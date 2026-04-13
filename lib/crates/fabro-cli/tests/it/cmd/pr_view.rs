@@ -1,17 +1,10 @@
 #![allow(clippy::absolute_paths)]
 
-use fabro_config::Storage;
-use fabro_server::bind::Bind;
 use fabro_test::{fabro_snapshot, test_context};
 use fabro_types::run_event::PullRequestCreatedProps;
 use fabro_types::{EventBody, RunEvent, RunId};
 
-use super::support::setup_completed_fast_dry_run;
-
-#[derive(Debug, serde::Deserialize)]
-struct TestServerRecord {
-    bind: Bind,
-}
+use super::support::{server_endpoint, setup_completed_fast_dry_run};
 
 #[test]
 fn help() {
@@ -65,28 +58,8 @@ fn pr_view_reads_pull_request_from_store_without_pull_request_json() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
-        let record_path = Storage::new(&context.storage_dir)
-            .server_state()
-            .record_path();
-        let record: TestServerRecord =
-            serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
-        let (client, base_url) = match record.bind {
-            Bind::Unix(path) => (
-                fabro_http::HttpClientBuilder::new()
-                    .unix_socket(path)
-                    .no_proxy()
-                    .build()
-                    .unwrap(),
-                "http://fabro".to_string(),
-            ),
-            Bind::Tcp(addr) => (
-                fabro_http::HttpClientBuilder::new()
-                    .no_proxy()
-                    .build()
-                    .unwrap(),
-                format!("http://{addr}"),
-            ),
-        };
+        let (client, base_url) =
+            server_endpoint(&context.storage_dir).expect("server endpoint should exist");
         let event = RunEvent {
             id: ulid::Ulid::new().to_string(),
             ts: chrono::Utc::now(),

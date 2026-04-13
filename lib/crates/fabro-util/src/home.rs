@@ -84,8 +84,9 @@ impl Home {
 
 #[cfg(test)]
 mod tests {
-    use super::Home;
     use std::sync::{LazyLock, Mutex};
+
+    use super::Home;
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -143,6 +144,9 @@ mod tests {
 
         std::env::remove_var("HOME");
 
-        assert_eq!(home.root(), std::path::Path::new("/tmp/fabro-home-env/.fabro"));
+        assert_eq!(
+            home.root(),
+            std::path::Path::new("/tmp/fabro-home-env/.fabro")
+        );
     }
 }

@@ -13,8 +13,8 @@ use fabro_types::{EventBody, RunEvent, StatusReason};
 use httpmock::MockServer;
 
 use super::support::{
-    output_stderr, run_events, run_state, server_target, wait_for_event_names, wait_for_status,
-    write_gated_workflow,
+    local_dev_token, output_stderr, run_events, run_state, server_endpoint, server_target,
+    wait_for_event_names, wait_for_status, write_gated_workflow,
 };
 use crate::support::{fabro_json_snapshot, unique_run_id};
 
@@ -55,6 +55,9 @@ fn spawn_worker_process(
         .env("FABRO_HTTP_PROXY_POLICY", "disabled");
     cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
     cmd.env("FABRO_TEST_IN_MEMORY_STORE", "1");
+    if let Some(token) = local_dev_token(&context.storage_dir) {
+        cmd.env("FABRO_DEV_TOKEN", token);
+    }
     cmd.args([
         "__run-worker",
         "--server",
@@ -108,26 +111,12 @@ fn child_output(mut child: Child, status: ExitStatus) -> Output {
     }
 }
 
-fn server_endpoint(storage_dir: &std::path::Path) -> (fabro_http::HttpClient, String) {
-    let target = server_target(storage_dir);
-    if target.starts_with('/') {
-        (
-            fabro_http::HttpClientBuilder::new()
-                .unix_socket(target)
-                .no_proxy()
-                .build()
-                .expect("test Unix-socket HTTP client should build"),
-            "http://fabro".to_string(),
-        )
-    } else {
-        (
-            fabro_http::HttpClientBuilder::new()
-                .no_proxy()
-                .build()
-                .expect("test TCP HTTP client should build"),
-            target,
-        )
+fn worker_command(context: &fabro_test::TestContext) -> assert_cmd::Command {
+    let mut cmd = context.command();
+    if let Some(token) = local_dev_token(&context.storage_dir) {
+        cmd.env("FABRO_DEV_TOKEN", token);
     }
+    cmd
 }
 
 async fn wait_for_server_question(
@@ -225,8 +214,7 @@ digraph CachedGraph {
     let server = server_target(&context.storage_dir);
     std::fs::remove_file(&workflow_path).unwrap();
 
-    let output = context
-        .command()
+    let output = worker_command(&context)
         .args([
             "__run-worker",
             "--server",
@@ -306,7 +294,7 @@ digraph GitHubApp {
     context.write_home(".fabro/settings.toml", "_version = 1\n");
 
     let server = server_target(&context.storage_dir);
-    let mut cmd = context.command();
+    let mut cmd = worker_command(&context);
     cmd.env("GITHUB_APP_PRIVATE_KEY", "%%%not-base64%%%");
     cmd.args([
         "__run-worker",
@@ -356,8 +344,7 @@ digraph DetachedStoreOnly {
 
     let run_dir = context.find_run_dir(&run_id);
     let server = server_target(&context.storage_dir);
-    let output = context
-        .command()
+    let output = worker_command(&context)
         .args([
             "__run-worker",
             "--server",
@@ -441,7 +428,7 @@ digraph Test {
     }
     "#);
 
-    let mut cmd = context.command();
+    let mut cmd = worker_command(&context);
     cmd.args([
         "__run-worker",
         "--server",
@@ -601,7 +588,8 @@ fn detached_run_answers_pending_question_without_interview_scratch_files() {
     let run_dir = context.find_run_dir(&run_id);
     let runtime = tokio::runtime::Runtime::new().expect("test runtime should build");
     let question_id = runtime.block_on(async {
-        let (client, base_url) = server_endpoint(&context.storage_dir);
+        let (client, base_url) =
+            server_endpoint(&context.storage_dir).expect("server endpoint should exist");
         let question = wait_for_server_question(&client, &base_url, &run_id).await;
         let question_id = question["id"]
             .as_str()
