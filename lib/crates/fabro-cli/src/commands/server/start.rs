@@ -32,7 +32,6 @@ pub(crate) async fn execute(
             serve_args,
             storage_dir,
             styles,
-            true,
             printer,
         ))
         .await
@@ -132,7 +131,6 @@ async fn execute_foreground(
     serve_args: ServeArgs,
     storage_dir: PathBuf,
     styles: &'static Styles,
-    announce: bool,
     printer: Printer,
 ) -> Result<()> {
     let home = Home::from_env();
@@ -182,9 +180,7 @@ async fn execute_foreground(
         styles,
         Some(storage_dir),
         move |resolved_bind| {
-            if announce {
-                print_dev_token(printer, &home, &token);
-            }
+            print_dev_token(printer, &home, &token);
             record::write_server_record(&record_path, &record::ServerRecord {
                 pid,
                 bind: resolved_bind.clone(),

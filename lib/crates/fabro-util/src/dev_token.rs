@@ -35,6 +35,13 @@ pub fn validate_dev_token_format(token: &str) -> bool {
         && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+pub fn read_dev_token_file(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| validate_dev_token_format(token))
+}
+
 pub fn load_or_create_dev_token(path: &Path) -> Result<String> {
     match fs::read_to_string(path) {
         Ok(contents) => {
@@ -48,21 +55,8 @@ pub fn load_or_create_dev_token(path: &Path) -> Result<String> {
         Err(err) => return Err(err.into()),
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let token = generate_dev_token();
-    let temp_path = path.with_file_name(format!(
-        ".{}.tmp-{:x}",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dev-token"),
-        rand::random::<u64>()
-    ));
-    write_private_token_file(&temp_path, &token)?;
-    fs::rename(&temp_path, path)?;
-
+    atomic_write_private(path, &token)?;
     Ok(token)
 }
 
@@ -71,6 +65,10 @@ pub fn write_dev_token(path: &Path, token: &str) -> Result<()> {
         return Err(anyhow!("invalid dev token format for {}", path.display()));
     }
 
+    atomic_write_private(path, token)
+}
+
+fn atomic_write_private(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -82,12 +80,12 @@ pub fn write_dev_token(path: &Path, token: &str) -> Result<()> {
             .unwrap_or("dev-token"),
         rand::random::<u64>()
     ));
-    write_private_token_file(&temp_path, token)?;
+    write_private_file(&temp_path, contents)?;
     fs::rename(&temp_path, path)?;
     Ok(())
 }
 
-fn write_private_token_file(path: &Path, contents: &str) -> Result<()> {
+fn write_private_file(path: &Path, contents: &str) -> Result<()> {
     #[cfg(unix)]
     let mut file = {
         use std::fs::OpenOptions;

@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::fs;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,8 +13,8 @@ use fabro_server::bind::Bind;
 use fabro_store::{EventEnvelope, RunSummary, StageId};
 use fabro_types::settings::SettingsLayer;
 use fabro_types::{RunBlobId, RunEvent, RunId};
-use fabro_util::Home;
 use fabro_util::dev_token::validate_dev_token_format;
+use fabro_util::{Home, dev_token};
 use fabro_workflow::artifact_snapshot::CapturedArtifactInfo;
 use futures::StreamExt;
 use serde::Serialize;
@@ -191,13 +190,6 @@ fn normalize_remote_server_target(api_url: &str) -> String {
         .to_string()
 }
 
-fn read_dev_token_file(path: &Path) -> Option<String> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|token| token.trim().to_string())
-        .filter(|token| validate_dev_token_format(token))
-}
-
 fn load_dev_token_if_available(storage_dir: Option<&Path>) -> Option<String> {
     if let Some(token) = std::env::var("FABRO_DEV_TOKEN")
         .ok()
@@ -208,7 +200,7 @@ fn load_dev_token_if_available(storage_dir: Option<&Path>) -> Option<String> {
 
     if let Some(storage_dir) = storage_dir {
         let storage_token_path = Storage::new(storage_dir).server_state().dev_token_path();
-        if let Some(token) = read_dev_token_file(&storage_token_path) {
+        if let Some(token) = dev_token::read_dev_token_file(&storage_token_path) {
             return Some(token);
         }
 
@@ -216,13 +208,13 @@ fn load_dev_token_if_available(storage_dir: Option<&Path>) -> Option<String> {
         if let Some(token) = record::read_server_record(&record_path)
             .and_then(|server| server.dev_token_path)
             .as_deref()
-            .and_then(read_dev_token_file)
+            .and_then(dev_token::read_dev_token_file)
         {
             return Some(token);
         }
     }
 
-    read_dev_token_file(&Home::from_env().dev_token_path())
+    dev_token::read_dev_token_file(&Home::from_env().dev_token_path())
 }
 
 async fn wait_for_local_dev_token(storage_dir: &Path) -> Result<String> {
@@ -274,17 +266,10 @@ fn unix_socket_api_client_bundle(http_client: fabro_http::HttpClient) -> ServerS
     }
 }
 
-async fn try_connect_unix_socket_api_client_bundle(
+async fn build_authed_unix_socket_client(
     path: &Path,
     storage_dir: Option<&Path>,
 ) -> Result<ServerStoreClient> {
-    let probe_client = cli_http_client_builder()
-        .unix_socket(path)
-        .no_proxy()
-        .build()
-        .context("Failed to build Unix-socket HTTP client for fabro server")?;
-    check_server_ready(&probe_client).await?;
-
     let http_client = if let Some(storage_dir) = storage_dir {
         let token = wait_for_local_dev_token(storage_dir).await?;
         apply_bearer_token_auth(
@@ -301,6 +286,19 @@ async fn try_connect_unix_socket_api_client_bundle(
     Ok(unix_socket_api_client_bundle(http_client))
 }
 
+async fn try_connect_unix_socket_api_client_bundle(
+    path: &Path,
+    storage_dir: Option<&Path>,
+) -> Result<ServerStoreClient> {
+    let probe_client = cli_http_client_builder()
+        .unix_socket(path)
+        .no_proxy()
+        .build()
+        .context("Failed to build Unix-socket HTTP client for fabro server")?;
+    check_server_ready(&probe_client).await?;
+    build_authed_unix_socket_client(path, storage_dir).await
+}
+
 async fn connect_unix_socket_api_client_bundle(
     path: &Path,
     storage_dir: Option<&Path>,
@@ -311,21 +309,7 @@ async fn connect_unix_socket_api_client_bundle(
         .build()
         .context("Failed to build Unix-socket HTTP client for fabro server")?;
     wait_for_server_ready(&probe_client).await?;
-
-    let http_client = if let Some(storage_dir) = storage_dir {
-        let token = wait_for_local_dev_token(storage_dir).await?;
-        apply_bearer_token_auth(
-            cli_http_client_builder().unix_socket(path).no_proxy(),
-            &token,
-        )?
-        .build()
-        .context("Failed to build Unix-socket HTTP client for fabro server")?
-    } else {
-        apply_dev_token_auth(cli_http_client_builder().unix_socket(path).no_proxy(), None)?
-            .build()
-            .context("Failed to build Unix-socket HTTP client for fabro server")?
-    };
-    Ok(unix_socket_api_client_bundle(http_client))
+    build_authed_unix_socket_client(path, storage_dir).await
 }
 
 async fn check_server_ready(http_client: &fabro_http::HttpClient) -> Result<()> {
