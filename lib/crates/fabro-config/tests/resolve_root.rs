@@ -32,8 +32,11 @@ address = "127.0.0.1:3000"
 [server.listen.tls]
 cert = "/tmp/server.pem"
 
-[server.auth.api.mtls]
-enabled = true
+[server.auth]
+methods = ["github"]
+
+[server.auth.github]
+allowed_usernames = []
 
 [run.sandbox]
 provider = "not-a-provider"
@@ -48,7 +51,7 @@ provider = "not-a-provider"
         .join("\n");
 
     assert!(rendered.contains("server.listen.tls.key"));
-    assert!(rendered.contains("server.listen.tls.ca"));
+    assert!(rendered.contains("server.auth.github.allowed_usernames"));
     assert!(rendered.contains("run.sandbox.provider"));
 }
 

@@ -431,8 +431,8 @@ fn combine_server_web(lower: ServerWebLayer, higher: ServerWebLayer) -> ServerWe
 
 fn combine_server_auth(lower: ServerAuthLayer, higher: ServerAuthLayer) -> ServerAuthLayer {
     ServerAuthLayer {
-        api: higher.api.or(lower.api),
-        web: higher.web.or(lower.web),
+        methods: higher.methods.or(lower.methods),
+        github:  higher.github.or(lower.github),
     }
 }
 

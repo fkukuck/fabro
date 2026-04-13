@@ -122,7 +122,6 @@ mod tests {
                 tls:     Some(TlsConfig {
                     cert: InterpString::parse("/tmp/server.crt"),
                     key:  InterpString::parse("/tmp/server.key"),
-                    ca:   InterpString::parse("/tmp/server-ca.pem"),
                 }),
             })
             .unwrap(),
@@ -131,8 +130,7 @@ mod tests {
                 "address": "127.0.0.1:8080",
                 "tls": {
                     "cert": "/tmp/server.crt",
-                    "key": "/tmp/server.key",
-                    "ca": "/tmp/server-ca.pem"
+                    "key": "/tmp/server.key"
                 }
             })
         );

@@ -3394,7 +3394,7 @@ mod tests {
             client:  None,
             subject: Some(RunSubjectProvenance {
                 login:       Some("alice".to_string()),
-                auth_method: RunAuthMethod::Cookie,
+                auth_method: RunAuthMethod::Github,
             }),
         };
 

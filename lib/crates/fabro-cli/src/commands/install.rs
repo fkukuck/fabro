@@ -15,6 +15,7 @@ use fabro_api::types::{CreateSecretRequest, SecretType as ApiSecretType};
 use fabro_config::user::SETTINGS_CONFIG_FILENAME;
 use fabro_config::{Storage, envfile, legacy_env};
 use fabro_model::Provider;
+use fabro_util::dev_token;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 // Bootstrap-only direct vault writes for `fabro install` when no local server is running.
@@ -116,92 +117,6 @@ async fn generate_jwt_keypair() -> Result<(String, String)> {
 }
 
 // ---------------------------------------------------------------------------
-// mTLS certificate generation
-// ---------------------------------------------------------------------------
-
-async fn generate_mtls_certs(dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(dir).context("failed to create certs directory")?;
-
-    // 1. CA key + self-signed cert
-    let ca_key = run_openssl(&["genpkey", "-algorithm", "Ed25519"], "generate CA key").await?;
-    let ca_key_path = dir.join("ca.key");
-    std::fs::write(&ca_key_path, &ca_key)?;
-
-    let ca_cert = run_openssl(
-        &[
-            "req",
-            "-new",
-            "-x509",
-            "-key",
-            ca_key_path
-                .to_str()
-                .context("CA key path is not valid UTF-8")?,
-            "-days",
-            "3650",
-            "-subj",
-            "/CN=Fabro CA",
-        ],
-        "generate CA cert",
-    )
-    .await?;
-    let ca_cert_path = dir.join("ca.crt");
-    std::fs::write(&ca_cert_path, &ca_cert)?;
-
-    // 2. Server key + CSR signed by CA
-    let server_key =
-        run_openssl(&["genpkey", "-algorithm", "Ed25519"], "generate server key").await?;
-    let server_key_path = dir.join("server.key");
-    std::fs::write(&server_key_path, &server_key)?;
-
-    let csr = run_openssl(
-        &[
-            "req",
-            "-new",
-            "-key",
-            server_key_path
-                .to_str()
-                .context("server key path is not valid UTF-8")?,
-            "-subj",
-            "/CN=localhost",
-        ],
-        "generate server CSR",
-    )
-    .await?;
-
-    let csr_path = dir.join("server.csr");
-    std::fs::write(&csr_path, &csr)?;
-
-    let server_cert = run_openssl(
-        &[
-            "x509",
-            "-req",
-            "-in",
-            csr_path.to_str().context("CSR path is not valid UTF-8")?,
-            "-CA",
-            ca_cert_path
-                .to_str()
-                .context("CA cert path is not valid UTF-8")?,
-            "-CAkey",
-            ca_key_path
-                .to_str()
-                .context("CA key path is not valid UTF-8")?,
-            "-CAcreateserial",
-            "-days",
-            "3650",
-        ],
-        "sign server cert",
-    )
-    .await?;
-    std::fs::write(dir.join("server.crt"), &server_cert)?;
-
-    // Clean up temporary files
-    let _ = std::fs::remove_file(&csr_path);
-    let _ = std::fs::remove_file(dir.join("ca.srl"));
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Config TOML generation
 // ---------------------------------------------------------------------------
 
@@ -218,7 +133,7 @@ fn ensure_table<'a>(table: &'a mut toml::Table, key: &str) -> Result<&'a mut tom
         .with_context(|| format!("settings.toml [{key}] is not a table"))
 }
 
-fn merge_server_settings(doc: &mut toml::Value, username: &str) -> Result<()> {
+fn merge_server_settings(doc: &mut toml::Value) -> Result<()> {
     let root = root_table_mut(doc)?;
     root.insert("_version".to_string(), toml::Value::Integer(1));
 
@@ -227,44 +142,27 @@ fn merge_server_settings(doc: &mut toml::Value, username: &str) -> Result<()> {
     let api = ensure_table(server, "api")?;
     api.insert(
         "url".to_string(),
-        toml::Value::String("https://localhost:3000/api/v1".to_string()),
+        toml::Value::String("http://127.0.0.1:32276/api/v1".to_string()),
     );
 
     let listen = ensure_table(server, "listen")?;
     listen.insert("type".to_string(), toml::Value::String("tcp".to_string()));
-    let listen_tls = ensure_table(listen, "tls")?;
-    let certs_dir = fabro_util::Home::from_env().certs_dir();
-    listen_tls.insert(
-        "cert".to_string(),
-        toml::Value::String(certs_dir.join("server.crt").to_string_lossy().to_string()),
-    );
-    listen_tls.insert(
-        "key".to_string(),
-        toml::Value::String(certs_dir.join("server.key").to_string_lossy().to_string()),
-    );
-    listen_tls.insert(
-        "ca".to_string(),
-        toml::Value::String(certs_dir.join("ca.crt").to_string_lossy().to_string()),
+    listen.insert(
+        "address".to_string(),
+        toml::Value::String("127.0.0.1:32276".to_string()),
     );
 
     let web = ensure_table(server, "web")?;
     web.insert("enabled".to_string(), toml::Value::Boolean(true));
     web.insert(
         "url".to_string(),
-        toml::Value::String("http://localhost:3000".to_string()),
+        toml::Value::String("http://127.0.0.1:32276".to_string()),
     );
 
     let auth = ensure_table(server, "auth")?;
-    let auth_api = ensure_table(auth, "api")?;
-    let jwt = ensure_table(auth_api, "jwt")?;
-    jwt.insert("enabled".to_string(), toml::Value::Boolean(true));
-    let mtls = ensure_table(auth_api, "mtls")?;
-    mtls.insert("enabled".to_string(), toml::Value::Boolean(true));
-
-    let auth_web = ensure_table(auth, "web")?;
-    auth_web.insert(
-        "allowed_usernames".to_string(),
-        toml::Value::Array(vec![toml::Value::String(username.to_string())]),
+    auth.insert(
+        "methods".to_string(),
+        toml::Value::Array(vec![toml::Value::String("dev-token".to_string())]),
     );
 
     Ok(())
@@ -321,9 +219,9 @@ fn write_github_app_settings(
 }
 
 #[cfg(test)]
-fn format_config_toml(username: &str) -> String {
+fn format_config_toml() -> String {
     let mut doc = toml::Value::Table(toml::Table::default());
-    merge_server_settings(&mut doc, username).expect("default server config should be valid");
+    merge_server_settings(&mut doc).expect("default server config should be valid");
     toml::to_string_pretty(&doc).expect("default server config should serialize")
 }
 
@@ -1009,16 +907,13 @@ pub(crate) async fn run_install(
         };
 
         if write_config {
-            let username: String =
-                spawn_blocking(|| prompt_input("GitHub username for allowed access")).await??;
-
             let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
             let mut doc: toml::Value = if existing.is_empty() {
                 toml::Value::Table(toml::Table::default())
             } else {
                 toml::from_str(&existing).context("failed to parse existing settings.toml")?
             };
-            merge_server_settings(&mut doc, &username)?;
+            merge_server_settings(&mut doc)?;
             std::fs::write(&config_path, toml::to_string_pretty(&doc)?)?;
             fabro_util::printerr!(
                 printer,
@@ -1035,12 +930,12 @@ pub(crate) async fn run_install(
         fabro_util::printerr!(printer, "");
     }
 
-    // Secrets and certificates
+    // Secrets and auth material
     {
         fabro_util::printerr!(
             printer,
             "  {}",
-            s.dim.apply_to("Generating secrets and certificates...")
+            s.dim.apply_to("Generating secrets and auth material...")
         );
 
         let session_secret = generate_session_secret();
@@ -1057,11 +952,15 @@ pub(crate) async fn run_install(
             s.green.apply_to("✔")
         );
 
-        let certs_dir = fabro_dir.join("certs");
-        generate_mtls_certs(&certs_dir).await?;
+        let dev_token =
+            dev_token::load_or_create_dev_token(&fabro_util::Home::from_env().dev_token_path())?;
+        dev_token::write_dev_token(
+            &Storage::new(&storage_dir).server_state().dev_token_path(),
+            &dev_token,
+        )?;
         fabro_util::printerr!(
             printer,
-            "  {} mTLS CA + server certificates generated",
+            "  {} Development token generated",
             s.green.apply_to("✔")
         );
 
@@ -1072,6 +971,7 @@ pub(crate) async fn run_install(
             ("FABRO_JWT_PRIVATE_KEY".to_string(), jwt_private_b64),
             ("FABRO_JWT_PUBLIC_KEY".to_string(), jwt_public_b64),
             ("SESSION_SECRET".to_string(), session_secret),
+            ("FABRO_DEV_TOKEN".to_string(), dev_token),
         ];
         server_env_pairs.extend(generated_server_env_pairs);
         fabro_util::printerr!(printer, "");
@@ -1220,144 +1120,64 @@ mod tests {
         jsonwebtoken::DecodingKey::from_ed_pem(public.as_bytes()).expect("public key should parse");
     }
 
-    // -- mTLS cert generation --
-
-    #[tokio::test]
-    async fn mtls_certs_creates_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let certs_dir = dir.path().join("certs");
-        generate_mtls_certs(&certs_dir).await.unwrap();
-
-        assert!(certs_dir.join("ca.key").exists());
-        assert!(certs_dir.join("ca.crt").exists());
-        assert!(certs_dir.join("server.key").exists());
-        assert!(certs_dir.join("server.crt").exists());
-    }
-
-    #[tokio::test]
-    async fn mtls_ca_cert_is_pem() {
-        let dir = tempfile::tempdir().unwrap();
-        let certs_dir = dir.path().join("certs");
-        generate_mtls_certs(&certs_dir).await.unwrap();
-
-        let ca_crt = std::fs::read_to_string(certs_dir.join("ca.crt")).unwrap();
-        assert!(
-            ca_crt.starts_with("-----BEGIN CERTIFICATE-----"),
-            "ca.crt: {ca_crt}"
-        );
-    }
-
-    #[tokio::test]
-    async fn mtls_server_cert_is_pem() {
-        let dir = tempfile::tempdir().unwrap();
-        let certs_dir = dir.path().join("certs");
-        generate_mtls_certs(&certs_dir).await.unwrap();
-
-        let server_crt = std::fs::read_to_string(certs_dir.join("server.crt")).unwrap();
-        assert!(
-            server_crt.starts_with("-----BEGIN CERTIFICATE-----"),
-            "server.crt: {server_crt}"
-        );
-    }
-
-    #[tokio::test]
-    async fn mtls_certs_parse_via_rustls() {
-        let dir = tempfile::tempdir().unwrap();
-        let certs_dir = dir.path().join("certs");
-        generate_mtls_certs(&certs_dir).await.unwrap();
-
-        let ca_pem = std::fs::read(certs_dir.join("ca.crt")).unwrap();
-        let mut reader = std::io::Cursor::new(&ca_pem);
-        let ca_certs: Vec<_> = rustls_pemfile::certs(&mut reader)
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(ca_certs.len(), 1);
-
-        let server_pem = std::fs::read(certs_dir.join("server.crt")).unwrap();
-        let mut reader = std::io::Cursor::new(&server_pem);
-        let server_certs: Vec<_> = rustls_pemfile::certs(&mut reader)
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(server_certs.len(), 1);
-    }
-
     // -- Config TOML generation --
 
     #[test]
     fn config_toml_roundtrips() {
         use fabro_types::settings::SettingsLayer;
-        let toml_str = format_config_toml("brynary");
+        let toml_str = format_config_toml();
         let cfg: SettingsLayer = fabro_config::parse_settings_layer(&toml_str)
             .expect("generated config should parse as v2");
-        let allowed = cfg
+        let methods = cfg
             .server
             .as_ref()
             .and_then(|s| s.auth.as_ref())
-            .and_then(|a| a.web.as_ref())
-            .map(|w| w.allowed_usernames.clone())
-            .expect("server.auth.web.allowed_usernames should be set");
-        assert_eq!(allowed, vec!["brynary".to_string()]);
+            .and_then(|a| a.methods.clone())
+            .expect("server.auth.methods should be set");
+        assert_eq!(methods, vec![
+            fabro_types::settings::ServerAuthMethod::DevToken
+        ]);
     }
 
     #[test]
     fn config_toml_has_auth_strategies() {
         use fabro_types::settings::SettingsLayer;
-        let toml_str = format_config_toml("alice");
+        let toml_str = format_config_toml();
         let cfg: SettingsLayer = fabro_config::parse_settings_layer(&toml_str).unwrap();
-        let auth_api = cfg
+        let auth = cfg
             .server
             .as_ref()
             .and_then(|s| s.auth.as_ref())
-            .and_then(|a| a.api.as_ref())
-            .expect("server.auth.api should be set");
-        assert!(
-            auth_api
-                .jwt
-                .as_ref()
-                .is_some_and(|jwt| jwt.enabled.unwrap_or(false))
-        );
-        assert!(
-            auth_api
-                .mtls
-                .as_ref()
-                .is_some_and(|mtls| mtls.enabled.unwrap_or(false))
+            .expect("server.auth should be set");
+        assert_eq!(
+            auth.methods,
+            Some(vec![fabro_types::settings::ServerAuthMethod::DevToken])
         );
     }
 
     #[test]
-    fn config_toml_has_tls_paths() {
+    fn config_toml_has_tcp_listen_address() {
         use fabro_types::settings::SettingsLayer;
         use fabro_types::settings::server::ServerListenLayer;
-        let toml_str = format_config_toml("bob");
+        let toml_str = format_config_toml();
         let cfg: SettingsLayer = fabro_config::parse_settings_layer(&toml_str).unwrap();
         let listen = cfg
             .server
             .as_ref()
             .and_then(|s| s.listen.as_ref())
             .expect("server.listen should be set");
-        let tls = match listen {
-            ServerListenLayer::Tcp { tls, .. } => tls.as_ref().expect("server.listen.tls"),
+        match listen {
+            ServerListenLayer::Tcp { address, tls } => {
+                assert_eq!(
+                    address
+                        .as_ref()
+                        .map(fabro_types::settings::InterpString::as_source),
+                    Some("127.0.0.1:32276".to_string())
+                );
+                assert!(tls.is_none());
+            }
             ServerListenLayer::Unix { .. } => panic!("expected tcp listen"),
-        };
-        let certs_dir = fabro_util::Home::from_env().certs_dir();
-        assert_eq!(
-            tls.cert
-                .as_ref()
-                .map(fabro_types::settings::InterpString::as_source),
-            Some(certs_dir.join("server.crt").to_string_lossy().into_owned())
-        );
-        assert_eq!(
-            tls.key
-                .as_ref()
-                .map(fabro_types::settings::InterpString::as_source),
-            Some(certs_dir.join("server.key").to_string_lossy().into_owned())
-        );
-        assert_eq!(
-            tls.ca
-                .as_ref()
-                .map(fabro_types::settings::InterpString::as_source),
-            Some(certs_dir.join("ca.crt").to_string_lossy().into_owned())
-        );
+        }
     }
 
     #[test]
@@ -1372,7 +1192,7 @@ name = "custom"
         )
         .unwrap();
 
-        merge_server_settings(&mut doc, "alice").unwrap();
+        merge_server_settings(&mut doc).unwrap();
 
         // Existing top-level [project] stays.
         assert_eq!(
@@ -1382,19 +1202,17 @@ name = "custom"
                 .and_then(toml::Value::as_str),
             Some("custom")
         );
-        // New server.auth.web.allowed_usernames is added.
+        // New server.auth.methods is added.
         assert_eq!(
             doc.get("server")
                 .and_then(toml::Value::as_table)
                 .and_then(|s| s.get("auth"))
                 .and_then(toml::Value::as_table)
-                .and_then(|a| a.get("web"))
-                .and_then(toml::Value::as_table)
-                .and_then(|w| w.get("allowed_usernames"))
+                .and_then(|a| a.get("methods"))
                 .and_then(toml::Value::as_array)
-                .and_then(|u| u.first())
+                .and_then(|methods| methods.first())
                 .and_then(toml::Value::as_str),
-            Some("alice")
+            Some("dev-token")
         );
     }
 

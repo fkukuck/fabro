@@ -6,72 +6,26 @@ use std::sync::Arc;
 use anyhow::Context;
 use fabro_types::settings::{InterpString, TlsConfig};
 use rustls::ServerConfig;
-use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
 use tracing::error;
 
-use crate::jwt_auth::PeerCertificates;
-
-/// How client certificates should be verified.
-#[derive(Clone, Copy)]
-pub enum ClientAuth {
-    /// No client certificates requested (TLS encryption only).
-    None,
-    /// Client certificates required; reject connections without one.
-    Required,
-    /// Client certificates requested but not required (multi-strategy
-    /// fallback).
-    Optional,
-}
-
-/// Build a rustls `ServerConfig` from the `[api.tls]` configuration.
-pub fn build_rustls_config(
-    tls_settings: &TlsConfig,
-    client_auth: ClientAuth,
-) -> anyhow::Result<Arc<ServerConfig>> {
+/// Build a rustls `ServerConfig` from the `[server.listen.tls]` configuration.
+pub fn build_rustls_config(tls_settings: &TlsConfig) -> anyhow::Result<Arc<ServerConfig>> {
     let cert = resolve_path(&tls_settings.cert)?;
     let key_path = resolve_path(&tls_settings.key)?;
 
     let certs = load_certs(&cert);
     let key = load_private_key(&key_path);
 
-    let config = match client_auth {
-        ClientAuth::None => ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .expect("invalid server certificate or key"),
-        ClientAuth::Required | ClientAuth::Optional => {
-            let ca_path = resolve_path(&tls_settings.ca)?;
-            let ca_certs = load_certs(&ca_path);
-            let mut root_store = rustls::RootCertStore::empty();
-            for cert in ca_certs {
-                root_store
-                    .add(cert)
-                    .expect("failed to add CA certificate to root store");
-            }
-
-            let builder = WebPkiClientVerifier::builder(Arc::new(root_store));
-            let verifier = if matches!(client_auth, ClientAuth::Optional) {
-                builder.allow_unauthenticated()
-            } else {
-                builder
-            }
-            .build()
-            .expect("failed to build client verifier");
-
-            ServerConfig::builder()
-                .with_client_cert_verifier(verifier)
-                .with_single_cert(certs, key)
-                .expect("invalid server certificate or key")
-        }
-    };
+    let config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .expect("invalid server certificate or key");
 
     Ok(Arc::new(config))
 }
 
-/// Serve requests over TLS, extracting peer certificates into request
-/// extensions.
 pub async fn serve_tls(
     listener: TcpListener,
     tls_acceptor: tokio_rustls::TlsAcceptor,
@@ -119,18 +73,9 @@ where
                 }
             };
 
-            // Extract peer certificates once per connection (not per request)
-            let (_, server_conn) = tls_stream.get_ref();
-            let peer_certs = PeerCertificates(
-                server_conn
-                    .peer_certificates()
-                    .map(<[rustls_pki_types::CertificateDer<'_>]>::to_vec),
-            );
-
             let io = TokioIo::new(tls_stream);
 
-            let service = service_fn(move |mut req: hyper::Request<Incoming>| {
-                req.extensions_mut().insert(peer_certs.clone());
+            let service = service_fn(move |req: hyper::Request<Incoming>| {
                 let mut router = router.clone();
                 async move { router.call(req).await }
             });

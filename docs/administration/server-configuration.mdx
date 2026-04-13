@@ -34,24 +34,19 @@ address = "0.0.0.0:3000"
 [server.listen.tls]
 cert = "/etc/fabro/tls/cert.pem"
 key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
 
 [server.api]
 url = "https://fabro.example.com/api/v1"
-
-[server.auth.api.jwt]
-enabled = true
 
 [server.web]
 enabled = true
 url = "https://fabro-web.example.com"
 
-[server.auth.web]
-allowed_usernames = ["alice", "bob"]
+[server.auth]
+methods = ["dev-token", "github"]
 
-[server.auth.web.providers.github]
-enabled = true
-client_id = "Iv1.abc123"
+[server.auth.github]
+allowed_usernames = ["alice", "bob"]
 
 [server.integrations.github]
 app_id = "123456"
@@ -130,6 +125,28 @@ Control the embedded SPA and browser-oriented routes.
 | `url` | External web UI URL used for OAuth redirects | none (no implicit derivation from `server.listen`) |
 
 When `enabled = false`, the server still exposes the machine API and `/health`, but `/`, `/auth/*`, SPA client routes, `/api/v1/auth/me`, `/api/v1/setup/*`, and `/api/v1/demo/toggle` all return `404`.
+
+### `[server.auth]` section
+
+Configure how users authenticate with the server.
+
+| Key | Description | Default |
+|---|---|---|
+| `methods` | Ordered list of enabled bootstrap methods: `dev-token`, `github` | `["dev-token"]` |
+
+When `"dev-token"` is enabled, the API accepts `Authorization: Bearer fabro_dev_...` and the login page can authenticate with the dev token directly.
+
+When `"github"` is enabled, browser users can sign in with GitHub OAuth and receive a session cookie.
+
+### `[server.auth.github]` section
+
+GitHub-specific auth policy.
+
+| Key | Description |
+|---|---|
+| `allowed_usernames` | GitHub usernames allowed to complete OAuth login |
+
+The GitHub OAuth client ID still lives under `[server.integrations.github].client_id`.
 
 ### Run defaults
 
@@ -210,6 +227,13 @@ Fabro splits secrets into two scopes:
 
 - Server runtime secrets live in `<data_dir>/server.env` and resolve with precedence `process env -> server.env`.
 - Workflow-visible secrets live in `<data_dir>/secrets.json` (the vault). Anything stored in the vault may be used by workflows.
+
+For the auth model above, the main server runtime secrets are:
+
+- `SESSION_SECRET` when the web UI is enabled
+- `FABRO_DEV_TOKEN` when `"dev-token"` auth is enabled
+- `GITHUB_APP_CLIENT_SECRET` when `"github"` auth is enabled
+- `FABRO_JWT_PRIVATE_KEY` / `FABRO_JWT_PUBLIC_KEY`, provisioned during install for future CLI login flows
 
 Fabro no longer auto-loads `.env` files. Provider API keys are required for the models you want to use; everything else is optional.
 

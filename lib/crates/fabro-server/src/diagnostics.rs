@@ -7,9 +7,10 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::types::{Message, Request};
 use fabro_model::{Catalog, Provider};
-use fabro_types::settings::InterpString;
 use fabro_types::settings::server::GithubIntegrationStrategy;
+use fabro_types::settings::{InterpString, ServerAuthMethod};
 use fabro_util::check_report::{CheckDetail, CheckResult, CheckSection, CheckStatus};
+use fabro_util::dev_token::validate_dev_token_format;
 use fabro_util::version::FABRO_VERSION;
 use regex::Regex;
 use semver::Version;
@@ -139,17 +140,6 @@ fn validate_tls_private_key(pem: &str) -> Result<(), String> {
     rustls_pemfile::private_key(&mut reader)
         .map_err(|e| format!("failed to parse private key PEM: {e}"))?
         .ok_or_else(|| "no private key found in PEM".to_string())?;
-    Ok(())
-}
-
-fn validate_tls_ca(pem: &str) -> Result<(), String> {
-    let mut reader = std::io::Cursor::new(pem.as_bytes());
-    let certs: Vec<_> = rustls_pemfile::certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("failed to parse CA certificate PEM: {e}"))?;
-    if certs.is_empty() {
-        return Err("no CA certificates found in PEM".to_string());
-    }
     Ok(())
 }
 
@@ -587,98 +577,58 @@ async fn check_brave_search(state: &AppState) -> CheckResult {
 }
 
 fn check_crypto(state: &AppState) -> CheckResult {
-    use fabro_types::settings::interp::InterpString;
-
     let settings_file = state
         .settings
         .read()
         .expect("settings lock poisoned")
         .clone();
-    let auth_api = settings_file
-        .server
-        .as_ref()
-        .and_then(|s| s.auth.as_ref())
-        .and_then(|a| a.api.as_ref());
-    let has_jwt = auth_api
-        .and_then(|api| api.jwt.as_ref())
-        .is_some_and(|jwt| jwt.enabled.unwrap_or(true));
-    let has_mtls = auth_api
-        .and_then(|api| api.mtls.as_ref())
-        .is_some_and(|mtls| mtls.enabled.unwrap_or(true));
-
-    if !has_jwt && !has_mtls {
-        return CheckResult {
-            name:        "Crypto".to_string(),
-            status:      CheckStatus::Warning,
-            summary:     "no authentication configured".to_string(),
-            details:     Vec::new(),
-            remediation: Some(
-                "Configure strategies under [server.auth.api.jwt] or [server.auth.api.mtls]"
-                    .to_string(),
-            ),
-        };
-    }
+    let resolved_server_settings = state.server_settings();
 
     let mut details = Vec::new();
     let mut errors = Vec::new();
 
-    if has_mtls {
-        use fabro_types::settings::server::ServerListenLayer;
-        let listen_tls = settings_file
-            .server
-            .as_ref()
-            .and_then(|s| s.listen.as_ref())
-            .and_then(|listen| match listen {
-                ServerListenLayer::Tcp { tls, .. } => tls.as_ref(),
-                ServerListenLayer::Unix { .. } => None,
-            });
-        if let Some(listen_tls) = listen_tls {
-            let read = |raw: Option<String>, label: &str| -> Result<String, String> {
-                let Some(path_str) = raw else {
-                    return Err(format!("server.listen.tls.{label} is not configured"));
-                };
-                let path = PathBuf::from(&path_str);
-                let expanded = fabro_config::expand_tilde(&path);
-                std::fs::read_to_string(&expanded)
-                    .map_err(|e| format!("{}: {e}", expanded.display()))
-            };
-            let cert = read(
-                listen_tls.cert.as_ref().map(InterpString::as_source),
-                "cert",
-            );
-            let key = read(listen_tls.key.as_ref().map(InterpString::as_source), "key");
-            let ca = read(listen_tls.ca.as_ref().map(InterpString::as_source), "ca");
-            match (cert, key, ca) {
-                (Ok(cert_pem), Ok(key_pem), Ok(ca_pem)) => {
-                    if let Err(err) = validate_tls_cert(&cert_pem, chrono::Utc::now().timestamp()) {
-                        errors.push(err);
-                    }
-                    if let Err(err) = validate_tls_private_key(&key_pem) {
-                        errors.push(err);
-                    }
-                    if let Err(err) = validate_tls_ca(&ca_pem) {
-                        errors.push(err);
-                    }
-                }
-                _ => errors.push("failed to read mTLS files".to_string()),
-            }
-        } else {
-            errors.push("mTLS configured but [server.listen.tls] is missing".to_string());
-        }
-    }
-
-    if has_jwt {
-        match state.server_secret("FABRO_JWT_PUBLIC_KEY") {
-            Some(raw) => {
-                if let Err(err) = decode_pem_value("FABRO_JWT_PUBLIC_KEY", &raw).and_then(|pem| {
-                    jsonwebtoken::DecodingKey::from_ed_pem(pem.as_bytes())
-                        .map(|_| ())
-                        .map_err(|e| format!("invalid JWT public key: {e}"))
-                }) {
+    if resolved_server_settings.web.enabled {
+        match state.server_secret("SESSION_SECRET") {
+            Some(secret) => {
+                if let Err(err) = validate_session_secret(&secret) {
                     errors.push(err);
                 }
             }
-            None => errors.push("FABRO_JWT_PUBLIC_KEY not set".to_string()),
+            None => errors.push("SESSION_SECRET not set".to_string()),
+        }
+    }
+
+    let methods = &resolved_server_settings.auth.methods;
+    if methods.contains(&ServerAuthMethod::DevToken) {
+        match state.server_secret("FABRO_DEV_TOKEN") {
+            Some(token) if validate_dev_token_format(&token) => {}
+            Some(_) => errors.push("FABRO_DEV_TOKEN has invalid format".to_string()),
+            None => errors.push("FABRO_DEV_TOKEN not set".to_string()),
+        }
+    }
+    if methods.contains(&ServerAuthMethod::Github) {
+        if resolved_server_settings
+            .integrations
+            .github
+            .client_id
+            .is_none()
+        {
+            errors.push("server.integrations.github.client_id is not configured".to_string());
+        }
+        if state.server_secret("GITHUB_APP_CLIENT_SECRET").is_none() {
+            errors.push("GITHUB_APP_CLIENT_SECRET not set".to_string());
+        }
+    }
+
+    if let Some(raw) = state.server_secret("FABRO_JWT_PUBLIC_KEY") {
+        if let Err(err) = decode_pem_value("FABRO_JWT_PUBLIC_KEY", &raw).and_then(|pem| {
+            jsonwebtoken::DecodingKey::from_ed_pem(pem.as_bytes())
+                .map(|_| ())
+                .map_err(|e| format!("invalid JWT public key: {e}"))
+        }) {
+            errors.push(err);
+        } else {
+            details.push(CheckDetail::new("FABRO_JWT_PUBLIC_KEY valid".to_string()));
         }
     }
 
@@ -689,12 +639,42 @@ fn check_crypto(state: &AppState) -> CheckResult {
                 .map_err(|e| format!("invalid JWT private key: {e}"))
         }) {
             errors.push(err);
+        } else {
+            details.push(CheckDetail::new("FABRO_JWT_PRIVATE_KEY valid".to_string()));
         }
     }
 
-    if let Some(secret) = state.server_secret("SESSION_SECRET") {
-        if let Err(err) = validate_session_secret(&secret) {
-            errors.push(err);
+    if let Some(listen) = settings_file
+        .server
+        .as_ref()
+        .and_then(|s| s.listen.as_ref())
+    {
+        use fabro_types::settings::server::ServerListenLayer;
+
+        if let ServerListenLayer::Tcp { tls: Some(tls), .. } = listen {
+            let read = |raw: Option<String>, label: &str| -> Result<String, String> {
+                let Some(path_str) = raw else {
+                    return Err(format!("server.listen.tls.{label} is not configured"));
+                };
+                let path = PathBuf::from(&path_str);
+                let expanded = fabro_config::expand_tilde(&path);
+                std::fs::read_to_string(&expanded)
+                    .map_err(|e| format!("{}: {e}", expanded.display()))
+            };
+            match (
+                read(tls.cert.as_ref().map(InterpString::as_source), "cert"),
+                read(tls.key.as_ref().map(InterpString::as_source), "key"),
+            ) {
+                (Ok(cert_pem), Ok(key_pem)) => {
+                    if let Err(err) = validate_tls_cert(&cert_pem, chrono::Utc::now().timestamp()) {
+                        errors.push(err);
+                    }
+                    if let Err(err) = validate_tls_private_key(&key_pem) {
+                        errors.push(err);
+                    }
+                }
+                _ => errors.push("failed to read TLS files".to_string()),
+            }
         }
     }
 
@@ -702,7 +682,7 @@ fn check_crypto(state: &AppState) -> CheckResult {
         CheckResult {
             name: "Crypto".to_string(),
             status: CheckStatus::Pass,
-            summary: "all keys valid".to_string(),
+            summary: "all configured auth material valid".to_string(),
             details,
             remediation: None,
         }

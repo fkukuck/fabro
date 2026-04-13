@@ -26,64 +26,55 @@ url = "https://fabro.example.com/api/v1"
 
 ## Authentication
 
-The API supports two authentication strategies, configured in `settings.toml`:
+Fabro configures server auth with bootstrap methods:
 
 ```toml title="settings.toml"
-[server.auth.api.jwt]
-enabled = true
+[server.auth]
+methods = ["dev-token", "github"]
+
+[server.auth.github]
+allowed_usernames = ["alice", "bob"]
 ```
 
-### JWT (Bearer Token)
+Protected `/api/v1/*` routes always accept:
 
-Send an Ed25519-signed JWT in the `Authorization` header:
+- `Authorization: Bearer <token>`
+- the browser session cookie when the web UI is enabled
+
+If both are present, the `Authorization` header wins.
+
+### Dev Token
+
+When `"dev-token"` is enabled, the API accepts the raw dev token directly as a bearer credential:
 
 ```
-Authorization: Bearer <token>
+Authorization: Bearer fabro_dev_...
 ```
 
-The token must include these claims:
+This is the simplest way to make ad hoc local requests with `curl` or a script. The dev token is also available as a web login method when the web UI is enabled.
 
-| Claim | Description |
-|-------|-------------|
-| `iss` | Issuer — must be `fabro-web` |
-| `iat` | Issued-at timestamp (Unix seconds) |
-| `exp` | Expiration timestamp (Unix seconds) |
-| `sub` | Subject — a URL identifying the user (e.g. `https://github.com/username`) |
+### GitHub OAuth
 
-The username is extracted from the last path segment of the `sub` claim and checked against the `allowed_usernames` list in the web auth config.
+When `"github"` is enabled, browser users can sign in through GitHub OAuth. Successful logins mint a server-issued session cookie that the browser automatically sends on subsequent API requests.
 
-Set the verification key via the `FABRO_JWT_PUBLIC_KEY` environment variable (PEM format or base64-encoded PEM).
+`[server.auth.github].allowed_usernames` restricts which GitHub usernames may complete login.
 
-### mTLS (Mutual TLS)
+### Browser Sessions
 
-With mTLS, the client authenticates using a TLS client certificate. Configure the strategy and shared listener TLS:
+When `[server.web].enabled = true`, the server requires `SESSION_SECRET` and issues a private `__fabro_session` cookie after successful login. The cookie is session transport only; the underlying bootstrap method remains `dev-token` or `github`, and that provenance is preserved in run metadata.
+
+### HTTPS
+
+If you want HTTPS on the listener, configure shared TLS on `[server.listen.tls]`:
 
 ```toml title="settings.toml"
-[server.auth.api.mtls]
-enabled = true
-
 [server.listen]
 type = "tcp"
 address = "0.0.0.0:3000"
 
 [server.listen.tls]
-cert = "~/.fabro/certs/server.crt"
-key = "~/.fabro/certs/server.key"
-ca = "~/.fabro/certs/ca.crt"
-```
-
-The Common Name (CN) from the client certificate identifies the user.
-
-### Multiple Strategies
-
-You can enable both strategies. They are tried in order — the first successful match wins:
-
-```toml title="settings.toml"
-[server.auth.api.jwt]
-enabled = true
-
-[server.auth.api.mtls]
-enabled = true
+cert = "/etc/fabro/tls/cert.pem"
+key = "/etc/fabro/tls/key.pem"
 ```
 
 ## Errors
@@ -117,7 +108,7 @@ Each entry in the `errors` array contains:
 | Status | Meaning | When It Occurs |
 |--------|---------|----------------|
 | `400 Bad Request` | The request body or parameters are invalid | Missing required fields, malformed JSON |
-| `401 Unauthorized` | Authentication is missing or invalid | No token, expired token, invalid certificate |
+| `401 Unauthorized` | Authentication is missing or invalid | No token, invalid dev token, or missing/expired session |
 | `403 Forbidden` | The authenticated user lacks access | Username not in the allowed list |
 | `404 Not Found` | The requested resource does not exist | Unknown run ID, unknown workflow name |
 | `409 Conflict` | The resource is in a conflicting state | Answering a question on a run that isn't running yet |

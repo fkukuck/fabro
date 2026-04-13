@@ -54,7 +54,6 @@ impl Default for ServerListenSettings {
 pub struct TlsConfig {
     pub cert: InterpString,
     pub key:  InterpString,
-    pub ca:   InterpString,
 }
 
 impl Default for TlsConfig {
@@ -62,7 +61,6 @@ impl Default for TlsConfig {
         Self {
             cert: InterpString::parse(""),
             key:  InterpString::parse(""),
-            ca:   InterpString::parse(""),
         }
     }
 }
@@ -87,47 +85,31 @@ impl Default for ServerWebSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerAuthSettings {
-    pub api: ServerAuthApiSettings,
-    pub web: ServerAuthWebSettings,
+    pub methods: Vec<ServerAuthMethod>,
+    pub github:  ServerAuthGithubSettings,
+}
+
+impl Default for ServerAuthSettings {
+    fn default() -> Self {
+        Self {
+            methods: vec![ServerAuthMethod::DevToken],
+            github:  ServerAuthGithubSettings::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServerAuthMethod {
+    DevToken,
+    Github,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ServerAuthApiSettings {
-    pub jwt:  Option<ServerAuthApiJwtSettings>,
-    pub mtls: Option<ServerAuthApiMtlsSettings>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ServerAuthApiJwtSettings {
-    pub enabled:  bool,
-    pub issuer:   Option<InterpString>,
-    pub audience: Option<InterpString>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ServerAuthApiMtlsSettings {
-    pub enabled: bool,
-    pub ca:      Option<InterpString>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ServerAuthWebSettings {
+pub struct ServerAuthGithubSettings {
     pub allowed_usernames: Vec<String>,
-    pub providers:         ServerAuthWebProvidersSettings,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ServerAuthWebProvidersSettings {
-    pub github: Option<GithubOauthSettings>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct GithubOauthSettings {
-    pub enabled:       bool,
-    pub client_id:     Option<InterpString>,
-    pub client_secret: Option<InterpString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -312,8 +294,6 @@ pub struct ServerListenTlsLayer {
     pub cert: Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key:  Option<InterpString>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ca:   Option<InterpString>,
 }
 
 /// `[server.api]` — API surface settings.
@@ -345,74 +325,16 @@ pub struct ServerWebLayer {
 #[serde(deny_unknown_fields)]
 pub struct ServerAuthLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api: Option<ServerAuthApiLayer>,
+    pub methods: Option<Vec<ServerAuthMethod>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub web: Option<ServerAuthWebLayer>,
+    pub github:  Option<ServerAuthGithubLayer>,
 }
 
-/// `[server.auth.api]` — supports multiple strategies concurrently. Each
-/// strategy is a named subtable: `[server.auth.api.jwt]`,
-/// `[server.auth.api.mtls]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerAuthApiLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jwt:  Option<ServerAuthApiJwtLayer>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mtls: Option<ServerAuthApiMtlsLayer>,
-}
-
-/// `[server.auth.api.jwt]` — JWT auth strategy fields.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ServerAuthApiJwtLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled:  Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issuer:   Option<InterpString>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audience: Option<InterpString>,
-}
-
-/// `[server.auth.api.mtls]` — mutual TLS auth strategy fields.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ServerAuthApiMtlsLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ca:      Option<InterpString>,
-}
-
-/// `[server.auth.web]` — provider-neutral access rules plus keyed providers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ServerAuthWebLayer {
+pub struct ServerAuthGithubLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_usernames: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub providers:         Option<ServerAuthWebProvidersLayer>,
-}
-
-/// `[server.auth.web.providers.<provider>]` — web auth providers keyed by
-/// provider name. First-pass providers cover GitHub.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ServerAuthWebProvidersLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github: Option<ServerAuthWebGithubLayer>,
-}
-
-/// `[server.auth.web.providers.github]` — GitHub OAuth configuration fields.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ServerAuthWebGithubLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled:       Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_id:     Option<InterpString>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_secret: Option<InterpString>,
 }
 
 /// `[server.storage]` — single managed local disk root.

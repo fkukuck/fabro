@@ -4,6 +4,7 @@ use fabro_config::parse_settings_layer;
 use fabro_server::jwt_auth::AuthMode;
 use fabro_server::server::{build_router, create_app_state_with_options};
 use fabro_types::settings::SettingsLayer;
+use serde_json::json;
 use tower::ServiceExt;
 
 use crate::helpers::body_json;
@@ -21,7 +22,6 @@ address = "127.0.0.1:32276"
 [server.listen.tls]
 cert = "/etc/fabro/tls/cert.pem"
 key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
 
 [server.storage]
 root = "/srv/fabro"
@@ -32,19 +32,14 @@ max_concurrent_runs = 9
 [cli.output]
 verbosity = "verbose"
 
-[server.auth.api.jwt]
-enabled = true
-issuer = "https://auth.example.com"
-audience = "fabro"
+[server.auth]
+methods = ["dev-token", "github"]
 
-[server.auth.api.mtls]
-enabled = true
-ca = "/etc/fabro/ca.pem"
+[server.auth.github]
+allowed_usernames = ["alice"]
 
-[server.auth.web.providers.github]
-enabled = true
+[server.integrations.github]
 client_id = "Iv1.abcdef"
-client_secret = "{{ env.GITHUB_OAUTH_SECRET }}"
 
 [run.inputs]
 server_only = "1"
@@ -71,23 +66,17 @@ server_only = "1"
     assert_eq!(body["cli"]["output"]["verbosity"], "verbose");
     assert_eq!(body["run"]["inputs"]["server_only"], "1");
     assert!(body["server"].get("listen").is_none());
-    assert_eq!(body["server"]["auth"]["api"]["jwt"]["enabled"], true);
-    assert!(body["server"]["auth"]["api"]["jwt"].get("issuer").is_none());
-    assert!(
-        body["server"]["auth"]["api"]["jwt"]
-            .get("audience")
-            .is_none()
-    );
-    assert_eq!(body["server"]["auth"]["api"]["mtls"]["enabled"], true);
-    assert!(body["server"]["auth"]["api"]["mtls"].get("ca").is_none());
     assert_eq!(
-        body["server"]["auth"]["web"]["providers"]["github"]["client_id"],
-        "Iv1.abcdef"
+        body["server"]["auth"]["methods"],
+        json!(["dev-token", "github"])
     );
-    assert!(
-        body["server"]["auth"]["web"]["providers"]["github"]
-            .get("client_secret")
-            .is_none()
+    assert_eq!(
+        body["server"]["auth"]["github"]["allowed_usernames"],
+        json!(["alice"])
+    );
+    assert_eq!(
+        body["server"]["integrations"]["github"]["client_id"],
+        "Iv1.abcdef"
     );
 }
 
@@ -104,10 +93,14 @@ address = "127.0.0.1:32276"
 [server.storage]
 root = "/srv/fabro"
 
-[server.auth.web.providers.github]
-enabled = true
+[server.auth]
+methods = ["dev-token", "github"]
+
+[server.auth.github]
+allowed_usernames = ["alice"]
+
+[server.integrations.github]
 client_id = "Iv1.abcdef"
-client_secret = "{{ env.GITHUB_OAUTH_SECRET }}"
 
 [run.model]
 provider = "openai"
@@ -149,12 +142,15 @@ server_only = "1"
     assert_eq!(body["server"]["storage"]["root"], "/srv/fabro");
     assert!(body["server"].get("listen").is_none());
     assert_eq!(
-        body["server"]["auth"]["web"]["providers"]["github"]["client_id"],
-        "Iv1.abcdef"
+        body["server"]["auth"]["methods"],
+        json!(["dev-token", "github"])
     );
-    assert!(
-        body["server"]["auth"]["web"]["providers"]["github"]
-            .get("client_secret")
-            .is_none()
+    assert_eq!(
+        body["server"]["auth"]["github"]["allowed_usernames"],
+        json!(["alice"])
+    );
+    assert_eq!(
+        body["server"]["integrations"]["github"]["client_id"],
+        "Iv1.abcdef"
     );
 }

@@ -45,7 +45,7 @@ fn resolves_server_defaults_from_empty_settings() {
 }
 
 #[test]
-fn reports_tls_shape_errors_and_requires_valid_tls_for_mtls() {
+fn reports_tls_shape_errors() {
     let file = parse(
         r#"
 _version = 1
@@ -57,8 +57,6 @@ address = "127.0.0.1:32276"
 [server.listen.tls]
 cert = "/etc/fabro/server.pem"
 
-[server.auth.api.mtls]
-enabled = true
 "#,
     );
 
@@ -71,8 +69,6 @@ enabled = true
         .join("\n");
 
     assert!(rendered.contains("server.listen.tls.key"));
-    assert!(rendered.contains("server.listen.tls.ca"));
-    assert!(rendered.contains("server.auth.api.mtls"));
 }
 
 #[test]

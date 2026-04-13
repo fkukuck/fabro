@@ -523,7 +523,6 @@ pub struct AppState {
     pub(crate) settings:             Arc<RwLock<SettingsLayer>>,
     pub(crate) server_settings:      RwLock<Arc<ResolvedServerSettings>>,
     pub(crate) config_path:          PathBuf,
-    session_key_override:            Option<Key>,
     pub(crate) local_daemon_mode:    bool,
     shutting_down:                   AtomicBool,
     registry_factory_override:       Option<Box<RegistryFactoryOverride>>,
@@ -615,10 +614,8 @@ impl AppState {
     }
 
     pub(crate) fn session_key(&self) -> Option<Key> {
-        self.session_key_override.clone().or_else(|| {
-            self.server_secret("SESSION_SECRET")
-                .map(|value| Key::derive_from(value.as_bytes()))
-        })
+        self.server_secret("SESSION_SECRET")
+            .map(|value| Key::derive_from(value.as_bytes()))
     }
 
     pub(crate) fn github_credentials(
@@ -2151,7 +2148,6 @@ pub fn create_app_state_with_settings_and_registry_factory(
         artifact_store,
         &test_secret_store_path(),
         test_config_path(),
-        None,
         false,
     )
     .expect("test app state should build")
@@ -2174,9 +2170,21 @@ pub fn create_app_state_with_options(
 #[cfg(test)]
 pub(crate) fn create_test_app_state_with_session_key(
     settings: SettingsLayer,
-    session_key_override: Option<Key>,
+    session_secret: Option<&str>,
     local_daemon_mode: bool,
 ) -> Arc<AppState> {
+    let secrets_path = test_secret_store_path();
+    let server_env_path = secrets_path
+        .parent()
+        .expect("test secrets path should have parent")
+        .join("server.env");
+    if let Some(session_secret) = session_secret {
+        std::fs::write(
+            &server_env_path,
+            format!("SESSION_SECRET={session_secret}\n"),
+        )
+        .expect("test server env should be writable");
+    }
     let (store, artifact_store) = test_store_bundle();
     build_app_state_with_path(
         Arc::new(RwLock::new(settings)),
@@ -2184,9 +2192,8 @@ pub(crate) fn create_test_app_state_with_session_key(
         5,
         store,
         artifact_store,
-        &test_secret_store_path(),
+        &secrets_path,
         test_config_path(),
-        session_key_override,
         local_daemon_mode,
     )
     .expect("test app state should build")
@@ -2217,7 +2224,6 @@ pub fn create_app_state_with_store(
         artifact_store,
         &test_secret_store_path(),
         test_config_path(),
-        None,
         false,
     )
     .expect("test app state should build")
@@ -2231,7 +2237,6 @@ pub(crate) fn build_app_state_with_path(
     artifact_store: ArtifactStore,
     vault_path: &std::path::Path,
     config_path: PathBuf,
-    session_key_override: Option<Key>,
     local_daemon_mode: bool,
 ) -> anyhow::Result<Arc<AppState>> {
     let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path.to_path_buf())?));
@@ -2294,7 +2299,6 @@ pub(crate) fn build_app_state_with_path(
         settings,
         server_settings: RwLock::new(resolved_server_settings),
         config_path,
-        session_key_override,
         local_daemon_mode,
         shutting_down: AtomicBool::new(false),
         registry_factory_override,
@@ -6212,14 +6216,14 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{Request, header};
-    use axum_extra::extract::cookie::Key;
     use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
+    use fabro_types::settings::ServerAuthMethod;
     use fabro_types::{InterviewQuestionRecord, InterviewQuestionType, RunBlobId, RunId, fixtures};
     use serde_json::json;
     use tower::ServiceExt;
 
     use super::*;
-    use crate::jwt_auth::AuthStrategy;
+    use crate::jwt_auth::{AuthMode, ConfiguredAuth};
 
     const MINIMAL_DOT: &str = r#"digraph Test {
         graph [goal="Test"]
@@ -6681,7 +6685,10 @@ slug = "fabro"
         .expect("fixture should parse");
         let app = build_router(
             create_app_state_with_options(settings, 5),
-            AuthMode::Disabled,
+            AuthMode::Enabled(ConfiguredAuth {
+                methods:   vec![ServerAuthMethod::Github],
+                dev_token: None,
+            }),
         );
 
         let response = app
@@ -7037,17 +7044,15 @@ slug = "fabro"
 
         let state = create_test_app_state_with_session_key(
             SettingsLayer::default(),
-            Some(Key::derive_from(b"server-test-session-key-0123456789")),
+            Some("server-test-session-key-0123456789"),
             false,
         );
         let app = build_router(
             Arc::clone(&state),
-            AuthMode::Strategies(vec![
-                AuthStrategy::DevToken {
-                    token: DEV_TOKEN.to_string(),
-                },
-                AuthStrategy::Cookie,
-            ]),
+            AuthMode::Enabled(ConfiguredAuth {
+                methods:   vec![ServerAuthMethod::DevToken],
+                dev_token: Some(DEV_TOKEN.to_string()),
+            }),
         );
 
         let login_response = app

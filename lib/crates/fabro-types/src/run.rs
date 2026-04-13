@@ -12,10 +12,8 @@ use crate::settings::SettingsLayer;
 #[serde(rename_all = "snake_case")]
 pub enum RunAuthMethod {
     Disabled,
-    Cookie,
     DevToken,
-    Jwt,
-    Mtls,
+    Github,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

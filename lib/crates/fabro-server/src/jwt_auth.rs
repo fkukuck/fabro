@@ -1,17 +1,10 @@
-use std::sync::Arc;
-
 use anyhow::{Result, anyhow};
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use cookie::Key;
 use fabro_types::RunAuthMethod;
-use fabro_types::settings::{ServerListenSettings, ServerSettings as ResolvedServerSettings};
+use fabro_types::settings::{ServerAuthMethod, ServerSettings as ResolvedServerSettings};
 use fabro_util::dev_token::validate_dev_token_format;
 use hmac::{Hmac, Mac};
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use rustls_pki_types::CertificateDer;
-use serde::Deserialize;
 use sha2::Sha256;
 
 use crate::error::ApiError;
@@ -20,277 +13,87 @@ use crate::web_auth::SessionCookie;
 type HmacSha256 = Hmac<Sha256>;
 const DEV_TOKEN_COMPARE_KEY: &[u8] = b"fabro-dev-token-compare-key";
 
-/// JWT claims for service-to-service authentication.
-#[derive(Debug, Deserialize)]
-struct Claims {
-    #[allow(dead_code)]
-    iss: String,
-    #[allow(dead_code)]
-    iat: u64,
-    #[allow(dead_code)]
-    exp: u64,
-    sub: Option<String>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CredentialSource {
+    AuthorizationHeader,
+    SessionCookie,
 }
 
-/// A single authentication strategy resolved at startup.
-#[derive(Clone, Debug)]
-pub enum AuthStrategy {
-    DevToken {
-        token: String,
-    },
-    Jwt {
-        key:               Arc<DecodingKey>,
-        validation:        Arc<Validation>,
-        allowed_usernames: Vec<String>,
-    },
-    Cookie,
-    Mtls,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedAuth {
+    pub login:             String,
+    pub auth_method:       RunAuthMethod,
+    pub credential_source: CredentialSource,
+    pub provider_id:       Option<i64>,
 }
 
-pub fn jwt_validation() -> Validation {
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_required_spec_claims(&["iss", "iat", "exp"]);
-    validation.set_issuer(&["fabro-web"]);
-    validation
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfiguredAuth {
+    pub methods:   Vec<ServerAuthMethod>,
+    pub dev_token: Option<String>,
 }
 
-/// Authentication mode resolved at startup.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthMode {
-    /// One or more strategies to try in order.
-    Strategies(Vec<AuthStrategy>),
-    /// Authentication is explicitly disabled (used for demo requests via
-    /// `X-Fabro-Demo: 1` header).
+    Enabled(ConfiguredAuth),
     Disabled,
 }
 
-#[derive(Clone, Debug)]
-pub struct ResolvedAuth {
-    pub mode:                 AuthMode,
-    pub session_key_override: Option<Key>,
-}
-
-/// Peer certificates extracted from the TLS connection, inserted as a request
-/// extension.
-#[derive(Clone)]
-pub struct PeerCertificates(pub Option<Vec<CertificateDer<'static>>>);
-
-/// Decode a PEM env var that may be raw PEM or base64-encoded PEM.
-pub fn decode_pem_env(name: &str, value: &str) -> Result<String> {
-    if value.starts_with("-----") {
-        return Ok(value.to_string());
-    }
-    let bytes = base64::Engine::decode(&BASE64_STANDARD, value)
-        .map_err(|e| anyhow!("{name} is not valid PEM or base64: {e}"))?;
-    String::from_utf8(bytes).map_err(|e| anyhow!("{name} base64 decoded to invalid UTF-8: {e}"))
-}
-
-/// Resolve the authentication mode from resolved server settings.
-///
-/// Call this once at startup before serving requests.
-///
-/// Fails closed when `server.auth` is absent or resolves to zero enabled
-/// strategies, or when a configured strategy is missing its required
-/// material (JWT public key, mTLS TLS config): startup refuses rather
-/// than silently accepting every request or panicking the binary.
-///
-/// Walks the v2 `server.auth.api.{jwt,mtls}` subtree and
-/// `server.auth.web.allowed_usernames`.
-pub fn resolve_auth_mode(settings: &ResolvedServerSettings) -> Result<ResolvedAuth> {
+pub fn resolve_auth_mode(settings: &ResolvedServerSettings) -> Result<AuthMode> {
     resolve_auth_mode_with_lookup(settings, |name| std::env::var(name).ok())
-}
-
-/// Describes which API auth strategies are enabled in resolved server settings.
-struct ResolvedAuthStrategies {
-    jwt_enabled:       bool,
-    mtls_enabled:      bool,
-    tls_present:       bool,
-    allowed_usernames: Vec<String>,
-}
-
-fn resolve_auth_strategies(settings: &ResolvedServerSettings) -> ResolvedAuthStrategies {
-    let jwt_enabled = settings
-        .auth
-        .api
-        .jwt
-        .as_ref()
-        .is_some_and(|jwt| jwt.enabled);
-    let mtls_enabled = settings
-        .auth
-        .api
-        .mtls
-        .as_ref()
-        .is_some_and(|mtls| mtls.enabled);
-
-    let tls_present = matches!(
-        settings.listen,
-        ServerListenSettings::Tcp { ref tls, .. } if tls.is_some()
-    );
-
-    let allowed_usernames = settings.auth.web.allowed_usernames.clone();
-
-    ResolvedAuthStrategies {
-        jwt_enabled,
-        mtls_enabled,
-        tls_present,
-        allowed_usernames,
-    }
 }
 
 pub fn resolve_auth_mode_with_lookup<F>(
     settings: &ResolvedServerSettings,
     lookup: F,
-) -> Result<ResolvedAuth>
+) -> Result<AuthMode>
 where
     F: Fn(&str) -> Option<String>,
 {
-    let ResolvedAuthStrategies {
-        jwt_enabled,
-        mtls_enabled,
-        tls_present,
-        allowed_usernames,
-    } = resolve_auth_strategies(settings);
-
-    let mut strategies = Vec::new();
-    if lookup("SESSION_SECRET").is_some() {
-        strategies.push(AuthStrategy::Cookie);
+    let methods = settings.auth.methods.clone();
+    if methods.is_empty() {
+        return Err(anyhow!(
+            "Fabro server refuses to start: server.auth.methods must not be empty."
+        ));
     }
 
-    if jwt_enabled {
-        let raw = lookup("FABRO_JWT_PUBLIC_KEY").ok_or_else(|| {
+    let web_enabled = settings.web.enabled;
+    if web_enabled && lookup("SESSION_SECRET").is_none() {
+        return Err(anyhow!(
+            "Fabro server refuses to start: web UI is enabled but SESSION_SECRET is not set."
+        ));
+    }
+
+    let dev_token = if methods.contains(&ServerAuthMethod::DevToken) {
+        let token = lookup("FABRO_DEV_TOKEN").ok_or_else(|| {
             anyhow!(
-                "Fabro server refuses to start: [server.auth.api.jwt] is enabled but \
-                 FABRO_JWT_PUBLIC_KEY is not set. Provide an Ed25519 public key in PEM format \
-                 (or base64-encoded PEM) via process env or server.env for JWT authentication."
+                "Fabro server refuses to start: dev-token auth is enabled but FABRO_DEV_TOKEN is not set."
             )
         })?;
-        let pem = decode_pem_env("FABRO_JWT_PUBLIC_KEY", &raw)?;
-        let key = DecodingKey::from_ed_pem(pem.as_bytes()).map_err(|e| {
-            anyhow!(
-                "Fabro server refuses to start: FABRO_JWT_PUBLIC_KEY contains an invalid \
-                 Ed25519 PEM public key: {e}"
-            )
-        })?;
-        strategies.push(AuthStrategy::Jwt {
-            key:               Arc::new(key),
-            validation:        Arc::new(jwt_validation()),
-            allowed_usernames: allowed_usernames.clone(),
-        });
-    }
-
-    if mtls_enabled {
-        if !tls_present {
-            return Err(anyhow!(
-                "Fabro server refuses to start: [server.auth.api.mtls] is enabled but \
-                 [server.listen.tls] is missing required cert, key, or ca paths."
-            ));
-        }
-        strategies.push(AuthStrategy::Mtls);
-    }
-
-    let mut session_key_override = None;
-    if strategies.is_empty() {
-        let Some(token) = lookup("FABRO_DEV_TOKEN") else {
-            return Err(anyhow!(
-                "Fabro server refuses to start: no authentication strategies are configured.\n\
-                 \n\
-                 Configure at least one of the following in `[server.auth]`:\n\
-                   - `[server.auth.api.jwt]` (requires `FABRO_JWT_PUBLIC_KEY` in process env or server.env)\n\
-                   - `[server.auth.api.mtls]` (requires `[server.listen.tls]` cert/key/ca)\n\
-                   - `SESSION_SECRET` in process env or server.env (enables cookie-based web auth)\n\
-                 \n\
-                 For CLI-managed local starts, set `FABRO_DEV_TOKEN` to enable dev-token authentication."
-            ));
-        };
-
         if !validate_dev_token_format(&token) {
             return Err(anyhow!(
                 "Fabro server refuses to start: FABRO_DEV_TOKEN has invalid format."
             ));
         }
+        Some(token)
+    } else {
+        None
+    };
 
-        session_key_override = Some(Key::derive_from(token.as_bytes()));
-        strategies.push(AuthStrategy::DevToken { token });
-        strategies.push(AuthStrategy::Cookie);
+    if methods.contains(&ServerAuthMethod::Github) {
+        if settings.integrations.github.client_id.is_none() {
+            return Err(anyhow!(
+                "Fabro server refuses to start: github auth is enabled but server.integrations.github.client_id is not configured."
+            ));
+        }
+        if lookup("GITHUB_APP_CLIENT_SECRET").is_none() {
+            return Err(anyhow!(
+                "Fabro server refuses to start: github auth is enabled but GITHUB_APP_CLIENT_SECRET is not set."
+            ));
+        }
     }
 
-    Ok(ResolvedAuth {
-        mode: AuthMode::Strategies(strategies),
-        session_key_override,
-    })
-}
-
-/// Extract the login from JWT claims.
-fn extract_jwt_login(parts: &Parts, key: &DecodingKey, validation: &Validation) -> Option<String> {
-    let header = parts
-        .headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())?;
-    let token = header.strip_prefix("Bearer ")?;
-    let token_data = jsonwebtoken::decode::<Claims>(token, key, validation).ok()?;
-    token_data
-        .claims
-        .sub
-        .as_deref()
-        .and_then(|s| s.rsplit('/').next())
-        .map(String::from)
-}
-
-/// Extract the CN from mTLS peer certificates.
-fn extract_mtls_cn(parts: &Parts) -> Option<String> {
-    let peer_certs = parts
-        .extensions
-        .get::<PeerCertificates>()
-        .and_then(|pc| pc.0.as_ref())?;
-    let cert = peer_certs.first()?;
-    let (_, parsed) = x509_parser::parse_x509_certificate(cert).ok()?;
-    let cn = parsed
-        .subject()
-        .iter_common_name()
-        .next()
-        .and_then(|cn| cn.as_str().ok())
-        .map(String::from);
-    cn
-}
-
-/// Try to authenticate via JWT.
-fn try_jwt(
-    parts: &Parts,
-    key: &DecodingKey,
-    validation: &Validation,
-    allowed_usernames: &[String],
-) -> Result<(), ApiError> {
-    let header = parts
-        .headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(ApiError::unauthorized)?;
-
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or_else(ApiError::unauthorized)?;
-
-    let token_data = jsonwebtoken::decode::<Claims>(token, key, validation)
-        .map_err(|_| ApiError::unauthorized())?;
-
-    // Fail closed: if no usernames are allowed, reject all requests
-    if allowed_usernames.is_empty() {
-        return Err(ApiError::forbidden());
-    }
-
-    // Extract GitHub username from sub claim URL (last path segment)
-    let username = token_data
-        .claims
-        .sub
-        .as_deref()
-        .and_then(|s| s.rsplit('/').next())
-        .ok_or_else(ApiError::forbidden)?;
-
-    if !allowed_usernames.iter().any(|u| u == username) {
-        return Err(ApiError::forbidden());
-    }
-
-    Ok(())
+    Ok(AuthMode::Enabled(ConfiguredAuth { methods, dev_token }))
 }
 
 pub(crate) fn dev_token_matches(provided: &str, expected: &str) -> bool {
@@ -307,105 +110,85 @@ pub(crate) fn dev_token_matches(provided: &str, expected: &str) -> bool {
     expected_mac.verify_slice(&provided_mac).is_ok()
 }
 
-fn try_dev_token(parts: &Parts, expected: &str) -> Result<(), ApiError> {
-    let header = parts
-        .headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(ApiError::unauthorized)?;
+fn run_auth_method_for_config(method: ServerAuthMethod) -> RunAuthMethod {
+    match method {
+        ServerAuthMethod::DevToken => RunAuthMethod::DevToken,
+        ServerAuthMethod::Github => RunAuthMethod::Github,
+    }
+}
 
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or_else(ApiError::unauthorized)?;
+fn config_allows_run_auth_method(config: &ConfiguredAuth, method: RunAuthMethod) -> bool {
+    match method {
+        RunAuthMethod::Disabled => false,
+        RunAuthMethod::DevToken => config.methods.contains(&ServerAuthMethod::DevToken),
+        RunAuthMethod::Github => config.methods.contains(&ServerAuthMethod::Github),
+    }
+}
 
-    if !validate_dev_token_format(token) || !validate_dev_token_format(expected) {
+fn bearer_token(parts: &Parts) -> Option<Result<&str, ApiError>> {
+    let header = parts.headers.get("authorization")?;
+    let Ok(header) = header.to_str() else {
+        return Some(Err(ApiError::unauthorized()));
+    };
+    Some(
+        header
+            .strip_prefix("Bearer ")
+            .ok_or_else(ApiError::unauthorized),
+    )
+}
+
+fn authenticate_bearer(token: &str, config: &ConfiguredAuth) -> Result<VerifiedAuth, ApiError> {
+    let Some(expected) = config.dev_token.as_deref() else {
+        return Err(ApiError::unauthorized());
+    };
+    if !validate_dev_token_format(token) || !dev_token_matches(token, expected) {
         return Err(ApiError::unauthorized());
     }
-
-    if dev_token_matches(token, expected) {
-        Ok(())
-    } else {
-        Err(ApiError::unauthorized())
-    }
+    Ok(VerifiedAuth {
+        login:             "dev".to_string(),
+        auth_method:       RunAuthMethod::DevToken,
+        credential_source: CredentialSource::AuthorizationHeader,
+        provider_id:       None,
+    })
 }
 
-/// Try to authenticate via mTLS peer certificates.
-fn try_mtls(parts: &Parts) -> Result<(), ApiError> {
-    let peer_certs = parts
-        .extensions
-        .get::<PeerCertificates>()
-        .and_then(|pc| pc.0.as_ref())
-        .ok_or_else(ApiError::unauthorized)?;
-
-    if peer_certs.is_empty() {
+fn authenticate_session(parts: &Parts, config: &ConfiguredAuth) -> Result<VerifiedAuth, ApiError> {
+    let Some(session) = parts.extensions.get::<SessionCookie>() else {
+        return Err(ApiError::unauthorized());
+    };
+    if !config_allows_run_auth_method(config, session.auth_method) {
         return Err(ApiError::unauthorized());
     }
-
-    // Verify we can parse the leaf certificate and extract a CN
-    let cert = &peer_certs[0];
-    let (_, parsed) =
-        x509_parser::parse_x509_certificate(cert).map_err(|_| ApiError::unauthorized())?;
-
-    parsed
-        .subject()
-        .iter_common_name()
-        .next()
-        .and_then(|cn| cn.as_str().ok())
-        .ok_or_else(ApiError::unauthorized)?;
-
-    Ok(())
+    Ok(VerifiedAuth {
+        login:             session.login.clone(),
+        auth_method:       session.auth_method,
+        credential_source: CredentialSource::SessionCookie,
+        provider_id:       session.provider_id,
+    })
 }
 
-fn try_cookie(parts: &Parts) -> Result<(), ApiError> {
-    parts
-        .extensions
-        .get::<SessionCookie>()
-        .map(|_| ())
-        .ok_or_else(ApiError::unauthorized)
-}
-
-/// Axum extractor that enforces authentication on a route.
-///
-/// Tries each configured strategy in order. The first successful match wins.
-/// The `AuthMode` must be added to the router as an Extension.
-/// When auth is disabled, the extractor accepts all requests.
-pub struct AuthenticatedService;
-
-pub fn authenticate_service_parts(parts: &Parts) -> Result<(), ApiError> {
+fn authenticate_parts(parts: &Parts) -> Result<Option<VerifiedAuth>, ApiError> {
     let auth_mode = parts
         .extensions
         .get::<AuthMode>()
         .expect("AuthMode extension must be added to the router");
 
-    let strategies = match auth_mode {
-        AuthMode::Disabled => return Ok(()),
-        AuthMode::Strategies(strategies) => strategies,
+    let AuthMode::Enabled(config) = auth_mode else {
+        return Ok(None);
     };
 
-    if strategies.is_empty() {
-        return Err(ApiError::unauthorized());
+    if let Some(token) = bearer_token(parts) {
+        return authenticate_bearer(token?, config).map(Some);
     }
 
-    let mut last_err = ApiError::unauthorized();
+    authenticate_session(parts, config).map(Some)
+}
 
-    for strategy in strategies {
-        let result = match strategy {
-            AuthStrategy::Mtls => try_mtls(parts),
-            AuthStrategy::Cookie => try_cookie(parts),
-            AuthStrategy::DevToken { token } => try_dev_token(parts, token),
-            AuthStrategy::Jwt {
-                key,
-                validation,
-                allowed_usernames,
-            } => try_jwt(parts, key, validation, allowed_usernames),
-        };
-        match result {
-            Ok(()) => return Ok(()),
-            Err(err) => last_err = err,
-        }
-    }
+/// Axum extractor that enforces authentication on a route.
+pub struct AuthenticatedService;
 
-    Err(last_err)
+pub fn authenticate_service_parts(parts: &Parts) -> Result<(), ApiError> {
+    authenticate_parts(parts).map(|_| ())
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
@@ -432,238 +215,74 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedSubject {
             .get::<AuthMode>()
             .expect("AuthMode extension must be added to the router");
 
-        let strategies = match auth_mode {
-            AuthMode::Disabled => {
-                return Ok(Self {
-                    login:       None,
-                    auth_method: RunAuthMethod::Disabled,
-                });
-            }
-            AuthMode::Strategies(strategies) => strategies,
-        };
-
-        if strategies.is_empty() {
-            return Err(ApiError::unauthorized());
-        }
-
-        let mut last_err = ApiError::unauthorized();
-
-        for strategy in strategies {
-            match strategy {
-                AuthStrategy::DevToken { token } => {
-                    if try_dev_token(parts, token).is_ok() {
-                        return Ok(Self {
-                            login:       Some("dev".to_string()),
-                            auth_method: RunAuthMethod::DevToken,
-                        });
-                    }
-                    last_err = ApiError::unauthorized();
-                }
-                AuthStrategy::Cookie => {
-                    if let Some(session) = parts.extensions.get::<SessionCookie>() {
-                        return Ok(Self {
-                            login:       Some(session.login.clone()),
-                            auth_method: if session.provider == "dev-token" {
-                                RunAuthMethod::DevToken
-                            } else {
-                                RunAuthMethod::Cookie
-                            },
-                        });
-                    }
-                    last_err = ApiError::unauthorized();
-                }
-                AuthStrategy::Jwt {
-                    key,
-                    validation,
-                    allowed_usernames,
-                } => {
-                    if try_jwt(parts, key, validation, allowed_usernames).is_ok() {
-                        if let Some(login) = extract_jwt_login(parts, key, validation) {
-                            return Ok(Self {
-                                login:       Some(login),
-                                auth_method: RunAuthMethod::Jwt,
-                            });
-                        }
-                    }
-                    last_err = ApiError::unauthorized();
-                }
-                AuthStrategy::Mtls => {
-                    if try_mtls(parts).is_ok() {
-                        if let Some(login) = extract_mtls_cn(parts) {
-                            return Ok(Self {
-                                login:       Some(login),
-                                auth_method: RunAuthMethod::Mtls,
-                            });
-                        }
-                    }
-                    last_err = ApiError::unauthorized();
-                }
+        match auth_mode {
+            AuthMode::Disabled => Ok(Self {
+                login:       None,
+                auth_method: RunAuthMethod::Disabled,
+            }),
+            AuthMode::Enabled(config) => {
+                let auth = if let Some(token) = bearer_token(parts) {
+                    authenticate_bearer(token?, config)?
+                } else {
+                    authenticate_session(parts, config)?
+                };
+                Ok(Self {
+                    login:       Some(auth.login),
+                    auth_method: auth.auth_method,
+                })
             }
         }
-
-        Err(last_err)
     }
+}
+
+pub fn auth_method_name(method: ServerAuthMethod) -> &'static str {
+    match method {
+        ServerAuthMethod::DevToken => "dev-token",
+        ServerAuthMethod::Github => "github",
+    }
+}
+
+pub fn run_auth_method_for_method(method: ServerAuthMethod) -> RunAuthMethod {
+    run_auth_method_for_config(method)
 }
 
 #[cfg(test)]
 mod tests {
-    #![expect(
-        clippy::disallowed_methods,
-        reason = "These unit tests use the host openssl CLI to generate certificate fixtures for auth validation."
-    )]
-
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
+    use cookie::Key;
     use fabro_config::{parse_settings_layer, resolve_server_from_file};
+    use fabro_types::settings::ServerAuthMethod;
     use tower::ServiceExt;
 
     use super::*;
     use crate::web_auth::SessionCookie;
-
-    // --- Fail-closed resolver tests (R52/R53) -----------------------------------
 
     fn settings(source: &str) -> ResolvedServerSettings {
         let file = parse_settings_layer(source).expect("fixture should parse");
         resolve_server_from_file(&file).expect("fixture should resolve")
     }
 
-    /// Lookup closure that returns nothing — every env var is absent.
     fn empty_lookup(_name: &str) -> Option<String> {
         None
     }
 
-    #[test]
-    fn fail_closed_when_server_auth_absent() {
-        let file = settings("_version = 1\n");
-        let err =
-            resolve_auth_mode_with_lookup(&file, empty_lookup).expect_err("should refuse startup");
-        assert!(err.to_string().contains("refuses to start"));
-        assert!(err.to_string().contains("FABRO_DEV_TOKEN"));
-    }
-
-    #[test]
-    fn fail_closed_when_all_strategies_disabled() {
-        let file = settings(
-            r"
-_version = 1
-
-[server.auth.api.jwt]
-enabled = false
-
-[server.auth.api.mtls]
-enabled = false
-",
-        );
-        let err =
-            resolve_auth_mode_with_lookup(&file, empty_lookup).expect_err("should refuse startup");
-        assert!(err.to_string().contains("no authentication strategies"));
-    }
-
-    #[test]
-    fn dev_token_fallback_activates_when_env_set() {
-        let file = settings("_version = 1\n");
-        let resolved = resolve_auth_mode_with_lookup(&file, |name| {
-            (name == "FABRO_DEV_TOKEN").then(|| {
-                "fabro_dev_abababababababababababababababababababababababababababababababab"
-                    .to_string()
-            })
-        })
-        .expect("valid FABRO_DEV_TOKEN should allow startup");
-        let AuthMode::Strategies(strategies) = resolved.mode else {
-            panic!("expected Strategies");
-        };
-        assert_eq!(strategies.len(), 2);
-        assert!(matches!(strategies[0], AuthStrategy::DevToken { .. }));
-        assert!(matches!(strategies[1], AuthStrategy::Cookie));
-        assert!(resolved.session_key_override.is_some());
-    }
-
-    #[test]
-    fn dev_token_fallback_rejects_invalid_format() {
-        let file = settings("_version = 1\n");
-        let err = resolve_auth_mode_with_lookup(&file, |name| {
-            (name == "FABRO_DEV_TOKEN").then(|| "fabro_dev_not_hex".to_string())
-        })
-        .expect_err("invalid dev token format should refuse startup");
-        assert!(err.to_string().contains("invalid"));
-    }
-
-    #[test]
-    fn cookie_strategy_alone_unlocks_startup() {
-        let file = settings("_version = 1\n");
-        let resolved = resolve_auth_mode_with_lookup(&file, |name| {
-            (name == "SESSION_SECRET").then(|| "deadbeef".to_string())
-        })
-        .expect("SESSION_SECRET alone should unlock startup");
-        let AuthMode::Strategies(strategies) = resolved.mode else {
-            panic!("expected Strategies, got Disabled");
-        };
-        assert_eq!(strategies.len(), 1);
-        assert!(matches!(strategies[0], AuthStrategy::Cookie));
-    }
-
-    #[test]
-    fn mtls_strategy_resolves_when_enabled_with_listen_tls() {
-        let file = settings(
-            r#"
-_version = 1
-
-[server.auth.api.mtls]
-enabled = true
-
-[server.listen]
-type = "tcp"
-address = "127.0.0.1:3000"
-
-[server.listen.tls]
-cert = "/etc/fabro/tls/cert.pem"
-key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
-"#,
-        );
-        let resolved =
-            resolve_auth_mode_with_lookup(&file, empty_lookup).expect("mTLS config should resolve");
-        let AuthMode::Strategies(strategies) = resolved.mode else {
-            panic!("expected Strategies, got Disabled");
-        };
-        assert!(strategies.iter().any(|s| matches!(s, AuthStrategy::Mtls)));
-    }
-
-    #[test]
-    fn fail_closed_when_jwt_enabled_without_public_key_env() {
-        let file = settings(
-            r"
-_version = 1
-
-[server.auth.api.jwt]
-enabled = true
-",
-        );
-        let err = resolve_auth_mode_with_lookup(&file, empty_lookup)
-            .expect_err("missing FABRO_JWT_PUBLIC_KEY should refuse startup");
-        assert!(err.to_string().contains("FABRO_JWT_PUBLIC_KEY"));
-    }
-
-    #[test]
-    fn fail_closed_when_jwt_public_key_is_invalid_pem() {
-        let file = settings(
-            r"
-_version = 1
-
-[server.auth.api.jwt]
-enabled = true
-",
-        );
-        let err = resolve_auth_mode_with_lookup(&file, |name| {
-            (name == "FABRO_JWT_PUBLIC_KEY").then(|| {
-                "-----BEGIN PUBLIC KEY-----\ngarbage\n-----END PUBLIC KEY-----".to_string()
-            })
-        })
-        .expect_err("invalid PEM should refuse startup");
-        assert!(err.to_string().contains("invalid"));
+    fn make_session(auth_method: RunAuthMethod) -> SessionCookie {
+        SessionCookie {
+            v: 1,
+            login: "alice".to_string(),
+            auth_method,
+            provider_id: Some(123),
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+            avatar_url: "https://example.com/alice.png".to_string(),
+            user_url: "https://github.com/alice".to_string(),
+            iat: chrono::Utc::now().timestamp(),
+            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+        }
     }
 
     async fn protected_handler(_auth: AuthenticatedService) -> impl IntoResponse {
@@ -694,611 +313,183 @@ enabled = true
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    fn generate_test_keypair() -> (jsonwebtoken::EncodingKey, DecodingKey) {
-        let output = std::process::Command::new("openssl")
-            .args(["genpkey", "-algorithm", "Ed25519"])
-            .output()
-            .expect("openssl must be available for tests");
-        let private_pem = output.stdout;
+    fn dev_token_mode() -> AuthMode {
+        AuthMode::Enabled(ConfiguredAuth {
+            methods:   vec![ServerAuthMethod::DevToken],
+            dev_token: Some(
+                "fabro_dev_abababababababababababababababababababababababababababababababab"
+                    .to_string(),
+            ),
+        })
+    }
 
-        let output = std::process::Command::new("openssl")
-            .args(["pkey", "-pubout"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(&private_pem).unwrap();
-                child.wait_with_output()
+    #[test]
+    fn fails_when_auth_methods_empty() {
+        let file = parse_settings_layer(
+            r#"
+_version = 1
+
+[server.auth]
+methods = []
+"#,
+        )
+        .expect("fixture should parse");
+        let errors = resolve_server_from_file(&file).expect_err("empty auth methods should fail");
+        assert!(errors.iter().any(|err| matches!(
+            err,
+            fabro_config::resolve::ResolveError::Invalid { path, reason }
+                if path == "server.auth.methods" && reason.contains("must not be empty")
+        )));
+    }
+
+    #[test]
+    fn fails_when_web_enabled_without_session_secret() {
+        let file = settings("_version = 1\n");
+        let err = resolve_auth_mode_with_lookup(&file, empty_lookup)
+            .expect_err("missing session secret should fail");
+        assert!(err.to_string().contains("SESSION_SECRET"));
+    }
+
+    #[test]
+    fn resolves_dev_token_mode_when_secrets_present() {
+        let file = settings("_version = 1\n");
+        let mode = resolve_auth_mode_with_lookup(&file, |name| match name {
+            "SESSION_SECRET" => {
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string())
+            }
+            "FABRO_DEV_TOKEN" => Some(
+                "fabro_dev_abababababababababababababababababababababababababababababababab"
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .expect("dev-token auth should resolve");
+        let AuthMode::Enabled(config) = mode else {
+            panic!("expected enabled mode");
+        };
+        assert_eq!(config.methods, vec![ServerAuthMethod::DevToken]);
+        assert!(config.dev_token.is_some());
+    }
+
+    #[test]
+    fn fails_when_github_enabled_without_client_secret() {
+        let file = settings(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["github"]
+
+[server.auth.github]
+allowed_usernames = ["alice"]
+
+[server.integrations.github]
+client_id = "Iv1.test"
+"#,
+        );
+        let err = resolve_auth_mode_with_lookup(&file, |name| {
+            (name == "SESSION_SECRET").then(|| {
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()
             })
-            .expect("openssl pkey failed");
-        let public_pem = output.stdout;
-
-        let encoding =
-            jsonwebtoken::EncodingKey::from_ed_pem(&private_pem).expect("invalid private key");
-        let decoding = DecodingKey::from_ed_pem(&public_pem).expect("invalid public key");
-        (encoding, decoding)
-    }
-
-    fn sign_token(
-        key: &jsonwebtoken::EncodingKey,
-        iss: &str,
-        exp_secs: u64,
-        sub: Option<&str>,
-    ) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let mut claims = serde_json::json!({
-            "iss": iss,
-            "iat": now,
-            "exp": now + exp_secs,
-        });
-        if let Some(sub) = sub {
-            claims["sub"] = serde_json::Value::String(sub.to_string());
-        }
-        let header = jsonwebtoken::Header::new(Algorithm::EdDSA);
-        jsonwebtoken::encode(&header, &claims, key).expect("failed to sign token")
-    }
-
-    fn jwt_mode(decoding: DecodingKey, allowed_usernames: Vec<&str>) -> AuthMode {
-        AuthMode::Strategies(vec![AuthStrategy::Jwt {
-            key:               Arc::new(decoding),
-            validation:        Arc::new(jwt_validation()),
-            allowed_usernames: allowed_usernames.into_iter().map(String::from).collect(),
-        }])
-    }
-
-    /// Build a test request with PeerCertificates extension pre-inserted.
-    fn request_with_peer_certs(
-        uri: &str,
-        certs: Option<Vec<CertificateDer<'static>>>,
-    ) -> Request<Body> {
-        let mut req = Request::builder().uri(uri).body(Body::empty()).unwrap();
-        req.extensions_mut().insert(PeerCertificates(certs));
-        req
-    }
-
-    /// Generate a self-signed CA + client cert for mTLS testing.
-    /// Returns (ca_cert_der, client_cert_der) where client_cert_der has the
-    /// given CN.
-    fn generate_test_client_cert(cn: &str) -> CertificateDer<'static> {
-        use std::process::{Command, Stdio};
-
-        // Generate CA key + self-signed cert
-        let ca_key = Command::new("openssl")
-            .args(["genpkey", "-algorithm", "Ed25519"])
-            .output()
-            .expect("openssl genpkey failed")
-            .stdout;
-
-        let ca_cert = {
-            let mut child = Command::new("openssl")
-                .args([
-                    "req",
-                    "-new",
-                    "-x509",
-                    "-key",
-                    "/dev/stdin",
-                    "-days",
-                    "1",
-                    "-subj",
-                    "/CN=TestCA",
-                ])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .expect("openssl req failed");
-            std::io::Write::write_all(&mut child.stdin.take().unwrap(), &ca_key).unwrap();
-            child.wait_with_output().unwrap().stdout
-        };
-
-        // Generate client key
-        let client_key = Command::new("openssl")
-            .args(["genpkey", "-algorithm", "Ed25519"])
-            .output()
-            .expect("openssl genpkey failed")
-            .stdout;
-
-        // Generate client CSR
-        let subj = format!("/CN={cn}");
-        let client_csr = {
-            let mut child = Command::new("openssl")
-                .args(["req", "-new", "-key", "/dev/stdin", "-subj", &subj])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .expect("openssl req failed");
-            std::io::Write::write_all(&mut child.stdin.take().unwrap(), &client_key).unwrap();
-            child.wait_with_output().unwrap().stdout
-        };
-
-        // Sign client cert with CA
-        let dir = tempfile::tempdir().unwrap();
-        let ca_cert_path = dir.path().join("ca.crt");
-        let ca_key_path = dir.path().join("ca.key");
-        let csr_path = dir.path().join("client.csr");
-        std::fs::write(&ca_cert_path, &ca_cert).unwrap();
-        std::fs::write(&ca_key_path, &ca_key).unwrap();
-        std::fs::write(&csr_path, &client_csr).unwrap();
-
-        let client_cert_pem = Command::new("openssl")
-            .args([
-                "x509",
-                "-req",
-                "-in",
-                csr_path.to_str().unwrap(),
-                "-CA",
-                ca_cert_path.to_str().unwrap(),
-                "-CAkey",
-                ca_key_path.to_str().unwrap(),
-                "-CAcreateserial",
-                "-days",
-                "1",
-            ])
-            .output()
-            .expect("openssl x509 failed")
-            .stdout;
-
-        // Convert PEM to DER
-        let client_cert_der = {
-            let mut child = Command::new("openssl")
-                .args(["x509", "-outform", "DER"])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .expect("openssl x509 DER conversion failed");
-            std::io::Write::write_all(&mut child.stdin.take().unwrap(), &client_cert_pem).unwrap();
-            child.wait_with_output().unwrap().stdout
-        };
-
-        CertificateDer::from(client_cert_der)
-    }
-
-    // --- JWT tests (updated for Strategies wrapper) ---
-
-    #[tokio::test]
-    async fn rejects_missing_auth_header() {
-        let (_, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        })
+        .expect_err("github auth should require client secret");
+        assert!(err.to_string().contains("GITHUB_APP_CLIENT_SECRET"));
     }
 
     #[tokio::test]
-    async fn rejects_invalid_token() {
-        let (_, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", "Bearer invalid.token.here")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn accepts_valid_token_with_matching_username() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let token = sign_token(
-            &encoding,
-            "fabro-web",
-            60,
-            Some("https://github.com/brynary"),
-        );
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn rejects_token_with_non_matching_username() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let token = sign_token(
-            &encoding,
-            "fabro-web",
-            60,
-            Some("https://github.com/someone-else"),
-        );
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn rejects_token_with_missing_sub() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let token = sign_token(&encoding, "fabro-web", 60, None);
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn rejects_when_allowed_usernames_empty() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec![]));
-
-        let token = sign_token(
-            &encoding,
-            "fabro-web",
-            60,
-            Some("https://github.com/brynary"),
-        );
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn rejects_wrong_issuer() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let token = sign_token(
-            &encoding,
-            "wrong-issuer",
-            60,
-            Some("https://github.com/brynary"),
-        );
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn rejects_expired_token() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = test_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let claims = serde_json::json!({
-            "iss": "fabro-web",
-            "iat": now - 200,
-            "exp": now - 100,
-            "sub": "https://github.com/brynary",
-        });
-        let header = jsonwebtoken::Header::new(Algorithm::EdDSA);
-        let token = jsonwebtoken::encode(&header, &claims, &encoding).unwrap();
-
-        let req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn disabled_mode_allows_all_requests() {
+    async fn disabled_mode_allows_request() {
         let app = test_router(AuthMode::Disabled);
-
-        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn disabled_mode_extracts_disabled_subject() {
-        let app = subject_router(AuthMode::Disabled);
-
-        let req = Request::builder()
-            .uri("/subject")
-            .body(Body::empty())
+        let response = app
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
+            .await
             .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], serde_json::Value::Null);
-        assert_eq!(body["auth_method"], "disabled");
     }
 
     #[tokio::test]
-    async fn jwt_subject_extracts_login_and_auth_method() {
-        let (encoding, decoding) = generate_test_keypair();
-        let app = subject_router(jwt_mode(decoding, vec!["brynary"]));
-
-        let token = sign_token(
-            &encoding,
-            "fabro-web",
-            60,
-            Some("https://github.com/brynary"),
-        );
-
-        let req = Request::builder()
-            .uri("/subject")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
+    async fn rejects_missing_credentials() {
+        let app = test_router(dev_token_mode());
+        let response = app
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
+            .await
             .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], "brynary");
-        assert_eq!(body["auth_method"], "jwt");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn cookie_subject_extracts_login_and_auth_method() {
-        let app = subject_router(AuthMode::Strategies(vec![AuthStrategy::Cookie]));
-
-        let mut req = Request::builder()
-            .uri("/subject")
-            .body(Body::empty())
-            .unwrap();
-        req.extensions_mut().insert(SessionCookie {
-            login:       "brynary".to_string(),
-            provider:    "github".to_string(),
-            name:        "Brynary".to_string(),
-            email:       "b@example.com".to_string(),
-            avatar_url:  "https://example.com/avatar.png".to_string(),
-            user_url:    "https://github.com/brynary".to_string(),
-            provider_id: Some(1),
-            exp:         9_999_999_999,
-        });
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], "brynary");
-        assert_eq!(body["auth_method"], "cookie");
-    }
-
-    #[tokio::test]
-    async fn dev_token_cookie_subject_extracts_dev_token_auth_method() {
-        let app = subject_router(AuthMode::Strategies(vec![AuthStrategy::Cookie]));
-
-        let mut req = Request::builder()
-            .uri("/subject")
-            .body(Body::empty())
-            .unwrap();
-        req.extensions_mut().insert(SessionCookie {
-            login:       "dev".to_string(),
-            provider:    "dev-token".to_string(),
-            name:        "Development User".to_string(),
-            email:       "dev@localhost".to_string(),
-            avatar_url:  "/logo.svg".to_string(),
-            user_url:    String::new(),
-            provider_id: None,
-            exp:         9_999_999_999,
-        });
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], "dev");
-        assert_eq!(body["auth_method"], "dev_token");
-    }
-
-    #[tokio::test]
-    async fn dev_token_strategy_accepts_valid_bearer() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::DevToken {
-            token: "fabro_dev_abababababababababababababababababababababababababababababababab"
-                .to_string(),
-        }]));
-
-        let req = Request::builder()
-            .uri("/test")
-            .header(
-                "authorization",
-                "Bearer fabro_dev_abababababababababababababababababababababababababababababababab",
+    async fn accepts_valid_dev_token_bearer() {
+        let app = subject_router(dev_token_mode());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/subject")
+                    .header(
+                        "authorization",
+                        "Bearer fabro_dev_abababababababababababababababababababababababababababababababab",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
             )
-            .body(Body::empty())
+            .await
             .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let json = response_json(response).await;
+        assert_eq!(json["login"], "dev");
+        assert_eq!(json["auth_method"], "dev_token");
     }
 
     #[tokio::test]
-    async fn dev_token_strategy_rejects_wrong_bearer() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::DevToken {
-            token: "fabro_dev_abababababababababababababababababababababababababababababababab"
-                .to_string(),
-        }]));
+    async fn invalid_authorization_header_does_not_fall_back_to_cookie() {
+        let app = test_router(dev_token_mode());
+        let key =
+            Key::derive_from(b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        let session = make_session(RunAuthMethod::DevToken);
+        let mut jar = cookie::CookieJar::new();
+        jar.private_mut(&key).add(cookie::Cookie::new(
+            crate::web_auth::SESSION_COOKIE_NAME,
+            serde_json::to_string(&session).unwrap(),
+        ));
+        let cookie = jar
+            .delta()
+            .next()
+            .expect("private cookie should exist")
+            .encoded()
+            .to_string();
 
-        let req = Request::builder()
-            .uri("/test")
-            .header(
-                "authorization",
-                "Bearer fabro_dev_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/test")
+                    .header("authorization", "Basic nope")
+                    .header("cookie", cookie)
+                    .extension(session)
+                    .body(Body::empty())
+                    .unwrap(),
             )
-            .body(Body::empty())
+            .await
             .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn dev_token_subject_extracts_dev_login() {
-        let app = subject_router(AuthMode::Strategies(vec![AuthStrategy::DevToken {
-            token: "fabro_dev_abababababababababababababababababababababababababababababababab"
-                .to_string(),
-        }]));
-
-        let req = Request::builder()
-            .uri("/subject")
-            .header(
-                "authorization",
-                "Bearer fabro_dev_abababababababababababababababababababababababababababababababab",
+    async fn cookie_session_reports_github_provenance() {
+        let app = subject_router(AuthMode::Enabled(ConfiguredAuth {
+            methods:   vec![ServerAuthMethod::Github],
+            dev_token: None,
+        }));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/subject")
+                    .extension(make_session(RunAuthMethod::Github))
+                    .body(Body::empty())
+                    .unwrap(),
             )
-            .body(Body::empty())
+            .await
             .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], "dev");
-        assert_eq!(body["auth_method"], "dev_token");
-    }
-
-    #[tokio::test]
-    async fn empty_strategies_rejects() {
-        let app = test_router(AuthMode::Strategies(vec![]));
-
-        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    // --- mTLS tests ---
-
-    #[tokio::test]
-    async fn mtls_accepts_valid_peer_cert() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::Mtls]));
-
-        let cert = generate_test_client_cert("testuser");
-        let req = request_with_peer_certs("/test", Some(vec![cert]));
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn mtls_rejects_no_peer_certs() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::Mtls]));
-
-        let req = request_with_peer_certs("/test", None);
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn mtls_rejects_empty_peer_certs() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::Mtls]));
-
-        let req = request_with_peer_certs("/test", Some(vec![]));
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn mtls_rejects_when_no_peer_certs_extension() {
-        let app = test_router(AuthMode::Strategies(vec![AuthStrategy::Mtls]));
-
-        // No PeerCertificates extension at all (plain HTTP path)
-        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn mtls_subject_extracts_login_and_auth_method() {
-        let app = subject_router(AuthMode::Strategies(vec![AuthStrategy::Mtls]));
-
-        let cert = generate_test_client_cert("brynary");
-        let req = request_with_peer_certs("/subject", Some(vec![cert]));
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
-        assert_eq!(body["login"], "brynary");
-        assert_eq!(body["auth_method"], "mtls");
-    }
-
-    // --- Multi-strategy tests ---
-
-    #[tokio::test]
-    async fn jwt_and_mtls_accepts_valid_cert_no_jwt() {
-        let (_, decoding) = generate_test_keypair();
-        let mode = AuthMode::Strategies(vec![
-            AuthStrategy::Jwt {
-                key:               Arc::new(decoding),
-                validation:        Arc::new(jwt_validation()),
-                allowed_usernames: vec!["brynary".to_string()],
-            },
-            AuthStrategy::Mtls,
-        ]);
-        let app = test_router(mode);
-
-        let cert = generate_test_client_cert("brynary");
-        let req = request_with_peer_certs("/test", Some(vec![cert]));
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn mtls_and_jwt_falls_back_to_jwt() {
-        let (encoding, decoding) = generate_test_keypair();
-        let mode = AuthMode::Strategies(vec![AuthStrategy::Mtls, AuthStrategy::Jwt {
-            key:               Arc::new(decoding),
-            validation:        Arc::new(jwt_validation()),
-            allowed_usernames: vec!["brynary".to_string()],
-        }]);
-        let app = test_router(mode);
-
-        let token = sign_token(
-            &encoding,
-            "fabro-web",
-            60,
-            Some("https://github.com/brynary"),
-        );
-
-        // No peer certs, but valid JWT
-        let mut req = Request::builder()
-            .uri("/test")
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
-            .unwrap();
-        req.extensions_mut().insert(PeerCertificates(None));
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        let json = response_json(response).await;
+        assert_eq!(json["login"], "alice");
+        assert_eq!(json["auth_method"], "github");
     }
 }

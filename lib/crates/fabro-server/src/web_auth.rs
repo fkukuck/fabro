@@ -11,13 +11,14 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use cookie::time::Duration;
 use cookie::{Cookie, CookieJar, Expiration, Key, SameSite};
 use fabro_config::Storage;
-use fabro_types::settings::{InterpString, SettingsLayer};
+use fabro_types::RunAuthMethod;
+use fabro_types::settings::{InterpString, ServerAuthMethod, SettingsLayer};
 use fabro_util::dev_token::validate_dev_token_format;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, error, info, warn};
 
-use crate::jwt_auth::{AuthMode, AuthStrategy, dev_token_matches};
+use crate::jwt_auth::{AuthMode, auth_method_name, dev_token_matches};
 use crate::server::AppState;
 use crate::server_secrets::ServerSecrets;
 
@@ -26,13 +27,15 @@ const OAUTH_STATE_COOKIE_NAME: &str = "fabro_oauth_state";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionCookie {
+    pub v:           u8,
     pub login:       String,
-    pub provider:    String,
+    pub auth_method: RunAuthMethod,
+    pub provider_id: Option<i64>,
     pub name:        String,
     pub email:       String,
     pub avatar_url:  String,
     pub user_url:    String,
-    pub provider_id: Option<i64>,
+    pub iat:         i64,
     pub exp:         i64,
 }
 
@@ -152,7 +155,11 @@ pub fn parse_cookie_header(headers: &HeaderMap) -> CookieJar {
 pub fn read_private_session(headers: &HeaderMap, key: &Key) -> Option<SessionCookie> {
     let jar = parse_cookie_header(headers);
     let cookie = jar.private(key).get(SESSION_COOKIE_NAME)?;
-    serde_json::from_str(cookie.value()).ok()
+    let session: SessionCookie = serde_json::from_str(cookie.value()).ok()?;
+    if session.v != 1 || session.exp <= chrono::Utc::now().timestamp() {
+        return None;
+    }
+    Some(session)
 }
 
 fn append_jar_delta(headers: &mut HeaderMap, jar: &CookieJar) {
@@ -189,23 +196,42 @@ fn resolve_interp(value: &InterpString) -> anyhow::Result<String> {
 
 fn auth_methods_from_mode(auth_mode: &AuthMode) -> Vec<String> {
     match auth_mode {
-        AuthMode::Strategies(strategies) => {
-            if strategies
-                .iter()
-                .any(|strategy| matches!(strategy, AuthStrategy::DevToken { .. }))
-            {
-                vec!["dev-token".to_string()]
-            } else if strategies
-                .iter()
-                .any(|strategy| matches!(strategy, AuthStrategy::Cookie))
-            {
-                vec!["github".to_string()]
-            } else {
-                Vec::new()
-            }
-        }
+        AuthMode::Enabled(config) => config
+            .methods
+            .iter()
+            .map(|method| auth_method_name(*method).to_string())
+            .collect(),
         AuthMode::Disabled => Vec::new(),
     }
+}
+
+fn auth_method_enabled(auth_mode: &AuthMode, method: ServerAuthMethod) -> bool {
+    matches!(auth_mode, AuthMode::Enabled(config) if config.methods.contains(&method))
+}
+
+fn dev_token_from_mode(auth_mode: &AuthMode) -> Option<String> {
+    match auth_mode {
+        AuthMode::Enabled(config) => config.dev_token.clone(),
+        AuthMode::Disabled => None,
+    }
+}
+
+fn session_provider(auth_method: RunAuthMethod) -> &'static str {
+    match auth_method {
+        RunAuthMethod::Disabled => "disabled",
+        RunAuthMethod::DevToken => "dev-token",
+        RunAuthMethod::Github => "github",
+    }
+}
+
+fn session_cookie_secure(state: &AppState) -> bool {
+    state
+        .server_settings()
+        .web
+        .url
+        .resolve(|name| std::env::var(name).ok())
+        .map(|resolved| resolved.value.starts_with("https://"))
+        .unwrap_or(false)
 }
 
 async fn login_dev_token(
@@ -213,13 +239,7 @@ async fn login_dev_token(
     Extension(auth_mode): Extension<AuthMode>,
     Json(payload): Json<DevTokenLoginRequest>,
 ) -> Response {
-    let expected = match auth_mode {
-        AuthMode::Strategies(strategies) => strategies.iter().find_map(|strategy| match strategy {
-            AuthStrategy::DevToken { token } => Some(token.clone()),
-            _ => None,
-        }),
-        AuthMode::Disabled => None,
-    };
+    let expected = dev_token_from_mode(&auth_mode);
     let Some(expected) = expected else {
         return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
     };
@@ -237,13 +257,15 @@ async fn login_dev_token(
 
     let now = chrono::Utc::now();
     let session = SessionCookie {
+        v:           1,
         login:       "dev".to_string(),
-        provider:    "dev-token".to_string(),
+        auth_method: RunAuthMethod::DevToken,
+        provider_id: None,
         name:        "Development User".to_string(),
         email:       "dev@localhost".to_string(),
         avatar_url:  "/logo.svg".to_string(),
         user_url:    String::new(),
-        provider_id: None,
+        iat:         now.timestamp(),
         exp:         (now + chrono::Duration::days(30)).timestamp(),
     };
 
@@ -256,7 +278,7 @@ async fn login_dev_token(
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(false)
+        .secure(session_cookie_secure(state.as_ref()))
         .max_age(Duration::days(30))
         .build(),
     );
@@ -273,7 +295,13 @@ async fn auth_config(Extension(auth_mode): Extension<AuthMode>) -> Response {
     .into_response()
 }
 
-async fn login_github(State(state): State<Arc<AppState>>) -> Response {
+async fn login_github(
+    State(state): State<Arc<AppState>>,
+    Extension(auth_mode): Extension<AuthMode>,
+) -> Response {
+    if !auth_method_enabled(&auth_mode, ServerAuthMethod::Github) {
+        return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
+    }
     let settings = state.server_settings();
     let Some(client_id) = settings.integrations.github.client_id.as_ref() else {
         warn!("OAuth login failed: client_id not configured");
@@ -338,9 +366,13 @@ async fn login_github(State(state): State<Arc<AppState>>) -> Response {
 
 async fn callback_github(
     State(state): State<Arc<AppState>>,
+    Extension(auth_mode): Extension<AuthMode>,
     Query(params): Query<OAuthCallbackParams>,
     headers: HeaderMap,
 ) -> Response {
+    if !auth_method_enabled(&auth_mode, ServerAuthMethod::Github) {
+        return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
+    }
     let Some(session_key) = state.session_key() else {
         error!("OAuth callback failed: SESSION_SECRET not configured");
         return json_response(
@@ -496,9 +528,8 @@ async fn callback_github(
         _ => Vec::new(),
     };
 
-    let allowed_usernames = settings.auth.web.allowed_usernames.clone();
-    if !allowed_usernames.is_empty() && !allowed_usernames.iter().any(|user| user == &profile.login)
-    {
+    let allowed_usernames = settings.auth.github.allowed_usernames.clone();
+    if !allowed_usernames.iter().any(|user| user == &profile.login) {
         warn!(login = %profile.login, "OAuth callback denied: username not in allowlist");
         return Redirect::to("/login?error=unauthorized").into_response();
     }
@@ -510,13 +541,15 @@ async fn callback_github(
         .unwrap_or_default();
     let now = chrono::Utc::now();
     let session = SessionCookie {
+        v:           1,
         login:       profile.login.clone(),
-        provider:    "github".to_string(),
+        auth_method: RunAuthMethod::Github,
+        provider_id: Some(profile.id),
         name:        profile.name.unwrap_or_else(|| profile.login.clone()),
         email:       primary_email,
         avatar_url:  profile.avatar_url,
         user_url:    format!("https://github.com/{}", profile.login),
-        provider_id: Some(profile.id),
+        iat:         now.timestamp(),
         exp:         (now + chrono::Duration::days(30)).timestamp(),
     };
 
@@ -531,7 +564,7 @@ async fn callback_github(
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(false)
+        .secure(session_cookie_secure(state.as_ref()))
         .max_age(Duration::days(30))
         .build(),
     );
@@ -556,6 +589,7 @@ async fn logout(State(state): State<Arc<AppState>>) -> Response {
             Cookie::build((SESSION_COOKIE_NAME, ""))
                 .path("/")
                 .http_only(true)
+                .secure(session_cookie_secure(state.as_ref()))
                 .build(),
         );
     }
@@ -597,7 +631,7 @@ async fn auth_me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Resp
             avatar_url: session.avatar_url,
             user_url:   session.user_url,
         },
-        provider: session.provider,
+        provider: session_provider(session.auth_method).to_string(),
         demo_mode,
         features: features_json(&settings),
     })
@@ -614,9 +648,7 @@ async fn setup_status(
         .github
         .client_id
         .is_some()
-        || auth_methods_from_mode(&auth_mode)
-            .iter()
-            .any(|method| method == "dev-token");
+        || auth_method_enabled(&auth_mode, ServerAuthMethod::DevToken);
     Json(SetupStatusResponse { configured }).into_response()
 }
 
@@ -860,11 +892,33 @@ fn merge_settings_keys(
     set_preserving_decor(web, "enabled", toml_edit::value(true));
     set_preserving_decor(web, "url", toml_edit::value(web_url));
 
-    // Ensure the auth subtrees exist so a freshly-registered GitHub App
-    // resolves `[server.auth.web]` / `[server.auth.api.jwt]` strategies on
-    // the next startup without a second manual edit.
-    ensure_nested_table(doc, &["server", "auth", "web"])?;
-    ensure_nested_table(doc, &["server", "auth", "api", "jwt"])?;
+    let auth = ensure_nested_table(doc, &["server", "auth"])?;
+    let mut methods = auth
+        .get("methods")
+        .and_then(|item| item.as_array())
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !methods.iter().any(|method| method == "github") {
+        methods.push("github".to_string());
+    }
+    if methods.is_empty() {
+        methods.push("github".to_string());
+    }
+    set_preserving_decor(
+        auth,
+        "methods",
+        toml_edit::value(
+            methods
+                .into_iter()
+                .map(toml_edit::Value::from)
+                .collect::<toml_edit::Array>(),
+        ),
+    );
 
     let github = ensure_nested_table(doc, &["server", "integrations", "github"])?;
     set_preserving_decor(github, "app_id", toml_edit::value(data.id.to_string()));
@@ -884,36 +938,36 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode, header};
     use axum_extra::extract::cookie::Key;
+    use fabro_types::RunAuthMethod;
     use fabro_types::settings::SettingsLayer;
+    use fabro_types::settings::server::ServerAuthMethod;
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
     use super::{
         GitHubManifestConversion, api_routes, merge_settings_keys, read_private_session, routes,
     };
-    use crate::jwt_auth::{AuthMode, AuthStrategy};
+    use crate::jwt_auth::{AuthMode, ConfiguredAuth};
     use crate::server;
 
     const DEV_TOKEN: &str =
         "fabro_dev_abababababababababababababababababababababababababababababababab";
 
     fn dev_token_auth_mode() -> AuthMode {
-        AuthMode::Strategies(vec![
-            AuthStrategy::DevToken {
-                token: DEV_TOKEN.to_string(),
-            },
-            AuthStrategy::Cookie,
-        ])
+        AuthMode::Enabled(ConfiguredAuth {
+            methods:   vec![ServerAuthMethod::DevToken],
+            dev_token: Some(DEV_TOKEN.to_string()),
+        })
     }
 
-    fn test_auth_router(key: &Key, auth_mode: AuthMode) -> axum::Router {
+    fn test_auth_router(_key: &Key, auth_mode: AuthMode) -> axum::Router {
         axum::Router::new()
             .nest("/auth", routes())
             .nest("/api/v1", api_routes())
             .layer(Extension(auth_mode))
             .with_state(server::create_test_app_state_with_session_key(
                 SettingsLayer::default(),
-                Some(key.clone()),
+                Some("web-auth-test-key-material-0123456789"),
                 false,
             ))
     }
@@ -943,6 +997,14 @@ mod tests {
     fn merge_settings_keys_writes_v2_server_integrations_github() {
         let mut doc = parse_doc("_version = 1\n");
         merge_settings_keys(&mut doc, &sample_conversion(), Some("https://example.test")).unwrap();
+
+        let methods = doc["server"]["auth"]["methods"]
+            .as_array()
+            .expect("server.auth.methods should exist");
+        assert_eq!(
+            methods.iter().next().and_then(|value| value.as_str()),
+            Some("github")
+        );
 
         let github = doc["server"]["integrations"]["github"]
             .as_table()
@@ -1084,7 +1146,8 @@ name = "claude-sonnet"
             axum::http::HeaderValue::from_str(&session_cookie).unwrap(),
         );
         let session = read_private_session(&cookie_headers, &key).expect("session should decode");
-        assert_eq!(session.provider, "dev-token");
+        assert_eq!(session.auth_method, RunAuthMethod::DevToken);
+        assert_eq!(session.v, 1);
 
         let response = app
             .oneshot(
@@ -1141,5 +1204,35 @@ name = "claude-sonnet"
         assert_eq!(response.status(), StatusCode::OK);
         let body = response_json(response).await;
         assert_eq!(body, json!({ "methods": ["dev-token"] }));
+    }
+
+    #[test]
+    fn read_private_session_rejects_cookies_without_version() {
+        let key = Key::derive_from(b"web-auth-test-key-material-0123456789");
+        let mut jar = cookie::CookieJar::new();
+        jar.private_mut(&key).add(cookie::Cookie::new(
+            super::SESSION_COOKIE_NAME,
+            json!({
+                "login": "dev",
+                "provider": "dev-token",
+                "name": "Development User",
+                "email": "dev@localhost",
+                "avatar_url": "/logo.svg",
+                "user_url": "",
+                "provider_id": null,
+                "exp": chrono::Utc::now().timestamp() + 60,
+            })
+            .to_string(),
+        ));
+        let encoded = jar
+            .delta()
+            .next()
+            .expect("private cookie should exist")
+            .encoded()
+            .to_string();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(header::COOKIE, encoded.parse().unwrap());
+        assert!(read_private_session(&headers, &key).is_none());
     }
 }

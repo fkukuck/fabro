@@ -1,16 +1,14 @@
 use fabro_types::settings::InterpString;
 use fabro_types::settings::server::{
-    DiscordIntegrationSettings, GithubIntegrationSettings, GithubOauthSettings,
-    IntegrationWebhooksSettings, ObjectStoreLocalLayer, ObjectStoreProvider, ObjectStoreS3Layer,
-    ObjectStoreSettings, ServerApiLayer, ServerApiSettings, ServerArtifactsLayer,
-    ServerArtifactsSettings, ServerAuthApiJwtSettings, ServerAuthApiMtlsSettings,
-    ServerAuthApiSettings, ServerAuthLayer, ServerAuthSettings, ServerAuthWebGithubLayer,
-    ServerAuthWebProvidersSettings, ServerAuthWebSettings, ServerIntegrationsLayer,
-    ServerIntegrationsSettings, ServerLayer, ServerListenLayer, ServerListenSettings,
-    ServerListenTlsLayer, ServerLoggingSettings, ServerSchedulerSettings, ServerSettings,
-    ServerSlateDbLayer, ServerSlateDbSettings, ServerStorageLayer, ServerStorageSettings,
-    ServerWebLayer, ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
-    TlsConfig,
+    DiscordIntegrationSettings, GithubIntegrationSettings, IntegrationWebhooksSettings,
+    ObjectStoreLocalLayer, ObjectStoreProvider, ObjectStoreS3Layer, ObjectStoreSettings,
+    ServerApiLayer, ServerApiSettings, ServerArtifactsLayer, ServerArtifactsSettings,
+    ServerAuthGithubSettings, ServerAuthLayer, ServerAuthMethod, ServerAuthSettings,
+    ServerIntegrationsLayer, ServerIntegrationsSettings, ServerLayer, ServerListenLayer,
+    ServerListenSettings, ServerListenTlsLayer, ServerLoggingSettings, ServerSchedulerSettings,
+    ServerSettings, ServerSlateDbLayer, ServerSlateDbSettings, ServerStorageLayer,
+    ServerStorageSettings, ServerWebLayer, ServerWebSettings, SlackIntegrationSettings,
+    TeamsIntegrationSettings, TlsConfig,
 };
 use fabro_util::Home;
 
@@ -18,9 +16,9 @@ use super::{ResolveError, default_interp, parse_socket_addr, require_interp};
 
 pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerSettings {
     let storage = resolve_storage(layer.storage.as_ref());
-    let (listen, valid_tls) = resolve_listen(layer.listen.as_ref(), errors);
+    let (listen, _valid_tls) = resolve_listen(layer.listen.as_ref(), errors);
     let web = resolve_web(layer.api.as_ref(), layer.web.as_ref());
-    let auth = resolve_auth(layer.auth.as_ref(), valid_tls, errors);
+    let auth = resolve_auth(layer.auth.as_ref(), errors);
 
     ServerSettings {
         listen,
@@ -98,10 +96,9 @@ fn resolve_tls(
 
     let cert = require_interp(layer.cert.as_ref(), "server.listen.tls.cert", errors);
     let key = require_interp(layer.key.as_ref(), "server.listen.tls.key", errors);
-    let ca = require_interp(layer.ca.as_ref(), "server.listen.tls.ca", errors);
-    let valid = layer.cert.is_some() && layer.key.is_some() && layer.ca.is_some();
+    let valid = layer.cert.is_some() && layer.key.is_some();
 
-    (Some(TlsConfig { cert, key, ca }), valid)
+    (Some(TlsConfig { cert, key }), valid)
 }
 
 fn resolve_web(_api: Option<&ServerApiLayer>, layer: Option<&ServerWebLayer>) -> ServerWebSettings {
@@ -120,53 +117,35 @@ fn resolve_web(_api: Option<&ServerApiLayer>, layer: Option<&ServerWebLayer>) ->
 
 fn resolve_auth(
     layer: Option<&ServerAuthLayer>,
-    valid_tls: bool,
     errors: &mut Vec<ResolveError>,
 ) -> ServerAuthSettings {
-    let api = layer.and_then(|auth| auth.api.as_ref());
-    let web = layer.and_then(|auth| auth.web.as_ref());
-
-    let jwt = api.and_then(|api| {
-        api.jwt.as_ref().map(|jwt| ServerAuthApiJwtSettings {
-            enabled:  jwt.enabled.unwrap_or(true),
-            issuer:   jwt.issuer.clone(),
-            audience: jwt.audience.clone(),
-        })
-    });
-    let mtls = api.and_then(|api| {
-        api.mtls.as_ref().map(|mtls| ServerAuthApiMtlsSettings {
-            enabled: mtls.enabled.unwrap_or(true),
-            ca:      mtls.ca.clone(),
-        })
-    });
-    if mtls.as_ref().is_some_and(|mtls| mtls.enabled) && !valid_tls {
+    let mut methods = layer
+        .and_then(|auth| auth.methods.clone())
+        .unwrap_or_else(|| vec![ServerAuthMethod::DevToken]);
+    if methods.is_empty() {
         errors.push(ResolveError::Invalid {
-            path:   "server.auth.api.mtls".to_string(),
-            reason: "requires tcp listen with tls cert, key, and ca configured".to_string(),
+            path:   "server.auth.methods".to_string(),
+            reason: "must not be empty".to_string(),
+        });
+    }
+    methods.dedup();
+
+    let github = layer
+        .and_then(|auth| auth.github.as_ref())
+        .cloned()
+        .unwrap_or_default();
+    if methods.contains(&ServerAuthMethod::Github) && github.allowed_usernames.is_empty() {
+        errors.push(ResolveError::Invalid {
+            path:   "server.auth.github.allowed_usernames".to_string(),
+            reason: "must not be empty when github auth is enabled".to_string(),
         });
     }
 
     ServerAuthSettings {
-        api: ServerAuthApiSettings { jwt, mtls },
-        web: ServerAuthWebSettings {
-            allowed_usernames: web
-                .map(|web| web.allowed_usernames.clone())
-                .unwrap_or_default(),
-            providers:         ServerAuthWebProvidersSettings {
-                github: web
-                    .and_then(|web| web.providers.as_ref())
-                    .and_then(|providers| providers.github.as_ref())
-                    .map(resolve_web_github),
-            },
+        methods,
+        github: ServerAuthGithubSettings {
+            allowed_usernames: github.allowed_usernames,
         },
-    }
-}
-
-fn resolve_web_github(layer: &ServerAuthWebGithubLayer) -> GithubOauthSettings {
-    GithubOauthSettings {
-        enabled:       layer.enabled.unwrap_or(true),
-        client_id:     layer.client_id.clone(),
-        client_secret: layer.client_secret.clone(),
     }
 }
 

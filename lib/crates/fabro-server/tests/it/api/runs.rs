@@ -3,6 +3,7 @@ use axum::http::{Request, StatusCode};
 use fabro_config::parse_settings_layer;
 use fabro_server::jwt_auth::AuthMode;
 use fabro_server::server::build_router;
+use serde_json::json;
 use tower::ServiceExt;
 
 use crate::helpers::{
@@ -23,21 +24,12 @@ address = "127.0.0.1:32276"
 [server.listen.tls]
 cert = "/etc/fabro/tls/cert.pem"
 key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
 
-[server.auth.api.jwt]
-enabled = true
-issuer = "https://auth.example.com"
-audience = "{{{{ env.JWT_AUDIENCE }}}}"
+[server.auth]
+methods = ["dev-token", "github"]
 
-[server.auth.api.mtls]
-enabled = true
-ca = "/etc/fabro/tls/ca.pem"
-
-[server.auth.web.providers.github]
-enabled = true
-client_id = "Iv1.abcdef"
-client_secret = "{{{{ env.GITHUB_OAUTH_SECRET }}}}"
+[server.auth.github]
+allowed_usernames = ["alice"]
 
 [server.storage]
 root = "{}"
@@ -110,23 +102,16 @@ session_sandboxes = true
         "{{ env.GITHUB_APP_ID }}"
     );
     assert_eq!(
-        body["server"]["auth"]["api"]["jwt"]["enabled"],
-        serde_json::json!(true)
+        body["server"]["integrations"]["github"]["client_id"],
+        "Iv1.github"
     );
     assert_eq!(
-        body["server"]["auth"]["api"]["mtls"]["enabled"],
-        serde_json::json!(true)
+        body["server"]["auth"]["methods"],
+        json!(["dev-token", "github"])
     );
     assert_eq!(
-        body["server"]["auth"]["web"]["providers"]["github"]["client_id"],
-        "Iv1.abcdef"
+        body["server"]["auth"]["github"]["allowed_usernames"],
+        json!(["alice"])
     );
     assert!(body.pointer("/server/listen").is_none());
-    assert!(body.pointer("/server/auth/api/jwt/issuer").is_none());
-    assert!(body.pointer("/server/auth/api/jwt/audience").is_none());
-    assert!(body.pointer("/server/auth/api/mtls/ca").is_none());
-    assert!(
-        body.pointer("/server/auth/web/providers/github/client_secret")
-            .is_none()
-    );
 }

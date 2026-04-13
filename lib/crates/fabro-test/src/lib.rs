@@ -48,6 +48,8 @@ static INSTA_FILTERS: &[(&str, &str)] = &[
 const MANAGED_STORAGE_MARKER: &str = "# fabro-test managed storage_dir";
 const TEST_IN_MEMORY_STORE_ENV: &str = "FABRO_TEST_IN_MEMORY_STORE";
 const SESSION_LOCK_TIMEOUT: Duration = Duration::from_secs(20);
+const TEST_SESSION_SECRET: &str =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TestMode {
@@ -623,6 +625,7 @@ fn ensure_server_running(fabro_bin: &Path, server: &ServerPaths, config_path: &P
         .env("FABRO_NO_UPGRADE_CHECK", "true")
         .env("FABRO_HTTP_PROXY_POLICY", "disabled")
         .env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64")
+        .env("SESSION_SECRET", TEST_SESSION_SECRET)
         .env(TEST_IN_MEMORY_STORE_ENV, "1")
         .env("FABRO_HOME", &server.root)
         .args(["server", "start"])

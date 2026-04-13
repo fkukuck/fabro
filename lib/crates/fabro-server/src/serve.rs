@@ -26,13 +26,13 @@ use tracing::{error, info, warn};
 
 use crate::bind::{self, Bind, BindRequest};
 use crate::github_webhooks::WebhookManager;
-use crate::jwt_auth::{AuthMode, AuthStrategy, ResolvedAuth, resolve_auth_mode_with_lookup};
+use crate::jwt_auth::resolve_auth_mode_with_lookup;
 use crate::server::{
     RouterOptions, build_app_state_with_path, build_router_with_options,
     reconcile_incomplete_runs_on_startup, shutdown_active_workers, spawn_scheduler,
 };
 use crate::server_secrets::ServerSecrets;
-use crate::tls::{ClientAuth, build_rustls_config, serve_tls_with_shutdown};
+use crate::tls::{build_rustls_config, serve_tls_with_shutdown};
 
 const TEST_IN_MEMORY_STORE_ENV: &str = "FABRO_TEST_IN_MEMORY_STORE";
 pub const DEFAULT_TCP_PORT: u16 = 32276;
@@ -304,24 +304,15 @@ where
     let resolved_server_settings = resolve_server_settings(&effective_settings)?;
     let shared_settings = Arc::new(RwLock::new(effective_settings));
     std::fs::create_dir_all(&data_dir)?;
-    let (resolved_auth, client_auth, max_concurrent_runs) = {
-        let resolved_auth = resolve_auth_mode_with_lookup(&resolved_server_settings, |name| {
+    let (auth_mode, max_concurrent_runs) = {
+        let auth_mode = resolve_auth_mode_with_lookup(&resolved_server_settings, |name| {
             server_secrets.get(name)
         })?;
-        let tls_present = matches!(
-            resolved_server_settings.listen,
-            ServerListenSettings::Tcp { ref tls, .. } if tls.is_some()
-        );
-        let client_auth = tls_present.then(|| client_auth_from_mode(&resolved_auth.mode));
         let max_concurrent_runs = args
             .max_concurrent_runs
             .unwrap_or(resolved_server_settings.scheduler.max_concurrent_runs);
-        (resolved_auth, client_auth, max_concurrent_runs)
+        (auth_mode, max_concurrent_runs)
     };
-    let ResolvedAuth {
-        mode: auth_mode,
-        session_key_override,
-    } = resolved_auth;
     let web_enabled = router_web_enabled(&resolved_server_settings);
 
     let store_path = storage.store_dir();
@@ -342,7 +333,6 @@ where
         artifact_store,
         &vault_path,
         active_config_path,
-        session_key_override,
         true,
     )?;
     let reconciled = reconcile_incomplete_runs_on_startup(&state).await?;
@@ -507,8 +497,7 @@ where
         }
         BoundListener::Tcp(listener) => {
             if let Some(ref tls_settings) = tls_settings {
-                let client_auth = client_auth.unwrap();
-                let rustls_config = build_rustls_config(tls_settings, client_auth)?;
+                let rustls_config = build_rustls_config(tls_settings)?;
                 let tls_acceptor = tokio_rustls::TlsAcceptor::from(rustls_config);
 
                 info!("TLS enabled");
@@ -674,26 +663,6 @@ fn server_bind_title(bind: &Bind) -> String {
     match bind {
         Bind::Unix(path) => format!("unix:{}", path.display()),
         Bind::Tcp(addr) => format!("tcp:{addr}"),
-    }
-}
-
-/// Derive client certificate verification mode from the resolved auth
-/// strategies.
-fn client_auth_from_mode(auth_mode: &AuthMode) -> ClientAuth {
-    let strategies = match auth_mode {
-        AuthMode::Strategies(s) => s,
-        AuthMode::Disabled => return ClientAuth::None,
-    };
-
-    let has_mtls = strategies.iter().any(|s| matches!(s, AuthStrategy::Mtls));
-    if !has_mtls {
-        return ClientAuth::None;
-    }
-
-    if strategies.len() > 1 {
-        ClientAuth::Optional
-    } else {
-        ClientAuth::Required
     }
 }
 

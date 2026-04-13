@@ -95,12 +95,20 @@ In the server interface, human-in-the-loop questions are served over HTTP instea
 
 ## Authentication
 
-The server supports two authentication strategies, configurable in `settings.toml`:
+The server configures auth with `server.auth.methods`:
 
-- **JWT** — EdDSA-signed bearer tokens. Used by the web UI. See [API Overview](/api-reference/overview#jwt-bearer-token) for token format.
-- **mTLS** — Mutual TLS with client certificates. Used for service-to-service communication. See [API Overview](/api-reference/overview#mtls-mutual-tls) for setup.
+- **`dev-token`** — Operators can call the API directly with `Authorization: Bearer fabro_dev_...`, and the web login page can accept the dev token too.
+- **`github`** — End users sign in through GitHub OAuth and receive a browser session cookie.
 
-Both strategies can be enabled simultaneously — the first successful match wins.
+Both methods can be enabled simultaneously:
+
+```toml title="settings.toml"
+[server.auth]
+methods = ["dev-token", "github"]
+
+[server.auth.github]
+allowed_usernames = ["alice", "bob"]
+```
 
 ## Demo mode
 

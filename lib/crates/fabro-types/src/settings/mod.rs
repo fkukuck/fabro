@@ -46,10 +46,9 @@ pub use run::{
     RunScmSettings, RunSettings, ScmGitHubSettings, TlsMode,
 };
 pub use server::{
-    DiscordIntegrationSettings, GithubIntegrationSettings, GithubOauthSettings,
-    IntegrationWebhooksSettings, ObjectStoreSettings, ServerApiSettings, ServerArtifactsSettings,
-    ServerAuthApiJwtSettings, ServerAuthApiMtlsSettings, ServerAuthApiSettings, ServerAuthSettings,
-    ServerAuthWebProvidersSettings, ServerAuthWebSettings, ServerIntegrationsSettings, ServerLayer,
+    DiscordIntegrationSettings, GithubIntegrationSettings, IntegrationWebhooksSettings,
+    ObjectStoreSettings, ServerApiSettings, ServerArtifactsSettings, ServerAuthGithubSettings,
+    ServerAuthMethod, ServerAuthSettings, ServerIntegrationsSettings, ServerLayer,
     ServerListenSettings, ServerLoggingSettings, ServerSchedulerSettings, ServerSettings,
     ServerSlateDbSettings, ServerStorageSettings, ServerWebSettings, SlackIntegrationSettings,
     TeamsIntegrationSettings, TlsConfig,

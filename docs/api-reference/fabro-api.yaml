@@ -32,7 +32,7 @@ tags:
 
 security:
   - BearerAuth: []
-  - mTLS: []
+  - SessionCookie: []
 
 paths:
   # ── Discovery ────────────────────────────────────────────────────────
@@ -1537,20 +1537,17 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: opaque
       description: >
-        JWT bearer token issued by fabro-web. See the [Authentication](/api-reference/overview#authentication) guide for details.
-    # OpenAPI 3.1 defines type: mutualTLS, but our parser (openapiv3) only
-    # supports 3.0 scheme types. We use apiKey as a placeholder; actual mTLS
-    # enforcement happens at the transport layer via client certificates.
-    mTLS:
+        Raw dev token passed as `Authorization: Bearer fabro_dev_...` when
+        `server.auth.methods` includes `dev-token`.
+    SessionCookie:
       type: apiKey
-      in: header
-      name: X-mTLS-Client-CN
+      in: cookie
+      name: __fabro_session
       description: >
-        Mutual TLS: client certificate signed by the configured CA. Identity
-        is extracted from the certificate's Common Name (CN). This scheme is
-        enforced at the transport layer, not via an HTTP header.
+        Private session cookie issued after a successful web login. The server
+        verifies and decodes the cookie before authenticating the request.
 
   parameters:
     RunId:
@@ -4076,13 +4073,9 @@ components:
         - `view=layer` (default): the sparse redacted `SettingsLayer` shape
         - `view=resolved`: the dense resolved `Settings` shape
 
-        Both views drop the same exact secret-bearing paths:
+        Both views drop the same exact operational path:
 
         - `server.listen`
-        - `server.auth.api.jwt.issuer`
-        - `server.auth.api.jwt.audience`
-        - `server.auth.api.mtls.ca`
-        - `server.auth.web.providers.github.client_secret`
 
         For non-redacted `InterpString` fields, the wire payload preserves the
         unresolved source/template string rather than any environment-resolved

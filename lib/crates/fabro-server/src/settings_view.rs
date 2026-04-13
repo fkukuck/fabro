@@ -4,21 +4,15 @@
 //! [`SettingsLayer`] directly as JSON so authenticated clients (the `fabro
 //! settings` CLI, the web UI) can see the effective configuration. Before
 //! serialization, this module drops the handful of fields that would leak
-//! operational secrets or host-specific filesystem layout.
+//! host-specific filesystem or network layout.
 //!
 //! ## What gets dropped
 //!
-//! Per the requirements doc (R16, R52, R53, R79–R81) and the Stage 6.6 plan:
+//! Per the requirements doc, only the transport bind needs redaction now:
 //!
 //! - `server.listen` — the whole subtree. Bind address reveals network
-//!   topology; `[server.listen.tls]` cert/key/ca paths reveal the host
-//!   filesystem layout.
-//! - `server.auth.api.jwt.issuer` and `jwt.audience` — auth topology. Keeps
-//!   `enabled` so clients can tell whether JWT auth is on.
-//! - `server.auth.api.mtls.ca` — filesystem path to the CA bundle. Keeps
-//!   `enabled`.
-//! - `server.auth.web.providers.github.client_secret` — explicit OAuth secret.
-//!   Keeps `enabled` and `client_id` (the latter is public in OAuth).
+//!   topology; `[server.listen.tls]` cert/key paths reveal the host filesystem
+//!   layout.
 //!
 //! ## Why that's all
 //!
@@ -40,20 +34,7 @@ use serde::Deserialize;
 pub(crate) const RESOLVED_VIEW_HEADER_NAME: &str = "X-Fabro-Settings-View";
 pub(crate) const RESOLVED_VIEW_HEADER_VALUE: &str = "resolved";
 
-const REDACTED_PATHS: &[&[&str]] = &[
-    &["server", "listen"],
-    &["server", "auth", "api", "jwt", "issuer"],
-    &["server", "auth", "api", "jwt", "audience"],
-    &["server", "auth", "api", "mtls", "ca"],
-    &[
-        "server",
-        "auth",
-        "web",
-        "providers",
-        "github",
-        "client_secret",
-    ],
-];
+const REDACTED_PATHS: &[&[&str]] = &[&["server", "listen"]];
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -79,25 +60,6 @@ pub(crate) fn redact_for_api(settings: &SettingsLayer) -> SettingsLayer {
     if let Some(server) = out.server.as_mut() {
         // Bind address + TLS key/cert paths: host operational details.
         server.listen = None;
-
-        if let Some(auth) = server.auth.as_mut() {
-            if let Some(api) = auth.api.as_mut() {
-                if let Some(jwt) = api.jwt.as_mut() {
-                    jwt.issuer = None;
-                    jwt.audience = None;
-                }
-                if let Some(mtls) = api.mtls.as_mut() {
-                    mtls.ca = None;
-                }
-            }
-            if let Some(web) = auth.web.as_mut() {
-                if let Some(providers) = web.providers.as_mut() {
-                    if let Some(github) = providers.github.as_mut() {
-                        github.client_secret = None;
-                    }
-                }
-            }
-        }
     }
 
     out
@@ -174,92 +136,10 @@ address = "127.0.0.1:32276"
 [server.listen.tls]
 cert = "/etc/fabro/tls/cert.pem"
 key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
 "#,
         );
         let redacted = redact_for_api(&settings);
         assert!(redacted.server.unwrap().listen.is_none());
-    }
-
-    #[test]
-    fn drops_jwt_issuer_and_audience_but_keeps_enabled() {
-        let settings = parse(
-            r#"
-_version = 1
-
-[server.auth.api.jwt]
-enabled = true
-issuer = "https://auth.example.com"
-audience = "fabro"
-"#,
-        );
-        let redacted = redact_for_api(&settings);
-        let jwt = redacted
-            .server
-            .unwrap()
-            .auth
-            .unwrap()
-            .api
-            .unwrap()
-            .jwt
-            .unwrap();
-        assert_eq!(jwt.enabled, Some(true));
-        assert!(jwt.issuer.is_none());
-        assert!(jwt.audience.is_none());
-    }
-
-    #[test]
-    fn drops_mtls_ca_path_but_keeps_enabled() {
-        let settings = parse(
-            r#"
-_version = 1
-
-[server.auth.api.mtls]
-enabled = true
-ca = "/etc/fabro/tls/ca.pem"
-"#,
-        );
-        let redacted = redact_for_api(&settings);
-        let mtls = redacted
-            .server
-            .unwrap()
-            .auth
-            .unwrap()
-            .api
-            .unwrap()
-            .mtls
-            .unwrap();
-        assert_eq!(mtls.enabled, Some(true));
-        assert!(mtls.ca.is_none());
-    }
-
-    #[test]
-    fn drops_github_client_secret_but_keeps_client_id_and_enabled() {
-        let settings = parse(
-            r#"
-_version = 1
-
-[server.auth.web.providers.github]
-enabled = true
-client_id = "Iv1.abcdef"
-client_secret = "{{ env.GITHUB_OAUTH_SECRET }}"
-"#,
-        );
-        let redacted = redact_for_api(&settings);
-        let github = redacted
-            .server
-            .unwrap()
-            .auth
-            .unwrap()
-            .web
-            .unwrap()
-            .providers
-            .unwrap()
-            .github
-            .unwrap();
-        assert_eq!(github.enabled, Some(true));
-        assert!(github.client_id.is_some());
-        assert!(github.client_secret.is_none());
     }
 
     #[test]
@@ -287,6 +167,12 @@ session_sandboxes = true
 [server.scheduler]
 max_concurrent_runs = 9
 
+[server.auth]
+methods = ["dev-token", "github"]
+
+[server.auth.github]
+allowed_usernames = ["alice"]
+
 [server.storage]
 root = "/srv/fabro"
 
@@ -313,6 +199,9 @@ slug = "fabro-app"
         assert!(github.app_id.is_some());
         assert!(github.client_id.is_some());
         assert!(github.slug.is_some());
+        let auth = server.auth.unwrap();
+        assert_eq!(auth.methods.unwrap().len(), 2);
+        assert_eq!(auth.github.unwrap().allowed_usernames, vec!["alice"]);
     }
 
     #[test]
@@ -363,21 +252,12 @@ address = "127.0.0.1:32276"
 [server.listen.tls]
 cert = "/etc/fabro/tls/cert.pem"
 key = "/etc/fabro/tls/key.pem"
-ca = "/etc/fabro/tls/ca.pem"
 
-[server.auth.api.jwt]
-enabled = true
-issuer = "https://auth.example.com"
-audience = "fabro"
+[server.auth]
+methods = ["github", "dev-token"]
 
-[server.auth.api.mtls]
-enabled = true
-ca = "/etc/fabro/tls/ca.pem"
-
-[server.auth.web.providers.github]
-enabled = true
-client_id = "Iv1.abcdef"
-client_secret = "{{ env.GITHUB_OAUTH_SECRET }}"
+[server.auth.github]
+allowed_usernames = ["alice"]
 
 [server.storage]
 root = "{{ env.FABRO_STORAGE_ROOT }}"
@@ -389,31 +269,10 @@ root = "{{ env.FABRO_STORAGE_ROOT }}"
             redact_resolved_value(&resolved).expect("resolved settings should serialize");
 
         assert!(redacted["server"].get("listen").is_none());
-        assert_eq!(redacted["server"]["auth"]["api"]["jwt"]["enabled"], true);
-        assert!(
-            redacted["server"]["auth"]["api"]["jwt"]
-                .get("issuer")
-                .is_none()
-        );
-        assert!(
-            redacted["server"]["auth"]["api"]["jwt"]
-                .get("audience")
-                .is_none()
-        );
-        assert_eq!(redacted["server"]["auth"]["api"]["mtls"]["enabled"], true);
-        assert!(
-            redacted["server"]["auth"]["api"]["mtls"]
-                .get("ca")
-                .is_none()
-        );
+        assert_eq!(redacted["server"]["auth"]["methods"][0], "github");
         assert_eq!(
-            redacted["server"]["auth"]["web"]["providers"]["github"]["client_id"],
-            "Iv1.abcdef"
-        );
-        assert!(
-            redacted["server"]["auth"]["web"]["providers"]["github"]
-                .get("client_secret")
-                .is_none()
+            redacted["server"]["auth"]["github"]["allowed_usernames"][0],
+            "alice"
         );
         assert_eq!(
             redacted["server"]["storage"]["root"],
