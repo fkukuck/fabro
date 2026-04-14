@@ -286,7 +286,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
-         * Validates and renders a workflow manifest as SVG or PNG without creating a run.
+         * Validates and renders a workflow manifest as SVG without creating a run.
          * @summary Render Workflow Graph
          * @param {RenderWorkflowGraphRequest} renderWorkflowGraphRequest 
          * @param {*} [options] Override http request option.
@@ -314,7 +314,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             await setBearerAuthToObject(localVarHeaderParameter, configuration)
 
             localVarHeaderParameter['Content-Type'] = 'application/json';
-            localVarHeaderParameter['Accept'] = 'image/svg+xml,image/png,application/json';
+            localVarHeaderParameter['Accept'] = 'image/svg+xml,application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
@@ -618,7 +618,7 @@ export const RunsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Validates and renders a workflow manifest as SVG or PNG without creating a run.
+         * Validates and renders a workflow manifest as SVG without creating a run.
          * @summary Render Workflow Graph
          * @param {RenderWorkflowGraphRequest} renderWorkflowGraphRequest 
          * @param {*} [options] Override http request option.
@@ -766,7 +766,7 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.pauseRun(id, options).then((request) => request(axios, basePath));
         },
         /**
-         * Validates and renders a workflow manifest as SVG or PNG without creating a run.
+         * Validates and renders a workflow manifest as SVG without creating a run.
          * @summary Render Workflow Graph
          * @param {RenderWorkflowGraphRequest} renderWorkflowGraphRequest 
          * @param {*} [options] Override http request option.
@@ -900,7 +900,7 @@ export class RunsApi extends BaseAPI {
     }
 
     /**
-     * Validates and renders a workflow manifest as SVG or PNG without creating a run.
+     * Validates and renders a workflow manifest as SVG without creating a run.
      * @summary Render Workflow Graph
      * @param {RenderWorkflowGraphRequest} renderWorkflowGraphRequest 
      * @param {*} [options] Override http request option.

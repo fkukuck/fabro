@@ -38,16 +38,7 @@ pub(crate) enum ProbeOutcome {
     Ok { version: Option<Version> },
 }
 
-static DOT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"graphviz version (\d+)\.(\d+)\.(\d+)").unwrap());
-
-pub(crate) const DEP_SPECS: &[DepSpec] = &[DepSpec {
-    name:        "dot",
-    command:     &["dot", "-V"],
-    required:    false,
-    min_version: Version::new(2, 0, 0),
-    pattern:     &DOT_RE,
-}];
+pub(crate) const DEP_SPECS: &[DepSpec] = &[];
 
 fn parse_version(re: &Regex, output: &str) -> Option<Version> {
     let caps = re.captures(output)?;
@@ -662,19 +653,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_dot() {
-        assert_eq!(
-            parse_version(&DOT_RE, "dot - graphviz version 12.2.1 (20241206.2024)"),
-            Some(Version::new(12, 2, 1))
-        );
-    }
-
-    #[test]
-    fn parse_version_garbage_returns_none() {
-        assert_eq!(parse_version(&DOT_RE, "no version here"), None);
-    }
-
-    #[test]
     fn render_report_text_without_color_has_no_ansi() {
         let report = CheckReport {
             title:    "Fabro Doctor".to_string(),
@@ -701,13 +679,16 @@ mod tests {
         assert!(rendered.contains("[✓] Configuration (loaded)"));
     }
 
+    static TEST_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"version (\d+)\.(\d+)\.(\d+)").unwrap());
+
     fn spec(name: &'static str, required: bool, min_version: Version) -> DepSpec {
         DepSpec {
             name,
             command: &["echo", "unused"],
             required,
             min_version,
-            pattern: &DOT_RE,
+            pattern: &TEST_RE,
         }
     }
 
