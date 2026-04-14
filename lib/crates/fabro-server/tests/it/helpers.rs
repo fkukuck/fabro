@@ -5,13 +5,11 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use fabro_server::jwt_auth::AuthMode;
 use fabro_server::server::{
-    AppState, build_router, create_app_state, create_app_state_with_settings_and_registry_factory,
-    spawn_scheduler,
+    AppState, build_router, create_app_state, create_app_state_with_env_lookup,
+    create_app_state_with_settings_and_registry_factory, spawn_scheduler,
 };
 use fabro_types::settings::SettingsLayer;
-use fabro_types::settings::run::{
-    LocalSandboxLayer, RunExecutionLayer, RunLayer, RunMode, RunSandboxLayer, WorktreeMode,
-};
+use fabro_types::settings::run::{LocalSandboxLayer, RunLayer, RunSandboxLayer, WorktreeMode};
 use tokio::time::sleep;
 use tower::ServiceExt;
 
@@ -54,22 +52,23 @@ pub(crate) fn test_settings() -> SettingsLayer {
     }
 }
 
-pub(crate) fn dry_run_settings() -> SettingsLayer {
-    let mut settings = test_settings();
-    let run = settings.run.get_or_insert_with(RunLayer::default);
-    let execution = run.execution.get_or_insert_with(RunExecutionLayer::default);
-    execution.mode = Some(RunMode::DryRun);
-    settings
-}
-
-pub(crate) fn dry_run_app() -> axum::Router {
-    let state = test_app_state_with_options(dry_run_settings(), 5);
+pub(crate) fn test_app_with_scheduler(state: Arc<AppState>) -> axum::Router {
     spawn_scheduler(Arc::clone(&state));
     build_router(state, AuthMode::Disabled)
 }
 
-pub(crate) fn test_app_with_scheduler(state: Arc<AppState>) -> axum::Router {
-    spawn_scheduler(Arc::clone(&state));
+pub(crate) fn test_app_with_no_providers() -> axum::Router {
+    let state = create_app_state_with_env_lookup(test_settings(), 5, |_| None);
+    build_router(state, AuthMode::Disabled)
+}
+
+pub(crate) fn test_app_with_mock_anthropic(mock_base_url: &str) -> axum::Router {
+    let base_url = mock_base_url.to_string();
+    let state = create_app_state_with_env_lookup(test_settings(), 5, move |name| match name {
+        "ANTHROPIC_API_KEY" => Some("test-key".to_string()),
+        "ANTHROPIC_BASE_URL" => Some(base_url.clone()),
+        _ => None,
+    });
     build_router(state, AuthMode::Disabled)
 }
 
@@ -80,12 +79,6 @@ pub(crate) fn api(path: &str) -> String {
 pub(crate) async fn body_json(body: Body) -> serde_json::Value {
     let bytes = to_bytes(body, usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
-}
-
-/// Create a run via POST /runs, then start it via POST /runs/{id}/start.
-/// Returns the run_id string.
-pub(crate) async fn create_and_start_run(app: &axum::Router, dot_source: &str) -> String {
-    create_and_start_run_from_manifest(app, minimal_manifest_json(dot_source)).await
 }
 
 pub(crate) async fn create_and_start_run_from_manifest(

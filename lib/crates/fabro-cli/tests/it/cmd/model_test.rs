@@ -1,4 +1,16 @@
+use assert_cmd::Command;
 use fabro_test::{fabro_snapshot, test_context};
+
+fn remove_provider_env(cmd: &mut Command) -> &mut Command {
+    cmd.env_remove("ANTHROPIC_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("GEMINI_API_KEY")
+        .env_remove("GOOGLE_API_KEY")
+        .env_remove("KIMI_API_KEY")
+        .env_remove("ZAI_API_KEY")
+        .env_remove("MINIMAX_API_KEY")
+        .env_remove("INCEPTION_API_KEY")
+}
 
 #[test]
 fn help() {
@@ -42,4 +54,87 @@ fn model_test_unknown_model_errors() {
     Testing nonexistent-model-xyz... done
     error: Unknown model: nonexistent-model-xyz
     ");
+}
+
+#[test]
+fn single_model_skip_exits_nonzero() {
+    let context = test_context!();
+    let mut cmd = context.command();
+    cmd.args(["model", "test", "--model", "gemini-3.1-pro-preview"]);
+    remove_provider_env(&mut cmd);
+
+    fabro_snapshot!(context.filters(), cmd, @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    MODEL                   PROVIDER  ALIASES     CONTEXT          COST     SPEED  RESULT         
+     gemini-3.1-pro-preview  gemini    gemini-pro       1m  $2.0 / $12.0  85 tok/s  not configured
+    ----- stderr -----
+    Testing gemini-3.1-pro-preview... done
+    error: 1 model(s) failed
+    ");
+}
+
+#[test]
+fn bulk_skip_exits_zero_and_prints_summary() {
+    let context = test_context!();
+    let mut cmd = context.command();
+    cmd.args(["model", "test"]);
+    remove_provider_env(&mut cmd);
+
+    fabro_snapshot!(context.filters(), cmd, @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    ----- stderr -----
+    Testing claude-opus-4-6... done
+    Testing claude-sonnet-4-5... done
+    Testing claude-sonnet-4-6... done
+    Testing claude-haiku-4-5... done
+    Testing gpt-5.2... done
+    Testing gpt-5-mini... done
+    Testing gpt-5.2-codex... done
+    Testing gpt-5.3-codex... done
+    Testing gpt-5.3-codex-spark... done
+    Testing gpt-5.4... done
+    Testing gpt-5.4-pro... done
+    Testing gpt-5.4-mini... done
+    Testing gemini-3.1-pro-preview... done
+    Testing gemini-3.1-pro-preview-customtools... done
+    Testing gemini-3-flash-preview... done
+    Testing gemini-3.1-flash-lite-preview... done
+    Testing kimi-k2.5... done
+    Testing glm-4.7... done
+    Testing minimax-m2.5... done
+    Testing mercury-2... done
+    Skipped 20 model(s) (no credentials: Anthropic, OpenAI, Gemini, Kimi, Zai, Minimax, Inception)
+    ");
+}
+
+#[test]
+fn json_output_includes_skipped_models() {
+    let context = test_context!();
+    let mut cmd = context.command();
+    cmd.args([
+        "model",
+        "test",
+        "--model",
+        "gemini-3.1-pro-preview",
+        "--json",
+    ]);
+    remove_provider_env(&mut cmd);
+
+    let output = cmd.output().expect("failed to execute model test");
+    assert!(
+        !output.status.success(),
+        "expected single-model skip to exit non-zero:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+
+    assert_eq!(json["failures"], 1);
+    assert_eq!(json["skipped"], 1);
+    assert_eq!(json["results"][0]["result"], "skip");
 }

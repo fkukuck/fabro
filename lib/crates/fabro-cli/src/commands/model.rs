@@ -36,6 +36,7 @@ struct ModelTestOutput {
     results:  Vec<ModelTestRow>,
     total:    usize,
     failures: u32,
+    skipped:  u32,
 }
 
 pub(crate) async fn execute(
@@ -247,6 +248,8 @@ async fn test_models_via_server(
     let mut rows: Vec<Vec<CellStruct>> = Vec::new();
     let mut json_rows = Vec::new();
     let mut failures = 0u32;
+    let mut skipped = 0u32;
+    let mut skipped_providers: Vec<String> = Vec::new();
     if let Some(model_id) = model {
         if !json_output {
             eprint!("Testing {model_id}...");
@@ -266,6 +269,10 @@ async fn test_models_via_server(
                     })?;
                 if resp.status == api_types::ModelTestResultStatus::Ok {
                     (info, Color::Green, "ok".to_string())
+                } else if resp.status == api_types::ModelTestResultStatus::Skip {
+                    failures += 1;
+                    skipped += 1;
+                    (info, Color::Yellow, "not configured".to_string())
                 } else {
                     failures += 1;
                     let message = resp
@@ -315,6 +322,21 @@ async fn test_models_via_server(
                 Ok(resp) if resp.status == api_types::ModelTestResultStatus::Ok => {
                     (Color::Green, "ok".to_string())
                 }
+                Ok(resp) if resp.status == api_types::ModelTestResultStatus::Skip => {
+                    skipped += 1;
+                    let provider_name = info.provider.display_name().to_string();
+                    if !skipped_providers.contains(&provider_name) {
+                        skipped_providers.push(provider_name);
+                    }
+                    if json_output {
+                        json_rows.push(model_test_row_from_status(
+                            info,
+                            "not configured",
+                            Color::Yellow,
+                        ));
+                    }
+                    continue;
+                }
                 Ok(resp) => {
                     failures += 1;
                     let message = resp
@@ -346,6 +368,7 @@ async fn test_models_via_server(
             serde_json::to_string_pretty(&ModelTestOutput {
                 total: json_rows.len(),
                 failures,
+                skipped,
                 results: json_rows,
             })?
         );
@@ -355,13 +378,23 @@ async fn test_models_via_server(
         return Ok(());
     }
 
-    let table = rows
-        .table()
-        .title(title)
-        .color_choice(color_choice(use_color))
-        .border(Border::builder().build())
-        .separator(Separator::builder().build());
-    println!("{}", table.display()?);
+    if !rows.is_empty() {
+        let table = rows
+            .table()
+            .title(title)
+            .color_choice(color_choice(use_color))
+            .border(Border::builder().build())
+            .separator(Separator::builder().build());
+        println!("{}", table.display()?);
+    }
+
+    if skipped > 0 && model.is_none() {
+        eprintln!(
+            "Skipped {} model(s) (no credentials: {})",
+            skipped,
+            skipped_providers.join(", ")
+        );
+    }
 
     if failures > 0 {
         bail!("{failures} model(s) failed");
@@ -569,6 +602,33 @@ mod tests {
 
         assert_eq!(response.status, api_types::ModelTestResultStatus::Error);
         assert_eq!(response.error_message.as_deref(), Some("timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_model_via_server_parses_skip() {
+        let server = httpmock::MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method("POST").path("/api/v1/models/kimi-k2.5/test");
+                then.status(200)
+                    .header("Content-Type", "application/json")
+                    .body(
+                        serde_json::json!({
+                            "model_id": "kimi-k2.5",
+                            "status": "skip"
+                        })
+                        .to_string(),
+                    );
+            })
+            .await;
+
+        let client = test_api_client(&server.url(""));
+        let response = test_model_via_server(&client, "kimi-k2.5", None)
+            .await
+            .unwrap();
+
+        assert_eq!(response.status, api_types::ModelTestResultStatus::Skip);
+        assert!(response.error_message.is_none());
     }
 
     #[tokio::test]

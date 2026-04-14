@@ -23,7 +23,7 @@ export interface ModelTestResult {
      */
     'model_id': string;
     /**
-     * Whether the model responded successfully.
+     * Whether the model responded successfully, failed, or was skipped because its provider is not configured.
      */
     'status': ModelTestResultStatusEnum;
     /**
@@ -34,7 +34,8 @@ export interface ModelTestResult {
 
 export const ModelTestResultStatusEnum = {
     OK: 'ok',
-    ERROR: 'error'
+    ERROR: 'error',
+    SKIP: 'skip'
 } as const;
 
 export type ModelTestResultStatusEnum = typeof ModelTestResultStatusEnum[keyof typeof ModelTestResultStatusEnum];

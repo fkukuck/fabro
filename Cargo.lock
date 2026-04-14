@@ -1954,6 +1954,7 @@ dependencies = [
  "hex",
  "hmac",
  "http-body-util",
+ "httpmock",
  "hyper",
  "hyper-util",
  "jsonwebtoken",

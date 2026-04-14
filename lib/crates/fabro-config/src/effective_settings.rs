@@ -74,7 +74,7 @@ pub fn materialize_settings_layer(
             strip_owner_domains(&mut workflow);
             strip_owner_domains(&mut project);
 
-            let server_defaults = server_defaults_file(server_settings);
+            let server_defaults = server_settings.clone();
 
             let combined =
                 combine_files(combine_files(combine_files(user, project), workflow), args);
@@ -109,19 +109,6 @@ pub fn materialize_settings_layer(
 fn strip_owner_domains(file: &mut SettingsLayer) {
     file.cli = None;
     file.server = None;
-}
-
-/// Copy of the server settings with startup-time dry-run fallback cleared.
-/// Run manifests carry their own dry-run intent; a daemon's startup-time
-/// fallback mode must not silently force every submitted run into simulation.
-fn server_defaults_file(settings: &SettingsLayer) -> SettingsLayer {
-    let mut out = settings.clone();
-    if let Some(run) = out.run.as_mut() {
-        if let Some(execution) = run.execution.as_mut() {
-            execution.mode = None;
-        }
-    }
-    out
 }
 
 /// Apply server-side defaults to a client-layered [`SettingsLayer`].

@@ -48,8 +48,6 @@ fn help() {
               Override default LLM model
           --provider <PROVIDER>
               Override default LLM provider
-          --dry-run
-              Execute with simulated LLM backend
           --sandbox <SANDBOX>
               Sandbox for agent tools
           --max-concurrent-runs <MAX_CONCURRENT_RUNS>
@@ -75,7 +73,7 @@ fn start_already_running_exits_with_error() {
     context
         .command()
         .env("FABRO_STORAGE_DIR", &storage_dir)
-        .args(["server", "start", "--dry-run", "--bind", &bind_str])
+        .args(["server", "start", "--bind", &bind_str])
         .assert()
         .success();
 
@@ -84,7 +82,7 @@ fn start_already_running_exits_with_error() {
     filters.push((regex::escape(&bind_str), "[SOCKET_PATH]".to_string()));
     let mut cmd = context.command();
     cmd.env("FABRO_STORAGE_DIR", &storage_dir);
-    cmd.args(["server", "start", "--dry-run", "--bind", &bind_str]);
+    cmd.args(["server", "start", "--bind", &bind_str]);
     fabro_snapshot!(filters, cmd, @"
     success: false
     exit_code: 1
@@ -112,7 +110,7 @@ fn start_without_bind_uses_home_socket_instead_of_storage_socket() {
     context
         .command()
         .env("FABRO_STORAGE_DIR", &storage_dir)
-        .args(["server", "start", "--dry-run"])
+        .args(["server", "start"])
         .assert()
         .success();
 
@@ -159,13 +157,7 @@ address = "127.0.0.1:0"
 
     let mut cmd = context.command();
     cmd.env("FABRO_STORAGE_DIR", &storage_dir);
-    cmd.args([
-        "server",
-        "start",
-        "--dry-run",
-        "--config",
-        config_path.to_str().unwrap(),
-    ]);
+    cmd.args(["server", "start", "--config", config_path.to_str().unwrap()]);
     let output = cmd.output().expect("server start command should run");
     assert!(
         output.status.success(),
@@ -211,7 +203,7 @@ fn start_with_tcp_host_only_bind_resolves_to_host_and_port() {
 
     let mut cmd = context.command();
     cmd.env("FABRO_STORAGE_DIR", &storage_dir);
-    cmd.args(["server", "start", "--dry-run", "--bind", "127.0.0.1"]);
+    cmd.args(["server", "start", "--bind", "127.0.0.1"]);
     let output = cmd.output().expect("server start command should run");
     assert!(
         output.status.success(),
@@ -276,7 +268,7 @@ fn start_with_tcp_host_only_bind_warns_and_falls_back_when_default_port_is_unava
 
     let mut cmd = context.command();
     cmd.env("FABRO_STORAGE_DIR", &storage_dir);
-    cmd.args(["server", "start", "--dry-run", "--bind", "127.0.0.1"]);
+    cmd.args(["server", "start", "--bind", "127.0.0.1"]);
     fabro_snapshot!(filters, cmd, @"
     success: true
     exit_code: 0

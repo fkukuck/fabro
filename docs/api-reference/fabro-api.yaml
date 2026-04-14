@@ -1854,7 +1854,8 @@ components:
           enum:
             - ok
             - error
-          description: Whether the model responded successfully.
+            - skip
+          description: Whether the model responded successfully, failed, or was skipped because its provider is not configured.
         error_message:
           type: string
           nullable: true

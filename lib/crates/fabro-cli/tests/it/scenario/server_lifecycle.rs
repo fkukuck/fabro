@@ -25,7 +25,7 @@ fn start_status_stop_lifecycle() {
 
     let mut cmd = context.command();
     cmd.env("FABRO_STORAGE_DIR", &storage_dir);
-    cmd.args(["server", "start", "--dry-run", "--bind", &bind_str]);
+    cmd.args(["server", "start", "--bind", &bind_str]);
     fabro_snapshot!(filters.clone(), cmd, @"
     success: true
     exit_code: 0

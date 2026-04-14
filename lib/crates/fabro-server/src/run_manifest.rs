@@ -916,29 +916,6 @@ mod tests {
     }
 
     #[test]
-    fn prepare_manifest_does_not_inherit_server_dry_run_fallback() {
-        let server_settings = server_settings_fixture(
-            r#"
-_version = 1
-
-[run.execution]
-mode = "dry_run"
-
-[server.storage]
-root = "/srv/fabro"
-"#,
-        );
-
-        let prepared =
-            prepare_manifest_with_mode(&server_settings, &minimal_manifest(), false).unwrap();
-
-        let resolved_run = fabro_config::resolve_run_from_file(&prepared.settings).unwrap();
-        let resolved_server = fabro_config::resolve_server_from_file(&prepared.settings).unwrap();
-        assert!(resolved_run.execution.mode != fabro_types::settings::run::RunMode::DryRun);
-        assert_eq!(resolved_server.storage.root.as_source(), "/srv/fabro");
-    }
-
-    #[test]
     fn prepare_manifest_preserves_explicit_manifest_dry_run() {
         let server_settings = server_settings_fixture(
             r#"

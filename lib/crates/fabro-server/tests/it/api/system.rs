@@ -7,7 +7,6 @@ use fabro_config::Storage;
 use fabro_types::RunId;
 use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::interp::InterpString;
-use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
 use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
 use http_body_util::BodyExt;
 use tempfile::tempdir;
@@ -23,9 +22,6 @@ fn temp_storage_settings() -> (tempfile::TempDir, SettingsLayer, PathBuf) {
     let temp = tempdir().expect("tempdir should create");
     let mut settings = test_settings();
     let storage_dir = temp.path().join("storage");
-    let run = settings.run.get_or_insert_with(RunLayer::default);
-    let execution = run.execution.get_or_insert_with(RunExecutionLayer::default);
-    execution.mode = Some(RunMode::DryRun);
     let server = settings.server.get_or_insert_with(ServerLayer::default);
     server.storage = Some(ServerStorageLayer {
         root: Some(InterpString::parse(&storage_dir.to_string_lossy())),

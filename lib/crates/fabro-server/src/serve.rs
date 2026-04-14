@@ -14,13 +14,12 @@ use fabro_types::settings::{
     ServerSettings as ResolvedServerSettings, SettingsLayer,
 };
 use fabro_util::terminal::Styles;
-use fabro_vault::Vault;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::{RwLock as AsyncRwLock, watch};
+use tokio::sync::watch;
 use tokio::time::interval;
 use tracing::{error, info, warn};
 
@@ -31,11 +30,12 @@ use crate::server::{
     RouterOptions, build_app_state_with_path, build_router_with_options,
     reconcile_incomplete_runs_on_startup, shutdown_active_workers, spawn_scheduler,
 };
-use crate::server_secrets::{ProviderCredentials, ServerSecrets};
+use crate::server_secrets::ServerSecrets;
 use crate::tls::{build_rustls_config, serve_tls_with_shutdown};
 
 const TEST_IN_MEMORY_STORE_ENV: &str = "FABRO_TEST_IN_MEMORY_STORE";
 pub const DEFAULT_TCP_PORT: u16 = 32276;
+type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 #[derive(Clone, Copy)]
 enum ServerTitlePhase {
@@ -68,10 +68,6 @@ pub struct ServeArgs {
     #[arg(long)]
     pub provider: Option<String>,
 
-    /// Execute with simulated LLM backend
-    #[arg(long)]
-    pub dry_run: bool,
-
     /// Sandbox for agent tools
     #[arg(long, value_enum)]
     pub sandbox: Option<SandboxProvider>,
@@ -89,23 +85,12 @@ fn load_settings(path: Option<&Path>) -> anyhow::Result<SettingsLayer> {
     Ok(load_settings_config(path)?)
 }
 
-fn apply_serve_overrides(
-    base: &SettingsLayer,
-    args: &ServeArgs,
-    dry_run_mode: bool,
-) -> SettingsLayer {
+fn apply_serve_overrides(base: &SettingsLayer, args: &ServeArgs) -> SettingsLayer {
     use fabro_types::settings::cli::CliLayer;
     use fabro_types::settings::interp::InterpString;
-    use fabro_types::settings::run::{
-        RunExecutionLayer, RunLayer, RunMode, RunModelLayer, RunSandboxLayer,
-    };
+    use fabro_types::settings::run::{RunLayer, RunModelLayer, RunSandboxLayer};
     use fabro_types::settings::server::{ServerLayer, ServerWebLayer};
     let mut settings = base.clone();
-    if dry_run_mode {
-        let run = settings.run.get_or_insert_with(RunLayer::default);
-        let execution = run.execution.get_or_insert_with(RunExecutionLayer::default);
-        execution.mode = Some(RunMode::DryRun);
-    }
     if args.web || args.no_web {
         let server = settings.server.get_or_insert_with(ServerLayer::default);
         let web = server.web.get_or_insert_with(ServerWebLayer::default);
@@ -134,12 +119,11 @@ fn apply_serve_overrides(
 fn apply_runtime_settings(
     base: &SettingsLayer,
     args: &ServeArgs,
-    dry_run_mode: bool,
     data_dir: &Path,
 ) -> SettingsLayer {
     use fabro_types::settings::interp::InterpString;
     use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-    let mut settings = apply_serve_overrides(base, args, dry_run_mode);
+    let mut settings = apply_serve_overrides(base, args);
     let server = settings.server.get_or_insert_with(ServerLayer::default);
     let storage = server
         .storage
@@ -306,39 +290,10 @@ where
     };
     let storage = Storage::new(&data_dir);
     let vault_path = storage.secrets_path();
-    let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path.clone())?));
     let server_secrets = ServerSecrets::load(storage.server_state().env_path())?;
 
-    // Resolve dry-run mode (same pattern as run.rs)
-    let dry_run_mode = if args.dry_run {
-        true
-    } else {
-        match ProviderCredentials::new(Arc::clone(&vault))
-            .build_llm_client()
-            .await
-        {
-            Ok(result)
-                if result.client.provider_names().is_empty() && result.auth_issues.is_empty() =>
-            {
-                eprintln!(
-                    "{} No LLM providers configured. Running in dry-run mode.",
-                    styles.yellow.apply_to("Warning:"),
-                );
-                true
-            }
-            Ok(_) => false,
-            Err(e) => {
-                eprintln!(
-                    "{} Failed to initialize LLM client: {e}. Running in dry-run mode.",
-                    styles.yellow.apply_to("Warning:"),
-                );
-                true
-            }
-        }
-    };
-
     // Shared config for live reloading
-    let effective_settings = apply_runtime_settings(&disk_settings, &args, dry_run_mode, &data_dir);
+    let effective_settings = apply_runtime_settings(&disk_settings, &args, &data_dir);
     let resolved_server_settings = resolve_server_settings(&effective_settings)?;
     let bind_request =
         resolve_bind_request_from_settings(&effective_settings, args.bind.as_deref())?;
@@ -365,6 +320,7 @@ where
     let (artifact_object_store, artifact_prefix) =
         build_artifact_object_store(&resolved_server_settings)?;
     let artifact_store = fabro_store::ArtifactStore::new(artifact_object_store, artifact_prefix);
+    let env_lookup: EnvLookup = Arc::new(|name| std::env::var(name).ok());
     let state = build_app_state_with_path(
         Arc::clone(&shared_settings),
         None,
@@ -373,6 +329,7 @@ where
         artifact_store,
         &vault_path,
         true,
+        &env_lookup,
     )?;
     let reconciled = reconcile_incomplete_runs_on_startup(&state).await?;
     if reconciled > 0 {
@@ -463,7 +420,6 @@ where
                     let effective = apply_runtime_settings(
                         &new_disk_settings,
                         &args_for_poll,
-                        dry_run_mode,
                         &data_dir_for_poll,
                     );
                     let changed = {
@@ -521,7 +477,7 @@ where
             if tls_settings.is_some() {
                 warn!("TLS is configured but not supported on Unix sockets; ignoring TLS settings");
             }
-            announce_server_ready(&bind_addr, styles, dry_run_mode);
+            announce_server_ready(&bind_addr, styles);
             axum::serve(listener, router)
                 .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()))
                 .await?;
@@ -532,7 +488,7 @@ where
                 let tls_acceptor = tokio_rustls::TlsAcceptor::from(rustls_config);
 
                 info!("TLS enabled");
-                announce_server_ready(&bind_addr, styles, dry_run_mode);
+                announce_server_ready(&bind_addr, styles);
 
                 serve_tls_with_shutdown(
                     listener,
@@ -542,7 +498,7 @@ where
                 )
                 .await?;
             } else {
-                announce_server_ready(&bind_addr, styles, dry_run_mode);
+                announce_server_ready(&bind_addr, styles);
                 axum::serve(listener, router)
                     .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()))
                     .await?;
@@ -659,9 +615,9 @@ async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
 }
 
 #[allow(clippy::print_stderr)] // Startup status belongs on stderr for operator-facing CLI output.
-fn announce_server_ready(bind_addr: &Bind, styles: &'static Styles, dry_run_mode: bool) {
+fn announce_server_ready(bind_addr: &Bind, styles: &'static Styles) {
     set_server_title(ServerTitlePhase::Listening, Some(bind_addr));
-    info!(bind = %bind_addr, dry_run = dry_run_mode, "API server started");
+    info!(bind = %bind_addr, "API server started");
 
     eprintln!(
         "{}",
@@ -670,9 +626,6 @@ fn announce_server_ready(bind_addr: &Bind, styles: &'static Styles, dry_run_mode
             styles.cyan.apply_to(bind_addr)
         )),
     );
-    if dry_run_mode {
-        eprintln!("{}", styles.dim.apply_to("(dry-run mode)"));
-    }
 }
 
 fn set_server_title(phase: ServerTitlePhase, bind: Option<&Bind>) {
@@ -723,7 +676,6 @@ mod tests {
             bind:                None,
             model:               None,
             provider:            None,
-            dry_run:             false,
             sandbox:             None,
             web:                 false,
             no_web:              false,
@@ -731,8 +683,7 @@ mod tests {
             config:              None,
         };
 
-        let resolved =
-            apply_runtime_settings(&base, &args, false, &PathBuf::from("/srv/fabro-storage"));
+        let resolved = apply_runtime_settings(&base, &args, &PathBuf::from("/srv/fabro-storage"));
 
         let storage_root = resolved
             .server
@@ -757,7 +708,6 @@ enabled = false
             bind:                None,
             model:               None,
             provider:            None,
-            dry_run:             false,
             sandbox:             None,
             web:                 true,
             no_web:              false,
@@ -765,7 +715,7 @@ enabled = false
             config:              None,
         };
 
-        let resolved = apply_runtime_settings(&base, &args, false, &PathBuf::from("/srv/fabro"));
+        let resolved = apply_runtime_settings(&base, &args, &PathBuf::from("/srv/fabro"));
 
         assert_eq!(
             resolved
@@ -784,7 +734,6 @@ enabled = false
             bind:                None,
             model:               None,
             provider:            None,
-            dry_run:             false,
             sandbox:             None,
             web:                 false,
             no_web:              true,
@@ -792,7 +741,7 @@ enabled = false
             config:              None,
         };
 
-        let resolved = apply_runtime_settings(&base, &args, false, &PathBuf::from("/srv/fabro"));
+        let resolved = apply_runtime_settings(&base, &args, &PathBuf::from("/srv/fabro"));
 
         assert_eq!(
             resolved

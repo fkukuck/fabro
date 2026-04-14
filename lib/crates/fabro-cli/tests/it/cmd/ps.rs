@@ -45,7 +45,7 @@ fn ps_accepts_local_tcp_server_target() {
     context
         .command()
         .env("FABRO_STORAGE_DIR", &storage_dir)
-        .args(["server", "start", "--dry-run", "--bind", "127.0.0.1"])
+        .args(["server", "start", "--bind", "127.0.0.1"])
         .assert()
         .success();
 

@@ -63,10 +63,6 @@ pub(crate) struct ProviderCredentials {
 }
 
 impl ProviderCredentials {
-    pub(crate) fn new(vault: Arc<AsyncRwLock<Vault>>) -> Self {
-        Self::with_env_lookup(vault, |name| std::env::var(name).ok())
-    }
-
     pub(crate) fn with_env_lookup<F>(vault: Arc<AsyncRwLock<Vault>>, env_lookup: F) -> Self
     where
         F: Fn(&str) -> Option<String> + Send + Sync + 'static,

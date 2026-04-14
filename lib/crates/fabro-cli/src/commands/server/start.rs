@@ -86,7 +86,6 @@ async fn ensure_server_running_with_bind(
         no_web:              false,
         model:               None,
         provider:            None,
-        dry_run:             false,
         sandbox:             None,
         max_concurrent_runs: server_max_concurrent_runs_override(),
         config:              Some(config_path.to_path_buf()),
@@ -333,9 +332,6 @@ async fn execute_daemon(
     }
     if serve_args.no_web {
         cmd.arg("--no-web");
-    }
-    if serve_args.dry_run {
-        cmd.arg("--dry-run");
     }
     if let Some(ref sandbox) = serve_args.sandbox {
         cmd.args(["--sandbox", &sandbox.to_string()]);

@@ -45,8 +45,8 @@ use fabro_interview::{
 use fabro_llm::generate::{GenerateParams, generate_object};
 use fabro_llm::model_test::{ModelTestMode, run_model_test_with_client};
 use fabro_llm::types::{
-    ContentPart, FinishReason, Message as LlmMessage, Request as LlmRequest,
-    Response as LlmResponse, Role, StreamEvent, TokenCounts, ToolChoice, ToolDefinition,
+    ContentPart, FinishReason, Message as LlmMessage, Request as LlmRequest, Role, ToolChoice,
+    ToolDefinition,
 };
 use fabro_model::{BilledModelUsage, BilledTokenCounts};
 use fabro_sandbox::daytona::DaytonaSandbox;
@@ -86,7 +86,6 @@ use fabro_workflow::run_lookup::{
 use fabro_workflow::run_status::{
     RunStatus as WorkflowRunStatus, StatusReason as WorkflowStatusReason,
 };
-use futures_util::stream;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use object_store::memory::InMemory as MemoryObjectStore;
 use rand::RngCore;
@@ -116,6 +115,8 @@ use crate::server_secrets::{
     LlmClientResult, ProviderCredentials, ServerSecrets, auth_issue_message,
 };
 use crate::{demo, diagnostics, run_manifest, settings_view, static_files, web_auth};
+
+type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 pub fn default_page_limit() -> u32 {
     20
@@ -588,12 +589,6 @@ impl AppState {
             resolve_interp_string(&self.server_settings().storage.root)
                 .expect("server storage root should be resolved at startup"),
         )
-    }
-
-    pub(crate) fn dry_run(&self) -> bool {
-        fabro_config::resolve_run_from_file(&self.settings.read().unwrap())
-            .map(|settings| settings.execution.mode == RunMode::DryRun)
-            .unwrap_or(false)
     }
 
     pub(crate) async fn build_llm_client(&self) -> Result<LlmClientResult, String> {
@@ -2148,6 +2143,7 @@ pub fn create_app_state_with_settings_and_registry_factory(
     registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
     let (store, artifact_store) = test_store_bundle();
+    let env_lookup = default_env_lookup();
     build_app_state_with_path(
         Arc::new(RwLock::new(settings)),
         Some(Box::new(registry_factory_override)),
@@ -2156,6 +2152,7 @@ pub fn create_app_state_with_settings_and_registry_factory(
         artifact_store,
         &test_secret_store_path(),
         false,
+        &env_lookup,
     )
     .expect("test app state should build")
 }
@@ -2166,11 +2163,30 @@ pub fn create_app_state_with_options(
     max_concurrent_runs: usize,
 ) -> Arc<AppState> {
     let (store, artifact_store) = test_store_bundle();
-    create_app_state_with_store(
+    let env_lookup = default_env_lookup();
+    create_app_state_with_store_and_env_lookup(
         Arc::new(RwLock::new(settings)),
         max_concurrent_runs,
         store,
         artifact_store,
+        &env_lookup,
+    )
+}
+
+#[doc(hidden)]
+pub fn create_app_state_with_env_lookup(
+    settings: SettingsLayer,
+    max_concurrent_runs: usize,
+    env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+) -> Arc<AppState> {
+    let (store, artifact_store) = test_store_bundle();
+    let env_lookup: EnvLookup = Arc::new(env_lookup);
+    create_app_state_with_store_and_env_lookup(
+        Arc::new(RwLock::new(settings)),
+        max_concurrent_runs,
+        store,
+        artifact_store,
+        &env_lookup,
     )
 }
 
@@ -2193,6 +2209,7 @@ pub(crate) fn create_test_app_state_with_session_key(
         .expect("test server env should be writable");
     }
     let (store, artifact_store) = test_store_bundle();
+    let env_lookup = default_env_lookup();
     build_app_state_with_path(
         Arc::new(RwLock::new(settings)),
         None,
@@ -2201,6 +2218,7 @@ pub(crate) fn create_test_app_state_with_session_key(
         artifact_store,
         &secrets_path,
         local_daemon_mode,
+        &env_lookup,
     )
     .expect("test app state should build")
 }
@@ -2222,6 +2240,23 @@ pub fn create_app_state_with_store(
     store: Arc<Database>,
     artifact_store: ArtifactStore,
 ) -> Arc<AppState> {
+    let env_lookup = default_env_lookup();
+    create_app_state_with_store_and_env_lookup(
+        settings,
+        max_concurrent_runs,
+        store,
+        artifact_store,
+        &env_lookup,
+    )
+}
+
+fn create_app_state_with_store_and_env_lookup(
+    settings: Arc<RwLock<SettingsLayer>>,
+    max_concurrent_runs: usize,
+    store: Arc<Database>,
+    artifact_store: ArtifactStore,
+    env_lookup: &EnvLookup,
+) -> Arc<AppState> {
     build_app_state_with_path(
         settings,
         None,
@@ -2230,8 +2265,13 @@ pub fn create_app_state_with_store(
         artifact_store,
         &test_secret_store_path(),
         false,
+        env_lookup,
     )
     .expect("test app state should build")
+}
+
+fn default_env_lookup() -> EnvLookup {
+    Arc::new(|name| std::env::var(name).ok())
 }
 
 pub(crate) fn build_app_state_with_path(
@@ -2242,14 +2282,21 @@ pub(crate) fn build_app_state_with_path(
     artifact_store: ArtifactStore,
     vault_path: &std::path::Path,
     local_daemon_mode: bool,
+    env_lookup: &EnvLookup,
 ) -> anyhow::Result<Arc<AppState>> {
     let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path.to_path_buf())?));
     let server_env_path = vault_path.parent().map_or_else(
         || PathBuf::from("server.env"),
         |parent| parent.join("server.env"),
     );
-    let server_secrets = ServerSecrets::load(server_env_path)?;
-    let provider_credentials = ProviderCredentials::new(Arc::clone(&vault));
+    let server_secrets = ServerSecrets::with_env_lookup(server_env_path, {
+        let env_lookup = Arc::clone(env_lookup);
+        move |name| env_lookup(name)
+    })?;
+    let provider_credentials = ProviderCredentials::with_env_lookup(Arc::clone(&vault), {
+        let env_lookup = Arc::clone(env_lookup);
+        move |name| env_lookup(name)
+    });
     let (global_event_tx, _) = broadcast::channel(4096);
     let resolved_server_settings = {
         let settings = settings.read().expect("settings lock poisoned");
@@ -5839,14 +5886,6 @@ async fn test_model(
         return ApiError::not_found(format!("Model not found: {id}")).into_response();
     };
 
-    if state.dry_run() {
-        return Json(serde_json::json!({
-            "model_id": info.id,
-            "status": "ok",
-        }))
-        .into_response();
-    }
-
     let llm_result = match state.build_llm_client().await {
         Ok(result) => result,
         Err(err) => {
@@ -5863,6 +5902,17 @@ async fn test_model(
         .find(|(provider, _)| *provider == info.provider)
     {
         return ApiError::bad_request(auth_issue_message(info.provider, issue)).into_response();
+    }
+    if !llm_result
+        .client
+        .provider_names()
+        .contains(&info.provider.as_str())
+    {
+        return Json(serde_json::json!({
+            "model_id": info.id,
+            "status": "skip",
+        }))
+        .into_response();
     }
     let client = Arc::new(llm_result.client);
 
@@ -6013,48 +6063,6 @@ async fn create_completion(
 
     // Force non-streaming for structured output
     let use_stream = req.stream && req.schema.is_none();
-
-    // Dry-run mode returns a stub response
-    if state.dry_run() {
-        let msg_id = Ulid::new().to_string();
-        if use_stream {
-            let finish_event =
-                StreamEvent::finish(FinishReason::Stop, TokenCounts::default(), LlmResponse {
-                    id:            msg_id.clone(),
-                    model:         model_id.clone(),
-                    provider:      String::new(),
-                    message:       LlmMessage::assistant(""),
-                    finish_reason: FinishReason::Stop,
-                    usage:         TokenCounts::default(),
-                    raw:           None,
-                    warnings:      vec![],
-                    rate_limit:    None,
-                });
-            let json = serde_json::to_string(&finish_event).unwrap_or_default();
-            let sse_stream = stream::iter(vec![Ok::<_, std::convert::Infallible>(
-                Event::default().event("stream_event").data(json),
-            )]);
-            return Sse::new(sse_stream).into_response();
-        }
-        let empty_msg = CompletionMessage {
-            role:         CompletionMessageRole::Assistant,
-            content:      vec![],
-            name:         None,
-            tool_call_id: None,
-        };
-        return Json(CompletionResponse {
-            id:          msg_id,
-            model:       model_id,
-            message:     empty_msg,
-            stop_reason: "end_turn".to_string(),
-            usage:       CompletionUsage {
-                input_tokens:  0,
-                output_tokens: 0,
-            },
-            output:      None,
-        })
-        .into_response();
-    }
 
     // Get or create LLM client (cached in AppState)
     let llm_result = match state.build_llm_client().await {
@@ -6243,20 +6251,6 @@ mod tests {
         exit  [shape=Msquare]
         start -> exit
     }"#;
-
-    fn dry_run_settings() -> SettingsLayer {
-        use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-        SettingsLayer {
-            run: Some(RunLayer {
-                execution: Some(RunExecutionLayer {
-                    mode: Some(RunMode::DryRun),
-                    ..RunExecutionLayer::default()
-                }),
-                ..RunLayer::default()
-            }),
-            ..SettingsLayer::default()
-        }
-    }
 
     fn test_app_with() -> Router {
         let state = create_app_state();
@@ -6712,27 +6706,8 @@ type = "http"
     }
 
     #[tokio::test]
-    async fn test_model_known_returns_200_with_status() {
-        let app = test_app_with();
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(api("/models/claude-opus-4-6/test"))
-            .header("content-type", "application/json")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = body_json(response.into_body()).await;
-        assert_eq!(body["model_id"], "claude-opus-4-6");
-        assert!(body["status"] == "ok" || body["status"] == "error");
-    }
-
-    #[tokio::test]
     async fn test_model_alias_returns_canonical_model_id() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
+        let state = create_app_state_with_env_lookup(SettingsLayer::default(), 5, |_| None);
         let app = build_router(state, AuthMode::Disabled);
 
         let req = Request::builder()
@@ -6747,12 +6722,12 @@ type = "http"
 
         let body = body_json(response.into_body()).await;
         assert_eq!(body["model_id"], "claude-sonnet-4-6");
-        assert_eq!(body["status"], "ok");
+        assert_eq!(body["status"], "skip");
     }
 
     #[tokio::test]
     async fn test_model_invalid_mode_returns_400() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
+        let state = create_app_state_with_env_lookup(SettingsLayer::default(), 5, |_| None);
         let app = build_router(state, AuthMode::Disabled);
 
         let req = Request::builder()
@@ -6925,42 +6900,6 @@ slug = "fabro"
                 .and_then(|value| value.to_str().ok()),
             Some("image/svg+xml")
         );
-    }
-
-    #[tokio::test]
-    async fn test_model_dry_run_returns_ok() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
-        let app = build_router(state, AuthMode::Disabled);
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(api("/models/claude-opus-4-6/test"))
-            .header("content-type", "application/json")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = body_json(response.into_body()).await;
-        assert_eq!(body["model_id"], "claude-opus-4-6");
-        assert_eq!(body["status"], "ok");
-    }
-
-    #[tokio::test]
-    async fn test_model_dry_run_unknown_returns_404() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
-        let app = build_router(state, AuthMode::Disabled);
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(api("/models/nonexistent-model-xyz/test"))
-            .header("content-type", "application/json")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -8116,8 +8055,8 @@ level = "debug"
         let resolved_run = fabro_config::resolve_run_from_file(&run_record.settings).unwrap();
         let resolved_server = fabro_config::resolve_server_from_file(&run_record.settings).unwrap();
 
-        // Server-side `dry_run` default must not override the manifest's intent.
-        // Verify a sampling of the persisted v2 settings.
+        // Verify a sampling of the persisted v2 settings, including inherited
+        // run execution mode from server settings.
         assert_eq!(
             match resolved_run.goal {
                 Some(fabro_types::settings::run::RunGoal::Inline(value)) => Some(value.as_source()),
@@ -8128,8 +8067,8 @@ level = "debug"
             "goal should be persisted from the manifest"
         );
         assert!(
-            resolved_run.execution.mode != fabro_types::settings::run::RunMode::DryRun,
-            "server-local dry_run fallback must not override manifest intent"
+            resolved_run.execution.mode == fabro_types::settings::run::RunMode::DryRun,
+            "run execution mode should inherit from server settings"
         );
         assert_eq!(
             resolved_run
@@ -8676,67 +8615,6 @@ timeout = "30s"
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::CONFLICT);
-    }
-
-    #[tokio::test]
-    async fn create_completion_non_streaming_returns_json() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
-        let app = build_router(state, AuthMode::Disabled);
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(api("/completions"))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&serde_json::json!({
-                    "messages": [{"role": "user", "content": [{"kind": "text", "data": "Hello"}]}],
-                    "stream": false
-                }))
-                .unwrap(),
-            ))
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = body_json(response.into_body()).await;
-        assert!(body["id"].is_string());
-        assert!(body["model"].is_string());
-        assert_eq!(body["stop_reason"], "end_turn");
-        assert!(body["message"].is_object());
-        assert!(body["usage"]["input_tokens"].is_number());
-        assert!(body["usage"]["output_tokens"].is_number());
-    }
-
-    #[tokio::test]
-    async fn create_completion_streaming_returns_sse() {
-        let state = create_app_state_with_options(dry_run_settings(), 5);
-        let app = build_router(state, AuthMode::Disabled);
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(api("/completions"))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&serde_json::json!({
-                    "messages": [{"role": "user", "content": [{"kind": "text", "data": "Hello"}]}],
-                    "stream": true
-                }))
-                .unwrap(),
-            ))
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response
-                .headers()
-                .get("content-type")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "text/event-stream"
-        );
     }
 
     #[tokio::test]

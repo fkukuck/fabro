@@ -83,6 +83,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
 tower = "0.5"
 http-body-util = "0.1"
+httpmock = "0.8"
 openapiv3 = "2"
 serde_yaml = "0.9"
 fabro-sandbox = { path = "../fabro-sandbox" }

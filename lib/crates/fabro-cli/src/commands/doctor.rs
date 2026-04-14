@@ -74,19 +74,16 @@ pub(crate) fn check_config(
 }
 
 fn check_legacy_env(path: Option<PathBuf>) -> Option<CheckResult> {
-    match path {
-        Some(path) => Some(CheckResult {
-            name:        "Legacy .env".to_string(),
-            status:      CheckStatus::Warning,
-            summary:     "legacy secrets file detected".to_string(),
-            details:     vec![CheckDetail::new(format!(
-                "{} is no longer read by fabro",
-                path.display()
-            ))],
-            remediation: Some("Re-enter credentials with `fabro provider login`.".to_string()),
-        }),
-        None => None,
-    }
+    path.map(|path| CheckResult {
+        name:        "Legacy .env".to_string(),
+        status:      CheckStatus::Warning,
+        summary:     "legacy secrets file detected".to_string(),
+        details:     vec![CheckDetail::new(format!(
+            "{} is no longer read by fabro",
+            path.display()
+        ))],
+        remediation: Some("Re-enter credentials with `fabro provider login`.".to_string()),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
