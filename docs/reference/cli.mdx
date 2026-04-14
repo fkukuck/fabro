@@ -810,7 +810,7 @@ fabro provider login --provider anthropic
 |---|---|
 | `--provider <PROVIDER>` | LLM provider to authenticate with (required) |
 
-For OpenAI, this launches a browser-based OAuth PKCE flow with an automatic fallback to manual API key entry. All other providers prompt for an API key with validation. Credentials are saved to the connected Fabro server's secret store.
+For OpenAI, this offers a device code flow — you open a URL in your browser, enter a one-time code, and Fabro completes the auth handshake automatically. If you decline, it falls back to manual API key entry. All other providers prompt for an API key with validation. Credentials are saved to the connected Fabro server's vault as typed credentials.
 
 ## `fabro install`
 
@@ -819,13 +819,15 @@ Interactive setup wizard that walks you through configuring API keys and validat
 ```bash
 fabro install
 fabro install --web-url https://fabro.example.com
+fabro install --non-interactive --llm-provider anthropic --llm-api-key-env ANTHROPIC_API_KEY --github-strategy token
 ```
 
 | Flag | Description | Default |
 |---|---|---|
 | `--web-url <URL>` | Web UI base URL for OAuth callback endpoints | `http://localhost:3000` |
+| `--non-interactive` | Run without prompts; supply inputs via scripted flags | — |
 
-When configuring a GitHub App, the wizard detects your GitHub organizations (via the `gh` CLI) and lets you choose whether to register the app under your personal account or an organization.
+When configuring a GitHub App, the wizard detects your GitHub organizations (via the `gh` CLI) and lets you choose whether to register the app under your personal account or an organization. Use `--non-interactive` for headless or CI environments where no TTY is available.
 
 ## `fabro uninstall`
 

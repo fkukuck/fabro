@@ -226,7 +226,7 @@ The same `[features]` section can be set in `.fabro/project.toml` (project-level
 Fabro splits secrets into two scopes:
 
 - Server runtime secrets live in `<data_dir>/server.env` and resolve with precedence `process env -> server.env`.
-- Workflow-visible secrets live in `<data_dir>/secrets.json` (the vault). Anything stored in the vault may be used by workflows.
+- Workflow-visible secrets live in `<data_dir>/vaults/default/secrets.json` (the vault). Anything stored in the vault may be used by workflows.
 
 For the auth model above, the main server runtime secrets are:
 
