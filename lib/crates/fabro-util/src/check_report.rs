@@ -5,6 +5,22 @@ use serde::Serialize;
 use crate::terminal::Styles;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Write `text` to `out`, rendering backtick-delimited segments with
+/// `s.bold_cyan` (the conventional style for inline CLI commands).
+fn write_styled_remediation(out: &mut String, text: &str, s: &Styles) {
+    for (i, segment) in text.split('`').enumerate() {
+        if i % 2 == 1 {
+            write!(out, "{}", s.bold_cyan.apply_to(segment)).unwrap();
+        } else {
+            out.push_str(segment);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
 
@@ -153,7 +169,8 @@ impl CheckReport {
                 for check in &errors {
                     write!(out, "  • {}", check.name).unwrap();
                     if let Some(ref rem) = check.remediation {
-                        write!(out, " — {rem}").unwrap();
+                        write!(out, " — ").unwrap();
+                        write_styled_remediation(&mut out, rem, s);
                     }
                     writeln!(out).unwrap();
                 }
@@ -169,7 +186,8 @@ impl CheckReport {
                 for check in &warnings {
                     write!(out, "  • {}", check.name).unwrap();
                     if let Some(ref rem) = check.remediation {
-                        write!(out, " — {rem}").unwrap();
+                        write!(out, " — ").unwrap();
+                        write_styled_remediation(&mut out, rem, s);
                     }
                     writeln!(out).unwrap();
                 }
@@ -482,5 +500,46 @@ mod tests {
         let out = r.render(&Styles::new(true), true, None, None);
         assert!(out.contains("\x1b[31m"));
         assert!(out.contains("Git clean: false"));
+    }
+
+    // -- render: backtick-styled remediation --
+
+    #[test]
+    fn render_remediation_backticks_no_color() {
+        let r = report(vec![CheckResult {
+            name:        "Sandbox".into(),
+            status:      CheckStatus::Warning,
+            summary:     "not configured".into(),
+            details:     Vec::new(),
+            remediation: Some("Run `fabro secret set KEY` to fix".into()),
+        }]);
+        let out = r.render(&Styles::new(false), false, None, None);
+        insta::assert_snapshot!(out, @r"
+        Test Report
+
+          [!] Sandbox (not configured)
+
+        Found issues in 1 category.
+
+        Warnings:
+          • Sandbox — Run fabro secret set KEY to fix
+        ");
+    }
+
+    #[test]
+    fn render_remediation_backticks_with_color() {
+        let r = report(vec![CheckResult {
+            name:        "Sandbox".into(),
+            status:      CheckStatus::Warning,
+            summary:     "not configured".into(),
+            details:     Vec::new(),
+            remediation: Some("Run `fabro secret set KEY` to fix".into()),
+        }]);
+        let out = r.render(&Styles::new(true), false, None, None);
+        // ANSI codes should wrap the command text
+        assert!(out.contains("\x1b["));
+        assert!(out.contains("fabro secret set KEY"));
+        // backticks should not appear in the output
+        assert!(!out.contains('`'));
     }
 }

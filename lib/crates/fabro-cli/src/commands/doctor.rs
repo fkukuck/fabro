@@ -12,6 +12,7 @@ use fabro_types::settings::cli::{CliLayer, OutputFormat};
 pub(crate) use fabro_util::check_report::{
     CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus,
 };
+use fabro_util::path::contract_tilde;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_util::version::FABRO_VERSION;
@@ -26,27 +27,40 @@ pub(crate) fn check_config(
     legacy_paths: &[PathBuf],
 ) -> CheckResult {
     match (settings_path, legacy_paths.is_empty()) {
-        (Some(path), true) => CheckResult {
-            name:        "Configuration".to_string(),
-            status:      CheckStatus::Pass,
-            summary:     path.display().to_string(),
-            details:     vec![CheckDetail::new(format!("Loaded from {}", path.display()))],
-            remediation: None,
-        },
-        (Some(path), false) => CheckResult {
-            name:        "Configuration".to_string(),
-            status:      CheckStatus::Warning,
-            summary:     path.display().to_string(),
-            details:     std::iter::once(CheckDetail::new(format!(
-                "Loaded from {}",
-                path.display()
-            )))
-            .chain(legacy_paths.iter().map(|legacy| {
-                CheckDetail::new(format!("Ignoring legacy config file {}", legacy.display()))
-            }))
-            .collect(),
-            remediation: Some("Delete or rename legacy config files".to_string()),
-        },
+        (Some(path), true) => {
+            let display = contract_tilde(&path);
+            CheckResult {
+                name:        "Configuration".to_string(),
+                status:      CheckStatus::Pass,
+                summary:     display.display().to_string(),
+                details:     vec![CheckDetail::new(format!(
+                    "Loaded from {}",
+                    display.display()
+                ))],
+                remediation: None,
+            }
+        }
+        (Some(path), false) => {
+            let display = contract_tilde(&path);
+            CheckResult {
+                name:        "Configuration".to_string(),
+                status:      CheckStatus::Warning,
+                summary:     display.display().to_string(),
+                details:     std::iter::once(CheckDetail::new(format!(
+                    "Loaded from {}",
+                    display.display()
+                )))
+                .chain(legacy_paths.iter().map(|legacy| {
+                    let legacy_display = contract_tilde(legacy);
+                    CheckDetail::new(format!(
+                        "Ignoring legacy config file {}",
+                        legacy_display.display()
+                    ))
+                }))
+                .collect(),
+                remediation: Some("Delete or rename legacy config files".to_string()),
+            }
+        }
         (None, false) => CheckResult {
             name:        "Configuration".to_string(),
             status:      CheckStatus::Warning,
@@ -76,15 +90,18 @@ pub(crate) fn check_config(
 }
 
 fn check_legacy_env(path: Option<PathBuf>) -> Option<CheckResult> {
-    path.map(|path| CheckResult {
-        name:        "Legacy .env".to_string(),
-        status:      CheckStatus::Warning,
-        summary:     "legacy secrets file detected".to_string(),
-        details:     vec![CheckDetail::new(format!(
-            "{} is no longer read by fabro",
-            path.display()
-        ))],
-        remediation: Some("Re-enter credentials with `fabro provider login`.".to_string()),
+    path.map(|path| {
+        let display = contract_tilde(&path);
+        CheckResult {
+            name:        "Legacy .env".to_string(),
+            status:      CheckStatus::Warning,
+            summary:     "legacy secrets file detected".to_string(),
+            details:     vec![CheckDetail::new(format!(
+                "{} is no longer read by fabro",
+                display.display()
+            ))],
+            remediation: Some("Re-enter credentials with `fabro provider login`.".to_string()),
+        }
     })
 }
 
@@ -110,7 +127,8 @@ fn probe_storage_dir(path: &Path) -> StorageDirStatus {
 }
 
 fn check_storage_dir(status: &StorageDirStatus) -> CheckResult {
-    let display = status.path.display();
+    let display = contract_tilde(&status.path);
+    let display = display.display();
     let details = vec![
         CheckDetail::new(format!(
             "Exists: {}",
