@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "These CLI integration tests intentionally spawn the real fabro binary and stream DOT over stdio to verify the internal render subprocess contract."
+)]
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 

@@ -8048,7 +8048,8 @@ slug = "fabro"
     #[cfg(unix)]
     #[tokio::test]
     async fn render_dot_subprocess_returns_protocol_violation_for_garbage_stdout() {
-        let (_dir, script_path) = write_test_executable("#!/bin/sh\nprintf 'garbage'\nexit 0\n");
+        let (_dir, script_path) =
+            write_test_executable("#!/bin/sh\ncat >/dev/null\nprintf 'garbage'\nexit 0\n");
 
         let result = render_dot_subprocess("digraph { a -> b }", Some(&script_path)).await;
 
