@@ -1304,33 +1304,8 @@ async fn run_install_inner(
         }
     }
 
-    // Pre-flight checks
-    let facts = {
-        let dep_outcomes = doctor::probe_system_deps().await;
-        let dep_check = doctor::check_system_deps(doctor::DEP_SPECS, &dep_outcomes);
-
-        fabro_util::printerr!(
-            printer,
-            "  {}",
-            s.dim.apply_to("[Pre-flight] System dependency checks")
-        );
-
-        if dep_check.status == doctor::CheckStatus::Error {
-            fabro_util::printerr!(printer, "  Missing required system dependencies:");
-            for detail in &dep_check.details {
-                fabro_util::printerr!(printer, "    {}", detail.text);
-            }
-            bail!("Install missing required tools before running setup");
-        }
-
-        for detail in &dep_check.details {
-            fabro_util::printerr!(printer, "  {}", detail.text);
-        }
-        fabro_util::printerr!(printer, "");
-
-        InstallFacts {
-            codex_detected: detect_binary_on_path("codex").await,
-        }
+    let facts = InstallFacts {
+        codex_detected: detect_binary_on_path("codex").await,
     };
 
     // Step 1: LLM Providers

@@ -397,12 +397,6 @@ pub(crate) async fn run_diagnostics(
                     ]
                 },
                 {
-                    "title": "System",
-                    "checks": [
-                        { "name": "dot", "status": "pass", "summary": "dot available", "details": [], "remediation": null }
-                    ]
-                },
-                {
                     "title": "Configuration",
                     "checks": [
                         { "name": "Crypto", "status": "pass", "summary": "all keys valid", "details": [], "remediation": null }
