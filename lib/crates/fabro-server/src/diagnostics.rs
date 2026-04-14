@@ -424,7 +424,10 @@ fn check_sandbox(state: &AppState) -> CheckResult {
             status:      CheckStatus::Warning,
             summary:     "recommended, not configured".to_string(),
             details:     Vec::new(),
-            remediation: Some("Set DAYTONA_API_KEY to enable cloud sandbox execution".to_string()),
+            remediation: Some(
+                "Run `fabro secret set DAYTONA_API_KEY <value>` to enable cloud sandbox execution"
+                    .to_string(),
+            ),
         }
     }
 }
@@ -436,7 +439,10 @@ async fn check_brave_search(state: &AppState) -> CheckResult {
             status:      CheckStatus::Warning,
             summary:     "optional, not configured".to_string(),
             details:     Vec::new(),
-            remediation: Some("Set BRAVE_SEARCH_API_KEY to enable web search".to_string()),
+            remediation: Some(
+                "Run `fabro secret set BRAVE_SEARCH_API_KEY <value>` to enable web search"
+                    .to_string(),
+            ),
         };
     };
 
