@@ -43,7 +43,7 @@ use crate::commands::server::{record, stop};
 use crate::gh::GhCli;
 use crate::shared::provider_auth::{
     ApiKeySource, authenticate_provider, authenticate_provider_with_api_key_source,
-    authenticate_provider_with_method, prompt_confirm, provider_display_name,
+    authenticate_provider_with_method, prompt_confirm, prompt_password, provider_display_name,
 };
 use crate::{server_client, user_config};
 
@@ -363,7 +363,9 @@ struct LlmInstallSelection {
 
 #[derive(Debug)]
 enum GitHubInstallSelection {
-    Token,
+    Token {
+        token: String,
+    },
     App {
         owner:    GitHubAppOwner,
         username: Option<String>,
@@ -531,8 +533,15 @@ impl InstallInputSource for InteractiveInstallInputSource {
         s: &Styles,
         _printer: Printer,
     ) -> Result<GitHubInstallSelection> {
+        let gh_available = GhCli::detect().await.is_some();
+
+        let token_label = if gh_available {
+            "Personal Access Token — use your existing `gh` login"
+        } else {
+            "Personal Access Token"
+        };
         let strategy_options = vec![
-            "GitHub CLI — use your existing `gh` login".to_string(),
+            token_label.to_string(),
             "GitHub App — recommended for teams".to_string(),
         ];
         let strategy = spawn_blocking({
@@ -542,7 +551,16 @@ impl InstallInputSource for InteractiveInstallInputSource {
         .await??;
 
         match strategy {
-            0 => Ok(GitHubInstallSelection::Token),
+            0 => {
+                let token = if gh_available {
+                    fabro_github::gh_auth_token().await.map_err(|err| {
+                        anyhow!("{err}. Run `gh auth login` and rerun `fabro install`.")
+                    })?
+                } else {
+                    spawn_blocking(|| prompt_password("GitHub Personal Access Token")).await??
+                };
+                Ok(GitHubInstallSelection::Token { token })
+            }
             1 => {
                 let (owner, username) = prompt_github_app_owner(s).await?;
                 Ok(GitHubInstallSelection::App { owner, username })
@@ -694,7 +712,12 @@ impl InstallInputSource for NonInteractiveInstallInputSource {
         _printer: Printer,
     ) -> Result<GitHubInstallSelection> {
         match self.args.github_strategy {
-            Some(InstallGitHubStrategyArg::Token) => Ok(GitHubInstallSelection::Token),
+            Some(InstallGitHubStrategyArg::Token) => {
+                let token = fabro_github::gh_auth_token().await.map_err(|err| {
+                    anyhow!("{err}. Run `gh auth login` and rerun `fabro install`.")
+                })?;
+                Ok(GitHubInstallSelection::Token { token })
+            }
             Some(InstallGitHubStrategyArg::App) => Ok(GitHubInstallSelection::App {
                 owner:    GitHubAppOwner::parse_scripted(
                     self.args.github_owner.as_deref().context(
@@ -1362,10 +1385,7 @@ async fn run_install_inner(
     fabro_util::printerr!(printer, "");
 
     let pending_github_settings = match input_source.choose_github_install(&s, printer).await? {
-        GitHubInstallSelection::Token => {
-            let token = fabro_github::gh_auth_token()
-                .await
-                .map_err(|err| anyhow!("{err}. Run `gh auth login` and rerun `fabro install`."))?;
+        GitHubInstallSelection::Token { token } => {
             fabro_util::printerr!(
                 printer,
                 "  {} GitHub token configured",
