@@ -493,18 +493,18 @@ fabro system df -v
 
 ## `fabro graph`
 
-Render a workflow graph as SVG or PNG. Requires [Graphviz](https://graphviz.org) (`dot`) to be installed. SVG output includes styled defaults (teal node strokes, clean typography, transparent background) and automatic dark mode support via `prefers-color-scheme` media queries.
+Render a workflow graph as SVG. SVG output includes styled defaults (teal node strokes, clean typography, transparent background) and automatic dark mode support via `prefers-color-scheme` media queries.
 
 ```bash
 fabro graph workflow.fabro
-fabro graph workflow.fabro --format png -o diagram.png
-fabro graph run.toml --format svg
+fabro graph workflow.fabro -o diagram.svg
+fabro graph run.toml
 ```
 
 | Argument / Flag | Description |
 |---|---|
 | `<WORKFLOW>` | Path to a `.fabro` workflow file or `.toml` run config (required) |
-| `--format <FORMAT>` | Output format: `svg` (default) or `png` |
+| `--format <FORMAT>` | Output format: `svg` (default) |
 | `-o, --output <FILE>` | Output file path. Defaults to stdout. |
 | `-d, --direction <DIR>` | Graph direction: `lr` or `tb`. If omitted, uses the Graphviz file's own `rankdir`. |
 
