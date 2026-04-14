@@ -309,9 +309,7 @@ where
         let auth_mode = resolve_auth_mode_with_lookup(&resolved_server_settings, |name| {
             server_secrets.get(name)
         })?;
-        let max_concurrent_runs = args
-            .max_concurrent_runs
-            .unwrap_or(resolved_server_settings.scheduler.max_concurrent_runs);
+        let max_concurrent_runs = resolved_server_settings.scheduler.max_concurrent_runs;
         (auth_mode, max_concurrent_runs)
     };
     let web_enabled = router_web_enabled(&resolved_server_settings);
