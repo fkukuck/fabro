@@ -304,10 +304,14 @@ But removing it entirely is simpler since `render_dot` no longer takes a format 
 - Call `render_dot(&source)` instead of `render_dot(&source, format)`
 - Change the error status from `BAD_GATEWAY` (502) to `BAD_REQUEST` (400) -- with vendored Graphviz, a render failure means bad DOT input, not a missing external service
 
+**Imports** (lines 33, 42):
+- Remove `RenderWorkflowGraphFormat` from the `fabro_api::types` import list (line 33) -- no longer referenced after removing the format match block
+- Remove `use fabro_graphviz::render::GraphFormat;` (line 42) -- no longer used after removing the `format` parameter from `render_graph_bytes`
+
 **`render_graph_from_manifest()`** (line ~3593):
-- Remove `GraphFormat` matching from `req.format`
-- Ignore `format` field in request (or log a deprecation warning if PNG is requested)
-- Always render SVG
+- Remove the `format` match block (lines 3593-3596) that converts `RenderWorkflowGraphFormat` to `GraphFormat`
+- Remove the `format` parameter from the `render_graph_bytes` call (line 3602)
+- The `req.format` field still exists in the OpenAPI-generated request struct (as `Option<RenderWorkflowGraphFormat>` with only `Svg`), but the handler ignores it since SVG is always produced
 
 **`get_graph()`** (line ~6197):
 - Already hardcodes `GraphFormat::Svg` -- just drop the parameter
@@ -334,9 +338,10 @@ But removing it entirely is simpler since `render_dot` no longer takes a format 
 
 ### `fabro-cli/src/commands/graph.rs`
 
-- Remove PNG branch from the `match args.format` expression
-- Remove `GraphOutputFormat` to `RenderWorkflowGraphFormat` PNG mapping
-- After removing `RenderWorkflowGraphFormat::Png` from the OpenAPI spec, the generated Rust types will no longer have a `Png` variant, so this match arm would fail to compile anyway -- just remove it
+- Remove PNG branch from the `match args.format` expression (lines 53-56). Since only SVG remains, simplify to `format: Some(types::RenderWorkflowGraphFormat::Svg)` (the field is still `Option` in the OpenAPI spec, so we hardcode `Some(Svg)`).
+- The JSON output (line 66-70) still references `args.format.to_string()` -- keep as-is since `GraphOutputFormat` retains an `Svg` variant with a working `Display` impl.
+- The debug log (line 76-79) references `args.format` -- keep as-is for the same reason.
+- The `--format` CLI flag is retained with a single `svg` value. This is intentional forward-compat: if new formats are added later, the flag is already wired. Clap will show `[possible values: svg]`.
 
 ### `fabro-cli/tests/it/cmd/json_global.rs`
 
