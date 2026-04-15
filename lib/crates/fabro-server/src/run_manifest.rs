@@ -128,7 +128,10 @@ pub(crate) fn validate_prepared_manifest(
     })
 }
 
-pub(crate) fn create_run_input(prepared: PreparedManifest) -> CreateRunInput {
+pub(crate) fn create_run_input(
+    prepared: PreparedManifest,
+    configured_providers: Vec<Provider>,
+) -> CreateRunInput {
     CreateRunInput {
         workflow: WorkflowInput::Bundled(prepared.workflow_input),
         settings: prepared.settings,
@@ -145,6 +148,7 @@ pub(crate) fn create_run_input(prepared: PreparedManifest) -> CreateRunInput {
             .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url)),
         base_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
         provenance: None,
+        configured_providers,
     }
 }
 
@@ -352,7 +356,13 @@ async fn build_preflight_report(
     }
 
     let settings = &prepared.settings;
-    let materialized = materialize_run(settings.clone(), graph, Catalog::builtin());
+    let configured_providers = state.provider_credentials.configured_providers().await;
+    let materialized = materialize_run(
+        settings.clone(),
+        graph,
+        Catalog::builtin(),
+        &configured_providers,
+    );
     let resolved_run = fabro_config::resolve_run_from_file(&materialized)
         .map_err(|errors| anyhow!(render_resolve_errors(&errors)))?;
     let resolved_server = fabro_config::resolve_server_from_file(settings)
@@ -382,7 +392,14 @@ async fn build_preflight_report(
         github_app.clone(),
     )
     .await;
-    let llm_ok = run_llm_check(state, &mut checks, graph, &resolved_run).await;
+    let llm_ok = run_llm_check(
+        state,
+        &mut checks,
+        graph,
+        &resolved_run,
+        &configured_providers,
+    )
+    .await;
     run_github_token_check(&mut checks, prepared, &resolved_server, github_app).await;
 
     let checks_ok = sandbox_ok && llm_ok;
@@ -544,8 +561,9 @@ async fn run_llm_check(
     checks: &mut Vec<CheckResult>,
     graph: &Graph,
     settings: &RunSettings,
+    configured_providers: &[Provider],
 ) -> bool {
-    let (model, provider) = resolve_model_provider(settings, graph);
+    let (model, provider) = resolve_model_provider(settings, graph, configured_providers);
     let default_provider = provider.as_deref().unwrap_or("anthropic");
 
     match state.build_llm_client().await {
@@ -647,14 +665,23 @@ async fn run_llm_check(
     }
 }
 
-fn resolve_model_provider(settings: &RunSettings, _graph: &Graph) -> (String, Option<String>) {
+fn resolve_model_provider(
+    settings: &RunSettings,
+    _graph: &Graph,
+    configured_providers: &[Provider],
+) -> (String, Option<String>) {
     let provider = settings
         .model
         .provider
         .as_ref()
         .map(InterpString::as_source);
     let model = settings.model.name.as_ref().map_or_else(
-        || Catalog::builtin().default_from_env().id.clone(),
+        || {
+            Catalog::builtin()
+                .default_for_configured(configured_providers)
+                .id
+                .clone()
+        },
         InterpString::as_source,
     );
 

@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use fabro_auth::configured_providers_from_process_env;
 use fabro_config::project as project_config;
 use fabro_interview::{AutoApproveInterviewer, Interviewer};
 use fabro_mcp::config::{McpServerSettings, McpTransport};
@@ -309,8 +310,14 @@ impl RunSession {
             } else {
                 sandbox_provider
             };
+        let configured = configured_providers_from_process_env(services.vault.as_ref()).await;
         let model = resolved.model.name.as_ref().map_or_else(
-            || Catalog::builtin().default_from_env().id.clone(),
+            || {
+                Catalog::builtin()
+                    .default_for_configured(&configured)
+                    .id
+                    .clone()
+            },
             InterpString::as_source,
         );
         let provider = resolved
@@ -325,7 +332,7 @@ impl RunSession {
             .map(str::parse::<Provider>)
             .transpose()
             .map_err(|err| Error::Precondition(err.clone()))?
-            .unwrap_or_else(Provider::default_from_env);
+            .unwrap_or_else(|| Provider::default_for_configured(&configured));
 
         let fallback_chain = resolve_fallback_chain(provider_enum, &model, &resolved.model);
         let mcp_servers = resolved
@@ -1025,6 +1032,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();
@@ -1200,6 +1208,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();

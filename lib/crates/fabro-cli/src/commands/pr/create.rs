@@ -1,11 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result, bail};
+use fabro_auth::configured_providers_from_process_env;
+use fabro_config::Storage;
 use fabro_model::Catalog;
 use fabro_sandbox::daytona::detect_repo_info;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
+use fabro_vault::Vault;
 use fabro_workflow::outcome::StageStatus;
 use fabro_workflow::pull_request::maybe_open_pull_request;
+use tokio::sync::RwLock as AsyncRwLock;
 use tracing::info;
 
 use crate::args::PrCreateArgs;
@@ -14,6 +20,7 @@ use crate::commands::store::rebuild::rebuild_run_store;
 use crate::server_runs::ServerSummaryLookup;
 use crate::shared::print_json_pretty;
 use crate::shared::repo::ensure_matching_repo_origin;
+use crate::user_config;
 
 pub(super) async fn create_command(
     args: PrCreateArgs,
@@ -96,9 +103,17 @@ pub(super) async fn create_command(
         );
     }
 
-    let model = args
-        .model
-        .unwrap_or_else(|| Catalog::builtin().default_from_env().id.clone());
+    let vault = user_config::storage_dir(ctx.machine_settings())
+        .ok()
+        .and_then(|dir| Vault::load(Storage::new(&dir).secrets_path()).ok())
+        .map(|vault| Arc::new(AsyncRwLock::new(vault)));
+    let configured = configured_providers_from_process_env(vault.as_ref()).await;
+    let model = args.model.unwrap_or_else(|| {
+        Catalog::builtin()
+            .default_for_configured(&configured)
+            .id
+            .clone()
+    });
 
     let record = maybe_open_pull_request(
         &creds,

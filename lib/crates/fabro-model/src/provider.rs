@@ -70,6 +70,12 @@ impl Provider {
         Self::default_with(Self::has_api_key)
     }
 
+    /// Pick the best default provider based on an explicit configured list.
+    #[must_use]
+    pub fn default_for_configured(configured: &[Provider]) -> Self {
+        Self::default_with(|provider| configured.contains(&provider))
+    }
+
     /// Testable core of [`default_from_env`]: walks the precedence list and
     /// returns the first provider for which `is_configured` returns `true`.
     fn default_with(is_configured: impl Fn(Self) -> bool) -> Self {
@@ -197,6 +203,14 @@ mod tests {
     fn default_with_only_openai() {
         assert_eq!(
             Provider::default_with(|p| p == Provider::OpenAi),
+            Provider::OpenAi
+        );
+    }
+
+    #[test]
+    fn default_for_configured_only_openai() {
+        assert_eq!(
+            Provider::default_for_configured(&[Provider::OpenAi]),
             Provider::OpenAi
         );
     }

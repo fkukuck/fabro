@@ -7,6 +7,7 @@ pub fn materialize_run(
     mut layer: SettingsLayer,
     graph: &Graph,
     catalog: &Catalog,
+    configured_providers: &[Provider],
 ) -> SettingsLayer {
     let configured_model = layer
         .run
@@ -37,7 +38,7 @@ pub fn materialize_run(
             .as_deref()
             .and_then(|value| value.parse::<Provider>().ok())
             .and_then(|provider| catalog.default_for_provider(provider))
-            .unwrap_or_else(|| catalog.default_from_env())
+            .unwrap_or_else(|| catalog.default_for_configured(configured_providers))
             .id
             .clone()
     });

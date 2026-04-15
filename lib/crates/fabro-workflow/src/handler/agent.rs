@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fabro_agent::Sandbox;
 use fabro_graphviz::graph::{Graph, Node};
-use fabro_model::Provider;
 use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::RunId;
 
@@ -252,7 +251,7 @@ impl Handler for AgentHandler {
         let prompt_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(Provider::default_from_env().as_str().to_string()));
+            .or_else(|| Some(services.provider.as_str().to_string()));
         let prompt_model = node.model().map(String::from);
         let stage_scope = StageScope::for_handler(context, &node.id);
         services.emitter.emit_scoped(
@@ -329,7 +328,7 @@ impl Handler for AgentHandler {
         let response_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(Provider::default_from_env().as_str().to_string()))
+            .or_else(|| Some(services.provider.as_str().to_string()))
             .unwrap_or_default();
         services.emitter.emit_scoped(
             &Event::PromptCompleted {

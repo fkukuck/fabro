@@ -65,7 +65,7 @@ impl Handler for PromptHandler {
             let provider = node
                 .provider()
                 .and_then(|s| s.parse::<Provider>().ok())
-                .unwrap_or_else(Provider::default_from_env);
+                .unwrap_or(services.provider);
             let docs = fabro_agent::discover_memory(
                 &*services.sandbox,
                 working_dir,
@@ -86,7 +86,7 @@ impl Handler for PromptHandler {
         let prompt_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(Provider::default_from_env().as_str().to_string()));
+            .or_else(|| Some(services.provider.as_str().to_string()));
         let prompt_model = node.model().map(String::from);
         let stage_scope = StageScope::for_handler(context, &node.id);
         services.emitter.emit_scoped(
@@ -138,7 +138,7 @@ impl Handler for PromptHandler {
         let response_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(Provider::default_from_env().as_str().to_string()))
+            .or_else(|| Some(services.provider.as_str().to_string()))
             .unwrap_or_default();
 
         services.emitter.emit_scoped(

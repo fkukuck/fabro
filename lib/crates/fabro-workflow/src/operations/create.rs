@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use fabro_config::Storage;
 use fabro_graphviz::graph::{AttrValue, Graph};
-use fabro_model::Catalog;
+use fabro_model::{Catalog, Provider};
 use fabro_sandbox::SandboxProvider;
 use fabro_sandbox::daytona::detect_repo_info;
 use fabro_store::Database;
@@ -40,6 +40,7 @@ pub struct CreateRunInput {
     pub repo_origin_url: Option<String>,
     pub base_branch: Option<String>,
     pub provenance: Option<RunProvenance>,
+    pub configured_providers: Vec<Provider>,
 }
 
 #[derive(Debug)]
@@ -51,16 +52,17 @@ pub struct CreatedRun {
 }
 
 struct PersistCreateOptions {
-    settings:          SettingsLayer,
-    run_id:            Option<RunId>,
-    run_dir:           Option<PathBuf>,
-    workflow_slug:     Option<String>,
-    labels:            HashMap<String, String>,
-    base_branch:       Option<String>,
-    working_directory: PathBuf,
-    host_repo_path:    Option<String>,
-    repo_origin_url:   Option<String>,
-    provenance:        Option<RunProvenance>,
+    settings:             SettingsLayer,
+    run_id:               Option<RunId>,
+    run_dir:              Option<PathBuf>,
+    workflow_slug:        Option<String>,
+    labels:               HashMap<String, String>,
+    base_branch:          Option<String>,
+    working_directory:    PathBuf,
+    host_repo_path:       Option<String>,
+    repo_origin_url:      Option<String>,
+    provenance:           Option<RunProvenance>,
+    configured_providers: Vec<Provider>,
 }
 
 /// Resolve workflow inputs, normalize settings, and persist a run directory.
@@ -92,6 +94,7 @@ pub async fn create(store: &Database, request: CreateRunInput) -> Result<Created
         repo_origin_url,
         base_branch,
         provenance,
+        configured_providers,
     } = request;
 
     let settings = resolved.settings.clone();
@@ -149,6 +152,7 @@ pub async fn create(store: &Database, request: CreateRunInput) -> Result<Created
             host_repo_path,
             repo_origin_url,
             provenance,
+            configured_providers,
         },
         current_dir,
         file_resolver,
@@ -379,9 +383,15 @@ fn persist_validated(
         host_repo_path,
         repo_origin_url,
         provenance,
+        configured_providers,
     } = options;
 
-    let settings = materialize_run(settings, validated.graph(), Catalog::builtin());
+    let settings = materialize_run(
+        settings,
+        validated.graph(),
+        Catalog::builtin(),
+        &configured_providers,
+    );
 
     let run_id = run_id.unwrap_or_else(RunId::new);
     let run_dir = run_dir.unwrap_or_else(|| default_run_dir(&run_id));
@@ -723,6 +733,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap_err();
@@ -782,6 +793,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: Some("main".to_string()),
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();
@@ -876,6 +888,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();
@@ -914,6 +927,7 @@ mod tests {
             repo_origin_url: Some("https://github.com/acme/widgets".to_string()),
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();
@@ -988,6 +1002,7 @@ mod tests {
             repo_origin_url: None,
             base_branch: None,
             provenance: None,
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();
@@ -1042,6 +1057,7 @@ mod tests {
                     auth_method: fabro_types::RunAuthMethod::Disabled,
                 }),
             }),
+            configured_providers: Vec::new(),
         })
         .await
         .unwrap();

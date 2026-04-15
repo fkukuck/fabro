@@ -418,13 +418,18 @@ pub async fn run_with_args_and_client(
     }
 
     // Resolve model and build profile
-    let model = args.model.unwrap_or_else(|| {
+    let model = if let Some(model) = args.model.clone() {
+        model
+    } else {
         Catalog::builtin()
             .default_for_provider(provider)
-            .cloned()
-            .unwrap_or_else(|| Catalog::builtin().default_from_env().clone())
-            .id
-    });
+            .map(|model| model.id.clone())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "provider '{provider}' has no default model in the catalog; pass --model explicitly"
+                )
+            })?
+    };
     eprintln!("{}", styles.dim.apply_to(format!("Using model: {model}")));
     let mut profile = build_profile(provider, &model, Some(client.clone()));
 

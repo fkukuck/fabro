@@ -136,6 +136,15 @@ impl CredentialResolver {
         }
     }
 
+    #[must_use]
+    pub fn configured_providers(&self, vault: &Vault) -> Vec<Provider> {
+        Provider::ALL
+            .iter()
+            .copied()
+            .filter(|&provider| self.has_credential_material(vault, provider))
+            .collect()
+    }
+
     fn find_credential(
         &self,
         vault: &Vault,
@@ -158,6 +167,16 @@ impl CredentialResolver {
         }
 
         Err(ResolveError::NotConfigured(provider))
+    }
+
+    fn has_credential_material(&self, vault: &Vault, provider: Provider) -> bool {
+        credential_ids_for(provider, CredentialUsage::ApiRequest)
+            .iter()
+            .any(|id| vault_get_credential(vault, id).is_some())
+            || provider
+                .api_key_env_vars()
+                .iter()
+                .any(|env_var| self.lookup_env_or_vault(vault, env_var).is_some())
     }
 
     fn lookup_env_or_vault(&self, vault: &Vault, name: &str) -> Option<String> {
@@ -259,6 +278,28 @@ impl CredentialResolver {
     }
 }
 
+pub async fn configured_providers_from_process_env(
+    vault: Option<&Arc<AsyncRwLock<Vault>>>,
+) -> Vec<Provider> {
+    match vault {
+        Some(vault_arc) => {
+            let resolver = CredentialResolver::new(Arc::clone(vault_arc));
+            let guard = vault_arc.read().await;
+            resolver.configured_providers(&guard)
+        }
+        None => Provider::ALL
+            .iter()
+            .copied()
+            .filter(|provider| {
+                provider
+                    .api_key_env_vars()
+                    .iter()
+                    .any(|env_var| std::env::var(env_var).is_ok())
+            })
+            .collect(),
+    }
+}
+
 fn codex_login_command(api_key: &str) -> String {
     let quoted =
         try_quote(api_key).map_or_else(|_| api_key.to_string(), std::borrow::Cow::into_owned);
@@ -285,6 +326,7 @@ fn credential_ids_for(provider: Provider, usage: CredentialUsage) -> &'static [&
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
@@ -295,6 +337,31 @@ mod tests {
     use super::*;
     use crate::credential::{OAuthConfig, OAuthTokens};
     use crate::vault_ext::vault_get_credential;
+
+    struct EnvGuard {
+        key:      &'static str,
+        original: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let original = std::env::var_os(key);
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.original.as_ref() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     fn api_key_credential(provider: Provider, key: &str) -> AuthCredential {
         AuthCredential {
@@ -597,6 +664,48 @@ mod tests {
         };
 
         assert_eq!(api.org_id.as_deref(), Some("env-org"));
+    }
+
+    #[tokio::test]
+    async fn configured_providers_returns_vault_backed_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = Vault::load(dir.path().join("secrets.json")).unwrap();
+        vault_set_credential(
+            &mut vault,
+            "openai",
+            &api_key_credential(Provider::OpenAi, "vault-key"),
+        )
+        .unwrap();
+        let resolver = test_resolver(vault, Arc::new(|_| None));
+        let vault = resolver.vault.read().await;
+
+        assert_eq!(resolver.configured_providers(&vault), vec![
+            Provider::OpenAi
+        ]);
+    }
+
+    #[tokio::test]
+    async fn configured_providers_returns_env_backed_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Vault::load(dir.path().join("secrets.json")).unwrap();
+        let resolver = test_resolver(
+            vault,
+            Arc::new(|name| (name == "OPENAI_API_KEY").then(|| "env-key".to_string())),
+        );
+        let vault = resolver.vault.read().await;
+
+        assert_eq!(resolver.configured_providers(&vault), vec![
+            Provider::OpenAi
+        ]);
+    }
+
+    #[tokio::test]
+    async fn configured_providers_from_process_env_includes_env_only_without_vault() {
+        let _openai = EnvGuard::set("OPENAI_API_KEY", Some("env-key"));
+        let _gemini = EnvGuard::set("GEMINI_API_KEY", Some("gemini-key"));
+        let _anthropic = EnvGuard::set("ANTHROPIC_API_KEY", None);
+        let providers = configured_providers_from_process_env(None).await;
+        assert_eq!(providers, vec![Provider::OpenAi, Provider::Gemini]);
     }
 
     #[tokio::test]

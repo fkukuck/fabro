@@ -109,6 +109,13 @@ impl ProviderCredentials {
             auth_issues,
         })
     }
+
+    pub(crate) async fn configured_providers(&self) -> Vec<Provider> {
+        let resolver =
+            CredentialResolver::with_env_lookup(Arc::clone(&self.vault), self.env_lookup.clone());
+        let vault = self.vault.read().await;
+        resolver.configured_providers(&vault)
+    }
 }
 
 pub(crate) struct LlmClientResult {
@@ -137,5 +144,58 @@ impl std::fmt::Debug for ProviderCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProviderCredentials")
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use fabro_auth::{AuthCredential, AuthDetails};
+    use fabro_vault::{SecretType, Vault};
+    use tokio::sync::RwLock as AsyncRwLock;
+
+    use super::ProviderCredentials;
+    use crate::server_secrets::Provider;
+
+    #[tokio::test]
+    async fn configured_providers_respects_injected_env_lookup() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Arc::new(AsyncRwLock::new(
+            Vault::load(dir.path().join("secrets.json")).unwrap(),
+        ));
+        let credentials = ProviderCredentials::with_env_lookup(Arc::clone(&vault), |name| {
+            (name == "OPENAI_API_KEY").then(|| "openai-key".to_string())
+        });
+
+        assert_eq!(credentials.configured_providers().await, vec![
+            Provider::OpenAi
+        ]);
+    }
+
+    #[tokio::test]
+    async fn configured_providers_includes_vault_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = Vault::load(dir.path().join("secrets.json")).unwrap();
+        vault
+            .set(
+                "anthropic",
+                &serde_json::to_string(&AuthCredential {
+                    provider: Provider::Anthropic,
+                    details:  AuthDetails::ApiKey {
+                        key: "anthropic-key".to_string(),
+                    },
+                })
+                .unwrap(),
+                SecretType::Credential,
+                None,
+            )
+            .unwrap();
+        let credentials =
+            ProviderCredentials::with_env_lookup(Arc::new(AsyncRwLock::new(vault)), |_| None);
+
+        assert_eq!(credentials.configured_providers().await, vec![
+            Provider::Anthropic
+        ]);
     }
 }

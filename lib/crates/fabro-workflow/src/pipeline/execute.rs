@@ -92,6 +92,7 @@ pub async fn execute(init: Initialized) -> Executed {
         inputs: service_inputs,
         dry_run,
         cancel_requested: run_options.cancel_token.clone(),
+        provider,
         workflow_path,
         workflow_bundle,
     });

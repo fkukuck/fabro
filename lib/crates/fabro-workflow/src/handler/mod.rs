@@ -23,6 +23,7 @@ use fabro_agent::Sandbox;
 use fabro_graphviz::graph::{Graph, Node, shape_to_handler_type};
 use fabro_hooks::{HookContext, HookDecision, HookRunner};
 use fabro_interview::Interviewer;
+use fabro_model::Provider;
 #[cfg(test)]
 use fabro_store::Database;
 #[cfg(test)]
@@ -59,6 +60,8 @@ pub struct EngineServices {
     pub dry_run:          bool,
     /// Optional run-scoped cancellation flag from the core executor.
     pub cancel_requested: Option<Arc<AtomicBool>>,
+    /// Resolved default provider for the current run.
+    pub provider:         Provider,
     /// Logical path of the current workflow when running from a bundle.
     pub workflow_path:    Option<PathBuf>,
     /// Bundled workflows available for child-workflow resolution.
@@ -133,6 +136,7 @@ impl EngineServices {
             inputs:           HashMap::new(),
             dry_run:          false,
             cancel_requested: None,
+            provider:         Provider::Anthropic,
             workflow_path:    None,
             workflow_bundle:  None,
         }

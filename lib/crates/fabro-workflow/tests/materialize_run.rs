@@ -1,6 +1,6 @@
 use fabro_graphviz::graph::Graph;
 use fabro_graphviz::parser;
-use fabro_model::Catalog;
+use fabro_model::{Catalog, Provider};
 use fabro_types::settings::run::{RunGoalLayer, RunLayer, RunModelLayer, RunPullRequestLayer};
 use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_workflow::run_materialization::materialize_run;
@@ -33,7 +33,7 @@ fn materialize_run_applies_graph_and_catalog_defaults() {
         ..SettingsLayer::default()
     };
 
-    let materialized = materialize_run(settings, &graph(source), Catalog::builtin());
+    let materialized = materialize_run(settings, &graph(source), Catalog::builtin(), &[]);
     let resolved = fabro_config::resolve_run_from_file(&materialized).unwrap();
 
     assert_eq!(
@@ -59,4 +59,32 @@ fn materialize_run_applies_graph_and_catalog_defaults() {
         Some(&RunGoalLayer::Inline(InterpString::parse("Build feature")))
     );
     assert!(resolved.pull_request.is_none());
+}
+
+#[test]
+fn materialize_run_uses_configured_provider_defaults() {
+    let source = r#"digraph Test {
+        graph [goal="Build feature"]
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        start -> exit
+    }"#;
+
+    let materialized = materialize_run(
+        SettingsLayer::default(),
+        &graph(source),
+        Catalog::builtin(),
+        &[Provider::OpenAi],
+    );
+    let resolved = fabro_config::resolve_run_from_file(&materialized).unwrap();
+
+    assert_eq!(
+        resolved
+            .model
+            .provider
+            .as_ref()
+            .map(InterpString::as_source)
+            .as_deref(),
+        Some("openai")
+    );
 }

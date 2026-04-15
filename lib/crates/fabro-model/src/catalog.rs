@@ -84,6 +84,15 @@ impl Catalog {
             .unwrap_or_else(|| self.default_model())
     }
 
+    /// Default model for the best configured provider, falling back to the
+    /// global catalog default.
+    #[must_use]
+    pub fn default_for_configured(&self, configured: &[Provider]) -> &Model {
+        let provider = Provider::default_for_configured(configured);
+        self.default_for_provider(provider)
+            .unwrap_or_else(|| self.default_model())
+    }
+
     /// Probe model for a provider — the cheapest model suitable for
     /// connectivity checks. Falls back to the provider's default when no
     /// explicit override is configured.

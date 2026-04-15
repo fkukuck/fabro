@@ -291,6 +291,7 @@ impl Handler for ParallelHandler {
             let inputs = services.inputs.clone();
             let dry_run = services.dry_run;
             let cancel_requested = services.cancel_requested.clone();
+            let provider = services.provider;
             let workflow_path = services.workflow_path.clone();
             let workflow_bundle = services.workflow_bundle.clone();
             let graph = graph.clone();
@@ -363,6 +364,7 @@ impl Handler for ParallelHandler {
                     inputs: inputs.clone(),
                     dry_run,
                     cancel_requested,
+                    provider,
                     workflow_path,
                     workflow_bundle,
                 };

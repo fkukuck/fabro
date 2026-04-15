@@ -3544,7 +3544,8 @@ async fn create_run(
     let run_id = prepared.run_id.unwrap_or_else(RunId::new);
     info!(run_id = %run_id, "Run created");
 
-    let mut create_input = run_manifest::create_run_input(prepared.clone());
+    let configured_providers = state.provider_credentials.configured_providers().await;
+    let mut create_input = run_manifest::create_run_input(prepared.clone(), configured_providers);
     create_input.run_id = Some(run_id);
     create_input.provenance = Some(run_provenance(&headers, &subject));
     create_input.submitted_manifest_bytes = Some(body.to_vec());
