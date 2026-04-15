@@ -10,7 +10,7 @@ import type { PreviewUrlResponse } from "@qltysh/fabro-api-client";
 
 const allTabs = [
   { name: "Overview", path: "", count: null, demoOnly: false, broken: false },
-  { name: "Stages", path: "/stages/detect-drift", count: null, demoOnly: true, broken: false },
+  { name: "Stages", path: "/stages", count: null, demoOnly: false, broken: false },
   { name: "Files Changed", path: "/files", count: null, demoOnly: false, broken: true },
   { name: "Graph", path: "/graph", count: null, demoOnly: false, broken: false },
   { name: "Billing", path: "/billing", count: null, demoOnly: false, broken: false },

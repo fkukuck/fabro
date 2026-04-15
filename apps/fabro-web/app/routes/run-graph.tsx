@@ -213,7 +213,6 @@ export default function RunGraph({ loaderData }: any) {
         }
 
         stripGraphTitle(svg);
-        annotateRunningNodes(svg, graphTheme, stages);
 
         svgRef.current = svg;
         if (innerRef.current) {

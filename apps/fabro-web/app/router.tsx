@@ -103,6 +103,7 @@ export const routes: RouteObject[] = [
           route("runs/:id", RunDetail, {
             children: [
               indexRoute(RunOverview),
+              route("stages", RunStages),
               route("stages/:stageId", RunStages),
               route("settings", RunSettings),
               route("graph", RunGraph),
