@@ -15,9 +15,9 @@ auto_stop_interval = 30
 repo = "fabro-sh/fabro"
 
 [run.sandbox.daytona.snapshot]
-name = "fabro-v6"
-cpu = 4
-memory = "8GB"
+name = "fabro-v7"
+cpu = 8
+memory = "16GB"
 disk = "20GB"
 dockerfile = """
 FROM ubuntu:24.04

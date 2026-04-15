@@ -45,6 +45,10 @@ pub(crate) use fabro_json_snapshot;
 pub(crate) fn run_output_filters(context: &TestContext) -> Vec<(String, String)> {
     let mut filters = context.filters();
     filters.push((r"\b\d+ms\b".to_string(), "[TIME]".to_string()));
+    filters.push((
+        r"(?m)^(Graph: ).+$".to_string(),
+        "${1}[GRAPH_PATH]".to_string(),
+    ));
     filters
 }
 

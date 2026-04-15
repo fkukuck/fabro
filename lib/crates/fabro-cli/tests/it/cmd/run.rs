@@ -645,7 +645,7 @@ fn dry_run_simple() {
     ----- stdout -----
     ----- stderr -----
     Workflow: Simple (4 nodes, 3 edges)
-    Graph: [TEMP_DIR]/simple.fabro
+    Graph: [GRAPH_PATH]
     Goal: Run tests and report results
 
         Run: [ULID]

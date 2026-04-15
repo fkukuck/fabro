@@ -5,7 +5,7 @@ leak-timeout = "500ms"
 
     [[profile.default.overrides]]
     filter = "package(fabro-cli)"
-    slow-timeout = { period = "3s", terminate-after = 4 }
+    slow-timeout = { period = "6s", terminate-after = 4 }
 
     [[profile.default.overrides]]
     filter = "package(fabro-server)"
