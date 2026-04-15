@@ -69,7 +69,7 @@ daytona-api-client = { git = "https://github.com/brynary/daytona-sdk-rust", rev 
 sentry = { version = "0.35", default-features = false, features = ["backtrace", "contexts", "ureq", "rustls"] }
 fork = "0.2"
 exec = "0.3"
-slatedb = "0.11.2"
+slatedb = { version = "0.11.2", features = ["zstd"] }
 object_store = { version = "0.12.5", features = ["aws"] }
 rust-embed = "8"
 percent-encoding = "2"

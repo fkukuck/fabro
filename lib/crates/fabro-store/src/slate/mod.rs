@@ -9,7 +9,7 @@ use fabro_types::RunId;
 use object_store::ObjectStore;
 pub use run_store::RunDatabase;
 use run_store::RunDatabaseInner;
-use slatedb::config::Settings;
+use slatedb::config::{CompressionCodec, Settings};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::{Error, ListRunsQuery, Result, RunSummary, keys};
@@ -58,6 +58,7 @@ impl Database {
                 slatedb::Db::builder(self.shared_db_prefix(), self.object_store.clone())
                     .with_settings(Settings {
                         flush_interval: Some(self.flush_interval),
+                        compression_codec: Some(CompressionCodec::Zstd),
                         ..Settings::default()
                     })
                     .build()
