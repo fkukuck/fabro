@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Stdio;
@@ -18,6 +19,7 @@ use fabro_auth::{AuthCredential, AuthMethod, codex_oauth_config, credential_id_f
 use fabro_config::user::SETTINGS_CONFIG_FILENAME;
 use fabro_config::{ResolveError, Storage, envfile, legacy_env};
 use fabro_model::Provider;
+use fabro_server::bind::Bind;
 use fabro_server::serve;
 use fabro_store::ArtifactStore;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
@@ -39,7 +41,7 @@ use super::doctor;
 use crate::args::{
     DoctorArgs, InstallArgs, InstallGitHubStrategyArg, InstallNonInteractiveArgs, ServerTargetArgs,
 };
-use crate::commands::server::{record, stop};
+use crate::commands::server::{record, start, stop};
 use crate::gh::GhCli;
 use crate::shared::provider_auth::{
     ApiKeySource, authenticate_provider, authenticate_provider_with_api_key_source,
@@ -143,6 +145,14 @@ fn merge_server_settings(doc: &mut toml::Value) -> Result<()> {
     auth.insert(
         "methods".to_string(),
         toml::Value::Array(vec![toml::Value::String("dev-token".to_string())]),
+    );
+
+    let cli = ensure_table(root, "cli")?;
+    let target = ensure_table(cli, "target")?;
+    target.insert("type".to_string(), toml::Value::String("http".to_string()));
+    target.insert(
+        "url".to_string(),
+        toml::Value::String("http://127.0.0.1:32276".to_string()),
     );
 
     Ok(())
@@ -1278,6 +1288,79 @@ async fn persist_install_outputs_with_settings(
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum InstallServerRestartOutcome {
+    Started(Bind),
+    Failed(String),
+}
+
+async fn restart_server_after_install_with(
+    storage_dir: &Path,
+    config_path: &Path,
+    stop_server: impl for<'a> Fn(&'a Path, Duration) -> BoxFuture<'a, bool>,
+    ensure_server_running: impl for<'a> Fn(&'a Path, &'a Path) -> BoxFuture<'a, Result<Bind>>,
+) -> InstallServerRestartOutcome {
+    stop_server(storage_dir, Duration::from_secs(5)).await;
+
+    match ensure_server_running(storage_dir, config_path).await {
+        Ok(bind) => InstallServerRestartOutcome::Started(bind),
+        Err(err) => InstallServerRestartOutcome::Failed(err.to_string()),
+    }
+}
+
+async fn restart_server_after_install(
+    storage_dir: &Path,
+    config_path: &Path,
+) -> InstallServerRestartOutcome {
+    restart_server_after_install_with(
+        storage_dir,
+        config_path,
+        |path, timeout| Box::pin(stop::stop_server(path, timeout)),
+        |storage_dir, config_path| {
+            Box::pin(start::ensure_server_running_for_storage(
+                storage_dir,
+                config_path,
+            ))
+        },
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallDoctorOutcome {
+    SkippedServerRestartFailure,
+    SkippedUserDeclined,
+    Ran,
+}
+
+async fn maybe_run_install_doctor_with<
+    ShouldRunDoctor,
+    ShouldRunDoctorFuture,
+    RunDoctor,
+    RunDoctorFuture,
+>(
+    restart_succeeded: bool,
+    should_run_doctor: ShouldRunDoctor,
+    run_doctor: RunDoctor,
+) -> Result<InstallDoctorOutcome>
+where
+    ShouldRunDoctor: FnOnce() -> ShouldRunDoctorFuture,
+    ShouldRunDoctorFuture: Future<Output = Result<bool>>,
+    RunDoctor: FnOnce() -> RunDoctorFuture,
+    RunDoctorFuture: Future<Output = Result<i32>>,
+{
+    if !restart_succeeded {
+        return Ok(InstallDoctorOutcome::SkippedServerRestartFailure);
+    }
+
+    if !should_run_doctor().await? {
+        return Ok(InstallDoctorOutcome::SkippedUserDeclined);
+    }
+
+    let _ = run_doctor().await?;
+    Ok(InstallDoctorOutcome::Ran)
+}
+
 pub(crate) async fn run_install(
     args: &InstallArgs,
     cli: &CliSettings,
@@ -1571,32 +1654,55 @@ async fn run_install_inner(
         s.green.apply_to("✔"),
         path::contract_tilde(&config_path).display()
     );
-    if server_was_running {
-        fabro_util::printerr!(
-            printer,
-            "  Warning: the local fabro server was already running. Restart it to pick up the new server.env values."
-        );
-    }
     fabro_util::printerr!(printer, "");
-    fabro_util::printerr!(printer, "  To start Fabro, run these commands:");
-    fabro_util::printerr!(printer, "");
-    fabro_util::printerr!(
-        printer,
-        "    {}",
-        s.bold_cyan.apply_to("fabro server start")
-    );
-    fabro_util::printerr!(printer, "");
+    let restart_succeeded = match restart_server_after_install(&storage_dir, &config_path).await {
+        InstallServerRestartOutcome::Started(bind) => {
+            fabro_util::printerr!(
+                printer,
+                "  {} Server running at {}",
+                s.green.apply_to("✔"),
+                bind
+            );
+            true
+        }
+        InstallServerRestartOutcome::Failed(err) => {
+            fabro_util::printerr!(
+                printer,
+                "  {} Failed to start server: {err}",
+                s.yellow.apply_to("Warning:")
+            );
+            fabro_util::printerr!(
+                printer,
+                "  To start manually, run: {}",
+                s.bold_cyan.apply_to("fabro server start")
+            );
+            false
+        }
+    };
 
-    // Verify setup
-    let run_doctor = input_source.should_run_doctor().await?;
-
-    if run_doctor {
-        fabro_util::printerr!(printer, "");
-        let doctor_args = DoctorArgs {
-            target:  ServerTargetArgs::default(),
-            verbose: false,
-        };
-        let _ = doctor::run_doctor(&doctor_args, false, cli, cli_layer, printer).await?;
+    match maybe_run_install_doctor_with(
+        restart_succeeded,
+        || input_source.should_run_doctor(),
+        || async {
+            fabro_util::printerr!(printer, "");
+            let doctor_args = DoctorArgs {
+                target:  ServerTargetArgs::default(),
+                verbose: false,
+            };
+            doctor::run_doctor(&doctor_args, false, cli, cli_layer, printer).await
+        },
+    )
+    .await?
+    {
+        InstallDoctorOutcome::SkippedServerRestartFailure => {
+            fabro_util::printerr!(
+                printer,
+                "  {}",
+                s.dim
+                    .apply_to("Skipping fabro doctor because the server did not restart.")
+            );
+        }
+        InstallDoctorOutcome::SkippedUserDeclined | InstallDoctorOutcome::Ran => {}
     }
 
     fabro_util::printerr!(printer, "");
@@ -1755,6 +1861,30 @@ mod tests {
                 assert!(tls.is_none());
             }
             ServerListenLayer::Unix { .. } => panic!("expected tcp listen"),
+        }
+    }
+
+    #[test]
+    fn config_toml_has_cli_target_matching_listen_address() {
+        use fabro_types::settings::SettingsLayer;
+        use fabro_types::settings::cli::CliTargetLayer;
+        let toml_str = format_config_toml();
+        let cfg: SettingsLayer = fabro_config::parse_settings_layer(&toml_str).unwrap();
+        let target = cfg
+            .cli
+            .as_ref()
+            .and_then(|c| c.target.as_ref())
+            .expect("cli.target should be set");
+        match target {
+            CliTargetLayer::Http { url, tls } => {
+                assert_eq!(
+                    url.as_ref()
+                        .map(fabro_types::settings::InterpString::as_source),
+                    Some("http://127.0.0.1:32276".to_string())
+                );
+                assert!(tls.is_none());
+            }
+            CliTargetLayer::Unix { .. } => panic!("expected http target"),
         }
     }
 
@@ -2089,6 +2219,219 @@ client_id = "client-id"
         assert_eq!(created.calls_async().await, 2);
         assert!(stop_called.load(Ordering::SeqCst));
         assert!(!Storage::new(dir.path()).secrets_path().exists());
+    }
+
+    #[tokio::test]
+    async fn persist_vault_secrets_with_leaves_running_server_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault_secrets = vec![CreateSecretRequest {
+            name:        "GITHUB_TOKEN".to_string(),
+            value:       "gh-token".to_string(),
+            type_:       ApiSecretType::Environment,
+            description: None,
+        }];
+        let server = MockServer::start_async().await;
+        let created = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/v1/secrets");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(
+                        serde_json::json!({
+                            "name": "persisted",
+                            "type": "environment",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z"
+                        })
+                        .to_string(),
+                    );
+            })
+            .await;
+        let stop_called = Arc::new(AtomicBool::new(false));
+
+        persist_vault_secrets_with(
+            dir.path(),
+            &vault_secrets,
+            true,
+            |_| {
+                let client = fabro_api::Client::new_with_client(
+                    &server.base_url(),
+                    fabro_test::test_http_client(),
+                );
+                Box::pin(async move { Ok(client) })
+            },
+            {
+                let stop_called = Arc::clone(&stop_called);
+                move |_, _| {
+                    let stop_called = Arc::clone(&stop_called);
+                    Box::pin(async move {
+                        stop_called.store(true, Ordering::SeqCst);
+                        true
+                    })
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.calls_async().await, 1);
+        assert!(!stop_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn restart_server_after_install_returns_started_bind_on_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("settings.toml");
+        let stop_called = Arc::new(AtomicBool::new(false));
+        let start_called = Arc::new(AtomicBool::new(false));
+
+        let outcome = restart_server_after_install_with(
+            dir.path(),
+            &config_path,
+            {
+                let stop_called = Arc::clone(&stop_called);
+                move |_, _| {
+                    let stop_called = Arc::clone(&stop_called);
+                    Box::pin(async move {
+                        stop_called.store(true, Ordering::SeqCst);
+                        true
+                    })
+                }
+            },
+            {
+                let start_called = Arc::clone(&start_called);
+                move |_, _| {
+                    let start_called = Arc::clone(&start_called);
+                    Box::pin(async move {
+                        start_called.store(true, Ordering::SeqCst);
+                        Ok(Bind::Tcp("127.0.0.1:32276".parse::<SocketAddr>().unwrap()))
+                    })
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(
+            outcome,
+            InstallServerRestartOutcome::Started(Bind::Tcp(
+                "127.0.0.1:32276".parse::<SocketAddr>().unwrap()
+            ))
+        );
+        assert!(stop_called.load(Ordering::SeqCst));
+        assert!(start_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn restart_server_after_install_returns_failed_on_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("settings.toml");
+        let stop_called = Arc::new(AtomicBool::new(false));
+        let start_called = Arc::new(AtomicBool::new(false));
+
+        let outcome = restart_server_after_install_with(
+            dir.path(),
+            &config_path,
+            {
+                let stop_called = Arc::clone(&stop_called);
+                move |_, _| {
+                    let stop_called = Arc::clone(&stop_called);
+                    Box::pin(async move {
+                        stop_called.store(true, Ordering::SeqCst);
+                        true
+                    })
+                }
+            },
+            {
+                let start_called = Arc::clone(&start_called);
+                move |_, _| {
+                    let start_called = Arc::clone(&start_called);
+                    Box::pin(async move {
+                        start_called.store(true, Ordering::SeqCst);
+                        Err(anyhow!("boom"))
+                    })
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(
+            outcome,
+            InstallServerRestartOutcome::Failed("boom".to_string())
+        );
+        assert!(stop_called.load(Ordering::SeqCst));
+        assert!(start_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn maybe_run_install_doctor_skips_prompt_when_restart_failed() {
+        let prompt_called = Arc::new(AtomicBool::new(false));
+        let doctor_called = Arc::new(AtomicBool::new(false));
+
+        let outcome = maybe_run_install_doctor_with(
+            false,
+            {
+                let prompt_called = Arc::clone(&prompt_called);
+                move || {
+                    let prompt_called = Arc::clone(&prompt_called);
+                    async move {
+                        prompt_called.store(true, Ordering::SeqCst);
+                        Ok(true)
+                    }
+                }
+            },
+            {
+                let doctor_called = Arc::clone(&doctor_called);
+                move || {
+                    let doctor_called = Arc::clone(&doctor_called);
+                    async move {
+                        doctor_called.store(true, Ordering::SeqCst);
+                        Ok(0)
+                    }
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, InstallDoctorOutcome::SkippedServerRestartFailure);
+        assert!(!prompt_called.load(Ordering::SeqCst));
+        assert!(!doctor_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn maybe_run_install_doctor_runs_when_restart_succeeds_and_user_accepts() {
+        let prompt_called = Arc::new(AtomicBool::new(false));
+        let doctor_called = Arc::new(AtomicBool::new(false));
+
+        let outcome = maybe_run_install_doctor_with(
+            true,
+            {
+                let prompt_called = Arc::clone(&prompt_called);
+                move || {
+                    let prompt_called = Arc::clone(&prompt_called);
+                    async move {
+                        prompt_called.store(true, Ordering::SeqCst);
+                        Ok(true)
+                    }
+                }
+            },
+            {
+                let doctor_called = Arc::clone(&doctor_called);
+                move || {
+                    let doctor_called = Arc::clone(&doctor_called);
+                    async move {
+                        doctor_called.store(true, Ordering::SeqCst);
+                        Ok(0)
+                    }
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, InstallDoctorOutcome::Ran);
+        assert!(prompt_called.load(Ordering::SeqCst));
+        assert!(doctor_called.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
