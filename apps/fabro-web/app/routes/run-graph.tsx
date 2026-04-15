@@ -195,9 +195,13 @@ export default function RunGraph({ loaderData }: any) {
         let svg: SVGSVGElement;
 
         if (graphSvg) {
-          // Use server-rendered SVG from the real graph endpoint.
+          // Re-fetch from server with direction param.
+          const res = await fetch(`/api/v1/runs/${id}/graph?direction=${direction}`, { credentials: "include" });
+          if (cancelled) return;
+          if (!res.ok) { setError("Failed to load graph"); return; }
+          const svgText = await res.text();
           const parser = new DOMParser();
-          const doc = parser.parseFromString(graphSvg, "image/svg+xml");
+          const doc = parser.parseFromString(svgText, "image/svg+xml");
           const parsed = doc.documentElement;
           if (!(parsed instanceof SVGSVGElement)) {
             setError("Invalid SVG from server");
@@ -226,7 +230,7 @@ export default function RunGraph({ loaderData }: any) {
     setPan({ x: 0, y: 0 });
     render();
     return () => { cancelled = true; };
-  }, [direction, graphTheme, graphSvg]);
+  }, [direction, graphTheme, graphSvg, id]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;

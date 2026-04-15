@@ -113,8 +113,8 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
 }
 
 export async function loader({ request, params }: any) {
-  const { data: apiStages } = await apiJson<PaginatedRunStageList>(`/runs/${params.id}/stages`, { request });
-  const stages: Stage[] = apiStages.filter((s) => isVisibleStage(s.id)).map((s) => ({
+  const stagesResult = await apiJsonOrNull<PaginatedRunStageList>(`/runs/${params.id}/stages`, { request });
+  const stages: Stage[] = (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
     id: s.id,
     name: s.name,
     status: s.status as Stage["status"],
@@ -253,13 +253,17 @@ export default function RunStages({ loaderData }: any) {
   const { id, stageId } = useParams();
   const { stages, turns } = loaderData;
 
+  if (!stages.length) {
+    return <p className="py-8 text-center text-sm text-fg-muted">No stages available for this run.</p>;
+  }
+
   const selectedStage = stages.find((s: Stage) => s.id === stageId) ?? stages[0];
-  const selectedConfig = selectedStage ? statusConfig[selectedStage.status] : statusConfig.pending;
+  const selectedConfig = statusConfig[selectedStage.status];
   const SelectedIcon = selectedConfig.icon;
 
   return (
     <div className="flex gap-6">
-      <StageSidebar stages={stages} runId={id!} selectedStageId={selectedStage?.id} />
+      <StageSidebar stages={stages} runId={id!} selectedStageId={selectedStage.id} />
 
       <div className="min-w-0 flex-1 space-y-3">
         <div className="flex items-center gap-2">

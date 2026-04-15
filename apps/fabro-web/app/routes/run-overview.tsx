@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
+import { ArrowDownIcon, ArrowRightIcon, MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { apiFetch, apiJsonOrNull } from "../api";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
@@ -24,23 +24,30 @@ export async function loader({ request, params }: any) {
     duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
     dotId: s.dot_id ?? s.id,
   }));
-  const graphRes = await apiFetch(`/runs/${params.id}/graph`, { request });
+  const [graphRes, runRes] = await Promise.all([
+    apiFetch(`/runs/${params.id}/graph`, { request }),
+    apiJsonOrNull<{ status: string | null }>(`/runs/${params.id}`, { request }),
+  ]);
   const graphSvg = graphRes.ok ? await graphRes.text() : null;
-  return { stages, graphSvg };
+  const runStatus = runRes?.status ?? null;
+  return { stages, graphSvg, runStatus };
 }
 
 const ZOOM_STEPS = [25, 50, 75, 100, 150, 200];
 const DEFAULT_ZOOM_INDEX = 2;
 
+type Direction = "LR" | "TB";
+
 export default function RunOverview({ loaderData }: any) {
   const { id } = useParams();
-  const { stages, graphSvg } = loaderData;
+  const { stages, graphSvg, runStatus } = loaderData;
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const navigate = useNavigate();
   const { theme } = useTheme();
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
+  const [direction, setDirection] = useState<Direction>("LR");
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragState = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const zoom = ZOOM_STEPS[zoomIndex];
@@ -50,7 +57,12 @@ export default function RunOverview({ loaderData }: any) {
     const inner = innerRef.current;
     if (!inner || !graphSvg) return;
 
-    inner.innerHTML = graphSvg;
+    let cancelled = false;
+    (async () => {
+    const res = await fetch(`/api/v1/runs/${id}/graph?direction=${direction}`, { credentials: "include" });
+    if (cancelled || !res.ok) return;
+    const svgText = await res.text();
+    inner.innerHTML = svgText;
     const svg = inner.querySelector("svg");
     if (!svg) return;
     svgRef.current = svg;
@@ -59,8 +71,11 @@ export default function RunOverview({ loaderData }: any) {
     const runningDotIds = new Set<string>(
       stages.filter((s: Stage) => s.status === "running").map((s: Stage) => s.dotId ?? s.id),
     );
+    const failedDotIds = new Set<string>(
+      stages.filter((s: Stage) => s.status === "failed").map((s: Stage) => s.dotId ?? s.id),
+    );
     const completedDotIds = new Set<string>(
-      stages.filter((s: Stage) => s.status !== "running" && s.status !== "pending").map((s: Stage) => s.dotId ?? s.id),
+      stages.filter((s: Stage) => s.status === "completed").map((s: Stage) => s.dotId ?? s.id),
     );
     const dotIdToStageId = new Map<string, string>(
       stages.map((s: Stage) => [s.dotId ?? s.id, s.id]),
@@ -77,7 +92,20 @@ export default function RunOverview({ loaderData }: any) {
         group.addEventListener("click", () => navigate(`/runs/${id}/stages/${stageId}`));
       }
 
-      if (runningDotIds.has(nodeId)) {
+      // Color exit node based on run outcome
+      if (nodeId === "exit" && (runStatus === "succeeded" || runStatus === "failed" || runStatus === "dead")) {
+        const isSuccess = runStatus === "succeeded";
+        const fill = isSuccess ? gt.completedFill : gt.failedFill;
+        const border = isSuccess ? gt.completedBorder : gt.failedBorder;
+        const text = isSuccess ? gt.completedText : gt.failedText;
+        for (const shape of group.querySelectorAll("ellipse, polygon, path")) {
+          shape.setAttribute("fill", fill);
+          shape.setAttribute("stroke", border);
+        }
+        for (const t of group.querySelectorAll("text")) {
+          t.setAttribute("fill", text);
+        }
+      } else if (runningDotIds.has(nodeId)) {
         for (const shape of group.querySelectorAll("ellipse, polygon, path")) {
           shape.setAttribute("fill", gt.runningFill);
           shape.setAttribute("stroke", gt.runningBorder);
@@ -107,6 +135,14 @@ export default function RunOverview({ loaderData }: any) {
         for (const text of group.querySelectorAll("text")) {
           text.setAttribute("fill", gt.runningText);
         }
+      } else if (failedDotIds.has(nodeId)) {
+        for (const shape of group.querySelectorAll("ellipse, polygon, path")) {
+          shape.setAttribute("fill", gt.failedFill);
+          shape.setAttribute("stroke", gt.failedBorder);
+        }
+        for (const text of group.querySelectorAll("text")) {
+          text.setAttribute("fill", gt.failedText);
+        }
       } else if (completedDotIds.has(nodeId)) {
         for (const shape of group.querySelectorAll("ellipse, polygon, path")) {
           shape.setAttribute("fill", gt.completedFill);
@@ -117,10 +153,13 @@ export default function RunOverview({ loaderData }: any) {
         }
       }
     }
-  }, [stages, graphSvg, theme]);
+    })();
+    return () => { cancelled = true; };
+  }, [stages, graphSvg, theme, direction, id]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest(".node")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragState.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
   }, [pan]);
@@ -166,6 +205,25 @@ export default function RunOverview({ loaderData }: any) {
         {graphSvg ? (
           <div className="graph-svg relative rounded-md border border-line bg-panel-alt/40">
             <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+              <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
+                <button
+                  type="button"
+                  title="Left to right"
+                  onClick={() => setDirection("LR")}
+                  className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
+                >
+                  <ArrowRightIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title="Top to bottom"
+                  onClick={() => setDirection("TB")}
+                  className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
+                >
+                  <ArrowDownIcon className="size-3.5" />
+                </button>
+              </div>
+
               <div className="flex items-center rounded-md border border-line bg-panel/90 p-0.5">
                 <button
                   type="button"

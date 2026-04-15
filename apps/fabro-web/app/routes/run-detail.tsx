@@ -81,10 +81,14 @@ export default function RunDetail({ loaderData, params }: any) {
     <div>
       <nav className="mb-4 flex items-center gap-1 text-sm text-fg-muted">
         <Link to="/runs" className="text-fg-3 hover:text-fg">Runs</Link>
-        <ChevronRightIcon className="size-3" />
-        <Link to={`/workflows/${run.workflow}`} className="text-fg-3 hover:text-fg">
-          {run.workflow}
-        </Link>
+        {demoMode && (
+          <>
+            <ChevronRightIcon className="size-3" />
+            <Link to={`/workflows/${run.workflow}`} className="text-fg-3 hover:text-fg">
+              {run.workflow}
+            </Link>
+          </>
+        )}
         <ChevronRightIcon className="size-3" />
         <span>{run.title}</span>
       </nav>

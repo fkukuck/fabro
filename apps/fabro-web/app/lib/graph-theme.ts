@@ -19,6 +19,9 @@ interface GraphTheme {
   runningText: string;
   runningPulseFill: string;
   runningPulseStroke: string;
+  failedFill: string;
+  failedBorder: string;
+  failedText: string;
 }
 
 const dark: GraphTheme = {
@@ -40,6 +43,9 @@ const dark: GraphTheme = {
   runningText: "#5eead4",
   runningPulseFill: "#134e4a",
   runningPulseStroke: "#5eead4",
+  failedFill: "#2a1215",
+  failedBorder: "#f87171",
+  failedText: "#fca5a5",
 };
 
 const light: GraphTheme = {
@@ -61,6 +67,9 @@ const light: GraphTheme = {
   runningText: "#0d9488",
   runningPulseFill: "#99f6e4",
   runningPulseStroke: "#0d9488",
+  failedFill: "#fef2f2",
+  failedBorder: "#dc2626",
+  failedText: "#dc2626",
 };
 
 export function getGraphTheme(theme: Theme): GraphTheme {
