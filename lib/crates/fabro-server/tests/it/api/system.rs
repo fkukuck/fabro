@@ -143,7 +143,7 @@ async fn test_app_state_with_options_respects_max_concurrent_runs() {
     assert!(
         second_questions["data"]
             .as_array()
-            .is_some_and(|items| items.is_empty()),
+            .is_some_and(std::vec::Vec::is_empty),
         "second run should still be queued while the first waits at the human gate: {second_questions}"
     );
 }
