@@ -32,6 +32,7 @@ interface StageSidebarProps {
 const STAGE_EVENTS = new Set([
   "stage.started", "stage.completed", "stage.failed",
   "run.completed", "run.failed",
+  "command.started", "command.completed",
 ]);
 
 export function StageSidebar({ stages, runId, selectedStageId, activeLink }: StageSidebarProps) {

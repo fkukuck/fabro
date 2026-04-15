@@ -1,5 +1,5 @@
 import { useParams } from "react-router";
-import { CommandLineIcon, ChatBubbleLeftIcon } from "@heroicons/react/24/outline";
+import { CommandLineIcon, ChatBubbleLeftIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { ToolBlock } from "../components/tool-use";
 import type { ToolUse } from "../components/tool-use";
 import { StageSidebar, statusConfig } from "../components/stage-sidebar";
@@ -14,7 +14,8 @@ export const handle = { wide: true };
 type TurnType =
   | { kind: "system"; content: string }
   | { kind: "assistant"; content: string }
-  | { kind: "tool"; tools: ToolUse[] };
+  | { kind: "tool"; tools: ToolUse[] }
+  | { kind: "command"; script: string; language: string; stdout?: string; stderr?: string; exitCode?: number | null; durationMs?: number; timedOut?: boolean; running: boolean };
 
 interface RawEvent {
   node_id?: string;
@@ -33,45 +34,81 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
   const turns: TurnType[] = [];
   // Collect tool pairs: started → completed
   const pendingTools = new Map<string, { toolName: string; input: string }>();
+  // Track pending command for pairing started → completed
+  let pendingCommand: { script: string; language: string } | undefined;
 
   for (const e of stageEvents) {
+    const props = e.properties ?? {};
     switch (e.event) {
       case "stage.prompt":
-        turns.push({ kind: "system", content: e.properties?.text as string ?? e.text ?? "" });
+        turns.push({ kind: "system", content: props.text as string ?? e.text ?? "" });
         break;
       case "agent.message": {
-        const msg = e.properties?.text as string ?? e.text ?? "";
+        const msg = props.text as string ?? e.text ?? "";
         if (msg) turns.push({ kind: "assistant", content: msg });
         break;
       }
       case "agent.tool.started": {
-        const callId = e.properties?.tool_call_id as string ?? e.tool_call_id ?? "";
+        const callId = props.tool_call_id as string ?? e.tool_call_id ?? "";
         pendingTools.set(callId, {
-          toolName: e.properties?.tool_name as string ?? e.tool_name ?? "",
-          input: typeof (e.properties?.arguments ?? e.arguments) === "string"
-            ? (e.properties?.arguments ?? e.arguments) as string
-            : JSON.stringify(e.properties?.arguments ?? e.arguments ?? ""),
+          toolName: props.tool_name as string ?? e.tool_name ?? "",
+          input: typeof (props.arguments ?? e.arguments) === "string"
+            ? (props.arguments ?? e.arguments) as string
+            : JSON.stringify(props.arguments ?? e.arguments ?? ""),
         });
         break;
       }
       case "agent.tool.completed": {
-        const callId = e.properties?.tool_call_id as string ?? e.tool_call_id ?? "";
+        const callId = props.tool_call_id as string ?? e.tool_call_id ?? "";
         const started = pendingTools.get(callId);
-        const output = e.properties?.output ?? e.output ?? "";
+        const output = props.output ?? e.output ?? "";
         const result = typeof output === "string" ? output : JSON.stringify(output);
         const tool: ToolUse = {
           id: callId,
-          toolName: started?.toolName ?? e.properties?.tool_name as string ?? e.tool_name ?? "",
+          toolName: started?.toolName ?? props.tool_name as string ?? e.tool_name ?? "",
           input: started?.input ?? "",
           result,
-          isError: (e.properties?.is_error ?? e.is_error) === true,
+          isError: (props.is_error ?? e.is_error) === true,
         };
         pendingTools.delete(callId);
         turns.push({ kind: "tool", tools: [tool] });
         break;
       }
+      case "command.started": {
+        pendingCommand = {
+          script: props.script as string ?? "",
+          language: props.language as string ?? "shell",
+        };
+        break;
+      }
+      case "command.completed": {
+        turns.push({
+          kind: "command",
+          script: pendingCommand?.script ?? "",
+          language: pendingCommand?.language ?? "shell",
+          stdout: props.stdout as string ?? "",
+          stderr: props.stderr as string ?? "",
+          exitCode: props.exit_code as number | null ?? null,
+          durationMs: props.duration_ms as number ?? 0,
+          timedOut: props.timed_out as boolean ?? false,
+          running: false,
+        });
+        pendingCommand = undefined;
+        break;
+      }
     }
   }
+
+  // If command.started was seen but no command.completed, it's still running
+  if (pendingCommand) {
+    turns.push({
+      kind: "command",
+      script: pendingCommand.script,
+      language: pendingCommand.language,
+      running: true,
+    });
+  }
+
   return turns;
 }
 
@@ -153,6 +190,65 @@ function AssistantBlock({ content }: { content: string }) {
   );
 }
 
+function CommandBlock({ turn }: { turn: Extract<TurnType, { kind: "command" }> }) {
+  const failed = !turn.running && turn.exitCode !== 0;
+  const borderColor = turn.running ? "border-teal-500/20" : failed ? "border-coral/15" : "border-mint/15";
+  const bgColor = turn.running ? "bg-teal-500/5" : failed ? "bg-coral/5" : "bg-mint/5";
+
+  return (
+    <div className={`rounded-md border ${borderColor} ${bgColor} overflow-hidden`}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2">
+        <PlayIcon className={`size-4 shrink-0 ${turn.running ? "text-teal-500 animate-pulse" : failed ? "text-coral" : "text-mint"}`} />
+        <span className="text-xs font-medium text-fg-3">
+          {turn.language === "python" ? "Python" : "Shell"}
+        </span>
+        {turn.running && (
+          <span className="ml-auto text-[11px] font-medium text-teal-500 animate-pulse">Running...</span>
+        )}
+        {!turn.running && turn.timedOut && (
+          <span className="ml-auto rounded bg-coral/15 px-1.5 py-0.5 text-[11px] font-medium text-coral">Timed out</span>
+        )}
+        {!turn.running && !turn.timedOut && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${failed ? "bg-coral/15 text-coral" : "bg-mint/15 text-mint"}`}>
+              exit {turn.exitCode ?? "?"}
+            </span>
+            {turn.durationMs != null && (
+              <span className="text-[11px] tabular-nums text-fg-muted">
+                {turn.durationMs < 1000 ? `${turn.durationMs}ms` : `${(turn.durationMs / 1000).toFixed(1)}s`}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Script */}
+      {turn.script && (
+        <div className="border-t border-line px-3 py-2.5">
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{turn.script}</pre>
+        </div>
+      )}
+
+      {/* stdout */}
+      {turn.stdout && (
+        <div className="border-t border-line px-3 py-2.5">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">stdout</div>
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{turn.stdout}</pre>
+        </div>
+      )}
+
+      {/* stderr */}
+      {turn.stderr && (
+        <div className="border-t border-line px-3 py-2.5">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">stderr</div>
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-coral">{turn.stderr}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RunStages({ loaderData }: any) {
   const { id, stageId } = useParams();
   const { stages, turns } = loaderData;
@@ -180,6 +276,8 @@ export default function RunStages({ loaderData }: any) {
               return <AssistantBlock key={`turn-${i}`} content={turn.content} />;
             case "tool":
               return <ToolBlock key={`turn-${i}`} tools={turn.tools} />;
+            case "command":
+              return <CommandBlock key={`turn-${i}`} turn={turn} />;
           }
         })}
       </div>
