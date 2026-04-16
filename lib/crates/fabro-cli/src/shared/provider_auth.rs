@@ -248,8 +248,10 @@ pub(crate) fn present_to_user(request: &AuthContextRequest, s: &Styles, printer:
             verification_uri,
             expires_in,
         } => {
+            fabro_util::printerr!(printer, "");
             fabro_util::printerr!(printer, "  Open this URL in your browser:");
             fabro_util::printerr!(printer, "    {verification_uri}");
+            fabro_util::printerr!(printer, "");
             fabro_util::printerr!(printer, "  Enter this one-time code:");
             fabro_util::printerr!(printer, "    {}", s.bold.apply_to(user_code));
             fabro_util::printerr!(
@@ -258,6 +260,7 @@ pub(crate) fn present_to_user(request: &AuthContextRequest, s: &Styles, printer:
                 s.dim
                     .apply_to(format!("Code expires in {} minutes", expires_in / 60))
             );
+            fabro_util::printerr!(printer, "");
         }
     }
 }
