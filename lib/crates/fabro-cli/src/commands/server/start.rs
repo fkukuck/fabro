@@ -90,14 +90,16 @@ async fn ensure_server_running_with_bind(
     }
 
     let serve_args = ServeArgs {
-        bind:                bind_request.as_ref().map(ToString::to_string),
-        web:                 false,
-        no_web:              false,
-        model:               None,
-        provider:            None,
-        sandbox:             None,
+        bind: bind_request.as_ref().map(ToString::to_string),
+        web: false,
+        no_web: false,
+        model: None,
+        provider: None,
+        sandbox: None,
         max_concurrent_runs: server_max_concurrent_runs_override(),
-        config:              Some(config_path.to_path_buf()),
+        config: Some(config_path.to_path_buf()),
+        #[cfg(debug_assertions)]
+        watch_web: false,
     };
 
     let bind_request = if let Some(bind_request) = bind_request {
@@ -352,6 +354,10 @@ async fn execute_daemon(
     }
     if let Some(ref config) = serve_args.config {
         cmd.arg("--config").arg(config);
+    }
+    #[cfg(debug_assertions)]
+    if serve_args.watch_web {
+        cmd.arg("--watch-web");
     }
 
     let home = Home::from_env();

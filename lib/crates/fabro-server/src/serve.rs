@@ -79,6 +79,12 @@ pub struct ServeArgs {
     /// Path to server config file (default: ~/.fabro/settings.toml)
     #[arg(long)]
     pub config: Option<PathBuf>,
+
+    /// Run `bun run dev` in apps/fabro-web to watch/recompile web assets (debug
+    /// only)
+    #[cfg(debug_assertions)]
+    #[arg(long)]
+    pub watch_web: bool,
 }
 
 fn load_settings(path: Option<&Path>) -> anyhow::Result<SettingsLayer> {
@@ -292,6 +298,8 @@ where
     let _ = fabro_proc::title_init();
     set_server_title(ServerTitlePhase::Boot, None);
 
+    #[cfg(debug_assertions)]
+    let watch_web = args.watch_web;
     let config_path = args.config.clone();
     let disk_settings = load_settings(config_path.as_deref())?;
     let disk_server_settings = resolve_server_settings(&disk_settings)?;
@@ -489,6 +497,19 @@ where
 
     on_ready(&bind_addr)?;
 
+    #[cfg(debug_assertions)]
+    let mut watch_web_child = if watch_web {
+        let web_dir = std::env::current_dir()?.join("apps/fabro-web");
+        info!(dir = %web_dir.display(), "Starting bun run dev (--watch-web)");
+        let child = std::process::Command::new("bun")
+            .args(["run", "dev"])
+            .current_dir(&web_dir)
+            .spawn()?;
+        Some(child)
+    } else {
+        None
+    };
+
     match bound_listener.listener {
         BoundListener::Unix(listener) => {
             if tls_settings.is_some() {
@@ -521,6 +542,12 @@ where
                     .await?;
             }
         }
+    }
+
+    #[cfg(debug_assertions)]
+    if let Some(ref mut child) = watch_web_child {
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     // Clean up webhook listener on shutdown

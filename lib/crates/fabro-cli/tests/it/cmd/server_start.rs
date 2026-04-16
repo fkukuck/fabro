@@ -54,6 +54,8 @@ fn help() {
               Maximum number of concurrent run executions
           --config <CONFIG>
               Path to server config file (default: ~/.fabro/settings.toml)
+          --watch-web
+              Run `bun run dev` in apps/fabro-web to watch/recompile web assets (debug only)
       -h, --help
               Print help
     ----- stderr -----
