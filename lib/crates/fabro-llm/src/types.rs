@@ -417,6 +417,8 @@ pub enum ReasoningEffort {
     Low,
     Medium,
     High,
+    XHigh,
+    Max,
 }
 
 impl ReasoningEffort {
@@ -425,6 +427,8 @@ impl ReasoningEffort {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
         }
     }
 }
@@ -442,8 +446,10 @@ impl std::str::FromStr for ReasoningEffort {
             "low" => Ok(Self::Low),
             "medium" => Ok(Self::Medium),
             "high" => Ok(Self::High),
+            "xhigh" => Ok(Self::XHigh),
+            "max" => Ok(Self::Max),
             other => Err(format!(
-                "invalid reasoning_effort: {other:?} (expected low, medium, or high)"
+                "invalid reasoning_effort: {other:?} (expected low, medium, high, xhigh, or max)"
             )),
         }
     }
@@ -1291,5 +1297,33 @@ mod tests {
     #[test]
     fn tool_choice_mode_str_named() {
         assert_eq!(ToolChoice::named("get_weather").mode_str(), "named");
+    }
+
+    #[test]
+    fn reasoning_effort_from_str_round_trip() {
+        use std::str::FromStr;
+        assert_eq!(ReasoningEffort::from_str("low"), Ok(ReasoningEffort::Low));
+        assert_eq!(
+            ReasoningEffort::from_str("medium"),
+            Ok(ReasoningEffort::Medium)
+        );
+        assert_eq!(ReasoningEffort::from_str("high"), Ok(ReasoningEffort::High));
+        assert_eq!(
+            ReasoningEffort::from_str("xhigh"),
+            Ok(ReasoningEffort::XHigh)
+        );
+        assert_eq!(ReasoningEffort::from_str("max"), Ok(ReasoningEffort::Max));
+        assert_eq!(ReasoningEffort::XHigh.as_str(), "xhigh");
+        assert_eq!(ReasoningEffort::Max.as_str(), "max");
+    }
+
+    #[test]
+    fn reasoning_effort_from_str_rejects_unknown_with_updated_error() {
+        use std::str::FromStr;
+        let err = ReasoningEffort::from_str("bogus").expect_err("should reject");
+        assert!(
+            err.contains("low, medium, high, xhigh, or max"),
+            "error should list all accepted levels, got: {err}"
+        );
     }
 }

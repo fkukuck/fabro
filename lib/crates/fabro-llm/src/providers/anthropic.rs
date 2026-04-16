@@ -544,6 +544,8 @@ fn effort_to_budget_tokens(effort: &str, max_tokens: i64) -> i64 {
     let budget = match effort {
         "low" => max_tokens / 4,
         "high" => max_tokens * 3 / 4,
+        "xhigh" => max_tokens * 7 / 8,
+        "max" => max_tokens,
         _ => max_tokens / 2, // "medium" or unknown
     };
     // Anthropic requires budget_tokens >= 1024
@@ -2230,5 +2232,37 @@ mod tests {
             header.contains(FAST_MODE_BETA_HEADER),
             "should contain fast-mode header"
         );
+    }
+
+    #[test]
+    fn effort_to_budget_tokens_xhigh_maps_to_seven_eighths() {
+        assert_eq!(effort_to_budget_tokens("xhigh", 16_000), 14_000);
+    }
+
+    #[test]
+    fn effort_to_budget_tokens_max_maps_to_full_budget() {
+        assert_eq!(effort_to_budget_tokens("max", 16_000), 16_000);
+    }
+
+    #[test]
+    fn build_api_request_falls_back_to_thinking_budget_for_non_effort_model() {
+        let adapter = Adapter::new("test-key");
+        let request = Request {
+            model: "claude-sonnet-4-5".to_string(),
+            max_tokens: Some(16_000),
+            reasoning_effort: Some(ReasoningEffort::XHigh),
+            ..make_base_request()
+        };
+
+        let (api_request, _req_builder) = build_api_request(&adapter, &request, false);
+        assert!(
+            api_request.output_config.is_none(),
+            "non-effort models must not receive output_config"
+        );
+        let thinking = api_request
+            .thinking
+            .expect("thinking must be set for fallback path");
+        assert_eq!(thinking["type"], "enabled");
+        assert_eq!(thinking["budget_tokens"], 14_000);
     }
 }

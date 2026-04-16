@@ -113,7 +113,7 @@ function names, error messages, and exact values. Omit pleasantries and conversa
         tools:            None,
         tool_choice:      None,
         response_format:  None,
-        temperature:      Some(0.0),
+        temperature:      None,
         top_p:            None,
         max_tokens:       Some(4096),
         stop_sequences:   None,

@@ -129,11 +129,11 @@ mod tests {
 
     #[test]
     fn inherent_methods_return_correct_values() {
-        let info = Catalog::builtin().get("claude-opus-4-6").unwrap();
-        assert_eq!(info.id(), "claude-opus-4-6");
+        let info = Catalog::builtin().get("claude-opus-4-7").unwrap();
+        assert_eq!(info.id(), "claude-opus-4-7");
         assert_eq!(info.provider(), Provider::Anthropic);
         assert_eq!(info.family(), "claude-4");
-        assert_eq!(info.display_name(), "Claude Opus 4.6");
+        assert_eq!(info.display_name(), "Claude Opus 4.7");
         assert_eq!(info.context_window(), 1_000_000);
         assert_eq!(info.max_output(), Some(128_000));
         assert!(info.supports_tools());

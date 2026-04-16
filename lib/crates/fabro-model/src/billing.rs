@@ -389,22 +389,26 @@ impl Model {
             .map(PricePerMTok::from_usd);
 
         let (input, output, cached_input) = match (self.provider, speed) {
-            (Provider::Anthropic, Some(Speed::Fast)) if self.id == "claude-opus-4-6" => (
-                input.multiply_ratio(
-                    ANTHROPIC_FAST_MODE_MULTIPLIER_NUMERATOR,
-                    ANTHROPIC_FAST_MODE_MULTIPLIER_DENOMINATOR,
-                ),
-                output.multiply_ratio(
-                    ANTHROPIC_FAST_MODE_MULTIPLIER_NUMERATOR,
-                    ANTHROPIC_FAST_MODE_MULTIPLIER_DENOMINATOR,
-                ),
-                cached_input.map(|rate| {
-                    rate.multiply_ratio(
+            (Provider::Anthropic, Some(Speed::Fast))
+                if self.id == "claude-opus-4-7" || self.id == "claude-opus-4-6" =>
+            {
+                (
+                    input.multiply_ratio(
                         ANTHROPIC_FAST_MODE_MULTIPLIER_NUMERATOR,
                         ANTHROPIC_FAST_MODE_MULTIPLIER_DENOMINATOR,
-                    )
-                }),
-            ),
+                    ),
+                    output.multiply_ratio(
+                        ANTHROPIC_FAST_MODE_MULTIPLIER_NUMERATOR,
+                        ANTHROPIC_FAST_MODE_MULTIPLIER_DENOMINATOR,
+                    ),
+                    cached_input.map(|rate| {
+                        rate.multiply_ratio(
+                            ANTHROPIC_FAST_MODE_MULTIPLIER_NUMERATOR,
+                            ANTHROPIC_FAST_MODE_MULTIPLIER_DENOMINATOR,
+                        )
+                    }),
+                )
+            }
             (_, None | Some(Speed::Standard)) => (input, output, cached_input),
             _ => return None,
         };

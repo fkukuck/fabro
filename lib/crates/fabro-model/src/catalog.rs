@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn builtin_get_by_alias() {
         let m = Catalog::builtin().get("opus").unwrap();
-        assert_eq!(m.id, "claude-opus-4-6");
+        assert_eq!(m.id, "claude-opus-4-7");
     }
 
     #[test]
@@ -485,10 +485,7 @@ mod tests {
             estimated_output_tps: Some(
                 25.0,
             ),
-            aliases: [
-                "opus",
-                "claude-opus",
-            ],
+            aliases: [],
             default: false,
         }
         "#);
@@ -498,7 +495,7 @@ mod tests {
     fn get_model_info_by_alias() {
         assert_eq!(
             Catalog::builtin().get("opus").unwrap().id,
-            "claude-opus-4-6"
+            "claude-opus-4-7"
         );
         assert_eq!(
             Catalog::builtin().get("sonnet").unwrap().id,
