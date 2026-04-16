@@ -1076,6 +1076,7 @@ impl Commands {
             Self::Server(ns) => match &ns.command {
                 ServerCommand::Start(_) => "server start",
                 ServerCommand::Stop(_) => "server stop",
+                ServerCommand::Restart(_) => "server restart",
                 ServerCommand::Status(_) => "server status",
                 ServerCommand::Serve(_) => "server __serve",
             },
@@ -1240,6 +1241,23 @@ pub(crate) struct ServerStatusArgs {
 }
 
 #[derive(Args)]
+pub(crate) struct ServerRestartArgs {
+    #[command(flatten)]
+    pub(crate) storage_dir: StorageDirArgs,
+
+    /// Seconds to wait for graceful shutdown before SIGKILL
+    #[arg(long, default_value = "10")]
+    pub(crate) timeout: u64,
+
+    /// Run in the foreground instead of daemonizing
+    #[arg(long)]
+    pub(crate) foreground: bool,
+
+    #[command(flatten)]
+    pub(crate) serve_args: ServeArgs,
+}
+
+#[derive(Args)]
 pub(crate) struct ServerServeArgs {
     #[command(flatten)]
     pub(crate) storage_dir: StorageDirArgs,
@@ -1258,6 +1276,8 @@ pub(crate) enum ServerCommand {
     Start(ServerStartArgs),
     /// Stop the HTTP API server
     Stop(ServerStopArgs),
+    /// Stop and restart the HTTP API server
+    Restart(ServerRestartArgs),
     /// Show server status
     Status(ServerStatusArgs),
     /// Internal: run the server process (spawned by `start`)

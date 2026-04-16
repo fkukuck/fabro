@@ -12,7 +12,8 @@ use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
 use crate::args::{
-    GlobalArgs, ServerCommand, ServerServeArgs, ServerStartArgs, ServerStatusArgs, ServerStopArgs,
+    GlobalArgs, ServerCommand, ServerRestartArgs, ServerServeArgs, ServerStartArgs,
+    ServerStatusArgs, ServerStopArgs,
 };
 use crate::user_config;
 
@@ -53,6 +54,31 @@ pub(crate) async fn dispatch(
             let storage_dir = user_config::storage_dir(&settings)?;
             stop::execute(&storage_dir, Duration::from_secs(timeout), printer).await;
             Ok(())
+        }
+        ServerCommand::Restart(ServerRestartArgs {
+            storage_dir,
+            timeout,
+            foreground,
+            serve_args,
+        }) => {
+            let settings = user_config::load_settings_with_config_and_storage_dir(
+                serve_args.config.as_deref(),
+                storage_dir.as_deref(),
+            )?;
+            let storage_dir = user_config::storage_dir(&settings)?;
+            stop::stop_server(&storage_dir, Duration::from_secs(timeout)).await;
+            let bind_addr =
+                serve::resolve_bind_request_from_settings(&settings, serve_args.bind.as_deref())?;
+            let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
+            Box::pin(start::execute(
+                bind_addr,
+                foreground,
+                serve_args,
+                storage_dir,
+                styles,
+                printer,
+            ))
+            .await
         }
         ServerCommand::Status(ServerStatusArgs { storage_dir, json }) => {
             let settings = user_config::load_settings_with_storage_dir(storage_dir.as_deref())?;
