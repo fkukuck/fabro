@@ -4,8 +4,9 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use chrono::Utc;
 use fabro_config::user::load_settings_config;
-use fabro_config::{Storage, envfile};
+use fabro_config::{Storage, envfile, resolve_server_from_file};
 use fabro_server::bind::{Bind, BindRequest};
+use fabro_server::jwt_auth::auth_method_name;
 use fabro_server::serve;
 use fabro_server::serve::{DEFAULT_TCP_PORT, ServeArgs};
 use fabro_util::printer::Printer;
@@ -36,7 +37,15 @@ pub(crate) async fn execute(
         ))
         .await
     } else {
-        execute_daemon(&bind, &serve_args, &storage_dir, true, printer).await
+        execute_daemon(
+            &bind,
+            &serve_args,
+            &storage_dir,
+            true,
+            Some(styles),
+            printer,
+        )
+        .await
     }
 }
 
@@ -103,6 +112,7 @@ async fn ensure_server_running_with_bind(
         &serve_args,
         storage_dir,
         false,
+        None,
         Printer::Silent,
     )
     .await
@@ -287,6 +297,7 @@ async fn execute_daemon(
     serve_args: &ServeArgs,
     storage_dir: &Path,
     announce: bool,
+    styles: Option<&Styles>,
     printer: Printer,
 ) -> Result<()> {
     let lock_file = acquire_lock(storage_dir).await?;
@@ -386,6 +397,15 @@ async fn execute_daemon(
                         pid,
                         record.bind
                     );
+                    if let Bind::Tcp(addr) = &record.bind {
+                        let url = format!("http://{addr}");
+                        let styled = match styles {
+                            Some(s) => format!("{}", s.cyan.apply_to(&url)),
+                            None => url,
+                        };
+                        fabro_util::printerr!(printer, "Web UI: {styled}");
+                    }
+                    print_auth_methods(printer, serve_args);
                     print_dev_token(printer, &home, &token);
                 }
                 return Ok(());
@@ -413,6 +433,17 @@ async fn execute_daemon(
         fabro_util::printerr!(printer, "{tail}");
     }
     bail!("Server did not become ready within {timeout:?}");
+}
+
+fn print_auth_methods(printer: Printer, serve_args: &ServeArgs) {
+    let settings = load_settings_config(serve_args.config.as_deref()).ok();
+    let auth_methods = settings
+        .as_ref()
+        .and_then(|s| resolve_server_from_file(s).ok())
+        .map(|s| s.auth.methods)
+        .unwrap_or_default();
+    let names: Vec<&str> = auth_methods.iter().map(|m| auth_method_name(*m)).collect();
+    fabro_util::printerr!(printer, "Auth: {}", names.join(", "));
 }
 
 fn print_dev_token(printer: Printer, home: &Home, token: &str) {

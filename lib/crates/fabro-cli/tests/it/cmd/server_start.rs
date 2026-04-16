@@ -276,6 +276,8 @@ fn start_with_tcp_host_only_bind_warns_and_falls_back_when_default_port_is_unava
     ----- stderr -----
     Warning: TCP port 32276 is unavailable on 127.0.0.1; falling back to a random port.
     Server started (pid [PID]) on [TCP_BIND]
+    Web UI: http://[TCP_BIND]
+    Auth: dev-token
     Dev token: fabro_dev_[DEV_TOKEN]
     Token file: [HOME_DIR]/.fabro/dev-token
     ");

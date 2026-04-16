@@ -32,6 +32,7 @@ fn start_status_stop_lifecycle() {
     ----- stdout -----
     ----- stderr -----
     Server started (pid [PID]) on [SOCKET_PATH]
+    Auth: dev-token
     Dev token: fabro_dev_[DEV_TOKEN]
     Token file: [HOME_DIR]/.fabro/dev-token
     ");
