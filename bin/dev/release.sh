@@ -90,8 +90,21 @@ EOF
   done
 }
 
+verify_spa_assets() {
+  local repo_root
+  repo_root="$(git rev-parse --show-toplevel)"
+
+  "${repo_root}/scripts/refresh-fabro-spa.sh"
+
+  if ! git -C "$repo_root" diff --exit-code -- lib/crates/fabro-spa/assets >/dev/null; then
+    die "fabro-spa assets are stale. Commit the refreshed assets before releasing."
+  fi
+}
+
 main() {
   parse_args "$@"
+
+  verify_spa_assets
 
   local repo_root cargo_toml current_version base_version new_version tag
   repo_root="$(git rev-parse --show-toplevel)"

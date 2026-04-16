@@ -14,8 +14,21 @@ env:
   SEGMENT_WRITE_KEY: ${{ secrets.SEGMENT_WRITE_KEY }}
 
 jobs:
+  verify-spa:
+    name: Verify SPA assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - run: bun install
+      - run: scripts/refresh-fabro-spa.sh
+      - run: git diff --exit-code -- lib/crates/fabro-spa/assets
+
   compile:
     name: Compile (${{ matrix.target }})
+    needs: verify-spa
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
