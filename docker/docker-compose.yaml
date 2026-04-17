@@ -1,35 +1,13 @@
 services:
-  api:
+  fabro:
     image: fabro
     build:
       context: ..
-      dockerfile: docker/Dockerfile
-      platforms:
-        - linux/arm64
-    pull_policy: never
-    command: ["api"]
+      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
-
-  web:
-    image: fabro
-    pull_policy: never
-    command: ["web"]
-    ports:
-      - "5173:5173"
-    environment:
-      - FABRO_DEMO=1
+      - "80:80"
     volumes:
-      - ./demo-settings.toml:/root/.fabro/settings.toml:ro
-      - ../apps/fabro-web/public:/app/apps/fabro-web/public
-    depends_on:
-      - api
+      - fabro-storage:/storage
 
-  docs:
-    image: fabro
-    pull_policy: never
-    command: ["docs"]
-    ports:
-      - "3333:3333"
-    volumes:
-      - ../docs:/app/docs:ro
+volumes:
+  fabro-storage:

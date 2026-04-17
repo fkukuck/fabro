@@ -2,53 +2,37 @@
 
 Screenshots of the Fabro web UI are embedded in the public docs. This guide covers how to retake them when the UI changes.
 
+> **Known gaps** after the server absorbed the web UI (April 2026):
+> - **Demo mode** is now per-request via the `X-Fabro-Demo: 1` header, not a container env var. The browser won't send it by default — you'll need a browser extension (e.g. ModHeader) or a sidecar proxy to inject the header. Needs a follow-up to land a server-level toggle.
+> - **HMR trick is gone.** Web assets are baked into the Rust binary (`fabro-spa/assets`), so the `sed` technique for hiding nav items no longer works. Either commit a temporary nav change to a local branch and rebuild, or script visibility changes in the browser devtools.
+
 ## Prerequisites
 
 - Docker installed
 - Chrome running with DevTools MCP or similar screenshot tool
-- The `fabro` Docker image already built (`docker compose -f docker/docker-compose.yaml build`)
+- Header-injection tool (browser extension or proxy) to send `X-Fabro-Demo: 1`
+- The `fabro` Docker image built locally: `bin/dev/docker-build.sh`
 
 ## Boot the demo environment
 
 ```bash
-docker compose -f docker/docker-compose.yaml up api web -d
+docker compose -f docker/docker-compose.yaml up -d
 ```
 
-Wait ~10 seconds for both services to be ready, then verify:
+Wait ~5 seconds for the server to be ready, then verify (sending the demo header):
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/runs
+curl -s -H "X-Fabro-Demo: 1" -o /dev/null -w "%{http_code}" http://localhost/runs
 # Should return 200
 ```
 
-The web container runs in demo mode (`FABRO_DEMO=1`), which returns synthetic data from the API.
-
 ## Applying temporary UI changes for screenshots
 
-The Docker image bakes in the fabro-web source at build time. To make temporary changes (like hiding nav items), edit files inside the running container using `sed`:
-
-```bash
-# Example: hide Start and Settings nav items
-docker exec docker-web-1 sed -i '/{.*"Start".*}/d; /{.*"Settings".*}/d' \
-  /app/apps/fabro-web/app/layouts/app-shell.tsx
-```
-
-**Do not use `docker cp`** to replace source files — it breaks Vite's module resolution and causes 500 errors. Use `sed -i` inside the container instead, which preserves the file inode and lets HMR work correctly.
-
-`docker cp` works fine for static assets in `public/` (logos, images), just not for source files that Vite processes.
-
-After `sed` edits, wait a few seconds for HMR to rebuild, then verify pages still return 200 before taking screenshots.
+With the SPA baked into the binary, there's no in-container edit path. Commit the nav change on a local branch, rerun `bin/dev/docker-build.sh`, then `docker compose up -d --force-recreate`.
 
 ## Updating logos
 
-The logos are static files in `apps/fabro-web/public/`. The Docker compose file mounts this directory as a volume:
-
-```yaml
-volumes:
-  - ../apps/fabro-web/public:/app/apps/fabro-web/public
-```
-
-So changes to `apps/fabro-web/public/logotype.svg` (dark theme) and `apps/fabro-web/public/logotype-light.svg` (light theme) are picked up immediately by the running container. The source-of-truth logos are in `docs/logo/dark.svg` and `docs/logo/light.svg`.
+Logos live at `apps/fabro-web/public/logotype.svg` (dark) and `apps/fabro-web/public/logotype-light.svg` (light). These are bundled into the SPA at build time — rebuilding the image picks up the changes. The source-of-truth logos are in `docs/logo/dark.svg` and `docs/logo/light.svg`.
 
 ## Browser setup
 
@@ -61,7 +45,7 @@ If the nav bar is too crowded at this width, hide low-priority items (Start, Set
 
 ## Taking screenshots
 
-Screenshots live in `docs/images/web/`. Each screenshot maps to a specific URL:
+Screenshots live in `docs/images/web/`. Each screenshot maps to a specific URL (served from `http://localhost/` with the `X-Fabro-Demo: 1` header):
 
 | File | URL |
 |---|---|
@@ -91,7 +75,6 @@ Screenshots live in `docs/images/web/`. Each screenshot maps to a specific URL:
 ### Pages that need extra wait time
 
 - **Run overview** (`/runs/run-1`) — the workflow graph diagram takes 2-3 seconds to render after the page loads. Wait before screenshotting.
-- **After `sed` edits** — HMR needs a few seconds to rebuild. The first navigation after an edit may hit a transient error; retry once.
 
 ## Where screenshots are used in docs
 
