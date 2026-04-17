@@ -1,5 +1,5 @@
-class FabroBeta < Formula
-  desc "Unified CLI for the Fabro AI framework (pre-release channel)"
+class FabroNightly < Formula
+  desc "Unified CLI for the Fabro AI framework (nightly channel)"
   homepage "https://fabro.sh"
   license "MIT"
   version "{{VERSION}}"

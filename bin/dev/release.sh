@@ -34,9 +34,9 @@ next_base_version() {
 validate_prerelease_label() {
   local label="$1"
   case "$label" in
-    alpha|beta|rc) ;;
+    nightly) ;;
     *)
-      die "invalid pre-release label: $label (expected one of: alpha, beta, rc)"
+      die "invalid pre-release label: $label (expected: nightly)"
       ;;
   esac
 }
@@ -73,7 +73,7 @@ parse_args() {
         ;;
       --help|-h)
         cat <<'EOF'
-Usage: bin/dev/release.sh [alpha|beta|rc] [--dry-run] [--skip-tests]
+Usage: bin/dev/release.sh [nightly] [--dry-run] [--skip-tests]
 
 Create the next stable release from main, or compute a prerelease tag.
 

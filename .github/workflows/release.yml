@@ -146,8 +146,8 @@ jobs:
           git add Formula/fabro.rb
           git diff --cached --quiet || (git commit -m "Update fabro to ${TAG_NAME}" && git push)
 
-  update-homebrew-beta:
-    name: Update Homebrew Beta Formula
+  update-homebrew-nightly:
+    name: Update Homebrew Nightly Formula
     needs: release
     if: ${{ contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
@@ -165,7 +165,7 @@ jobs:
           pattern: artifacts-fabro-*
           merge-multiple: true
 
-      - name: Generate and push beta formula
+      - name: Generate and push nightly formula
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
@@ -181,12 +181,12 @@ jobs:
             -e "s/{{SHA_AARCH64_DARWIN}}/$SHA_AARCH64_DARWIN/g" \
             -e "s/{{SHA_X86_64_LINUX}}/$SHA_X86_64_LINUX/g" \
             -e "s/{{SHA_AARCH64_LINUX}}/$SHA_AARCH64_LINUX/g" \
-            installer/fabro-beta.rb.template > fabro-beta.rb
+            installer/fabro-nightly.rb.template > fabro-nightly.rb
 
           git clone https://x-access-token:${GH_TOKEN}@github.com/fabro-sh/homebrew-tap.git tap
-          cp fabro-beta.rb tap/Formula/fabro-beta.rb
+          cp fabro-nightly.rb tap/Formula/fabro-nightly.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/fabro-beta.rb
-          git diff --cached --quiet || (git commit -m "Update fabro-beta to ${TAG_NAME}" && git push)
+          git add Formula/fabro-nightly.rb
+          git diff --cached --quiet || (git commit -m "Update fabro-nightly to ${TAG_NAME}" && git push)
