@@ -29,6 +29,10 @@ macro_rules! fabro_json_snapshot {
             r#""run_dir":\s*"\[STORAGE_DIR\]/scratch/\d{8}-\[ULID\]""#.to_string(),
             r#""run_dir": "[RUN_DIR]""#.to_string(),
         ));
+        filters.push((
+            regex::escape(env!("CARGO_PKG_VERSION")),
+            "[VERSION]".to_string(),
+        ));
         let filters: Vec<(&str, &str)> = filters
             .iter()
             .map(|(pattern, replacement)| (pattern.as_str(), replacement.as_str()))

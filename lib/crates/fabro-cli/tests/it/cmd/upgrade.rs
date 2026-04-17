@@ -17,9 +17,10 @@ fn help() {
           --json               Output as JSON [env: FABRO_JSON=]
           --version <VERSION>  Target version (e.g. "0.5.0", "v0.5.0", or "v0.177.0-alpha.1")
           --debug              Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
+          --prerelease         Include prereleases (alpha, beta, rc) when selecting the latest version
           --force              Upgrade even if already on the target version
-          --dry-run            Preview what would happen without making changes
           --no-upgrade-check   Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
+          --dry-run            Preview what would happen without making changes
           --quiet              Suppress non-essential output [env: FABRO_QUIET=]
           --verbose            Enable verbose output [env: FABRO_VERBOSE=]
       -h, --help               Print help
@@ -86,11 +87,11 @@ case "$1" in
     test "$2" = "repos/fabro-sh/fabro/releases/latest"
     test "$3" = "--jq"
     test "$4" = ".tag_name"
-    echo "v0.176.3"
+    echo "v999.0.0"
     ;;
   release)
     test "$2" = "view"
-    echo "v0.177.0-alpha.1"
+    echo "v999.0.1-alpha.1"
     ;;
   *)
     echo "unexpected gh invocation: $*" >&2
@@ -127,8 +128,8 @@ esac
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-    Would upgrade fabro from [VERSION] to 0.176.3
-      tag: v0.176.3
+    Would upgrade fabro from [VERSION] to 999.0.0
+      tag: v999.0.0
       target: [TARGET]
     ");
 }

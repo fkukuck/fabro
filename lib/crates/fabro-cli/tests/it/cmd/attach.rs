@@ -556,11 +556,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
           "provenance": {
             "client": {
               "name": "fabro-cli",
-              "user_agent": "fabro-cli/0.176.2",
-              "version": "0.176.2"
+              "user_agent": "fabro-cli/[VERSION]",
+              "version": "[VERSION]"
             },
             "server": {
-              "version": "0.176.2"
+              "version": "[VERSION]"
             },
             "subject": {
               "auth_method": "dev_token",

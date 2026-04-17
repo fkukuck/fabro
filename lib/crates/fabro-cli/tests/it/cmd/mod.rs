@@ -59,6 +59,7 @@ mod system_df;
 mod system_events;
 mod system_info;
 mod system_prune;
+#[cfg(debug_assertions)]
 mod test_panic;
 mod top_level;
 mod uninstall;

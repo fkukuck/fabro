@@ -15,7 +15,15 @@ fn help() {
     let context = test_context!();
     let mut cmd = context.command();
     cmd.args(["server", "start", "--help"]);
-    fabro_snapshot!(context.filters(), cmd, @"
+    let mut filters = context.filters();
+    // `--watch-web` is gated by `#[cfg(debug_assertions)]` in ServeArgs and
+    // only appears in debug-build help output. Strip it so the snapshot is
+    // consistent across debug and release builds.
+    filters.push((
+        r"(?m)^ {6}--watch-web\n {14}Run `bun run dev`.*\n".to_string(),
+        String::new(),
+    ));
+    fabro_snapshot!(filters, cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -54,8 +62,6 @@ fn help() {
               Maximum number of concurrent run executions
           --config <CONFIG>
               Path to server config file (default: ~/.fabro/settings.toml)
-          --watch-web
-              Run `bun run dev` in apps/fabro-web to watch/recompile web assets (debug only)
       -h, --help
               Print help
     ----- stderr -----
