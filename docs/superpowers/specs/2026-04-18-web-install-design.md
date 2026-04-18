@@ -6,19 +6,19 @@
 
 ## Summary
 
-Add a browser-based installation wizard as an alternative to `fabro install`. When the operator runs `fabro server start` (the **explicit** command, no `--config` / `FABRO_CONFIG`) on a machine with no `~/.fabro/settings.toml`, the server enters **install mode**: prints a one-time install token, mounts an install-only HTTP router, and serves a wizard from the existing `fabro-web` bundle. On successful completion, the server persists the same on-disk state the CLI install produces and exits cleanly.
+Add a browser-based installation wizard as an alternative to `fabro install`. When the operator runs `fabro server start` or `fabro server restart` (no `--config` / `FABRO_CONFIG`) on a machine with no `~/.fabro/settings.toml`, the server enters **install mode**: prints a one-time install token, mounts an install-only HTTP router, and serves a wizard from the existing `fabro-web` bundle. On successful completion, the server persists the same on-disk state the CLI install produces and exits cleanly.
 
 In supervised deployments (Docker `restart: unless-stopped`, Railway, systemd) the supervisor restarts the process and it boots into normal mode automatically. On a local laptop without a supervisor, the wizard's completion screen tells the operator to re-run `fabro server start` themselves.
 
 This unblocks remote-first deployments (Docker, Railway, VPS) where the operator has no terminal-time access to run `fabro install`, and gives local users a browser alternative if they prefer it. The CLI `fabro install` wizard remains fully supported.
 
-Other CLI commands that auto-start the local server (`fabro run attach`, etc.) do **not** trigger install mode — they fail with a clear "configure first" message. Only the explicit `fabro server start` enters install mode.
+Other CLI commands that auto-start the local server (`fabro run attach`, etc.) do **not** trigger install mode — they fail with a clear "configure first" message. Only the explicit `fabro server start` and `fabro server restart` commands enter install mode.
 
 ## Goals
 
 - Enable first-run configuration of a Fabro server entirely from a browser.
 - Work for both local (laptop) and remote (PaaS / VPS) deployments under a single mechanism.
-- Reach the same on-disk end state as `fabro install`, using the same persistence helpers.
+- Reach the same on-disk end state as `fabro install`, sharing the TOML-merging and env-file primitives. Vault persistence uses a different code path in install mode (direct-to-disk rather than via the API client) but produces the same file at the same location with the same schema. See *`persist_install_outputs` cannot be reused as-is in install mode* below for why.
 - Keep the install surface transient and isolated: zero install code paths reachable on a configured server.
 
 ## Non-goals (v1)
@@ -358,6 +358,7 @@ Per `files-internal/testing-strategy.md` (re-read before implementing).
 - **Normal router behavior.** Boot the normal router directly: install endpoints return 404, `/api/v1/*` works, the SPA shell HTML does not include the install mode flag.
 - **Token rejection.** All install endpoints (except `GET /install/github/app/redirect`) called without token → 401. Wrong token → 401. Valid token → 200/422.
 - **GitHub App `state` validation.** `GET /install/github/app/redirect` called with mismatched or missing `state` → 400, session unchanged, no GitHub API call attempted.
+- **GitHub App happy-path roundtrip.** With install token in session: `POST /install/github/app/manifest` returns a manifest containing the canonical URL the operator confirmed in the Server step + a fresh `state`. Then `GET /install/github/app/redirect?code=stub-code&state=<that-state>` is called with `httpmock` standing in for `https://api.github.com/app-manifests/stub-code/conversions` (returning a fixture body with `id`, `slug`, `client_id`, `client_secret`, `webhook_secret`, `pem`). Assert: the install session now holds `pending_github_app: { app_id, slug, client_id, ... }` populated from the fixture, the response is a 302 to `/install/github/done?token=<install_token>`, the manifest's `redirect_url` and `callback_urls` were built from the canonical URL (not the install-mode bind address). This is the riskiest new path in the design — it covers code-exchange wiring, session population, redirect-with-token handling, and that the canonical-URL ordering decision actually flows through to the manifest.
 - **Finish failure partial-state semantics.** Force a vault write to fail; assert `settings.toml` is restored to its prior state, `server.env` keys written this attempt are *left in place* (matches the existing test at `install.rs:2910`), the vault file is restored to its pre-step-3 snapshot, the response carries the list of leftover env keys, and the process does not exit.
 - **Forwarded-host detection.** Request with `X-Forwarded-Host: foo.com` + `X-Forwarded-Proto: https` → `GET /install/session` returns prefilled canonical URL `https://foo.com`.
 
