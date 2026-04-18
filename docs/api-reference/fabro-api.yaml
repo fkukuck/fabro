@@ -4028,6 +4028,9 @@ components:
         build_date:
           type: ["string", "null"]
           description: Build date when available.
+        profile:
+          type: ["string", "null"]
+          description: Cargo build profile (e.g. `release`, `debug`) when available.
         os:
           type: string
           description: Target operating system.

@@ -37,6 +37,7 @@ pub(crate) async fn version_command(
                     version:     response.version,
                     git_sha:     response.git_sha,
                     build_date:  response.build_date,
+                    profile:     response.profile,
                     os:          response.os,
                     arch:        response.arch,
                     uptime_secs: response.uptime_secs,
@@ -98,6 +99,7 @@ struct ClientVersionInfo {
     version:    &'static str,
     git_sha:    &'static str,
     build_date: &'static str,
+    profile:    &'static str,
     os:         &'static str,
     arch:       &'static str,
 }
@@ -108,6 +110,7 @@ enum ServerVersionInfo {
         version:     Option<String>,
         git_sha:     Option<String>,
         build_date:  Option<String>,
+        profile:     Option<String>,
         os:          Option<String>,
         arch:        Option<String>,
         uptime_secs: Option<i64>,
@@ -123,9 +126,14 @@ fn client_info() -> ClientVersionInfo {
         version:    env!("CARGO_PKG_VERSION"),
         git_sha:    env!("FABRO_GIT_SHA"),
         build_date: env!("FABRO_BUILD_DATE"),
+        profile:    env!("FABRO_BUILD_PROFILE"),
         os:         std::env::consts::OS,
         arch:       std::env::consts::ARCH,
     }
+}
+
+fn is_non_release_profile(profile: &str) -> bool {
+    !profile.is_empty() && profile != "release"
 }
 
 fn format_server_target(target: &ServerTarget) -> String {
@@ -140,6 +148,7 @@ fn json_output(client: &ClientVersionInfo, server: &ServerVersionInfo) -> Value 
         "version": client.version,
         "git_sha": client.git_sha,
         "build_date": client.build_date,
+        "profile": client.profile,
         "os": client.os,
         "arch": client.arch,
     });
@@ -151,6 +160,7 @@ fn json_output(client: &ClientVersionInfo, server: &ServerVersionInfo) -> Value 
             version,
             git_sha,
             build_date,
+            profile,
             os,
             arch,
             uptime_secs,
@@ -164,6 +174,9 @@ fn json_output(client: &ClientVersionInfo, server: &ServerVersionInfo) -> Value 
             }
             if let Some(build_date) = build_date {
                 server_map.insert("build_date".to_string(), Value::String(build_date.clone()));
+            }
+            if let Some(profile) = profile {
+                server_map.insert("profile".to_string(), Value::String(profile.clone()));
             }
             if let Some(os) = os {
                 server_map.insert("os".to_string(), Value::String(os.clone()));
@@ -193,6 +206,9 @@ fn print_text_output(client: &ClientVersionInfo, server: &ServerVersionInfo) {
     println!(" Version:      {}", client.version);
     println!(" Git SHA:      {}", client.git_sha);
     println!(" Build Date:   {}", client.build_date);
+    if is_non_release_profile(client.profile) {
+        println!(" Profile:      {}", client.profile);
+    }
     println!(" OS/Arch:      {}/{}", client.os, client.arch);
     println!();
 
@@ -202,6 +218,7 @@ fn print_text_output(client: &ClientVersionInfo, server: &ServerVersionInfo) {
             version,
             git_sha,
             build_date,
+            profile,
             os,
             arch,
             uptime_secs,
@@ -213,6 +230,9 @@ fn print_text_output(client: &ClientVersionInfo, server: &ServerVersionInfo) {
                 " Build Date:   {}",
                 build_date.as_deref().unwrap_or("unknown")
             );
+            if let Some(profile) = profile.as_deref().filter(|p| is_non_release_profile(p)) {
+                println!(" Profile:      {profile}");
+            }
             println!(
                 " OS/Arch:      {}/{}",
                 os.as_deref().unwrap_or("unknown"),
@@ -256,6 +276,7 @@ mod tests {
             version:     Some("1.0.0".into()),
             git_sha:     None,
             build_date:  None,
+            profile:     None,
             os:          None,
             arch:        None,
             uptime_secs: None,
@@ -267,6 +288,7 @@ mod tests {
             version:     Some("1.2.0".into()),
             git_sha:     None,
             build_date:  None,
+            profile:     None,
             os:          None,
             arch:        None,
             uptime_secs: None,
@@ -281,6 +303,7 @@ mod tests {
             version:     None,
             git_sha:     None,
             build_date:  None,
+            profile:     None,
             os:          None,
             arch:        None,
             uptime_secs: None,

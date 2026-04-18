@@ -1226,6 +1226,7 @@ async fn get_system_info(
         version:          Some(FABRO_VERSION.to_string()),
         git_sha:          option_env!("FABRO_GIT_SHA").map(str::to_string),
         build_date:       option_env!("FABRO_BUILD_DATE").map(str::to_string),
+        profile:          option_env!("FABRO_BUILD_PROFILE").map(str::to_string),
         os:               Some(std::env::consts::OS.to_string()),
         arch:             Some(std::env::consts::ARCH.to_string()),
         storage_engine:   Some("slatedb".to_string()),

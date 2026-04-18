@@ -14,6 +14,7 @@ pub(crate) const LONG_VERSION: &str = concat!(
     env!("FABRO_GIT_SHA"),
     " ",
     env!("FABRO_BUILD_DATE"),
+    env!("FABRO_BUILD_PROFILE_SUFFIX"),
     ")"
 );
 

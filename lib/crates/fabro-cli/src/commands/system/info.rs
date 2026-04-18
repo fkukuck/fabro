@@ -43,6 +43,13 @@ pub(super) async fn info_command(
             response.git_sha.as_deref().unwrap_or("unknown"),
             response.build_date.as_deref().unwrap_or("unknown")
         );
+        if let Some(profile) = response
+            .profile
+            .as_deref()
+            .filter(|p| !p.is_empty() && *p != "release")
+        {
+            println!("Profile: {profile}");
+        }
         println!(
             "Platform: {}/{}",
             response.os.as_deref().unwrap_or("unknown"),

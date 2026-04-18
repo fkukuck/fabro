@@ -568,6 +568,7 @@ pub(crate) async fn get_system_info(
             "version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("FABRO_GIT_SHA"),
             "build_date": option_env!("FABRO_BUILD_DATE"),
+            "profile": option_env!("FABRO_BUILD_PROFILE"),
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
             "storage_engine": "slatedb",

@@ -37,6 +37,10 @@ export interface SystemInfoResponse {
      */
     'build_date'?: string | null;
     /**
+     * Cargo build profile (e.g. `release`, `debug`) when available.
+     */
+    'profile'?: string | null;
+    /**
      * Target operating system.
      */
     'os'?: string;

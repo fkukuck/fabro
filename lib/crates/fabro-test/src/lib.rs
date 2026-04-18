@@ -29,7 +29,7 @@ pub fn find_test_fixtures_dir(start: &Path) -> Option<PathBuf> {
 /// Static filters applied to every snapshot.
 static INSTA_FILTERS: &[(&str, &str)] = &[
     (r"fabro \d+\.\d+\.\d+(?:-[\w.]+)?", "fabro [VERSION]"),
-    (r"\([0-9a-f]{7} \d{4}-\d{2}-\d{2}\)", "([BUILD])"),
+    (r"\([0-9a-f]{7} \d{4}-\d{2}-\d{2}(?: \w+)?\)", "([BUILD])"),
     (r"\b[0-9A-HJKMNP-TV-Z]{26}\b", "[ULID]"),
     (r"in \d+(\.\d+)?(ms|s)", "in [TIME]"),
     (

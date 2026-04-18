@@ -24,4 +24,13 @@ fn main() {
 
     let build_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
     println!("cargo:rustc-env=FABRO_BUILD_DATE={build_date}");
+
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let profile_suffix = if profile == "release" {
+        String::new()
+    } else {
+        format!(" {profile}")
+    };
+    println!("cargo:rustc-env=FABRO_BUILD_PROFILE={profile}");
+    println!("cargo:rustc-env=FABRO_BUILD_PROFILE_SUFFIX={profile_suffix}");
 }
