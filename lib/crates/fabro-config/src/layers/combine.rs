@@ -63,6 +63,7 @@ impl_combine_or_option!(
     usize,
     i32,
     i64,
+    f64,
     Duration,
     InterpString,
     Size,

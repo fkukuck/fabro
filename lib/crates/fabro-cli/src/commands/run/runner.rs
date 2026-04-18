@@ -501,7 +501,7 @@ fn maybe_build_github_credentials(
     let resolved_run = &settings.run;
     let resolved_server = ServerSettingsBuilder::load_default().ok();
     let required_github_credentials = (resolved_run.execution.mode != RunMode::DryRun
-        && resolved_run.sandbox.provider == "daytona")
+        && matches!(resolved_run.sandbox.provider.as_str(), "daytona" | "azure"))
         || resolved_server
             .as_ref()
             .is_some_and(|settings| !settings.server.integrations.github.permissions.is_empty());
@@ -877,5 +877,22 @@ mod tests {
         let credential = guard.get("anthropic").unwrap();
 
         assert!(credential.contains("vault-key"));
+    }
+
+    #[test]
+    fn maybe_build_github_credentials_requires_them_for_azure_runs() {
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.sandbox]
+            provider = "azure"
+
+            [run.sandbox.azure]
+            image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            "#,
+        )
+        .unwrap();
+
+        let result = maybe_build_github_credentials(&settings, None);
+        assert!(result.is_err());
     }
 }

@@ -109,6 +109,7 @@ pub struct RunSandboxSettings {
     pub local:        LocalSandboxSettings,
     pub docker:       Option<DockerSettings>,
     pub daytona:      Option<DaytonaSettings>,
+    pub azure:        Option<AzureSettings>,
 }
 
 impl Default for RunSandboxSettings {
@@ -121,6 +122,7 @@ impl Default for RunSandboxSettings {
             local:        LocalSandboxSettings::default(),
             docker:       None,
             daytona:      None,
+            azure:        None,
         }
     }
 }
@@ -147,6 +149,13 @@ pub struct DaytonaSettings {
     pub snapshot:           Option<DaytonaSnapshotSettings>,
     pub network:            Option<DaytonaNetworkLayer>,
     pub skip_clone:         bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AzureSettings {
+    pub image:     Option<String>,
+    pub cpu:       Option<f64>,
+    pub memory_gb: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
