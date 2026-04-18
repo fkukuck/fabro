@@ -20,7 +20,7 @@ use fabro_static::EnvVars;
 use fabro_types::RunId;
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    ApprovalMode, DaytonaNetworkLayer, DaytonaSettings, DockerSettings,
+    ApprovalMode, AzureSettings, DaytonaNetworkLayer, DaytonaSettings, DockerSettings,
     DockerfileSource as ResolvedDockerfileSource, HookDefinition as ResolvedHookDefinition,
     HookEvent as ResolvedHookEvent, HookType as ResolvedHookType,
     McpServerSettings as ResolvedMcpServerSettings, McpTransport as ResolvedMcpTransport,
@@ -307,6 +307,10 @@ impl RunSession {
         let workflow_bundle =
             accepted_definition.map(|definition| Arc::new(definition.workflow_bundle()));
 
+        let detected_base_branch = fabro_sandbox::daytona::detect_repo_info(&working_directory)
+            .ok()
+            .and_then(|(_, branch)| branch);
+
         let resolved = &settings.run;
 
         let sandbox_provider = resolve_sandbox_provider(resolved)?;
@@ -377,6 +381,12 @@ impl RunSession {
                     api_key,
                 }
             }
+            SandboxProvider::Azure => SandboxSpec::Azure {
+                config:       resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:   services.github_app.clone(),
+                run_id:       Some(record.run_id),
+                clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+            },
         };
 
         let toml_env: HashMap<String, String> = resolved
@@ -508,6 +518,10 @@ fn resolve_docker_config(settings: &ResolvedRunSettings) -> Option<DockerSandbox
     settings.sandbox.docker.as_ref().map(runtime_docker_config)
 }
 
+fn resolve_azure_config(settings: &ResolvedRunSettings) -> Option<sandbox_config::AzureConfig> {
+    settings.sandbox.azure.as_ref().map(runtime_azure_config)
+}
+
 fn resolve_fallback_chain(
     provider: Provider,
     model: &str,
@@ -607,6 +621,14 @@ fn runtime_docker_config(settings: &DockerSettings) -> DockerSandboxOptions {
         env_vars,
         skip_clone: settings.skip_clone,
         ..DockerSandboxOptions::default()
+    }
+}
+
+fn runtime_azure_config(settings: &AzureSettings) -> sandbox_config::AzureConfig {
+    sandbox_config::AzureConfig {
+        image:     settings.image.clone(),
+        cpu:       settings.cpu,
+        memory_gb: settings.memory_gb,
     }
 }
 
@@ -1112,6 +1134,22 @@ mod tests {
             on_node: None,
             registry_override: Some(registry),
         }
+    }
+
+    #[test]
+    fn runtime_azure_config_preserves_image_cpu_and_memory() {
+        let settings = fabro_types::settings::run::AzureSettings {
+            image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".to_string()),
+            cpu:       Some(2.0),
+            memory_gb: Some(4.0),
+        };
+        let runtime = runtime_azure_config(&settings);
+        assert_eq!(
+            runtime.image.as_deref(),
+            Some("fabro.azurecr.io/fabro-sandboxes/base:latest")
+        );
+        assert_eq!(runtime.cpu, Some(2.0));
+        assert_eq!(runtime.memory_gb, Some(4.0));
     }
 
     #[tokio::test]

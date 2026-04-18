@@ -30,7 +30,7 @@ fn help() {
           --quiet                  Suppress non-essential output [env: FABRO_QUIET=]
           --provider <PROVIDER>    Override default LLM provider
       -v, --verbose                Enable verbose output
-          --sandbox <SANDBOX>      Sandbox for agent tools [possible values: local, docker, daytona]
+          --sandbox <SANDBOX>      Sandbox for agent tools [possible values: local, docker, daytona, azure]
       -h, --help                   Print help
     ----- stderr -----
     ");

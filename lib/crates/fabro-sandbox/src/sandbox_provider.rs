@@ -11,6 +11,8 @@ pub enum SandboxProvider {
     Docker,
     /// Run tools inside a Daytona cloud sandbox
     Daytona,
+    /// Run tools inside an Azure-backed sandbox
+    Azure,
 }
 
 impl SandboxProvider {
@@ -57,5 +59,18 @@ mod tests {
         assert_eq!(SandboxProvider::Local.to_string(), "local");
         assert_eq!(SandboxProvider::Docker.to_string(), "docker");
         assert_eq!(SandboxProvider::Daytona.to_string(), "daytona");
+    }
+
+    #[test]
+    fn sandbox_provider_from_str_supports_azure() {
+        assert_eq!(
+            "azure".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Azure
+        );
+    }
+
+    #[test]
+    fn sandbox_provider_display_includes_azure() {
+        assert_eq!(SandboxProvider::Azure.to_string(), "azure");
     }
 }
