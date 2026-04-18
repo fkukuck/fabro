@@ -898,11 +898,15 @@ impl ProviderAdapter for Adapter {
         let api_body = build_api_request(request);
 
         let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.http.base_url, request.model, self.http.api_key
+            "{}/models/{}:generateContent",
+            self.http.base_url, request.model
         );
 
-        let mut req = self.http.client.post(&url);
+        let mut req = self
+            .http
+            .client
+            .post(&url)
+            .header("x-goog-api-key", &self.http.api_key);
         for (key, value) in &self.http.default_headers {
             req = req.header(key, value);
         }
@@ -964,11 +968,15 @@ impl ProviderAdapter for Adapter {
         let api_body = build_api_request(request);
 
         let url = format!(
-            "{}/models/{}:streamGenerateContent?alt=sse&key={}",
-            self.http.base_url, request.model, self.http.api_key
+            "{}/models/{}:streamGenerateContent?alt=sse",
+            self.http.base_url, request.model
         );
 
-        let mut req = self.http.client.post(&url);
+        let mut req = self
+            .http
+            .client
+            .post(&url)
+            .header("x-goog-api-key", &self.http.api_key);
         for (key, value) in &self.http.default_headers {
             req = req.header(key, value);
         }
