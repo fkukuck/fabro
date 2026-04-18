@@ -1,9 +1,7 @@
 services:
   fabro:
-    image: fabro
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/fabro-sh/fabro:nightly
+    platform: linux/amd64
     ports:
       - "32276:32276"
     volumes:
