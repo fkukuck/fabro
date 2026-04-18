@@ -11,6 +11,8 @@ pub enum SandboxProvider {
     Docker,
     /// Run tools inside a Daytona cloud sandbox
     Daytona,
+    /// Run tools inside an Azure-backed sandbox
+    Azure,
 }
 
 impl SandboxProvider {
@@ -28,6 +30,7 @@ impl fmt::Display for SandboxProvider {
             Self::Local => write!(f, "local"),
             Self::Docker => write!(f, "docker"),
             Self::Daytona => write!(f, "daytona"),
+            Self::Azure => write!(f, "azure"),
         }
     }
 }
@@ -40,6 +43,7 @@ impl FromStr for SandboxProvider {
             "local" => Ok(Self::Local),
             "docker" => Ok(Self::Docker),
             "daytona" => Ok(Self::Daytona),
+            "azure" => Ok(Self::Azure),
             other => Err(format!("unknown sandbox provider: {other}")),
         }
     }
@@ -80,5 +84,18 @@ mod tests {
         assert_eq!(SandboxProvider::Local.to_string(), "local");
         assert_eq!(SandboxProvider::Docker.to_string(), "docker");
         assert_eq!(SandboxProvider::Daytona.to_string(), "daytona");
+    }
+
+    #[test]
+    fn sandbox_provider_from_str_supports_azure() {
+        assert_eq!(
+            "azure".parse::<SandboxProvider>().unwrap(),
+            SandboxProvider::Azure
+        );
+    }
+
+    #[test]
+    fn sandbox_provider_display_includes_azure() {
+        assert_eq!(SandboxProvider::Azure.to_string(), "azure");
     }
 }

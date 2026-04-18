@@ -109,6 +109,7 @@ pub struct RunSandboxSettings {
     pub env:          HashMap<String, InterpString>,
     pub local:        LocalSandboxSettings,
     pub daytona:      Option<DaytonaSettings>,
+    pub azure:        Option<AzureSettings>,
 }
 
 impl Default for RunSandboxSettings {
@@ -120,6 +121,7 @@ impl Default for RunSandboxSettings {
             env:          HashMap::new(),
             local:        LocalSandboxSettings::default(),
             daytona:      None,
+            azure:        None,
         }
     }
 }
@@ -136,6 +138,13 @@ pub struct DaytonaSettings {
     pub snapshot:           Option<DaytonaSnapshotSettings>,
     pub network:            Option<DaytonaNetworkLayer>,
     pub skip_clone:         bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct AzureSettings {
+    pub image:     Option<String>,
+    pub cpu:       Option<f64>,
+    pub memory_gb: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -642,6 +651,8 @@ pub struct RunSandboxLayer {
     pub local:        Option<LocalSandboxLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daytona:      Option<DaytonaSandboxLayer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure:        Option<AzureSandboxLayer>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -675,6 +686,17 @@ pub struct DaytonaSandboxLayer {
     pub network:            Option<DaytonaNetworkLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_clone:         Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AzureSandboxLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image:     Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu:       Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_gb: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -984,4 +1006,33 @@ pub enum MergeStrategy {
 pub struct RunArtifactsLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub include: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunSandboxLayer;
+
+    #[test]
+    fn azure_sandbox_layer_deserializes() {
+        let layer: RunSandboxLayer = toml::from_str(
+            r#"
+            provider = "azure"
+
+            [azure]
+            image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            cpu = 2.0
+            memory_gb = 4.0
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(layer.provider.as_deref(), Some("azure"));
+        let azure = layer.azure.as_ref().unwrap();
+        assert_eq!(
+            azure.image.as_deref(),
+            Some("fabro.azurecr.io/fabro-sandboxes/base:latest")
+        );
+        assert_eq!(azure.cpu, Some(2.0));
+        assert_eq!(azure.memory_gb, Some(4.0));
+    }
 }
