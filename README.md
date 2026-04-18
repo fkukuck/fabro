@@ -17,6 +17,9 @@ curl -fsSL https://fabro.sh/install.md | claude
 # With Codex
 codex "$(curl -fsSL https://fabro.sh/install.md)"
 
+# With Homebrew
+brew install fabro-sh/tap/fabro-nightly
+
 # With Bash
 curl -fsSL https://fabro.sh/install.sh | bash
 ```
@@ -114,6 +117,9 @@ curl -fsSL https://fabro.sh/install.md | claude
 
 # With Codex
 codex "$(curl -fsSL https://fabro.sh/install.md)"
+
+# With Homebrew
+brew install fabro-sh/tap/fabro-nightly
 
 # With Bash
 curl -fsSL https://fabro.sh/install.sh | bash
