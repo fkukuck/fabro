@@ -225,7 +225,6 @@ pub(crate) fn build_container_group_body(
         "containers": [
             {
                 "name": name,
-                "image": image,
                 "properties": {
                     "image": image,
                     "command": ["fabro-sandboxd"],
@@ -319,6 +318,7 @@ mod tests {
 
         assert_eq!(body["name"], "fabro-run-1");
         assert_eq!(body["location"], "eastus");
+        assert!(body["properties"]["containers"][0]["image"].is_null());
         assert_eq!(
             body["properties"]["containers"][0]["properties"]["image"],
             "fabro.azurecr.io/fabro-sandboxes/base:latest"
