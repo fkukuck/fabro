@@ -12,11 +12,16 @@ use tokio::sync::OnceCell;
 use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
+use crate::repo::detect_repo_info as detect_repo_info_impl;
 use crate::sandbox::resolve_path;
 use crate::{
     DirEntry, ExecResult, GrepOptions, Sandbox, SandboxEvent, SandboxEventCallback,
     format_lines_numbered, shell_quote,
 };
+
+pub fn detect_repo_info(path: &Path) -> Result<(String, Option<String>), String> {
+    detect_repo_info_impl(path)
+}
 
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
 const DEFAULT_SNAPSHOT: &str = "daytona-medium";
@@ -334,29 +339,6 @@ pub fn detect_clone_params(cwd: &Path) -> Option<GitCloneParams> {
     };
     let url = fabro_github::ssh_url_to_https(&detected_url);
     Some(GitCloneParams { url, branch })
-}
-
-/// Detect the git remote URL and current branch from a local repository.
-///
-/// Uses `git2` to discover the repo at `path`, reads the `origin` remote URL
-/// and the HEAD branch name.
-pub fn detect_repo_info(path: &Path) -> Result<(String, Option<String>), String> {
-    let repo = git2::Repository::discover(path)
-        .map_err(|e| format!("Failed to discover git repo at {}: {e}", path.display()))?;
-
-    let url = repo
-        .find_remote("origin")
-        .map_err(|e| format!("Failed to find 'origin' remote: {e}"))?
-        .url()
-        .ok_or_else(|| "origin remote URL is not valid UTF-8".to_string())?
-        .to_string();
-
-    let branch = repo
-        .head()
-        .ok()
-        .and_then(|head| head.shorthand().map(String::from));
-
-    Ok((url, branch))
 }
 
 #[async_trait]

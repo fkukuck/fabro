@@ -19,7 +19,7 @@ use fabro_sandbox::{SandboxProvider, SandboxSpec};
 use fabro_types::RunId;
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    ApprovalMode, DaytonaNetworkLayer, DaytonaSettings,
+    ApprovalMode, AzureSettings, DaytonaNetworkLayer, DaytonaSettings,
     DockerfileSource as ResolvedDockerfileSource, HookDefinition as ResolvedHookDefinition,
     HookEvent as ResolvedHookEvent, HookType as ResolvedHookType,
     McpServerSettings as ResolvedMcpServerSettings, McpTransport as ResolvedMcpTransport,
@@ -369,6 +369,12 @@ impl RunSession {
                     api_key,
                 }
             }
+            SandboxProvider::Azure => SandboxSpec::Azure {
+                config:       resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:   services.github_app.clone(),
+                run_id:       Some(record.run_id),
+                clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+            },
         };
 
         let toml_env: HashMap<String, String> = resolved
@@ -498,6 +504,10 @@ fn resolve_daytona_config(settings: &ResolvedRunSettings) -> Option<DaytonaConfi
         .map(runtime_daytona_config)
 }
 
+fn resolve_azure_config(settings: &ResolvedRunSettings) -> Option<sandbox_config::AzureConfig> {
+    settings.sandbox.azure.as_ref().map(runtime_azure_config)
+}
+
 fn resolve_fallback_chain(
     provider: Provider,
     model: &str,
@@ -586,6 +596,14 @@ fn runtime_daytona_config(settings: &DaytonaSettings) -> DaytonaConfig {
             }
         }),
         skip_clone:         settings.skip_clone,
+    }
+}
+
+fn runtime_azure_config(settings: &AzureSettings) -> sandbox_config::AzureConfig {
+    sandbox_config::AzureConfig {
+        image:     settings.image.clone(),
+        cpu:       settings.cpu,
+        memory_gb: settings.memory_gb,
     }
 }
 
@@ -1078,6 +1096,22 @@ mod tests {
             on_node: None,
             registry_override: Some(registry),
         }
+    }
+
+    #[test]
+    fn runtime_azure_config_preserves_image_cpu_and_memory() {
+        let settings = fabro_types::settings::run::AzureSettings {
+            image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".to_string()),
+            cpu:       Some(2.0),
+            memory_gb: Some(4.0),
+        };
+        let runtime = runtime_azure_config(&settings);
+        assert_eq!(
+            runtime.image.as_deref(),
+            Some("fabro.azurecr.io/fabro-sandboxes/base:latest")
+        );
+        assert_eq!(runtime.cpu, Some(2.0));
+        assert_eq!(runtime.memory_gb, Some(4.0));
     }
 
     #[tokio::test]

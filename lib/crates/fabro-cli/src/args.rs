@@ -125,6 +125,7 @@ pub(crate) enum CliSandboxProvider {
     Local,
     Docker,
     Daytona,
+    Azure,
 }
 
 impl From<CliSandboxProvider> for fabro_sandbox::SandboxProvider {
@@ -133,6 +134,7 @@ impl From<CliSandboxProvider> for fabro_sandbox::SandboxProvider {
             CliSandboxProvider::Local => Self::Local,
             CliSandboxProvider::Docker => Self::Docker,
             CliSandboxProvider::Daytona => Self::Daytona,
+            CliSandboxProvider::Azure => Self::Azure,
         }
     }
 }
@@ -143,6 +145,7 @@ impl From<fabro_sandbox::SandboxProvider> for CliSandboxProvider {
             fabro_sandbox::SandboxProvider::Local => Self::Local,
             fabro_sandbox::SandboxProvider::Docker => Self::Docker,
             fabro_sandbox::SandboxProvider::Daytona => Self::Daytona,
+            fabro_sandbox::SandboxProvider::Azure => Self::Azure,
         }
     }
 }

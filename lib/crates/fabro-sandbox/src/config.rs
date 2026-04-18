@@ -23,6 +23,13 @@ pub struct DaytonaSettings {
     pub skip_clone:         bool,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct AzureConfig {
+    pub image:     Option<String>,
+    pub cpu:       Option<f64>,
+    pub memory_gb: Option<f64>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaytonaNetwork {
     Block,
@@ -142,5 +149,18 @@ pub fn bridge_worktree_mode(m: V2WorktreeMode) -> WorktreeMode {
         V2WorktreeMode::Clean => WorktreeMode::Clean,
         V2WorktreeMode::Dirty => WorktreeMode::Dirty,
         V2WorktreeMode::Never => WorktreeMode::Never,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AzureConfig;
+
+    #[test]
+    fn azure_config_defaults() {
+        let config = AzureConfig::default();
+        assert!(config.image.is_none());
+        assert!(config.cpu.is_none());
+        assert!(config.memory_gb.is_none());
     }
 }

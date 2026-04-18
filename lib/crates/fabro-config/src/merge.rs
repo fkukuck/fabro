@@ -16,10 +16,10 @@ use fabro_types::settings::cli::{
 use fabro_types::settings::layer::SettingsLayer;
 use fabro_types::settings::project::ProjectLayer;
 use fabro_types::settings::run::{
-    DaytonaSandboxLayer, GitAuthorLayer, HookEntry, InterviewsLayer, ModelRefOrSplice,
-    NotificationRouteLayer, RunAgentLayer, RunCheckpointLayer, RunExecutionLayer, RunGitLayer,
-    RunLayer, RunModelLayer, RunPrepareLayer, RunPullRequestLayer, RunSandboxLayer, RunScmLayer,
-    StringOrSplice,
+    AzureSandboxLayer, DaytonaSandboxLayer, GitAuthorLayer, HookEntry, InterviewsLayer,
+    ModelRefOrSplice, NotificationRouteLayer, RunAgentLayer, RunCheckpointLayer, RunExecutionLayer,
+    RunGitLayer, RunLayer, RunModelLayer, RunPrepareLayer, RunPullRequestLayer, RunSandboxLayer,
+    RunScmLayer, StringOrSplice,
 };
 use fabro_types::settings::server::{
     DiscordIntegrationLayer, GithubIntegrationLayer, IntegrationWebhooksLayer,
@@ -205,6 +205,15 @@ fn combine_run_sandbox(lower: RunSandboxLayer, higher: RunSandboxLayer) -> RunSa
         env:          merge_string_map_sticky(lower.env, higher.env),
         local:        higher.local.or(lower.local),
         daytona:      merge_option(lower.daytona, higher.daytona, combine_daytona),
+        azure:        merge_option(lower.azure, higher.azure, combine_azure),
+    }
+}
+
+fn combine_azure(lower: AzureSandboxLayer, higher: AzureSandboxLayer) -> AzureSandboxLayer {
+    AzureSandboxLayer {
+        image:     higher.image.or(lower.image),
+        cpu:       higher.cpu.or(lower.cpu),
+        memory_gb: higher.memory_gb.or(lower.memory_gb),
     }
 }
 
