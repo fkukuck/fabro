@@ -413,15 +413,11 @@ fn concurrent_autostart_converges_on_one_shared_daemon_and_cleans_up() {
         temp_dir: &std::path::Path,
         config_path: &std::path::Path,
     ) -> std::process::Output {
-        std::process::Command::new(env!("CARGO_BIN_EXE_fabro"))
-            .current_dir(temp_dir)
-            .env("FABRO_TEST_IN_MEMORY_STORE", "1")
-            .env("NO_COLOR", "1")
-            .env("HOME", home_dir)
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
+        fabro_test::apply_test_isolation(&mut cmd, home_dir);
+        cmd.current_dir(temp_dir)
             .env("FABRO_HOME", home_dir.join(".fabro"))
             .env("FABRO_CONFIG", config_path)
-            .env("FABRO_NO_UPGRADE_CHECK", "true")
-            .env("FABRO_HTTP_PROXY_POLICY", "disabled")
             .args(["ps", "-a", "--json"])
             .output()
             .expect("ps command should execute")

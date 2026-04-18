@@ -48,13 +48,8 @@ fn spawn_worker_process(
     mode: &str,
 ) -> Child {
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
+    fabro_test::apply_test_isolation(&mut cmd, &context.home_dir);
     cmd.current_dir(&context.temp_dir);
-    cmd.env("NO_COLOR", "1");
-    cmd.env("HOME", &context.home_dir);
-    cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
-        .env("FABRO_HTTP_PROXY_POLICY", "disabled");
-    cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
-    cmd.env("FABRO_TEST_IN_MEMORY_STORE", "1");
     if let Some(token) = local_dev_token(&context.storage_dir) {
         cmd.env("FABRO_DEV_TOKEN", token);
     }

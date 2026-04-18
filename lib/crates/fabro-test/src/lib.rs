@@ -100,6 +100,31 @@ pub fn require_env(name: &str) -> Option<String> {
     }
 }
 
+/// Apply baseline environment isolation to a `Command` that spawns the
+/// `fabro` binary (or a helper that will act like it).
+///
+/// Starts from a cleared environment and re-populates only the variables
+/// the harness needs. Credentials (`GITHUB_TOKEN`, `GH_TOKEN`, provider API
+/// keys, `SESSION_SECRET`, `GITHUB_APP_*`) and ambient `FABRO_*` overrides
+/// from the developer shell or CI runner are dropped, so tests that assert
+/// on "no credentials" error paths behave the same on a laptop with
+/// `gh auth login` active and on a CI runner with a minted
+/// `GITHUB_TOKEN`. Tests that deliberately need a credential set it with a
+/// subsequent `.env(...)` call, which survives the clear.
+pub fn apply_test_isolation(cmd: &mut std::process::Command, home_dir: &Path) {
+    cmd.env_clear();
+    if let Some(path) = std::env::var_os("PATH") {
+        cmd.env("PATH", path);
+    }
+    cmd.env("NO_COLOR", "1");
+    cmd.env("HOME", home_dir);
+    cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
+        .env("FABRO_HTTP_PROXY_POLICY", "disabled")
+        .env("FABRO_TELEMETRY", "off");
+    cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
+    cmd.env(TEST_IN_MEMORY_STORE_ENV, "1");
+}
+
 /// A test context for running fabro CLI commands.
 ///
 /// Each context gets isolated home/temp directories. The storage directory is
@@ -630,13 +655,10 @@ fn ensure_server_running(fabro_bin: &Path, server: &ServerPaths, config_path: &P
     let _ = std::fs::remove_file(server_record_path(&server.storage_dir));
     let _ = std::fs::remove_file(&server.socket_path);
 
-    let output = std::process::Command::new(fabro_bin)
-        .env("NO_COLOR", "1")
-        .env("FABRO_NO_UPGRADE_CHECK", "true")
-        .env("FABRO_HTTP_PROXY_POLICY", "disabled")
-        .env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64")
+    let mut bootstrap = std::process::Command::new(fabro_bin);
+    apply_test_isolation(&mut bootstrap, &server.root);
+    let output = bootstrap
         .env("SESSION_SECRET", TEST_SESSION_SECRET)
-        .env(TEST_IN_MEMORY_STORE_ENV, "1")
         .env("FABRO_HOME", &server.root)
         .args(["server", "start"])
         .arg("--storage-dir")
@@ -950,26 +972,15 @@ impl TestContext {
     /// directory) so tests never accidentally interact with the real repo.
     /// Tests that need a specific working directory can override this with
     /// a subsequent `.current_dir(path)` call.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "Tests spawn the real fabro CLI synchronously; assert_cmd wraps the std Command we build here."
+    )]
     pub fn command(&self) -> Command {
-        let mut cmd = Command::new(&self.fabro_bin);
-        cmd.current_dir(&self.temp_dir);
-        // Scrub all inherited FABRO_* env so a developer running with
-        // e.g. FABRO_CONFIG=/some/path doesn't pollute child processes.
-        for (key, _) in std::env::vars_os() {
-            if let Some(s) = key.to_str() {
-                if s.starts_with("FABRO_") {
-                    cmd.env_remove(&key);
-                }
-            }
-        }
-        cmd.env("NO_COLOR", "1");
-        cmd.env("HOME", &self.home_dir);
-        cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
-            .env("FABRO_HTTP_PROXY_POLICY", "disabled")
-            .env("FABRO_TELEMETRY", "off");
-        cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
-        cmd.env(TEST_IN_MEMORY_STORE_ENV, "1");
-        cmd
+        let mut inner = std::process::Command::new(&self.fabro_bin);
+        apply_test_isolation(&mut inner, &self.home_dir);
+        inner.current_dir(&self.temp_dir);
+        Command::from_std(inner)
     }
 
     /// Build a `validate` subcommand.
@@ -1806,6 +1817,48 @@ mod tests {
             *key == std::ffi::OsStr::new("OPENAI_API_KEY")
                 && *value == Some(std::ffi::OsStr::new("test-namespace"))
         }),);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "Regression test: spawn /usr/bin/env synchronously and inspect stdout to assert the harness's env isolation."
+    )]
+    fn apply_test_isolation_strips_ambient_credentials() {
+        let _lock = env_lock().lock().expect("env lock poisoned");
+        let _token = EnvGuard::set("GITHUB_TOKEN", Some("sentinel-should-not-leak"));
+        let _anthropic = EnvGuard::set("ANTHROPIC_API_KEY", Some("sentinel-also-should-not-leak"));
+
+        let home = tempfile::tempdir().expect("temp home should be created");
+        let mut cmd = std::process::Command::new("/usr/bin/env");
+        apply_test_isolation(&mut cmd, home.path());
+        let output = cmd.output().expect("/usr/bin/env should execute");
+        assert!(output.status.success(), "env exited non-zero");
+        let env_output = String::from_utf8(output.stdout).expect("env stdout should be UTF-8");
+
+        assert!(
+            !env_output
+                .lines()
+                .any(|line| line.starts_with("GITHUB_TOKEN=")),
+            "GITHUB_TOKEN leaked into child env:\n{env_output}"
+        );
+        assert!(
+            !env_output
+                .lines()
+                .any(|line| line.starts_with("ANTHROPIC_API_KEY=")),
+            "ANTHROPIC_API_KEY leaked into child env:\n{env_output}"
+        );
+        assert!(
+            env_output.lines().any(|line| line.starts_with("PATH=")),
+            "PATH should be preserved so subprocess can find git and friends"
+        );
+        assert!(
+            env_output
+                .lines()
+                .any(|line| line.starts_with("FABRO_NO_UPGRADE_CHECK=true")),
+            "harness-set env vars should still be present"
+        );
     }
 
     #[test]

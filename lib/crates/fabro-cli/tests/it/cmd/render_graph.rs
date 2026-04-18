@@ -10,11 +10,8 @@ use fabro_test::{fabro_snapshot, test_context};
 
 fn render_graph_command(context: &fabro_test::TestContext) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_fabro"));
+    fabro_test::apply_test_isolation(&mut cmd, &context.home_dir);
     cmd.current_dir(&context.temp_dir);
-    cmd.env("NO_COLOR", "1");
-    cmd.env("HOME", &context.home_dir);
-    cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
-        .env("FABRO_HTTP_PROXY_POLICY", "disabled");
     cmd
 }
 

@@ -199,14 +199,8 @@ fn attach_before_completion_streams_to_finished_state() {
         "[DURATION]".to_string(),
     ));
     let mut attach_cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
+    fabro_test::apply_test_isolation(&mut attach_cmd, &context.home_dir);
     attach_cmd.current_dir(&context.temp_dir);
-    attach_cmd.env("NO_COLOR", "1");
-    attach_cmd.env("HOME", &context.home_dir);
-    attach_cmd
-        .env("FABRO_NO_UPGRADE_CHECK", "true")
-        .env("FABRO_HTTP_PROXY_POLICY", "disabled");
-    attach_cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
-    attach_cmd.env("FABRO_TEST_IN_MEMORY_STORE", "1");
     attach_cmd.args(["attach", &run_id]);
     attach_cmd.stdout(Stdio::piped());
     attach_cmd.stderr(Stdio::piped());
