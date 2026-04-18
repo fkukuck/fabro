@@ -266,6 +266,7 @@ pub(crate) fn build_container_group_body(
                 "azureFile": {
                     "shareName": config.storage_share,
                     "storageAccountName": config.storage_account,
+                    "storageAccountKey": config.storage_key,
                 }
             }
         ]
@@ -302,6 +303,7 @@ mod tests {
             subnet_id:       "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci".to_string(),
             storage_account: "stor1".to_string(),
             storage_share:   "workspace".to_string(),
+            storage_key:     "storage-key".to_string(),
             acr_server:      "fabro.azurecr.io".to_string(),
             sandboxd_port:   7777,
             acr_username:    Some("user".to_string()),
@@ -334,6 +336,10 @@ mod tests {
         assert_eq!(
             body["properties"]["volumes"][0]["azureFile"]["shareName"],
             "workspace"
+        );
+        assert_eq!(
+            body["properties"]["volumes"][0]["azureFile"]["storageAccountKey"],
+            "storage-key"
         );
         assert_eq!(
             body["properties"]["containers"][0]["properties"]["volumeMounts"][0]["mountPath"],
