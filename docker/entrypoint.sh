@@ -5,7 +5,7 @@ set -eu
 # by the unprivileged fabro user, then drop privileges.
 if [ "$(id -u)" = 0 ]; then
     chown fabro:fabro /storage
-    exec runuser -u fabro -- "$@"
+    exec su-exec fabro "$@"
 fi
 
 exec "$@"

@@ -3,29 +3,25 @@
 # Runtime image for the Fabro server.
 #
 # Binaries are supplied pre-built via the release workflow:
-#   docker-context/amd64/fabro  (x86_64-unknown-linux-gnu)
-#   docker-context/arm64/fabro  (aarch64-unknown-linux-gnu)
+#   docker-context/amd64/fabro  (x86_64-unknown-linux-musl)
+#   docker-context/arm64/fabro  (aarch64-unknown-linux-musl)
 #
 # The image serves the HTTP API (with embedded web UI) on $PORT (default
 # 32276), persists state to /storage, and runs as the unprivileged `fabro`
 # user. Honoring $PORT lets PaaS providers (Railway, Fly, Render, Heroku,
 # Cloud Run) route traffic without extra configuration.
 
-FROM debian:trixie-slim
+FROM alpine:3.22
 
 ARG TARGETARCH
 
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
       ca-certificates \
       git \
+      su-exec \
       tini \
- && rm -rf /var/lib/apt/lists/*
-
-RUN groupadd --system --gid 1000 fabro \
- && useradd --system --uid 1000 --gid fabro \
-      --home-dir /var/fabro --shell /usr/sbin/nologin fabro \
+ && addgroup -S -g 1000 fabro \
+ && adduser -S -u 1000 -G fabro -h /var/fabro -s /sbin/nologin fabro \
  && install -d -o fabro -g fabro -m 0755 /var/fabro /storage \
  && install -d -m 0755 /etc/fabro
 
@@ -40,5 +36,5 @@ ENV FABRO_HOME=/var/fabro \
 VOLUME ["/storage"]
 EXPOSE 32276
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/fabro-entrypoint"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/fabro-entrypoint"]
 CMD ["sh", "-c", "exec fabro server start --foreground --bind 0.0.0.0:${PORT:-32276}"]
