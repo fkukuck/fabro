@@ -55,9 +55,10 @@ The following decisions were made during brainstorming and are load-bearing for 
 | 18 | Install mode triggers only when no explicit `--config` / `FABRO_CONFIG` was provided AND the default `~/.fabro/settings.toml` is absent | A typo in `--config /typo` must error, not silently install on top of the wrong target. Matches the asymmetry the existing config loader already enforces. |
 | 19 | v1 inherits the existing helper's partial-state semantics on `/install/finish` failure (settings.toml rolled back, server.env not). Atomic rollback deferred. | Real atomic rollback requires temp-dir + rename refactor; partial state is acceptable because env keys are deterministic and idempotent on retry. |
 | 20 | Only the explicit `fabro server start` (and `restart`) command enters install mode. Auto-start callers (`run attach`, `server runs`, etc.) fail with a "configure first" message. | Auto-start callers spawn-and-block; an install-mode server has no `/api/v1/*` to connect to, so they would hang waiting for a route that doesn't exist. |
-| 21 | Local laptops without a supervisor: the wizard completion screen shows a "run `fabro server start` to launch the configured server" message after a 30s polling timeout. Built-in supervisor for local is a follow-up. | Today's `fabro server start` does not stay around to restart its `__serve` child (`start.rs:318`). v1 keeps that path unchanged; one extra command is acceptable for local users who could have used `fabro install` instead. |
+| 21 | Local laptops without a supervisor: the wizard completion screen shows a "run `fabro server start` to launch the configured server" message after a 30s polling timeout. Built-in supervisor for local is a follow-up. | Install mode runs in foreground (decision #22), so the install process IS the operator's `fabro server start` invocation. When it exits cleanly, nothing brings it back. v1 surfaces the next step on the completion screen; one extra command is acceptable for local users who could have used `fabro install` instead. |
 | 22 | Install mode forces foreground; never daemonizes. `--foreground` is implicit. | Daemon mode hides the install token in `server.log` (`start.rs:347, :397`); foreground puts it on the operator's terminal where they can act on it. |
 | 23 | `--no-web` is ignored during install with a stderr warning; respected on next start. | Install requires the web UI. Rejecting the flag would force supervised-deployment operators to drop it or `docker exec` to run the CLI wizard — defeats the point. Warning makes the override visible. |
+| 24 | Container image v1 changes: drop the baked `/etc/fabro/settings.toml` and the `FABRO_CONFIG` env, set `FABRO_STORAGE_DIR=/storage`, and persist `~/.fabro/` across restarts (recommendation: move `FABRO_HOME` into a subdirectory of the existing `/storage` volume). | Without these changes, the published container image (`Dockerfile:32, :35-36`) sets `FABRO_CONFIG` to a baked file, which makes the install-mode trigger rules treat it as explicit-config and never enter install mode — defeating the entire remote-first deployment use case the design exists to enable. |
 
 ## Architecture
 
@@ -86,9 +87,9 @@ The fork:
 When `POST /install/finish` succeeds, the handler persists outputs to disk, returns 202, then schedules a clean process exit (~500ms after responding). What happens next depends on whether the process has a supervisor:
 
 - **Supervised deployments** (Docker `restart: unless-stopped`, systemd, Railway, fly.io). The supervisor restarts the process; the new process finds `settings.toml` present and boots into normal mode (which now does its own eager dev-token/session-secret creation as today). The wizard's completion screen polls `/health` and redirects to the configured normal-mode URL when the new server is up — typically a few seconds.
-- **Local laptop without supervisor.** `fabro server start` today spawns a `__serve` child and returns; it does not stay around to restart the child (`start.rs:318` `execute_daemon`). When the install-mode child exits, nothing brings it back. The wizard's completion screen still polls `/health`, but after a ~30s timeout it shows the operator a clear instruction: **"Install complete. Run `fabro server start` to launch your configured server."** The polling does not hang forever because the operator may be away from the terminal at that moment.
+- **Local laptop without supervisor.** Install mode forces foreground, so `fabro server start` IS the install-mode process — there is no daemon child. When the foreground process exits cleanly after `/install/finish`, nothing brings it back; the operator's terminal returns to a shell prompt. The wizard's completion screen still polls `/health`, but after a ~30s timeout it shows the operator a clear instruction: **"Install complete. Run `fabro server start` to launch your configured server."** The polling does not hang forever because the operator may be away from the terminal at that moment.
 
-A possible follow-up is to add a built-in supervisor for the local case — `fabro server start` could detect when its `__serve` child exited cleanly with a "needs restart" exit code and re-spawn it. This would make the local UX seamless without changing the supervised-deployment path. **Not v1.** v1 keeps `fabro server start` unchanged for local use; the operator manually re-runs.
+A possible follow-up is to add a built-in supervisor for the local case — `fabro server start` could re-exec itself in normal mode after the install-mode pass exits with a "needs restart" exit code. This would make the local UX seamless without changing the supervised-deployment path. **Not v1.** v1 keeps the local flow as a manual re-run.
 
 **No mode-transition inside a running process.** Avoiding hot-swap means we don't reason about half-mounted routers, in-flight install requests during shutdown, or partial state after a failed finalize. Process exit is the boundary.
 
@@ -380,7 +381,7 @@ Per `files-internal/testing-strategy.md` (re-read before implementing).
 
 Process-exit behavior is too OS-flaky for CI. Two manual tests:
 
-1. **Local (no supervisor).** With an empty home: `fabro server start` → install mode prints token → complete the wizard → assert the spawned `__serve` child exits with code 0 → assert the wizard completion screen shows the manual-restart message after the polling timeout → run `fabro server start` again → assert it boots into normal mode and the configured app is reachable.
+1. **Local (no supervisor).** With an empty home: `fabro server start` → install mode prints token directly to the terminal (foreground) → complete the wizard → assert the foreground process exits with code 0 and the operator's shell prompt returns → assert the wizard completion screen shows the manual-restart message after the polling timeout → run `fabro server start` again → assert it boots into normal mode and the configured app is reachable.
 2. **Supervised (Docker).** `docker compose up` against an empty named volume → install mode prints token in `docker logs` → complete the wizard → assert the container restarts via the compose `restart: unless-stopped` policy → assert the wizard completion screen redirects to the configured canonical URL within ~10s of finish.
 
 ### E2E live tests
@@ -393,11 +394,38 @@ Deferred. Design isn't stable enough to lock in screenshots.
 
 ## Orchestration config updates
 
-For (5) — clean exit + supervisor restart — to work end-to-end:
+### Container packaging (load-bearing for v1)
+
+The published container image today bakes `/etc/fabro/settings.toml` (one line: `server.storage.root = "/storage"`) and sets `ENV FABRO_CONFIG=/etc/fabro/settings.toml` (`Dockerfile:32, :35-36`). Under the install-mode trigger rules (explicit-config carveout), this means **the container would never enter install mode** — defeating the entire remote-first deployment use case the design exists to enable.
+
+v1 must change the container packaging:
+
+1. **Drop `COPY docker/settings.toml /etc/fabro/settings.toml`** from the Dockerfile. No baked settings file.
+2. **Drop `FABRO_CONFIG=/etc/fabro/settings.toml`** from the `ENV` directive. Let the default `~/.fabro/settings.toml` resolution apply.
+3. **Convey the storage root via `FABRO_STORAGE_DIR=/storage`** in the Dockerfile `ENV`. The install bootstrap and the post-install `start::execute` both honor `FABRO_STORAGE_DIR`, so the volume mount continues to work without a settings file.
+4. **Persist `~/.fabro` across container restarts.** The install writes `~/.fabro/settings.toml` (which is `/var/fabro/.fabro/settings.toml` given `FABRO_HOME=/var/fabro`). Today `/var/fabro` is *not* a volume, so a container restart would wipe the settings and re-trigger install on every boot. Two options:
+   - **A) Add `VOLUME ["/var/fabro/.fabro"]`** to the Dockerfile. Compose / Railway users get a separate named volume for config.
+   - **B) Change `FABRO_HOME` to live inside the existing `/storage` volume** (e.g., `FABRO_HOME=/storage/.home`). One volume, one mount point, settings live alongside storage data.
+   - Recommendation: **B**. One volume is simpler operationally (a single `volume_mounts: [/storage]` declaration covers both data and config) and matches the typical "one volume per service" convention. Update `docker/entrypoint.sh` to ensure `/storage/.home` exists with the right ownership at boot.
+
+These changes are part of v1 implementation, not a follow-up.
+
+### Restart policy
+
+For clean-exit + supervisor restart to work end-to-end:
 
 - **`compose.yml`:** add `restart: unless-stopped` to the fabro service (verify it's present; add if missing).
 - **Railway:** verify the service restart policy. Railway restarts crashed processes by default; confirm exit code 0 also triggers a restart (may require setting a restart policy explicitly).
-- **Documentation:** the install-mode boot stderr should mention what to expect after `/install/finish` — for supervised deployments, "the server will restart automatically"; for local use, "after install you'll be prompted to re-run `fabro server start`." Detect supervised vs. local heuristically (presence of container env hints like `RAILWAY_*`, `KUBERNETES_*`, `/.dockerenv`) and emit the appropriate variant.
+- **fly.toml** (if applicable): same — verify restart on exit-0.
+
+### Boot-stderr environment detection
+
+The install-mode boot stderr should tailor its post-finish guidance to the deployment context:
+
+- For supervised deployments: "the server will restart automatically."
+- For local use: "after install you'll be prompted to re-run `fabro server start`."
+
+Detect supervised vs. local heuristically (`RAILWAY_*` env vars, `/.dockerenv`, `/run/.containerenv`, `KUBERNETES_*`) and emit the appropriate variant.
 
 ## Open questions
 
