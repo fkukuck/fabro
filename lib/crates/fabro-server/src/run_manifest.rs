@@ -1242,6 +1242,7 @@ provider = "daytona"
             "FABRO_AZURE_SANDBOX_SUBNET_ID",
             "FABRO_AZURE_STORAGE_ACCOUNT",
             "FABRO_AZURE_STORAGE_SHARE",
+            "FABRO_AZURE_STORAGE_KEY",
             "FABRO_AZURE_ACR_SERVER",
         ]);
         let settings: fabro_types::settings::SettingsLayer = toml::from_str(
