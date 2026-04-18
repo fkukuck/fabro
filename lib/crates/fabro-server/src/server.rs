@@ -950,7 +950,7 @@ pub fn build_router_with_options(
             let dispatch = dispatch.clone();
             async move {
                 let path = req.uri().path().to_string();
-                let dispatch_path = path.starts_with("/api/v1/")
+                let dispatch_path = path.starts_with("/api/")
                     || path == "/health"
                     || (options.web_enabled && path.starts_with("/auth/"));
                 if dispatch_path {
@@ -960,7 +960,8 @@ pub fn build_router_with_options(
                 } else if options.web_enabled
                     && matches!(req.method(), &Method::GET | &Method::HEAD)
                 {
-                    Ok::<_, std::convert::Infallible>(static_files::serve(&path))
+                    let headers = req.headers().clone();
+                    Ok::<_, std::convert::Infallible>(static_files::serve(&path, &headers))
                 } else {
                     Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
                 }

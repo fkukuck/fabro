@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
-pub fn serve(path: &str) -> Response {
+pub fn serve(path: &str, headers: &HeaderMap) -> Response {
     let normalized = normalize(path);
 
     if is_source_map(&normalized) {
@@ -15,11 +15,31 @@ pub fn serve(path: &str) -> Response {
         return asset_response(&normalized, asset);
     }
 
-    if let Some(index) = load_asset("index.html") {
-        return asset_response("index.html", index);
+    // SPA fallback: serve index.html only for browser navigations that
+    // explicitly accept HTML. Scripts, curl, fetch() with default
+    // `Accept: */*`, and similar non-HTML clients get a 404 so typos
+    // don't silently return 25KB of UI shell.
+    if accepts_html(headers) {
+        if let Some(index) = load_asset("index.html") {
+            return asset_response("index.html", index);
+        }
     }
 
     (StatusCode::NOT_FOUND, "Static asset not found").into_response()
+}
+
+fn accepts_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|accept| {
+            accept.split(',').any(|part| {
+                part.trim()
+                    .split(';')
+                    .next()
+                    .is_some_and(|m| m == "text/html")
+            })
+        })
 }
 
 fn normalize(path: &str) -> String {
@@ -103,12 +123,38 @@ fn is_source_map(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_control, is_source_map, read_disk_asset_from_root};
+    use axum::http::{HeaderMap, HeaderValue, header};
+
+    use super::{accepts_html, cache_control, is_source_map, read_disk_asset_from_root};
+
+    fn headers_with_accept(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_str(value).unwrap());
+        headers
+    }
 
     #[test]
     fn source_maps_are_excluded_from_static_loading() {
         assert!(is_source_map("assets/app.js.map"));
         assert!(!is_source_map("assets/app.js"));
+    }
+
+    #[test]
+    fn accepts_html_recognizes_browser_navigation() {
+        assert!(accepts_html(&headers_with_accept(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        )));
+        assert!(accepts_html(&headers_with_accept("text/html")));
+    }
+
+    #[test]
+    fn accepts_html_rejects_scripted_and_curl_clients() {
+        // curl default
+        assert!(!accepts_html(&headers_with_accept("*/*")));
+        // fetch() default
+        assert!(!accepts_html(&headers_with_accept("application/json")));
+        // missing Accept altogether
+        assert!(!accepts_html(&HeaderMap::new()));
     }
 
     #[test]

@@ -101,13 +101,25 @@ async fn web_enabled_serves_web_only_routes() {
     let auth_me_response = app.clone().oneshot(auth_me_request).await.unwrap();
     assert_eq!(auth_me_response.status(), StatusCode::UNAUTHORIZED);
 
+    // Browser-style navigation to an SPA route falls back to index.html.
     let setup_request = Request::builder()
         .method("GET")
         .uri("/setup")
+        .header("accept", "text/html,application/xhtml+xml")
         .body(Body::empty())
         .unwrap();
     let setup_response = app.clone().oneshot(setup_request).await.unwrap();
     assert_eq!(setup_response.status(), StatusCode::OK);
+
+    // Same path without `Accept: text/html` (e.g. curl, fetch default) is
+    // not a browser navigation and must not get the SPA HTML fallback.
+    let setup_no_accept = Request::builder()
+        .method("GET")
+        .uri("/setup")
+        .body(Body::empty())
+        .unwrap();
+    let setup_no_accept_response = app.clone().oneshot(setup_no_accept).await.unwrap();
+    assert_eq!(setup_no_accept_response.status(), StatusCode::NOT_FOUND);
 
     let setup_status_request = Request::builder()
         .method("GET")
@@ -131,12 +143,24 @@ async fn web_enabled_serves_web_only_routes() {
         .header("content-type", "application/json")
         .body(Body::from(r#"{"enabled":true}"#))
         .unwrap();
-    let demo_toggle_response = app.oneshot(demo_toggle_request).await.unwrap();
+    let demo_toggle_response = app.clone().oneshot(demo_toggle_request).await.unwrap();
     assert_eq!(demo_toggle_response.status(), StatusCode::OK);
     assert!(
         demo_toggle_response.headers().contains_key("set-cookie"),
         "demo toggle should set a cookie"
     );
+
+    // Unregistered /api/* paths must always 404, even for browser-style
+    // `Accept: text/html` requests — the SPA fallback never applies to
+    // /api/. Guards against API typos silently rendering the UI shell.
+    let api_miss = Request::builder()
+        .method("GET")
+        .uri("/api/v2/nonexistent")
+        .header("accept", "text/html")
+        .body(Body::empty())
+        .unwrap();
+    let api_miss_response = app.oneshot(api_miss).await.unwrap();
+    assert_eq!(api_miss_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
