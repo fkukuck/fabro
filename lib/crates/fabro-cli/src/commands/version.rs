@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
@@ -57,7 +59,39 @@ pub(crate) async fn version_command(
     }
 
     print_text_output(&client, &server_info);
+    warn_on_version_mismatch(&client, &server_info, printer);
     Ok(())
+}
+
+fn warn_on_version_mismatch(
+    client: &ClientVersionInfo,
+    server: &ServerVersionInfo,
+    printer: Printer,
+) {
+    if !std::io::stderr().is_terminal() {
+        return;
+    }
+    let Some(message) = version_mismatch_message(client.version, server) else {
+        return;
+    };
+    let yellow = console::Style::new().yellow();
+    fabro_util::printerr!(printer, "\n{} {}", yellow.apply_to("warning:"), message);
+}
+
+fn version_mismatch_message(client_version: &str, server: &ServerVersionInfo) -> Option<String> {
+    let ServerVersionInfo::Success {
+        version: Some(server_version),
+        ..
+    } = server
+    else {
+        return None;
+    };
+    if server_version == client_version {
+        return None;
+    }
+    Some(format!(
+        "client version ({client_version}) does not match server version ({server_version})"
+    ))
 }
 
 struct ClientVersionInfo {
@@ -208,5 +242,55 @@ fn format_uptime(total_secs: i64) -> String {
         format!("{minutes}m")
     } else {
         format!("{seconds}s")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_mismatch_message_covers_all_branches() {
+        let matching = ServerVersionInfo::Success {
+            address:     "http://localhost".into(),
+            version:     Some("1.0.0".into()),
+            git_sha:     None,
+            build_date:  None,
+            os:          None,
+            arch:        None,
+            uptime_secs: None,
+        };
+        assert_eq!(version_mismatch_message("1.0.0", &matching), None);
+
+        let mismatched = ServerVersionInfo::Success {
+            address:     "http://localhost".into(),
+            version:     Some("1.2.0".into()),
+            git_sha:     None,
+            build_date:  None,
+            os:          None,
+            arch:        None,
+            uptime_secs: None,
+        };
+        assert_eq!(
+            version_mismatch_message("1.0.0", &mismatched).as_deref(),
+            Some("client version (1.0.0) does not match server version (1.2.0)")
+        );
+
+        let unknown = ServerVersionInfo::Success {
+            address:     "http://localhost".into(),
+            version:     None,
+            git_sha:     None,
+            build_date:  None,
+            os:          None,
+            arch:        None,
+            uptime_secs: None,
+        };
+        assert_eq!(version_mismatch_message("1.0.0", &unknown), None);
+
+        let errored = ServerVersionInfo::Error {
+            address: "http://localhost".into(),
+            error:   "oops".into(),
+        };
+        assert_eq!(version_mismatch_message("1.0.0", &errored), None);
     }
 }
