@@ -80,6 +80,11 @@ jobs:
       - uses: taiki-e/install-action@773334c0e05d7e699e4d78234494308223f3a2cf # nextest
 
       - name: Test
+        # aarch64-musl binaries SIGSEGV at startup when launched on the
+        # ubuntu-24.04-arm runner (glibc host + retrofitted musl loader).
+        # The shipped binary targets Alpine via the Docker image, which
+        # runs natively. x86_64-musl tests still run for coverage.
+        if: matrix.target != 'aarch64-unknown-linux-musl'
         run: cargo nextest run --workspace --target ${{ matrix.target }} --release --status-level slow --profile ci
 
       - name: Build
