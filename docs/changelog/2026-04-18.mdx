@@ -25,4 +25,5 @@ A new `docker-compose.prod.yaml` stands up a Caddy 2 sidecar that handles auto-H
 - Fixed Gemini API keys being sent as URL query parameters; they now go through the `x-goog-api-key` header so they don't leak into access logs, proxies, or request traces
 - Hardened the `fabro-demo` cookie with `HttpOnly` unconditionally and `Secure` when the web URL is HTTPS
 - Fixed a path-traversal issue where authenticated users could send percent-encoded `..` segments in the GitHub repo lookup endpoint and redirect the server's privileged token to an unintended GitHub API path; owner and repo now require `[A-Za-z0-9._-]` with length caps
+- Fixed SIGSEGV at startup on the `aarch64-unknown-linux-musl` target (Apple Silicon, Graviton, Ampere) caused by a glibc-vs-musl `.init_array` calling-convention mismatch; the release pipeline now uses `cargo-zigbuild` for musl targets, producing binaries that start cleanly on arm64 Alpine, Debian, and DHI runtimes
 </Accordion>
