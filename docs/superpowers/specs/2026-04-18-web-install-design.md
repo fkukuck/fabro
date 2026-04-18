@@ -46,6 +46,10 @@ The following decisions were made during brainstorming and are load-bearing for 
 | 13 | After install, `/install/*` routes return 404 (not 401) | Routes are permanently absent in normal mode, not auth-gated |
 | 14 | Detection trigger: absence of `~/.fabro/settings.toml`. Parse errors fail loudly | Matches `install.rs:1647`; one-line check; no ambiguity |
 | 15 | Refactor shared persistence into a new `fabro-install` crate | Avoids circular deps; both `fabro-cli` and `fabro-server` depend on it |
+| 16 | Wizard order: welcome → LLM → **Server config** → GitHub → Review (Server moved before GitHub) | The GitHub App manifest bakes `<canonical_url>` into `redirect_url` and `callback_urls`; if the user creates the App with a wrong URL, the App exists on github.com and we cannot unmake it. URL must be confirmed before manifest creation. |
+| 17 | Install mode persists vault secrets directly to disk (`Vault::load(...).set(...)`), not via the API client | The CLI helper goes through `connect_api_client(storage_dir)` which would call back into the install-mode server itself, hitting `/api/v1/secrets` which is not mounted. |
+| 18 | Install mode triggers only when no explicit `--config` / `FABRO_CONFIG` was provided AND the default `~/.fabro/settings.toml` is absent | A typo in `--config /typo` must error, not silently install on top of the wrong target. Matches the asymmetry the existing config loader already enforces. |
+| 19 | v1 inherits the existing helper's partial-state semantics on `/install/finish` failure (settings.toml rolled back, server.env not). Atomic rollback deferred. | Real atomic rollback requires temp-dir + rename refactor; partial state is acceptable because env keys are deterministic and idempotent on retry. |
 
 ## Architecture
 
@@ -53,9 +57,10 @@ The following decisions were made during brainstorming and are load-bearing for 
 
 The detection fork happens at the **dispatch layer**, not inside `serve::run`. Today `commands::server::dispatch` (`lib/crates/fabro-cli/src/commands/server/mod.rs:31`) calls `user_config::load_settings_with_config_and_storage_dir` and then `resolve_bind_request_from_settings` before `serve::execute` is ever invoked — both of those would error on missing `settings.toml`. The bootstrap therefore has to fork before the settings-load:
 
-1. **Resolve the settings path only** (no load yet). Honors `--storage-dir`, `--config`, env overrides. Effectively the same path-resolution logic `load_settings_with_config_and_storage_dir` does internally before reading the file.
-2. **If the file exists →** existing path: load settings, resolve storage_dir / bind, and continue into `start::execute` / `serve::execute` as today. Parse errors fail loudly.
-3. **If the file does NOT exist →** install bootstrap path:
+1. **Determine whether install mode is even eligible.** Install mode is *only* triggered when no explicit config path was given (no `--config` flag, no `FABRO_CONFIG` env var) AND the default `~/.fabro/settings.toml` is absent. The current loader (`fabro-config/src/user.rs:81-112`) treats explicit-path-missing as an error and default-path-missing as "fall back to defaults" — install mode follows the same asymmetry. A typo in `--config` or `FABRO_CONFIG` must error out, not silently install on top of the wrong location.
+2. **If config is explicit (--config or FABRO_CONFIG):** existing path. Load settings (errors loudly if the file is missing or malformed), resolve storage_dir / bind, continue into `start::execute` / `serve::execute` as today. Never enters install mode regardless of file presence — operators using explicit config paths are doing something deliberate and the safe default is "fail loud, don't auto-install."
+3. **If config is implicit (default path) AND `~/.fabro/settings.toml` exists:** existing path, same as today. Parse errors fail loudly.
+4. **If config is implicit AND `~/.fabro/settings.toml` is absent:** install bootstrap path:
    - Resolve `storage_dir` from `--storage-dir` / `FABRO_STORAGE_DIR` / `legacy_default_storage_root().join("storage")` (the same fallback the CLI install uses at `install.rs:1661`). Do not require settings to derive it.
    - Resolve a bind address from `--bind` / env / default (`0.0.0.0:32276` in container env-detected scenarios, `127.0.0.1:32276` otherwise — picking a sensible default without a settings file is a small new helper).
    - Generate a one-time install token (`ring::rand::SystemRandom`, 32 bytes, base64url, no padding).
@@ -165,8 +170,8 @@ Linear flow with a sidebar showing progress. Users can back up to any prior comp
 | 1 | `/install` | Landing / token entry. If query-param token validates → redirect to (2). Else: explainer page with paste-token textarea. |
 | 2 | `/install/welcome` | One-paragraph "here's what we'll do" + Next. |
 | 3 | `/install/llm` | Multi-select Anthropic / OpenAI / Gemini / OpenAI-compatible. Per-provider sub-form for API key. Each key live-validated against the provider's `/models` endpoint before advancing. |
-| 4 | `/install/github` | Choose **App** or **Token**. Token path: paste PAT, validate via `GET /user`, capture username. App path: collect owner + display name → server builds the GitHub App manifest with `redirect_url` set to `<canonical_url>/install/github/app/redirect?state=<random>` and `callback_urls` set to `<canonical_url>/auth/callback/github` (the latter is for runtime OAuth login, not the install handoff) → user is redirected to `https://github.com/settings/apps/new` (or org equivalent) with the manifest as a form POST → after the user creates the App, GitHub redirects their browser back to `/install/github/app/redirect?code=…&state=…`. The endpoint validates `state` against the install session, exchanges the `code` via `POST https://api.github.com/app-manifests/{code}/conversions` for the App credentials (id, slug, client_id, client_secret, webhook_secret, pem), stores them in the session, then redirects the browser to `/install/github/done`. |
-| 5 | `/install/server` | Single screen with prefilled canonical URL (from forwarded headers) and confirm/edit field. Listen address is read-only display. |
+| 4 | `/install/server` | Single screen with prefilled canonical URL (from forwarded headers) and confirm/edit field. Listen address is read-only display. **This screen runs before GitHub** because the canonical URL is baked into the GitHub App manifest's `redirect_url` and `callback_urls`; if it's wrong, the App is created on github.com with bad URLs and cannot be unmade by us. |
+| 5 | `/install/github` | Choose **App** or **Token**. Token path: paste PAT, validate via `GET /user`, capture username. App path: collect owner + display name → server builds the GitHub App manifest using the canonical URL the user just confirmed in step 4, with `redirect_url` set to `<canonical_url>/install/github/app/redirect?state=<random>` and `callback_urls` set to `<canonical_url>/auth/callback/github` (the latter is for runtime OAuth login, not the install handoff) → user is redirected to `https://github.com/settings/apps/new` (or org equivalent) with the manifest as a form POST → after the user creates the App, GitHub redirects their browser back to `/install/github/app/redirect?code=…&state=…`. The endpoint validates `state` against the install session, exchanges the `code` via `POST https://api.github.com/app-manifests/{code}/conversions` for the App credentials (id, slug, client_id, client_secret, webhook_secret, pem), stores them in the session, then redirects the browser to `/install/github/done`. |
 | 6 | `/install/review` | Read-only summary of every choice. "Install" button → `POST /install/finish`. |
 | 7 | `/install/finishing` | Server: writes settings.toml, server.env, vault, dev token, then schedules process exit ~500ms after responding. Client renders the dev token (returned in the `/install/finish` response body) for the operator's records, then polls `GET /health` until the response no longer reports `"mode": "install"`, and redirects to the confirmed canonical URL. Includes a "if this takes more than 30s, check your supervisor logs" fallback. |
 
@@ -211,19 +216,29 @@ The validation calls (`POST /…/test`) make outbound network requests to the LL
 
 ## Persistence parity
 
-The web wizard produces **identical** on-disk state to the CLI install, using the same persistence helpers extracted into `fabro-install`:
+The web wizard produces **the same on-disk state** as the CLI install. The TOML-merging primitives are reused as-is via the new `fabro-install` crate; vault writes go through a different code path (direct-to-disk, see previous section) but produce the same file at the same location with the same schema.
 
-- `~/.fabro/settings.toml` — server config, auth methods, GitHub integration strategy
-- `<storage_dir>/server.env` — `FABRO_JWT_PRIVATE_KEY`, `FABRO_JWT_PUBLIC_KEY`, `SESSION_SECRET`, `FABRO_DEV_TOKEN`, plus GitHub App env pairs if applicable
-- `<storage_dir>/secrets/…` — vault entries for LLM API keys and (if Token strategy) `GITHUB_TOKEN`
-- `<storage_dir>/server.dev-token` — the dev token file (path matches `Storage::server_state().dev_token_path()` at `lib/crates/fabro-config/src/storage.rs:103`)
-- artifact store metadata stamped with `FABRO_VERSION`
+Files written:
 
-The `/install/finish` handler is essentially the back half of `run_install_inner` (`install.rs:1925–:2061`) with the input source replaced by the in-memory `PendingInstall`.
+- `~/.fabro/settings.toml` — server config, auth methods, GitHub integration strategy.
+- `<storage_dir>/server.env` — `FABRO_JWT_PRIVATE_KEY`, `FABRO_JWT_PUBLIC_KEY`, `SESSION_SECRET`, `FABRO_DEV_TOKEN`, plus GitHub App env pairs (`GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`) if the App strategy was chosen.
+- `<storage_dir>/vaults/default/secrets.json` — vault entries for LLM API key credentials and (if Token strategy) `GITHUB_TOKEN`. Path matches `Storage::secrets_path()` at `lib/crates/fabro-config/src/storage.rs:38`.
+- `<storage_dir>/server.dev-token` — the per-storage dev token, written via `Storage::server_state().dev_token_path()` at `storage.rs:103`. The CLI install also writes a home-level mirror at `Home::from_env().dev_token_path()` (`install.rs:1994-1999`); the web flow does the same to keep parity, since the home-level file is what tooling outside the storage dir expects to find.
+- Artifact store metadata stamped with `FABRO_VERSION` via `write_artifact_store_metadata` (`install.rs:1458`).
+
+The `/install/finish` handler is essentially the back half of `run_install_inner` (`install.rs:1925–:2061`) with two substitutions: the input source is replaced by the in-memory `PendingInstall`, and the vault-persist call goes through the new direct-to-disk path instead of the API-client path.
 
 ### `setup_github_app` refactor
 
 The CLI version (`install.rs:1064`) spins up its own callback HTTP server because no other server is running at install time. The web version doesn't need that — the install-mode server is already running and exposes the manifest-conversion redirect target at `/install/github/app/redirect`. The refactor extracts the manifest-building, code-exchange, and credential-recording logic into transport-agnostic functions; the CLI keeps its embedded callback server, the web flow uses the install router.
+
+### `persist_install_outputs` cannot be reused as-is in install mode
+
+The current helper (`install.rs:1335`, `install.rs:1486`) persists vault secrets via `connect_api_client(storage_dir)`, which calls `start::ensure_server_running_for_storage` (`start.rs:73`). That function reuses the active server record and returns the bind of any server already running. In install mode the running server *is* the install-mode server, which does not mount `/api/v1/*` (it would 404 on `POST /api/v1/secrets`). So calling the helper unchanged from `/install/finish` would fail.
+
+Decision: install mode persists vault secrets **directly to disk**, bypassing the API client. The implementation pattern is the one `persist_github_install_changes` already uses at `install.rs:1410-1421` — `Vault::load(storage.secrets_path()).set(name, value, type, description)` per secret, with rollback by snapshotting the prior file contents and restoring on error. The TOML-merging helpers (`merge_server_settings`, `write_*_settings`) and env-file writing (`persist_server_env_secrets` at `install.rs:1324`) are pure disk operations and reusable as-is.
+
+Concretely: extract a `persist_install_outputs_direct` function in `fabro-install` that writes server.env, settings.toml, and vault directly (no API client). The CLI keeps using the API-client variant for `fabro install github` against a running server; the web `/install/finish` handler uses the direct variant. Both paths share the TOML-merging primitives.
 
 ## Error handling and edge cases
 
@@ -233,12 +248,24 @@ Bad API key, GitHub PAT lacks scopes, invalid hostname, etc. → 422 with struct
 
 ### `/install/finish` failure
 
-Load-bearing error case. The CLI's `persist_install_outputs` already tracks `previous_contents` for settings.toml and restores it on failure (`install.rs:1362` `restore_optional_file`). The web flow uses the same machinery.
+Load-bearing error case. v1 inherits the **partial-state semantics of the existing CLI helper** rather than refactoring for full atomicity.
+
+Concretely, the persistence sequence is:
+
+1. Write `server.env` (`install.rs:1479`).
+2. Write `settings.toml` (`install.rs:1481-1484`).
+3. Write vault secrets — in install mode, directly to `<storage_dir>/vaults/default/secrets.json` (see *`persist_install_outputs` cannot be reused as-is in install mode* in the previous section).
+
+On error in step 3, the existing helper rolls back **only** `settings.toml`; `server.env` is left in place (verified by the test at `install.rs:2910`). The web flow inherits this behavior. The vault file is rolled back if step 3 fails partway (using the snapshot-and-restore pattern at `install.rs:1391-1444`).
 
 On any persistence error:
-- Local files (settings.toml, server.env, vault) are best-effort rolled back.
-- Handler returns 500 with the error message.
-- **Process does NOT exit.** Install mode stays up so the user can retry without losing the in-memory session.
+- `settings.toml` restored to its pre-install contents (or removed if it didn't exist).
+- `server.env` left as-written (partial-state — keys created in this attempt remain).
+- Vault file restored to its pre-step-3 snapshot.
+- Handler returns 500 with the error message + a list of which keys were left in `server.env` so the operator can clean up if they want.
+- **Process does NOT exit.** Install mode stays up so the user can retry without losing the in-memory session. A retry will overwrite the same `server.env` keys.
+
+This is good enough for v1 because (a) `server.env` keys are deterministic and idempotent — a retry produces the same content, (b) the only sensitive key (`SESSION_SECRET`) is regenerated each finalize so a leftover from a failed attempt is replaced atomically on retry, and (c) the operator can always wipe `server.env` and retry from a clean state. **Atomic rollback is a deliberate follow-up**, not a v1 requirement.
 
 The dangerous edge: the GitHub App may already exist on github.com (real external side effect that local rollback can't undo). The error surface tells the user this and gives a "delete the App and retry" path. v1 does not auto-delete — GitHub's API for that requires the very credentials we just failed to persist.
 
@@ -298,7 +325,7 @@ Per `files-internal/testing-strategy.md` (re-read before implementing).
 - **Normal router behavior.** Boot the normal router directly: install endpoints return 404, `/api/v1/*` works, the SPA shell HTML does not include the install mode flag.
 - **Token rejection.** All install endpoints (except `GET /install/github/app/redirect`) called without token → 401. Wrong token → 401. Valid token → 200/422.
 - **GitHub App `state` validation.** `GET /install/github/app/redirect` called with mismatched or missing `state` → 400, session unchanged, no GitHub API call attempted.
-- **Finish failure rollback.** Force a vault write to fail; assert `settings.toml` is restored and process does not exit.
+- **Finish failure partial-state semantics.** Force a vault write to fail; assert `settings.toml` is restored to its prior state, `server.env` keys written this attempt are *left in place* (matches the existing test at `install.rs:2910`), the vault file is restored to its pre-step-3 snapshot, the response carries the list of leftover env keys, and the process does not exit.
 - **Forwarded-host detection.** Request with `X-Forwarded-Host: foo.com` + `X-Forwarded-Proto: https` → `GET /install/session` returns prefilled canonical URL `https://foo.com`.
 
 ### Frontend tests (`apps/fabro-web`, Bun test)
