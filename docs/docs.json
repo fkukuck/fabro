@@ -207,7 +207,7 @@
             "icon": "file-export",
             "pages": [
               "GET /api/v1/runs/{id}/artifacts",
-              "GET /api/v1/runs/{id}/usage",
+              "GET /api/v1/runs/{id}/billing",
               {
                 "group": "Run Internals",
                 "icon": "microchip",
