@@ -1590,6 +1590,7 @@ dependencies = [
  "fabro-graphviz",
  "fabro-hooks",
  "fabro-http",
+ "fabro-install",
  "fabro-interview",
  "fabro-llm",
  "fabro-macros",
@@ -1756,6 +1757,20 @@ dependencies = [
  "http",
  "reqwest 0.13.2",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "fabro-install"
+version = "0.208.0-nightly.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "fabro-config",
+ "fabro-types",
+ "fabro-vault",
+ "ring",
+ "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -1932,6 +1947,7 @@ dependencies = [
  "fabro-graphviz",
  "fabro-hooks",
  "fabro-http",
+ "fabro-install",
  "fabro-interview",
  "fabro-llm",
  "fabro-model",

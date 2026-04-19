@@ -2,7 +2,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
-use fabro_test::{fabro_snapshot, test_context};
+use fabro_test::{apply_test_isolation, fabro_snapshot, test_context};
 
 fn isolated_storage_dir() -> tempfile::TempDir {
     let root = tempfile::tempdir_in("/tmp").unwrap();
@@ -105,6 +105,191 @@ fn start_already_running_exits_with_error() {
         .args(["server", "stop"])
         .assert()
         .success();
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "This integration test needs the real foreground process to verify install-mode startup behavior."
+)]
+fn start_without_default_settings_enters_install_mode_in_foreground() {
+    let home_dir = tempfile::tempdir_in("/tmp").unwrap();
+    let storage_root = isolated_storage_dir();
+    let storage_dir = storage_root.path().join("storage");
+
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
+    apply_test_isolation(&mut cmd, home_dir.path());
+    cmd.env("FABRO_STORAGE_DIR", &storage_dir)
+        .args(["server", "start", "--bind", "127.0.0.1:0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("server start should spawn");
+    std::thread::sleep(Duration::from_millis(750));
+    assert!(
+        child
+            .try_wait()
+            .expect("install-mode server should still be running")
+            .is_none(),
+        "install mode should run in the foreground instead of daemonizing"
+    );
+
+    child.kill().expect("kill install-mode server");
+    let output = child
+        .wait_with_output()
+        .expect("collect install-mode stderr");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("install mode active"),
+        "expected install mode banner, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("/install?token="),
+        "expected install-mode URL with token, got: {stderr}"
+    );
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "This sync integration test needs the real foreground process to verify install-mode startup warnings."
+)]
+fn start_without_settings_ignores_no_web_during_install() {
+    let home_dir = tempfile::tempdir_in("/tmp").unwrap();
+    let storage_root = isolated_storage_dir();
+    let storage_dir = storage_root.path().join("storage");
+
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
+    apply_test_isolation(&mut cmd, home_dir.path());
+    cmd.env("FABRO_STORAGE_DIR", &storage_dir)
+        .args(["server", "start", "--no-web", "--bind", "127.0.0.1:0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("server start should spawn");
+    std::thread::sleep(Duration::from_millis(750));
+    assert!(
+        child
+            .try_wait()
+            .expect("install-mode server should still be running")
+            .is_none(),
+        "install mode should keep running in the foreground"
+    );
+
+    child.kill().expect("kill install-mode server");
+    let output = child
+        .wait_with_output()
+        .expect("collect install-mode stderr");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains(
+            "Warning: --no-web is ignored during install; will be respected on next start."
+        ),
+        "expected --no-web warning, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("install mode active"),
+        "expected install mode banner, got: {stderr}"
+    );
+}
+
+#[test]
+fn start_with_missing_explicit_flag_config_errors_without_entering_install_mode() {
+    let context = test_context!();
+    let missing_config = tempfile::tempdir_in("/tmp")
+        .unwrap()
+        .path()
+        .join("missing-settings.toml");
+
+    let mut filters = context.filters();
+    filters.push((
+        regex::escape(missing_config.to_str().unwrap()),
+        "[MISSING_CONFIG]".to_string(),
+    ));
+
+    let mut explicit_cmd = context.command();
+    explicit_cmd.args([
+        "server",
+        "start",
+        "--config",
+        missing_config.to_str().unwrap(),
+    ]);
+    fabro_snapshot!(filters.clone(), explicit_cmd, @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    ----- stderr -----
+    error: reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
+      > No such file or directory (os error 2)
+    ");
+}
+
+#[test]
+fn start_with_missing_env_config_errors_without_entering_install_mode() {
+    let context = test_context!();
+    let missing_config = tempfile::tempdir_in("/tmp")
+        .unwrap()
+        .path()
+        .join("missing-settings.toml");
+
+    let mut filters = context.filters();
+    filters.push((
+        regex::escape(missing_config.to_str().unwrap()),
+        "[MISSING_CONFIG]".to_string(),
+    ));
+
+    let mut env_cmd = context.command();
+    env_cmd
+        .env("FABRO_CONFIG", &missing_config)
+        .args(["server", "start"]);
+    fabro_snapshot!(filters, env_cmd, @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    ----- stderr -----
+    error: reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
+      > No such file or directory (os error 2)
+    ");
+}
+
+#[test]
+fn start_with_malformed_default_settings_errors_without_entering_install_mode() {
+    let context = test_context!();
+    let settings_dir = context.home_dir.join(".fabro");
+    std::fs::create_dir_all(&settings_dir).unwrap();
+    let settings_path = settings_dir.join("settings.toml");
+    std::fs::write(&settings_path, "[server.listen\n").unwrap();
+
+    let mut filters = context.filters();
+    filters.push((
+        regex::escape(settings_path.to_str().unwrap()),
+        "[SETTINGS_PATH]".to_string(),
+    ));
+
+    let mut cmd = context.command();
+    cmd.args(["server", "start"]);
+    fabro_snapshot!(filters, cmd, @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    ----- stderr -----
+    error: Failed to parse settings file at [HOME_DIR]/.fabro/settings.toml: settings file is not valid TOML: TOML parse error at line 1, column 15
+        |
+      1 | [server.listen
+        |               ^
+      invalid table header
+      expected `.`, `]`
+      > settings file is not valid TOML: TOML parse error at line 1, column 15
+      >   |
+      > 1 | [server.listen
+      >   |               ^
+      > invalid table header
+      > expected `.`, `]`
+    ");
 }
 
 #[test]

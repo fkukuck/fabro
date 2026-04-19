@@ -1,17 +1,58 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
+const INSTALL_MODE_MARKER: &str = "__FABRO_MODE__ = \"install\"";
+
 pub fn serve(path: &str, headers: &HeaderMap) -> Response {
+    serve_with_mode(path, headers, SpaMode::Normal)
+}
+
+pub fn serve_install(path: &str, headers: &HeaderMap) -> Response {
+    serve_with_mode(path, headers, SpaMode::Install)
+}
+
+pub(crate) fn assert_install_mode_shell_ready() {
+    let shell = cached_install_mode_shell().clone().unwrap_or_else(|| {
+        load_injected_install_shell().expect("install-mode SPA shell asset missing")
+    });
+    let html = String::from_utf8(shell).expect("install-mode SPA shell must be valid UTF-8");
+    assert!(
+        html.contains(INSTALL_MODE_MARKER),
+        "install-mode SPA shell marker missing after injection"
+    );
+}
+
+fn cached_install_mode_shell() -> Option<Vec<u8>> {
+    static SHELL: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+    if cfg!(debug_assertions) {
+        // In debug builds the SPA is reloaded from disk on every request.
+        return load_injected_install_shell();
+    }
+    SHELL.get_or_init(load_injected_install_shell).clone()
+}
+
+fn load_injected_install_shell() -> Option<Vec<u8>> {
+    Some(inject_install_mode(load_asset("index.html")?))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SpaMode {
+    Normal,
+    Install,
+}
+
+fn serve_with_mode(path: &str, headers: &HeaderMap, mode: SpaMode) -> Response {
     let normalized = normalize(path);
 
     if is_source_map(&normalized) {
         return (StatusCode::NOT_FOUND, "Static asset not found").into_response();
     }
 
-    if let Some(asset) = load_asset(&normalized) {
+    if let Some(asset) = load_asset_for_mode(&normalized, mode) {
         return asset_response(&normalized, asset);
     }
 
@@ -20,7 +61,7 @@ pub fn serve(path: &str, headers: &HeaderMap) -> Response {
     // `Accept: */*`, and similar non-HTML clients get a 404 so typos
     // don't silently return 25KB of UI shell.
     if accepts_html(headers) {
-        if let Some(index) = load_asset("index.html") {
+        if let Some(index) = load_asset_for_mode("index.html", mode) {
             return asset_response("index.html", index);
         }
     }
@@ -59,6 +100,33 @@ fn load_asset(path: &str) -> Option<Vec<u8>> {
     }
 
     fabro_spa::get(path).map(fabro_spa::AssetBytes::into_vec)
+}
+
+fn load_asset_for_mode(path: &str, mode: SpaMode) -> Option<Vec<u8>> {
+    if mode == SpaMode::Install && path == "index.html" {
+        return cached_install_mode_shell();
+    }
+    load_asset(path)
+}
+
+fn inject_install_mode(bytes: Vec<u8>) -> Vec<u8> {
+    let html = match String::from_utf8(bytes) {
+        Ok(html) => html,
+        Err(err) => return err.into_bytes(),
+    };
+    if html.contains(INSTALL_MODE_MARKER) {
+        return html.into_bytes();
+    }
+
+    let injected = html.replace(
+        "</head>",
+        "    <script>window.__FABRO_MODE__ = \"install\";</script>\n  </head>",
+    );
+    assert!(
+        injected.contains(INSTALL_MODE_MARKER),
+        "install-mode SPA shell is missing a writable </head> tag"
+    );
+    injected.into_bytes()
 }
 
 fn read_disk_asset(path: &str) -> Option<Vec<u8>> {
@@ -125,7 +193,9 @@ fn is_source_map(path: &str) -> bool {
 mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
 
-    use super::{accepts_html, cache_control, is_source_map, read_disk_asset_from_root};
+    use super::{
+        accepts_html, cache_control, inject_install_mode, is_source_map, read_disk_asset_from_root,
+    };
 
     fn headers_with_accept(value: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -175,5 +245,11 @@ mod tests {
 
         let bytes = read_disk_asset_from_root(temp_dir.path(), "assets/override.txt").unwrap();
         assert_eq!(bytes, b"override");
+    }
+
+    #[test]
+    #[should_panic(expected = "install-mode SPA shell is missing a writable </head> tag")]
+    fn install_mode_injection_panics_when_html_head_is_missing() {
+        let _ = inject_install_mode(b"<html><body>no head tag</body></html>".to_vec());
     }
 }
