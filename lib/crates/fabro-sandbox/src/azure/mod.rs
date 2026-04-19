@@ -116,6 +116,10 @@ impl AzureSandbox {
         }
     }
 
+    fn exec_working_dir(working_dir: Option<&str>) -> String {
+        working_dir.map_or_else(|| WORKING_DIRECTORY.to_string(), Self::resolve_path)
+    }
+
     fn sandbox_name(&self) -> String {
         if let Some(run_id) = self.run_id {
             return format!("fabro-{}", run_id.to_string().to_lowercase());
@@ -254,7 +258,7 @@ impl AzureSandbox {
         let client = self.sandboxd_client().await?;
         let request = ExecRequest {
             command: command.to_string(),
-            working_dir: working_dir.map(Self::resolve_path),
+            working_dir: Some(Self::exec_working_dir(working_dir)),
             env: env_vars.cloned().unwrap_or_default(),
             timeout_ms,
         };
@@ -658,6 +662,11 @@ fn container_group_base_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exec_working_dir_defaults_to_workspace() {
+        assert_eq!(AzureSandbox::exec_working_dir(None), "/workspace");
+    }
 
     #[test]
     fn sandbox_name_lowercases_run_ids_for_aci() {
