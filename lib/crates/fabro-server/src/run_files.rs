@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Response};
 use fabro_agent::Sandbox;
 use fabro_api::types::{
     DiffFile, FileDiff, FileDiffChangeKind, FileDiffTruncationReason, PaginatedRunFileList,
-    RunFilesMeta, RunFilesMetaToSha,
+    RunFilesMeta, RunFilesMetaDegradedReason, RunFilesMetaToSha,
 };
 use fabro_sandbox::reconnect::reconnect;
 use fabro_types::RunId;
@@ -225,39 +225,40 @@ fn validate_one_sha(value: Option<&str>, param_name: &str) -> std::result::Resul
     Ok(())
 }
 
-/// Materialize the response from the sandbox path. Returns `Ok(envelope)` on
-/// success, `Err(ApiError)` on unrecoverable failure (which is surfaced to
-/// every coalesced caller). Unit 6 will extend this with the `final_patch`
-/// fallback branch when the sandbox is unreachable.
+/// Materialize the response for `GET /runs/{id}/files`. Prefers the live
+/// sandbox path; falls through to a `final_patch`-based degraded response
+/// when the sandbox is unreachable or gone; falls through to an empty
+/// envelope when neither is available.
 async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> ListRunFilesResult {
     let start = Instant::now();
 
-    // Load run projection once — gives us base_sha, sandbox record, and
-    // final_patch for the fallback (consumed by Unit 6).
     let projection = load_projection(state, run_id).await?;
 
     let Some(base_sha) = projection.start.as_ref().and_then(|s| s.base_sha.clone()) else {
-        // Run hasn't started yet (no base_sha). Return empty envelope —
-        // Unit 11 UI maps this to R4(a).
+        // Run hasn't started yet (no base_sha). UI maps this to R4(a).
         return Ok(empty_envelope());
     };
 
-    // Try to reconnect. Unit 6 will populate the degraded-fallback branch in
-    // place of the empty envelope when reconnect fails.
+    // Try to reconnect; on failure fall through to the patch-only fallback.
     let Some(sandbox) = try_reconnect_run_sandbox(state, &projection).await? else {
-        return Ok(empty_envelope());
+        return Ok(build_fallback_response(
+            &projection,
+            reason_for_fallback(&projection),
+        ));
     };
 
     // Resolve HEAD to a concrete `to_sha`.
     let to_sha = resolve_head_sha(sandbox.as_ref()).await?;
 
-    // Enumerate changes and classify binary/text.
+    // Enumerate changes. Permanent errors (bad_sha, missing object) fall
+    // through to the patch-only fallback; transient errors surface as 503.
     let mut raw_entries = match list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha).await {
         Ok(v) => v,
         Err(DiffError::Permanent { .. }) => {
-            // Treat as "nothing live to diff"; Unit 6 will route to
-            // final_patch here. Return empty for now.
-            return Ok(empty_envelope());
+            return Ok(build_fallback_response(
+                &projection,
+                RunFilesMetaDegradedReason::SandboxGone,
+            ));
         }
         Err(DiffError::Transient { message }) => {
             return Err(ApiError::new(
@@ -345,6 +346,143 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
             patch: None,
         },
     })
+}
+
+/// Choose a degraded reason given the current projection. Docker-provider
+/// runs aren't supported by the deployed server; completed runs are "gone";
+/// everything else is a transient "unreachable" (sandbox may come back).
+fn reason_for_fallback(projection: &fabro_store::RunProjection) -> RunFilesMetaDegradedReason {
+    let provider = projection
+        .sandbox
+        .as_ref()
+        .map(|s| s.provider.to_ascii_lowercase());
+    if matches!(provider.as_deref(), Some("docker")) {
+        return RunFilesMetaDegradedReason::ProviderUnsupported;
+    }
+    let is_terminal = projection
+        .status
+        .as_ref()
+        .is_some_and(|s| s.status.is_terminal());
+    if is_terminal {
+        RunFilesMetaDegradedReason::SandboxGone
+    } else {
+        RunFilesMetaDegradedReason::SandboxUnreachable
+    }
+}
+
+/// Build the degraded patch-only response from the stored `final_patch`.
+/// When `final_patch` is `None`, returns the empty envelope (UI maps this to
+/// R4(c)). Applies a 5 MiB cap, strips denylisted file sections from the
+/// patch, and counts `diff --git` headers to populate `total_changed`.
+fn build_fallback_response(
+    projection: &fabro_store::RunProjection,
+    reason: RunFilesMetaDegradedReason,
+) -> PaginatedRunFileList {
+    let Some(patch) = projection.final_patch.as_deref() else {
+        return empty_envelope();
+    };
+
+    let (filtered_patch, truncated_by_cap) = apply_patch_cap(patch, AGGREGATE_BYTES_CAP);
+    let filtered_patch = strip_denylisted_sections(&filtered_patch, is_sensitive);
+    let total_changed = count_diff_headers(&filtered_patch);
+
+    let to_sha = projection
+        .conclusion
+        .as_ref()
+        .and_then(|c| c.final_git_commit_sha.clone())
+        .map(|s| to_sha_wrapper(&s));
+
+    PaginatedRunFileList {
+        data: Vec::new(),
+        meta: RunFilesMeta {
+            truncated: truncated_by_cap,
+            files_omitted_by_budget: None,
+            total_changed: i64::try_from(total_changed).unwrap_or(i64::MAX),
+            to_sha,
+            to_sha_committed_at: None,
+            degraded: Some(true),
+            degraded_reason: Some(reason),
+            patch: Some(filtered_patch),
+        },
+    }
+}
+
+/// Truncate a patch at `cap_bytes` on a UTF-8 character boundary. Returns
+/// `(truncated_patch, was_truncated)`.
+fn apply_patch_cap(patch: &str, cap_bytes: u64) -> (String, bool) {
+    let cap = usize::try_from(cap_bytes).unwrap_or(usize::MAX);
+    if patch.len() <= cap {
+        return (patch.to_string(), false);
+    }
+    // Find the largest char boundary at-or-before `cap`.
+    let mut boundary = cap;
+    while boundary > 0 && !patch.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    (patch[..boundary].to_string(), true)
+}
+
+/// Scan a unified patch for `diff --git a/<path> b/<path>` headers and strip
+/// out whole file sections whose `<path>` matches the denylist. Matched
+/// sections are replaced with a single `# sensitive file omitted` placeholder
+/// line so the client's `PatchDiff` still renders the surrounding context.
+fn strip_denylisted_sections(patch: &str, is_sensitive_fn: fn(&str) -> bool) -> String {
+    let mut out = String::with_capacity(patch.len());
+    let sections: Vec<&str> = patch.split_inclusive('\n').collect();
+
+    let mut current_section: Vec<&str> = Vec::new();
+    let mut current_sensitive = false;
+
+    let flush = |buf: &mut String, section: &[&str], sensitive: bool| {
+        if section.is_empty() {
+            return;
+        }
+        if sensitive {
+            use std::fmt::Write;
+            let first = section.first().copied().unwrap_or("");
+            let path = extract_diff_header_path(first)
+                .unwrap_or("<sensitive>")
+                .to_string();
+            let _ = writeln!(buf, "# sensitive file omitted: {}", path.replace('\n', " "));
+        } else {
+            for line in section {
+                buf.push_str(line);
+            }
+        }
+    };
+
+    for line in sections {
+        if line.starts_with("diff --git ") {
+            // Finish the previous section.
+            flush(&mut out, &current_section, current_sensitive);
+            current_section.clear();
+            current_sensitive = match extract_diff_header_path(line) {
+                Some(path) => is_sensitive_fn(path),
+                None => false,
+            };
+        }
+        current_section.push(line);
+    }
+    flush(&mut out, &current_section, current_sensitive);
+    out
+}
+
+/// Parse the new-side path from a `diff --git a/<old> b/<new>` header line.
+fn extract_diff_header_path(header_line: &str) -> Option<&str> {
+    let trimmed = header_line.strip_prefix("diff --git ")?;
+    let trimmed = trimmed.strip_suffix('\n').unwrap_or(trimmed);
+    // Formats: `a/<old> b/<new>`. Find the last `b/` token.
+    let b_slash = trimmed.rfind(" b/")?;
+    Some(&trimmed[b_slash + 3..])
+}
+
+/// Count `diff --git` header occurrences (each marks one changed file) in the
+/// filtered patch.
+fn count_diff_headers(patch: &str) -> usize {
+    patch
+        .lines()
+        .filter(|l| l.starts_with("diff --git "))
+        .count()
 }
 
 fn empty_envelope() -> PaginatedRunFileList {
@@ -905,5 +1043,83 @@ mod tests {
         }
 
         assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    // ── Degraded-fallback helpers (Unit 6) ────────────────────────────────
+
+    #[test]
+    fn apply_patch_cap_truncates_at_char_boundary() {
+        let patch = "Hello, world! 你好, 世界!";
+        let (truncated, was) = apply_patch_cap(patch, 16);
+        assert!(was);
+        assert!(truncated.len() <= 16);
+        // Must still be valid UTF-8 (implicit — String::from would have
+        // panicked otherwise).
+        assert!(!truncated.is_empty());
+    }
+
+    #[test]
+    fn apply_patch_cap_keeps_short_patches_unchanged() {
+        let (out, was) = apply_patch_cap("small", 100);
+        assert_eq!(out, "small");
+        assert!(!was);
+    }
+
+    #[test]
+    fn strip_denylisted_sections_replaces_sensitive_files_with_placeholder() {
+        let patch = "\
+diff --git a/src/foo.rs b/src/foo.rs
+@@ -1 +1 @@
+-a
++b
+diff --git a/.env.production b/.env.production
+@@ -1 +1 @@
+-SECRET=old
++SECRET=new
+diff --git a/src/bar.rs b/src/bar.rs
+@@ -1 +1 @@
+-x
++y
+";
+        let out = strip_denylisted_sections(patch, is_sensitive);
+        assert!(out.contains("src/foo.rs"), "kept non-sensitive: {out}");
+        assert!(out.contains("src/bar.rs"), "kept non-sensitive: {out}");
+        assert!(!out.contains("SECRET="), "denylisted content leaked: {out}");
+        assert!(
+            out.contains("# sensitive file omitted: .env.production"),
+            "placeholder missing: {out}"
+        );
+    }
+
+    #[test]
+    fn count_diff_headers_counts_file_sections() {
+        let patch = "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/b.rs b/b.rs\n@@ -1 +1 @@\n-c\n+d\n";
+        assert_eq!(count_diff_headers(patch), 2);
+    }
+
+    #[test]
+    fn extract_diff_header_path_pulls_new_side_from_header() {
+        assert_eq!(
+            extract_diff_header_path("diff --git a/src/foo.rs b/src/bar.rs\n"),
+            Some("src/bar.rs")
+        );
+        // Paths with spaces in them exercise the `rfind(" b/")` heuristic —
+        // git emits unquoted paths only when they're simple.
+        assert_eq!(
+            extract_diff_header_path("diff --git a/plain.rs b/plain.rs"),
+            Some("plain.rs")
+        );
+    }
+
+    #[test]
+    fn is_sensitive_matches_common_secret_paths() {
+        assert!(is_sensitive(".env.production"));
+        assert!(is_sensitive("config/.env"));
+        assert!(is_sensitive("keys/id_rsa"));
+        assert!(is_sensitive("SERVER.PEM"));
+        assert!(is_sensitive("home/user/.aws/credentials"));
+        assert!(is_sensitive("home/user/.ssh/config"));
+        assert!(!is_sensitive("src/main.rs"));
+        assert!(!is_sensitive("README.md"));
     }
 }
