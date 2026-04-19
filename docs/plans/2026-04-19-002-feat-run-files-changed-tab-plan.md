@@ -1,10 +1,40 @@
 ---
 title: "feat: Files Changed tab for workflow runs"
 type: feat
-status: active
+status: partially-completed
 date: 2026-04-19
 origin: docs/brainstorms/2026-04-19-run-files-changed-tab-requirements.md
 ---
+
+<!--
+Implementation status (2026-04-19):
+
+- [x] Unit 1: OpenAPI spec + schema extensions
+- [x] Unit 2: Lifecycle — capture final_patch on RunFailed
+- [x] Unit 3: Sandbox git machine-readable helpers
+- [x] Unit 4: Per-run request coalescing primitive
+- [x] Unit 5: Real list_run_files handler (sandbox path)
+- [x] Unit 6: Degraded fallback (final_patch) + empty envelope
+- [x] Unit 7: Demo handler parity
+- [x] Unit 8: Security & observability (logging-strategy.md update;
+       denylist lives inline in run_files.rs pending a globset-based
+       extraction)
+- [x] Unit 9: TS client regen + @pierre/diffs upgrade (1.0.11 → 1.1.15)
+- [x] Unit 10: Rendering paths (MultiFileDiff / PatchDiff / placeholders;
+       no Virtualizer wrapping yet)
+- [ ] Unit 11: Empty-state taxonomy, error states, loading skeleton,
+       refresh + SSE revalidation, freshness indicator (DEFERRED)
+- [ ] Unit 12: A11y + responsive + deep-link (DEFERRED)
+- [x] Unit 13: Surface tab + verification (workspace build + tests green)
+
+Units 11 and 12 ship the UX polish (empty/error taxonomy, SSE refresh,
+j/k navigation, md-breakpoint collapse, #file= deep-link) but are not
+required for functional correctness — the tab already renders real
+diffs, degrades to a patch-only view when the sandbox is gone, and
+handles sensitive/binary/truncated placeholders. Pick these up as
+follow-up work.
+-->
+
 
 # feat: Files Changed tab for workflow runs
 
