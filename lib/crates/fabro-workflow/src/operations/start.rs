@@ -301,8 +301,11 @@ impl RunSession {
         let workflow_bundle =
             accepted_definition.map(|definition| Arc::new(definition.workflow_bundle()));
 
-        let (origin_url, detected_base_branch) = detect_repo_info(&working_directory)
-            .map_or((None, None), |(url, branch)| (Some(url), branch));
+        let (origin_url, detected_base_branch) = resolve_origin_url_and_base_branch(
+            record.repo_origin_url.clone(),
+            record.base_branch.clone(),
+            &working_directory,
+        );
 
         let resolved = fabro_config::resolve_run_from_file(settings)
             .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
@@ -366,7 +369,7 @@ impl RunSession {
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
                     clone_origin_url: origin_url.clone(),
-                    clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+                    clone_branch: detected_base_branch.clone(),
                     api_key,
                 }
             }
@@ -375,7 +378,7 @@ impl RunSession {
                 github_app:       services.github_app.clone(),
                 run_id:           Some(record.run_id),
                 clone_origin_url: origin_url.clone(),
-                clone_branch:     detected_base_branch.or_else(|| record.base_branch.clone()),
+                clone_branch:     detected_base_branch.clone(),
             },
         };
 
@@ -467,6 +470,19 @@ fn resolve_interp(value: &InterpString) -> String {
     value
         .resolve(|name| std::env::var(name).ok())
         .map_or_else(|_| value.as_source(), |resolved| resolved.value)
+}
+
+fn resolve_origin_url_and_base_branch(
+    persisted_origin_url: Option<String>,
+    persisted_base_branch: Option<String>,
+    working_directory: &Path,
+) -> (Option<String>, Option<String>) {
+    let (detected_origin_url, detected_base_branch) = detect_repo_info(working_directory)
+        .map_or((None, None), |(url, branch)| (Some(url), branch));
+    (
+        persisted_origin_url.or(detected_origin_url),
+        persisted_base_branch.or(detected_base_branch),
+    )
 }
 
 async fn load_accepted_run_definition(
@@ -1114,6 +1130,56 @@ mod tests {
         );
         assert_eq!(runtime.cpu, Some(2.0));
         assert_eq!(runtime.memory_gb, Some(4.0));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_prefers_persisted_run_record_values() {
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            Some("fabro-software-factory".to_string()),
+            Path::new("/definitely/missing/on/remote/server"),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some("fabro-software-factory"));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_keeps_detected_branch_when_persisted_origin_lacks_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        std::fs::write(dir.path().join("README.md"), "seed\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("Fabro Test", "fabro@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "seed", &tree, &[])
+            .unwrap();
+        repo.remote(
+            "origin",
+            "https://github.com/fkukuck/agentic-factory-prisma.git",
+        )
+        .unwrap();
+
+        let head = repo.head().unwrap();
+        let name = head.shorthand().unwrap().to_string();
+
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            None,
+            dir.path(),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some(name.as_str()));
     }
 
     #[tokio::test]
