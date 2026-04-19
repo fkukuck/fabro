@@ -32,8 +32,8 @@ use fabro_api::types::{
 use fabro_sandbox::reconnect::reconnect;
 use fabro_types::RunId;
 use fabro_workflow::sandbox_git::{
-    BlobMeta, DiffError, RawDiffEntry, SubmoduleChange, SymlinkChange, list_binary_paths,
-    list_changed_files_raw, stream_blob_metadata, stream_blobs,
+    DiffError, RawDiffEntry, SubmoduleChange, SymlinkChange, list_binary_paths,
+    list_changed_files_raw, stream_blobs,
 };
 use futures_util::FutureExt;
 use serde::Deserialize;
@@ -252,7 +252,7 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
 
     // Enumerate changes. Permanent errors (bad_sha, missing object) fall
     // through to the patch-only fallback; transient errors surface as 503.
-    let mut raw_entries = match list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha).await {
+    let raw_entries = match list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha).await {
         Ok(v) => v,
         Err(DiffError::Permanent { .. }) => {
             return Ok(build_fallback_response(
@@ -280,38 +280,44 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
     };
 
     let total_changed_before_cap = raw_entries.len();
-    // Cap the file count per R27.
-    if raw_entries.len() > FILE_COUNT_CAP {
-        raw_entries.truncate(FILE_COUNT_CAP);
+
+    // Classify every entry against the denylist + binary/symlink/submodule
+    // flags FIRST so no-blob-needed placeholders don't consume cap slots that
+    // belong to real file changes (plan § Unit 5: R31 acts before R27).
+    let classified = classify_entries(&raw_entries, &binary_paths, is_sensitive);
+
+    // Then cap the combined list at 200 entries.
+    let truncated_by_count = classified.len() > FILE_COUNT_CAP;
+    let mut classified = classified;
+    if truncated_by_count {
+        classified.truncate(FILE_COUNT_CAP);
     }
 
-    // Apply denylist + classify binary/truncation before fetching blobs.
-    let (entries_to_fetch, mut prebuilt) =
-        classify_entries(&raw_entries, &binary_paths, is_sensitive);
+    // Collect every blob SHA we'll need (old + new sides of each file-fetch
+    // entry) deduplicated into a stable order for the single batched
+    // cat-file invocations.
+    let fetch_shas = collect_blob_shas(&classified);
+    let blob_table: HashMap<String, Option<String>> =
+        fetch_blob_table(sandbox.as_ref(), &fetch_shas).await?;
 
-    // Batched blob fetch for (old_blob, new_blob) pairs we still need.
-    let blob_metas = fetch_blob_sizes(sandbox.as_ref(), &entries_to_fetch).await?;
-    let blob_contents = fetch_blob_contents(sandbox.as_ref(), &entries_to_fetch).await?;
-
-    // Stitch metas and contents back into FileDiff entries, enforcing per-file
-    // and aggregate caps.
+    // Assemble the response in original classification order.
     let mut aggregate_bytes: u64 = 0;
     let mut files_omitted_by_budget: u64 = 0;
-    let mut response_data: Vec<FileDiff> = Vec::with_capacity(raw_entries.len());
-    response_data.append(&mut prebuilt);
-
-    for (idx, entry) in entries_to_fetch.iter().enumerate() {
-        let file_diff = stitch_file_diff(
-            entry,
-            blob_metas.get(idx).cloned(),
-            blob_contents.get(idx).cloned().flatten(),
-            &mut aggregate_bytes,
-            &mut files_omitted_by_budget,
-        );
-        response_data.push(file_diff);
+    let mut response_data: Vec<FileDiff> = Vec::with_capacity(classified.len());
+    for item in classified {
+        let diff = match item {
+            ClassifiedEntry::Prebuilt(diff) => diff,
+            ClassifiedEntry::NeedsFetch(entry) => stitch_file_diff(
+                &entry,
+                &blob_table,
+                &mut aggregate_bytes,
+                &mut files_omitted_by_budget,
+            ),
+        };
+        response_data.push(diff);
     }
 
-    let truncated = total_changed_before_cap > FILE_COUNT_CAP
+    let truncated = truncated_by_count
         || response_data.iter().any(|f| f.truncated.unwrap_or(false))
         || files_omitted_by_budget > 0;
 
@@ -423,9 +429,11 @@ fn apply_patch_cap(patch: &str, cap_bytes: u64) -> (String, bool) {
 }
 
 /// Scan a unified patch for `diff --git a/<path> b/<path>` headers and strip
-/// out whole file sections whose `<path>` matches the denylist. Matched
-/// sections are replaced with a single `# sensitive file omitted` placeholder
-/// line so the client's `PatchDiff` still renders the surrounding context.
+/// out whole file sections whose EITHER side matches the denylist. Renames
+/// from a sensitive path to a benign one must not leak patch contents, so
+/// both `a/<old>` and `b/<new>` are checked. Matched sections are replaced
+/// with a single `# sensitive file omitted` placeholder line so the client's
+/// `PatchDiff` still renders the surrounding context.
 fn strip_denylisted_sections(patch: &str, is_sensitive_fn: fn(&str) -> bool) -> String {
     let mut out = String::with_capacity(patch.len());
     let sections: Vec<&str> = patch.split_inclusive('\n').collect();
@@ -440,10 +448,15 @@ fn strip_denylisted_sections(patch: &str, is_sensitive_fn: fn(&str) -> bool) -> 
         if sensitive {
             use std::fmt::Write;
             let first = section.first().copied().unwrap_or("");
-            let path = extract_diff_header_path(first)
-                .unwrap_or("<sensitive>")
-                .to_string();
-            let _ = writeln!(buf, "# sensitive file omitted: {}", path.replace('\n', " "));
+            // Use whichever side we can surface without leaking the sensitive
+            // side's full path: prefer the new side, fall back to the old.
+            let (old_path, new_path) = extract_diff_header_paths(first);
+            let display = new_path.or(old_path).unwrap_or("<sensitive>");
+            let _ = writeln!(
+                buf,
+                "# sensitive file omitted: {}",
+                display.replace('\n', " ")
+            );
         } else {
             for line in section {
                 buf.push_str(line);
@@ -456,10 +469,9 @@ fn strip_denylisted_sections(patch: &str, is_sensitive_fn: fn(&str) -> bool) -> 
             // Finish the previous section.
             flush(&mut out, &current_section, current_sensitive);
             current_section.clear();
-            current_sensitive = match extract_diff_header_path(line) {
-                Some(path) => is_sensitive_fn(path),
-                None => false,
-            };
+            let (old_path, new_path) = extract_diff_header_paths(line);
+            current_sensitive =
+                old_path.is_some_and(is_sensitive_fn) || new_path.is_some_and(is_sensitive_fn);
         }
         current_section.push(line);
     }
@@ -467,13 +479,24 @@ fn strip_denylisted_sections(patch: &str, is_sensitive_fn: fn(&str) -> bool) -> 
     out
 }
 
-/// Parse the new-side path from a `diff --git a/<old> b/<new>` header line.
-fn extract_diff_header_path(header_line: &str) -> Option<&str> {
-    let trimmed = header_line.strip_prefix("diff --git ")?;
+/// Parse both `a/<old>` and `b/<new>` paths from a `diff --git` header line.
+/// Either side may be absent for pathological or malformed headers.
+fn extract_diff_header_paths(header_line: &str) -> (Option<&str>, Option<&str>) {
+    let Some(trimmed) = header_line.strip_prefix("diff --git ") else {
+        return (None, None);
+    };
     let trimmed = trimmed.strip_suffix('\n').unwrap_or(trimmed);
-    // Formats: `a/<old> b/<new>`. Find the last `b/` token.
-    let b_slash = trimmed.rfind(" b/")?;
-    Some(&trimmed[b_slash + 3..])
+    // Format: `a/<old> b/<new>`. Split at ` b/` (last occurrence — paths may
+    // themselves contain ` b/` substrings in pathological cases).
+    let Some(b_idx) = trimmed.rfind(" b/") else {
+        // No b-side — emit the a-side alone if it exists.
+        let old = trimmed.strip_prefix("a/");
+        return (old, None);
+    };
+    let a_side = &trimmed[..b_idx];
+    let new_path = Some(&trimmed[b_idx + 3..]);
+    let old_path = a_side.strip_prefix("a/");
+    (old_path, new_path)
 }
 
 /// Count `diff --git` header occurrences (each marks one changed file) in the
@@ -574,19 +597,29 @@ async fn resolve_head_sha(sandbox: &dyn Sandbox) -> std::result::Result<String, 
     Ok(sha)
 }
 
-/// Partition raw entries into (entries that need blob fetches) and
-/// (already-complete FileDiff entries: sensitive/binary/symlink/submodule/
-/// deleted). Returned `Vec` orderings are preserved so meta counts work.
+/// A classified changed-file entry. Preserves original enumeration order so
+/// the response matches `git diff --raw` output.
+enum ClassifiedEntry {
+    /// Contents already resolved (sensitive / binary / symlink / submodule
+    /// placeholders). No blob fetch needed.
+    Prebuilt(FileDiff),
+    /// Needs `cat-file --batch` for the relevant blob SHAs before we can
+    /// render contents.
+    NeedsFetch(RawDiffEntry),
+}
+
+/// Classify every raw entry against the denylist + binary flags. Runs before
+/// the 200-file cap so sensitive entries don't evict real changes (plan
+/// § Unit 5: R31 acts before R27).
 fn classify_entries(
     raw: &[RawDiffEntry],
     binary_paths: &HashSet<String>,
     is_sensitive_fn: fn(&str) -> bool,
-) -> (Vec<RawDiffEntry>, Vec<FileDiff>) {
-    let mut fetch = Vec::with_capacity(raw.len());
-    let mut prebuilt = Vec::new();
+) -> Vec<ClassifiedEntry> {
+    let mut out = Vec::with_capacity(raw.len());
 
     for entry in raw {
-        let (primary_path, old_path) = match entry {
+        let (new_path, old_path) = match entry {
             RawDiffEntry::Added { path, .. }
             | RawDiffEntry::Modified { path, .. }
             | RawDiffEntry::Deleted { path, .. }
@@ -597,39 +630,44 @@ fn classify_entries(
             } => (new_path.as_str(), old_path.as_str()),
         };
 
-        let sensitive = is_sensitive_fn(primary_path) || is_sensitive_fn(old_path);
-
-        if sensitive {
-            prebuilt.push(build_placeholder_file_diff(
+        // Denylist checks BOTH sides; either match flags the whole entry
+        // sensitive.
+        if is_sensitive_fn(new_path) || is_sensitive_fn(old_path) {
+            out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                 entry,
                 &PlaceholderKind::Sensitive,
-            ));
+            )));
             continue;
         }
 
         match entry {
             RawDiffEntry::Symlink { .. } => {
-                prebuilt.push(build_placeholder_file_diff(
+                out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                     entry,
                     &PlaceholderKind::Symlink,
-                ));
+                )));
             }
             RawDiffEntry::Submodule { .. } => {
-                prebuilt.push(build_placeholder_file_diff(
+                out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                     entry,
                     &PlaceholderKind::Submodule,
-                ));
+                )));
             }
-            _ if binary_paths.contains(primary_path) => {
-                prebuilt.push(build_placeholder_file_diff(entry, &PlaceholderKind::Binary));
+            // `git diff --numstat` reports the post-rename path on renames,
+            // so checking `new_path` covers both non-rename and rename cases.
+            _ if binary_paths.contains(new_path) => {
+                out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
+                    entry,
+                    &PlaceholderKind::Binary,
+                )));
             }
             _ => {
-                fetch.push(entry.clone());
+                out.push(ClassifiedEntry::NeedsFetch(entry.clone()));
             }
         }
     }
 
-    (fetch, prebuilt)
+    out
 }
 
 enum PlaceholderKind {
@@ -702,153 +740,192 @@ fn names_and_kind(entry: &RawDiffEntry) -> (String, String, FileDiffChangeKind) 
     }
 }
 
+/// Build a `FileDiff` for a `NeedsFetch` entry using content looked up by
+/// blob SHA. Enforces per-file (256 KiB / 20k lines) and aggregate 5 MiB caps.
+/// For Modified/Renamed, the old-side and new-side blobs are distinct; both
+/// are looked up so the client sees real before/after diffs.
 fn stitch_file_diff(
     entry: &RawDiffEntry,
-    _meta: Option<BlobMeta>,
-    contents: Option<String>,
+    blob_table: &HashMap<String, Option<String>>,
     aggregate_bytes: &mut u64,
     files_omitted_by_budget: &mut u64,
 ) -> FileDiff {
     let (old_name, new_name, change_kind) = names_and_kind(entry);
 
-    // `contents` already has per-file size cap applied by `stream_blobs`; a
-    // `None` here means that file exceeded the per-file cap.
-    match contents {
-        None => FileDiff {
-            binary:            None,
-            change_kind:       Some(change_kind),
-            new_file:          DiffFile {
-                name:     new_name,
-                contents: String::new(),
-            },
-            old_file:          DiffFile {
-                name:     old_name,
-                contents: String::new(),
-            },
-            sensitive:         None,
-            truncated:         Some(true),
-            truncation_reason: Some(FileDiffTruncationReason::FileTooLarge),
+    // Resolve each side's contents from the blob table. `None` from the
+    // table means the blob exceeded the per-file byte cap (stream_blobs
+    // returned None) OR the fetch returned fewer entries than requested.
+    // An `Added` entry has no old side; `Deleted` has no new side.
+    let (old_opt, new_opt): (Option<Option<&String>>, Option<Option<&String>>) = match entry {
+        RawDiffEntry::Added { new_blob, .. } => (
+            None,
+            Some(blob_table.get(new_blob).and_then(Option::as_ref)),
+        ),
+        RawDiffEntry::Deleted { old_blob, .. } => (
+            Some(blob_table.get(old_blob).and_then(Option::as_ref)),
+            None,
+        ),
+        RawDiffEntry::Modified {
+            old_blob, new_blob, ..
+        }
+        | RawDiffEntry::Renamed {
+            old_blob, new_blob, ..
+        } => (
+            Some(blob_table.get(old_blob).and_then(Option::as_ref)),
+            Some(blob_table.get(new_blob).and_then(Option::as_ref)),
+        ),
+        RawDiffEntry::Symlink { .. } | RawDiffEntry::Submodule { .. } => {
+            // Shouldn't hit — those classify to Prebuilt. Return an empty
+            // placeholder defensively.
+            return build_placeholder_file_diff(entry, &PlaceholderKind::Symlink);
+        }
+    };
+
+    // If any required side's blob exceeded the per-file cap, mark the whole
+    // entry truncated (both sides emptied).
+    let old_over_cap = matches!(old_opt, Some(None));
+    let new_over_cap = matches!(new_opt, Some(None));
+    if old_over_cap || new_over_cap {
+        return truncated_file_diff(
+            old_name,
+            new_name,
+            change_kind,
+            FileDiffTruncationReason::FileTooLarge,
+        );
+    }
+
+    // Line-count cap on either side — empty Option<&String> resolves to "".
+    let old_contents_ref = old_opt.and_then(|o| o).map_or("", String::as_str);
+    let new_contents_ref = new_opt.and_then(|o| o).map_or("", String::as_str);
+    if old_contents_ref.lines().count() > PER_FILE_LINES_CAP
+        || new_contents_ref.lines().count() > PER_FILE_LINES_CAP
+    {
+        return truncated_file_diff(
+            old_name,
+            new_name,
+            change_kind,
+            FileDiffTruncationReason::FileTooLarge,
+        );
+    }
+
+    // Aggregate budget tracks bytes-on-the-wire, summing both sides.
+    let total_bytes = old_contents_ref.len() as u64 + new_contents_ref.len() as u64;
+    let new_total = aggregate_bytes.saturating_add(total_bytes);
+    if new_total > AGGREGATE_BYTES_CAP {
+        *files_omitted_by_budget += 1;
+        return truncated_file_diff(
+            old_name,
+            new_name,
+            change_kind,
+            FileDiffTruncationReason::BudgetExhausted,
+        );
+    }
+    *aggregate_bytes = new_total;
+
+    FileDiff {
+        binary:            None,
+        change_kind:       Some(change_kind),
+        new_file:          DiffFile {
+            name:     new_name,
+            contents: new_contents_ref.to_string(),
         },
-        Some(content) => {
-            // Line-count cap.
-            let lines = content.lines().count();
-            if lines > PER_FILE_LINES_CAP {
-                return FileDiff {
-                    binary:            None,
-                    change_kind:       Some(change_kind),
-                    new_file:          DiffFile {
-                        name:     new_name,
-                        contents: String::new(),
-                    },
-                    old_file:          DiffFile {
-                        name:     old_name,
-                        contents: String::new(),
-                    },
-                    sensitive:         None,
-                    truncated:         Some(true),
-                    truncation_reason: Some(FileDiffTruncationReason::FileTooLarge),
-                };
+        old_file:          DiffFile {
+            name:     old_name,
+            contents: old_contents_ref.to_string(),
+        },
+        sensitive:         None,
+        truncated:         None,
+        truncation_reason: None,
+    }
+}
+
+fn truncated_file_diff(
+    old_name: String,
+    new_name: String,
+    change_kind: FileDiffChangeKind,
+    reason: FileDiffTruncationReason,
+) -> FileDiff {
+    FileDiff {
+        binary:            None,
+        change_kind:       Some(change_kind),
+        new_file:          DiffFile {
+            name:     new_name,
+            contents: String::new(),
+        },
+        old_file:          DiffFile {
+            name:     old_name,
+            contents: String::new(),
+        },
+        sensitive:         None,
+        truncated:         Some(true),
+        truncation_reason: Some(reason),
+    }
+}
+
+/// Collect every blob SHA referenced by `NeedsFetch` entries, in a stable
+/// order, deduplicated.
+fn collect_blob_shas(classified: &[ClassifiedEntry]) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    let push = |sha: &str, seen: &mut HashSet<String>, out: &mut Vec<String>| {
+        if seen.insert(sha.to_string()) {
+            out.push(sha.to_string());
+        }
+    };
+    for item in classified {
+        let ClassifiedEntry::NeedsFetch(entry) = item else {
+            continue;
+        };
+        match entry {
+            RawDiffEntry::Added { new_blob, .. } => push(new_blob, &mut seen, &mut out),
+            RawDiffEntry::Deleted { old_blob, .. } => push(old_blob, &mut seen, &mut out),
+            RawDiffEntry::Modified {
+                old_blob, new_blob, ..
             }
-
-            let byte_len = content.len() as u64;
-            let new_total = aggregate_bytes.saturating_add(byte_len);
-            if new_total > AGGREGATE_BYTES_CAP {
-                *files_omitted_by_budget += 1;
-                return FileDiff {
-                    binary:            None,
-                    change_kind:       Some(change_kind),
-                    new_file:          DiffFile {
-                        name:     new_name,
-                        contents: String::new(),
-                    },
-                    old_file:          DiffFile {
-                        name:     old_name,
-                        contents: String::new(),
-                    },
-                    sensitive:         None,
-                    truncated:         Some(true),
-                    truncation_reason: Some(FileDiffTruncationReason::BudgetExhausted),
-                };
+            | RawDiffEntry::Renamed {
+                old_blob, new_blob, ..
+            } => {
+                push(old_blob, &mut seen, &mut out);
+                push(new_blob, &mut seen, &mut out);
             }
-
-            *aggregate_bytes = new_total;
-
-            // For added files, old side is empty; for deleted, new side is
-            // empty; for modified/renamed, both sides hold the same `new`
-            // contents (v1 keeps the wire simple; a richer two-blob fetch
-            // can come later).
-            let (old_contents, new_contents) = match entry {
-                RawDiffEntry::Added { .. } => (String::new(), content),
-                RawDiffEntry::Deleted { .. } => (content, String::new()),
-                _ => (content.clone(), content),
-            };
-
-            FileDiff {
-                binary:            None,
-                change_kind:       Some(change_kind),
-                new_file:          DiffFile {
-                    name:     new_name,
-                    contents: new_contents,
-                },
-                old_file:          DiffFile {
-                    name:     old_name,
-                    contents: old_contents,
-                },
-                sensitive:         None,
-                truncated:         None,
-                truncation_reason: None,
-            }
+            RawDiffEntry::Symlink { .. } | RawDiffEntry::Submodule { .. } => {}
         }
     }
+    out
 }
 
-async fn fetch_blob_sizes(
+/// Fetch all requested blobs in one batched `cat-file --batch` call. Returns
+/// a SHA → contents map where `None` means the blob exceeded the per-file
+/// byte cap (caller flags that entry truncated). Permanent errors in the
+/// sandbox yield an empty table (the handler falls through to the degraded
+/// branch upstream).
+async fn fetch_blob_table(
     sandbox: &dyn Sandbox,
-    entries: &[RawDiffEntry],
-) -> std::result::Result<Vec<BlobMeta>, ApiError> {
-    let shas = collect_primary_blobs(entries);
+    shas: &[String],
+) -> std::result::Result<HashMap<String, Option<String>>, ApiError> {
     if shas.is_empty() {
-        return Ok(Vec::new());
+        return Ok(HashMap::new());
     }
-    match stream_blob_metadata(sandbox, &shas).await {
-        Ok(v) => Ok(v),
-        Err(DiffError::Permanent { .. }) => Ok(Vec::new()),
-        Err(DiffError::Transient { message }) => Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("Sandbox git cat-file --batch-check failed: {message}"),
-        )),
+    let contents = match stream_blobs(sandbox, shas, PER_FILE_BYTES_CAP).await {
+        Ok(v) => v,
+        Err(DiffError::Permanent { .. }) => {
+            // Surface nothing; every NeedsFetch entry will resolve to empty
+            // contents, triggering `file_too_large` on modified/renamed and
+            // empty sides on added/deleted.
+            return Ok(HashMap::new());
+        }
+        Err(DiffError::Transient { message }) => {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Sandbox git cat-file --batch failed: {message}"),
+            ));
+        }
+    };
+    let mut table = HashMap::with_capacity(shas.len());
+    for (sha, content) in shas.iter().zip(contents) {
+        table.insert(sha.clone(), content);
     }
-}
-
-async fn fetch_blob_contents(
-    sandbox: &dyn Sandbox,
-    entries: &[RawDiffEntry],
-) -> std::result::Result<Vec<Option<String>>, ApiError> {
-    let shas = collect_primary_blobs(entries);
-    if shas.is_empty() {
-        return Ok(Vec::new());
-    }
-    match stream_blobs(sandbox, &shas, PER_FILE_BYTES_CAP).await {
-        Ok(v) => Ok(v),
-        Err(DiffError::Permanent { .. }) => Ok(entries.iter().map(|_| None).collect()),
-        Err(DiffError::Transient { message }) => Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("Sandbox git cat-file --batch failed: {message}"),
-        )),
-    }
-}
-
-fn collect_primary_blobs(entries: &[RawDiffEntry]) -> Vec<String> {
-    entries
-        .iter()
-        .filter_map(|e| match e {
-            RawDiffEntry::Added { new_blob, .. }
-            | RawDiffEntry::Modified { new_blob, .. }
-            | RawDiffEntry::Renamed { new_blob, .. } => Some(new_blob.clone()),
-            RawDiffEntry::Deleted { old_blob, .. } => Some(old_blob.clone()),
-            RawDiffEntry::Symlink { .. } | RawDiffEntry::Submodule { .. } => None,
-        })
-        .collect()
+    Ok(table)
 }
 
 fn count_flags(data: &[FileDiff]) -> (u64, u64, u64, u64) {
@@ -1098,17 +1175,123 @@ diff --git a/src/bar.rs b/src/bar.rs
     }
 
     #[test]
-    fn extract_diff_header_path_pulls_new_side_from_header() {
+    fn extract_diff_header_paths_pulls_both_sides_from_header() {
         assert_eq!(
-            extract_diff_header_path("diff --git a/src/foo.rs b/src/bar.rs\n"),
-            Some("src/bar.rs")
+            extract_diff_header_paths("diff --git a/src/foo.rs b/src/bar.rs\n"),
+            (Some("src/foo.rs"), Some("src/bar.rs"))
         );
-        // Paths with spaces in them exercise the `rfind(" b/")` heuristic —
-        // git emits unquoted paths only when they're simple.
         assert_eq!(
-            extract_diff_header_path("diff --git a/plain.rs b/plain.rs"),
-            Some("plain.rs")
+            extract_diff_header_paths("diff --git a/plain.rs b/plain.rs"),
+            (Some("plain.rs"), Some("plain.rs"))
         );
+    }
+
+    #[test]
+    fn strip_denylisted_sections_catches_rename_with_sensitive_old_side() {
+        // Regression for P1-2: renaming away from a sensitive path must
+        // still strip the patch — the benign new path alone doesn't reveal
+        // the secret but the hunk body does.
+        let patch = "\
+diff --git a/.env.production b/docs/NOTES.md
+rename from .env.production
+rename to docs/NOTES.md
+--- a/.env.production
++++ b/docs/NOTES.md
+@@ -1 +1 @@
+-SECRET=old
++just a note
+";
+        let out = strip_denylisted_sections(patch, is_sensitive);
+        assert!(!out.contains("SECRET="), "rename leaked secret: {out}");
+        assert!(
+            out.contains("# sensitive file omitted"),
+            "placeholder missing: {out}"
+        );
+    }
+
+    #[test]
+    fn stitch_file_diff_returns_distinct_old_and_new_contents_for_modified() {
+        // Regression for P1-1: before this fix, the handler fetched only the
+        // new-side blob and duplicated it onto both sides, producing no-op
+        // diffs for all modified files.
+        let entry = RawDiffEntry::Modified {
+            path:     "src/main.rs".to_string(),
+            old_blob: "aaaa000000000000000000000000000000000000".to_string(),
+            new_blob: "bbbb000000000000000000000000000000000000".to_string(),
+            new_mode: "100644".to_string(),
+        };
+        let mut table = HashMap::new();
+        table.insert(
+            "aaaa000000000000000000000000000000000000".to_string(),
+            Some("fn main() { println!(\"old\"); }\n".to_string()),
+        );
+        table.insert(
+            "bbbb000000000000000000000000000000000000".to_string(),
+            Some("fn main() { println!(\"new\"); }\n".to_string()),
+        );
+
+        let mut agg = 0u64;
+        let mut budget = 0u64;
+        let diff = stitch_file_diff(&entry, &table, &mut agg, &mut budget);
+        assert_eq!(diff.old_file.contents, "fn main() { println!(\"old\"); }\n");
+        assert_eq!(diff.new_file.contents, "fn main() { println!(\"new\"); }\n");
+        assert_ne!(diff.old_file.contents, diff.new_file.contents);
+    }
+
+    #[test]
+    fn stitch_file_diff_rename_uses_old_and_new_blobs() {
+        let entry = RawDiffEntry::Renamed {
+            old_path:   "src/old.rs".to_string(),
+            new_path:   "src/new.rs".to_string(),
+            old_blob:   "1111000000000000000000000000000000000000".to_string(),
+            new_blob:   "2222000000000000000000000000000000000000".to_string(),
+            new_mode:   "100644".to_string(),
+            similarity: 80,
+        };
+        let mut table = HashMap::new();
+        table.insert(
+            "1111000000000000000000000000000000000000".to_string(),
+            Some("old body\n".to_string()),
+        );
+        table.insert(
+            "2222000000000000000000000000000000000000".to_string(),
+            Some("new body\n".to_string()),
+        );
+        let mut agg = 0u64;
+        let mut budget = 0u64;
+        let diff = stitch_file_diff(&entry, &table, &mut agg, &mut budget);
+        assert_eq!(diff.old_file.name, "src/old.rs");
+        assert_eq!(diff.new_file.name, "src/new.rs");
+        assert_eq!(diff.old_file.contents, "old body\n");
+        assert_eq!(diff.new_file.contents, "new body\n");
+    }
+
+    #[test]
+    fn collect_blob_shas_deduplicates_and_covers_both_sides() {
+        let entries = vec![
+            ClassifiedEntry::NeedsFetch(RawDiffEntry::Modified {
+                path:     "a.rs".to_string(),
+                old_blob: "a1".to_string(),
+                new_blob: "a2".to_string(),
+                new_mode: "100644".to_string(),
+            }),
+            ClassifiedEntry::NeedsFetch(RawDiffEntry::Renamed {
+                old_path:   "b.rs".to_string(),
+                new_path:   "c.rs".to_string(),
+                old_blob:   "b1".to_string(),
+                new_blob:   "b2".to_string(),
+                new_mode:   "100644".to_string(),
+                similarity: 80,
+            }),
+            // Duplicate-SHA entry — should only appear once in output.
+            ClassifiedEntry::NeedsFetch(RawDiffEntry::Added {
+                path:     "d.rs".to_string(),
+                new_blob: "a2".to_string(),
+                new_mode: "100644".to_string(),
+            }),
+        ];
+        let shas = collect_blob_shas(&entries);
+        assert_eq!(shas, vec!["a1", "a2", "b1", "b2"]);
     }
 
     #[test]
