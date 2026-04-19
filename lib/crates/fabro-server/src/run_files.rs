@@ -1128,6 +1128,144 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 
+    #[tokio::test]
+    async fn first_caller_cancelling_does_not_block_other_callers() {
+        // P2-13 regression: tokio::spawn detaches materialization from any
+        // individual caller, so the first caller dropping its future must
+        // not prevent a subsequent caller from receiving the result.
+        let inflight = new_registry();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let run = run_id("run_ffffffffffffffffffffffffff");
+
+        let counter_a = Arc::clone(&counter);
+        let counter_b = Arc::clone(&counter);
+        let inflight_a = Arc::clone(&inflight);
+        let inflight_b = Arc::clone(&inflight);
+
+        // Kick off the first coalesce, then drop it almost immediately
+        // while the materialization is still sleeping.
+        let first_fut = async move {
+            coalesced_list_run_files(&inflight_a, &run, move || async move {
+                counter_a.fetch_add(1, Ordering::SeqCst);
+                sleep(Duration::from_millis(80)).await;
+                Ok(ok_response())
+            })
+            .await
+        };
+
+        // Second caller subscribes a moment later and must still get the
+        // shared result even though the first caller dropped.
+        let handle = tokio::spawn(first_fut);
+        sleep(Duration::from_millis(10)).await;
+        handle.abort();
+
+        let second = coalesced_list_run_files(&inflight_b, &run, move || async move {
+            counter_b.fetch_add(1, Ordering::SeqCst);
+            Ok(ok_response())
+        })
+        .await;
+
+        assert!(second.is_ok(), "second caller should receive a result");
+        // Exactly one materialization ran — the aborted caller's spawn
+        // continued to completion without being replaced.
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    // ── Tracing allowlist assertion (P2-11) ──────────────────────────────
+
+    use std::sync::{Mutex as StdMutex, OnceLock};
+
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{Layer, Registry};
+
+    struct FieldCapture(Vec<String>);
+
+    impl Visit for FieldCapture {
+        fn record_debug(&mut self, field: &Field, _value: &dyn std::fmt::Debug) {
+            self.0.push(field.name().to_string());
+        }
+    }
+
+    struct FieldCaptureLayer {
+        fields: Arc<StdMutex<Vec<String>>>,
+    }
+
+    impl<S: Subscriber> Layer<S> for FieldCaptureLayer {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            if event
+                .metadata()
+                .target()
+                .starts_with("fabro_server::run_files")
+            {
+                let mut visitor = FieldCapture(Vec::new());
+                event.record(&mut visitor);
+                let mut guard = self.fields.lock().unwrap();
+                guard.extend(visitor.0);
+            }
+        }
+    }
+
+    fn install_tracing_capture() -> Arc<StdMutex<Vec<String>>> {
+        static INIT: OnceLock<Arc<StdMutex<Vec<String>>>> = OnceLock::new();
+        INIT.get_or_init(|| {
+            let fields = Arc::new(StdMutex::new(Vec::<String>::new()));
+            let layer = FieldCaptureLayer {
+                fields: Arc::clone(&fields),
+            };
+            let _ = Registry::default().with(layer).try_init();
+            fields
+        })
+        .clone()
+    }
+
+    #[test]
+    fn run_files_metrics_emit_writes_only_allowlisted_fields() {
+        // Plan § Unit 5: the tracing field set is an allowlist — no paths,
+        // contents, or raw git stderr may leak.
+        let captured = install_tracing_capture();
+        captured.lock().unwrap().clear();
+
+        let metrics = crate::run_files_security::RunFilesMetrics {
+            file_count:      3,
+            bytes_total:     1024,
+            duration_ms:     42,
+            truncated:       false,
+            binary_count:    1,
+            sensitive_count: 1,
+            symlink_count:   0,
+            submodule_count: 0,
+        };
+        metrics.emit(&RunId::new());
+
+        let observed: std::collections::HashSet<String> =
+            captured.lock().unwrap().iter().cloned().collect();
+
+        let allowlist: std::collections::HashSet<String> = [
+            "run_id",
+            "file_count",
+            "bytes_total",
+            "duration_ms",
+            "truncated",
+            "binary_count",
+            "sensitive_count",
+            "symlink_count",
+            "submodule_count",
+            "message",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+        let unexpected: Vec<_> = observed.difference(&allowlist).collect();
+        assert!(
+            unexpected.is_empty(),
+            "non-allowlisted tracing fields leaked: {unexpected:?}"
+        );
+    }
+
     // ── Degraded-fallback helpers (Unit 6) ────────────────────────────────
 
     #[test]

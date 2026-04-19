@@ -83,4 +83,5 @@ tower = "0.5"
 http-body-util = "0.1"
 httpmock = "0.8"
 serde_yaml = "0.9"
+tracing-subscriber.workspace = true
 fabro-sandbox = { path = "../fabro-sandbox" }
