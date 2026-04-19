@@ -141,52 +141,85 @@ export function Toast({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Route-level ErrorBoundary that handles the documented status codes from
- * the plan § Unit 11 taxonomy. 500 responses with a `request_id` in the
- * body surface it in the copy so users can cite it when contacting support.
+ * Shared helper for rendering the documented status-code taxonomy. Consumed
+ * by both the inline `initialError` branch in run-files.tsx and the
+ * `RunFilesErrorBoundary` below — keeps the copy in one place so updates
+ * don't drift between the two surfaces.
  */
-export function RunFilesErrorBoundary() {
-  const error = useRouteError();
-  if (isRouteErrorResponse(error)) {
-    if (error.status === 401 || error.status === 403) {
-      return (
-        <div className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted">
-          You don't have access to this run's files.
-        </div>
-      );
-    }
-    if (error.status === 503 || error.status === 429) {
-      return (
-        <InlineErrorBanner
-          message="The diff service is temporarily unavailable."
-          onRetry={() => window.location.reload()}
-        />
-      );
-    }
-    if (error.status === 500) {
-      const requestId = extractRequestId(error.data);
-      return (
-        <div className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted">
-          Something went wrong.
-          {requestId ? ` Request ID: ${requestId}.` : null} Please contact
-          support if this persists.
-        </div>
-      );
-    }
+export function renderStatusError(args: {
+  status:    number;
+  requestId: string | null;
+  onRetry:   () => void;
+}): React.ReactElement {
+  const { status, requestId, onRetry } = args;
+  if (status === 401 || status === 403) {
     return (
-      <div className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted">
-        Something went wrong ({error.status}).
+      <div
+        role="status"
+        className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
+      >
+        You don't have access to this run's files.
+      </div>
+    );
+  }
+  if (status === 429 || status === 503) {
+    return (
+      <InlineErrorBanner
+        message="The diff service is temporarily unavailable."
+        onRetry={onRetry}
+      />
+    );
+  }
+  if (status >= 500) {
+    const suffix = requestId ? ` Request ID: ${requestId}.` : "";
+    return (
+      <div
+        role="status"
+        className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
+      >
+        Something went wrong.{suffix} Please contact support if this persists.
       </div>
     );
   }
   return (
-    <div className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted">
+    <InlineErrorBanner
+      message={`Couldn't load files (${status}).`}
+      onRetry={onRetry}
+    />
+  );
+}
+
+/**
+ * Route-level ErrorBoundary for render-time React errors. The Files loader
+ * no longer throws (it returns errors in-band via RunFilesLoaderResult), so
+ * this only fires for React render crashes.
+ */
+export function RunFilesErrorBoundary() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error)) {
+    return renderStatusError({
+      status:    error.status,
+      requestId: extractRequestIdFromUnknown(error.data),
+      onRetry:   () => window.location.reload(),
+    });
+  }
+  return (
+    <div
+      role="status"
+      className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
+    >
       Something went wrong loading this run's files.
     </div>
   );
 }
 
-function extractRequestId(body: unknown): string | null {
+/**
+ * Request-ID parser used only by the ErrorBoundary path. The loader path
+ * already extracts request_id into `RunFilesLoaderResult.error.requestId`
+ * via `run-files.tsx::extractRequestId` — this is the body shape
+ * react-router hands us in `useRouteError().data` for non-Response errors.
+ */
+function extractRequestIdFromUnknown(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   if (typeof b.request_id === "string") return b.request_id;
@@ -194,13 +227,12 @@ function extractRequestId(body: unknown): string | null {
   if (Array.isArray(errors) && errors.length > 0) {
     const first = errors[0];
     if (first && typeof first === "object") {
-      const detail = (first as Record<string, unknown>).detail;
-      if (typeof detail === "string") {
-        const match = detail.match(/request[_ ]id[=:]?\s*([a-zA-Z0-9-_]+)/i);
+      const rec = first as Record<string, unknown>;
+      if (typeof rec.request_id === "string") return rec.request_id;
+      if (typeof rec.detail === "string") {
+        const match = rec.detail.match(/request[_ ]id[=:]?\s*([a-zA-Z0-9-_]+)/i);
         if (match) return match[1];
       }
-      const reqId = (first as Record<string, unknown>).request_id;
-      if (typeof reqId === "string") return reqId;
     }
   }
   return null;

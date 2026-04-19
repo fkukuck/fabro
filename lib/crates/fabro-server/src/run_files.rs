@@ -1,18 +1,15 @@
 #![allow(clippy::result_large_err, unreachable_pub)]
 
-//! GET /api/v1/runs/{id}/files — per-request coalescing and handler.
+//! `GET /api/v1/runs/{id}/files` — handler, coalescing primitive, and
+//! per-run materialization pipeline.
 //!
-//! This module exposes the per-run request-coalescing primitive consumed by
-//! the Files Changed endpoint. Concurrent HTTP callers for the same run share
-//! one materialization; concurrent callers for different runs proceed in
-//! parallel. See Unit 4 of the Run Files Changed plan for design rationale.
-//!
-//! The materialization is deliberately driven by [`tokio::spawn`] rather than
-//! polling a `Shared` future: the spawned task makes progress regardless of
-//! whether any caller is still waiting, so an abandoned request cannot leave
-//! orphan git subprocesses in the sandbox. All panics are caught and surfaced
-//! as a 500 `ApiError`, and the registry entry is removed on task completion
-//! so a follow-up request triggers a fresh materialization.
+//! Concurrent callers for the same run share one materialization; different
+//! runs proceed in parallel. Materialization is driven by [`tokio::spawn`]
+//! so it makes progress regardless of caller liveness — an abandoned
+//! request cannot leave orphan git subprocesses in the sandbox. Panics are
+//! caught and surfaced as 500 `ApiError` to every coalesced caller; the
+//! registry entry is removed on task completion so a follow-up request
+//! triggers a fresh materialization.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -53,6 +50,18 @@ pub(crate) const AGGREGATE_BYTES_CAP: u64 = 5 * 1024 * 1024;
 pub(crate) const FILE_COUNT_CAP: usize = 200;
 /// Sandbox git timeout. Matches Unit 3 helpers (10 s).
 const SANDBOX_GIT_TIMEOUT_MS: u64 = 10_000;
+
+/// Below this SHA count the phase-1 `cat-file --batch-check` pre-filter is
+/// skipped — its ~100 ms round-trip dominates for small diffs, and phase-2
+/// already size-caps per blob.
+const METADATA_PHASE_SHA_THRESHOLD: usize = 10;
+
+fn transient_503(op: &str, message: &str) -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        format!("Sandbox {op} failed: {message}"),
+    )
+}
 
 /// Query parameters accepted by `GET /runs/{id}/files`.
 #[derive(Debug, Deserialize, Default)]
@@ -151,22 +160,19 @@ where
 
 // ── HTTP handler ──────────────────────────────────────────────────────────
 
-/// `GET /api/v1/runs/{id}/files` — real handler.
+/// `GET /api/v1/runs/{id}/files` handler.
 ///
-/// Flow:
-/// 1. Parse & authenticate
-/// 2. Reject non-default `from_sha`/`to_sha` per R15 (v1 only serves the full
-///    run diff)
-/// 3. Load run projection (404 on missing/unauthorized — IDOR-safe)
-/// 4. Try to reconnect the sandbox; on success, run the sandbox git helpers and
-///    build a structured response
-/// 5. Fall through to empty envelope when no sandbox path is available. Unit 6
-///    replaces this branch with the `final_patch` degraded fallback.
+/// 1. Parse + authenticate. Reject non-default `from_sha`/`to_sha` (v1 only
+///    serves the full run diff).
+/// 2. Load the run projection. 404 covers both missing run and missing access —
+///    IDOR-safe.
+/// 3. Try to reconnect the sandbox; on success, build a structured diff.
+/// 4. On reconnect failure or garbage-collected base, fall through to a
+///    degraded response built from `RunProjection.final_patch`.
 ///
 /// All logging emits a single `tracing::info!` with an allowlisted field
-/// set: `run_id, file_count, bytes_total, duration_ms, truncated,
-/// binary_count, sensitive_count, symlink_count, submodule_count`. No
-/// paths, contents, or raw git stderr are logged.
+/// set enforced by [`RunFilesMetrics::emit`] — no paths, contents, or raw
+/// git stderr.
 pub async fn list_run_files(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
@@ -235,7 +241,7 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
     let projection = load_projection(state, run_id).await?;
 
     let Some(base_sha) = projection.start.as_ref().and_then(|s| s.base_sha.clone()) else {
-        // Run hasn't started yet (no base_sha). UI maps this to R4(a).
+        // Run hasn't started yet — no base_sha, no diff to compute.
         return Ok(empty_envelope());
     };
 
@@ -247,14 +253,20 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
         ));
     };
 
-    // Resolve HEAD to a concrete `to_sha` and capture its commit time for
-    // the "Checkpoint Xm ago" freshness indicator on the client.
-    let to_sha = resolve_head_sha(sandbox.as_ref()).await?;
-    let to_sha_committed_at = resolve_commit_time(sandbox.as_ref(), &to_sha).await;
+    // Resolve HEAD (sha + commit time) in one round-trip.
+    let (to_sha, to_sha_committed_at) = resolve_head_sha_and_time(sandbox.as_ref()).await?;
 
-    // Enumerate changes. Permanent errors (bad_sha, missing object) fall
-    // through to the patch-only fallback; transient errors surface as 503.
-    let raw_entries = match list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha).await {
+    // Enumerate changes and classify binary vs text in parallel — both
+    // traversals are mutually independent once `to_sha` is known, and
+    // running them sequentially would add ~100 ms per request on Daytona.
+    let (raw_res, binary_res) = tokio::join!(
+        list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha),
+        list_binary_paths(sandbox.as_ref(), &base_sha, &to_sha),
+    );
+
+    // Permanent errors (bad_sha, missing object) fall through to the
+    // patch-only fallback; transient errors surface as 503.
+    let raw_entries = match raw_res {
         Ok(v) => v,
         Err(DiffError::Permanent { .. }) => {
             return Ok(build_fallback_response(
@@ -263,29 +275,23 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
             ));
         }
         Err(DiffError::Transient { message }) => {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Sandbox git subprocess failed: {message}"),
-            ));
+            return Err(transient_503("git diff --raw", &message));
         }
     };
 
-    let binary_paths = match list_binary_paths(sandbox.as_ref(), &base_sha, &to_sha).await {
+    let binary_paths = match binary_res {
         Ok(v) => v,
         Err(DiffError::Permanent { .. }) => HashSet::new(),
         Err(DiffError::Transient { message }) => {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Sandbox git numstat failed: {message}"),
-            ));
+            return Err(transient_503("git diff --numstat", &message));
         }
     };
 
     let total_changed_before_cap = raw_entries.len();
 
     // Classify every entry against the denylist + binary/symlink/submodule
-    // flags FIRST so no-blob-needed placeholders don't consume cap slots that
-    // belong to real file changes (plan § Unit 5: R31 acts before R27).
+    // flags FIRST so no-blob-needed placeholders don't consume cap slots
+    // that belong to real file changes.
     let classified = classify_entries(&raw_entries, &binary_paths, is_sensitive);
 
     // Then cap the combined list at 200 entries.
@@ -559,8 +565,8 @@ async fn load_projection(
 /// Reconnect semantics tailored to the Files endpoint:
 /// - `Ok(Some(sandbox))`: reconnected, caller proceeds on the sandbox path.
 /// - `Ok(None)`: no sandbox record, reconnect failed, or the provider isn't
-///   supported by this build — caller falls through to the fallback branch
-///   (Unit 6) instead of returning 409.
+///   supported by this build — caller falls through to the degraded fallback
+///   instead of returning 409.
 /// - `Err(ApiError)`: unrecoverable error loading run state.
 async fn try_reconnect_run_sandbox(
     state: &Arc<AppState>,
@@ -576,36 +582,16 @@ async fn try_reconnect_run_sandbox(
     }
 }
 
-/// Return the commit time of `sha` in strict ISO 8601 via
-/// `git show -s --format=%cI`. `None` on any error (best-effort: the
-/// handler still succeeds without the freshness timestamp).
-async fn resolve_commit_time(
+/// Resolve HEAD's SHA and its commit time in a single sandbox round-trip.
+/// `git show -s --format=%H %cI HEAD` prints both on one line separated by
+/// a space. The commit time is best-effort — if parsing fails the handler
+/// still succeeds without the freshness timestamp.
+async fn resolve_head_sha_and_time(
     sandbox: &dyn Sandbox,
-    sha: &str,
-) -> Option<chrono::DateTime<chrono::Utc>> {
-    // SHAs come from `git rev-parse HEAD` so they're trusted hex; reject
-    // anything non-conforming as defense in depth before interpolation.
-    if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.is_empty() {
-        return None;
-    }
-    let cmd = format!("git -c core.hooksPath=/dev/null show -s --format=%cI {sha}");
-    let res = sandbox
-        .exec_command(&cmd, SANDBOX_GIT_TIMEOUT_MS, None, None, None)
-        .await
-        .ok()?;
-    if res.exit_code != 0 {
-        return None;
-    }
-    let iso = res.stdout.trim();
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .ok()
-        .map(|d| d.with_timezone(&chrono::Utc))
-}
-
-async fn resolve_head_sha(sandbox: &dyn Sandbox) -> std::result::Result<String, ApiError> {
+) -> std::result::Result<(String, Option<chrono::DateTime<chrono::Utc>>), ApiError> {
     let res = sandbox
         .exec_command(
-            "git rev-parse HEAD",
+            "git -c core.hooksPath=/dev/null show -s --format=%H\\ %cI HEAD",
             SANDBOX_GIT_TIMEOUT_MS,
             None,
             None,
@@ -619,14 +605,20 @@ async fn resolve_head_sha(sandbox: &dyn Sandbox) -> std::result::Result<String, 
             "Failed to resolve sandbox HEAD.",
         ));
     }
-    let sha = res.stdout.trim().to_string();
+    let line = res.stdout.trim();
+    let mut parts = line.splitn(2, ' ');
+    let sha = parts.next().unwrap_or("").to_string();
     if sha.is_empty() {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "Sandbox HEAD resolved to an empty value.",
         ));
     }
-    Ok(sha)
+    let committed_at = parts
+        .next()
+        .and_then(|iso| chrono::DateTime::parse_from_rfc3339(iso.trim()).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    Ok((sha, committed_at))
 }
 
 /// A classified changed-file entry. Preserves original enumeration order so
@@ -641,8 +633,7 @@ enum ClassifiedEntry {
 }
 
 /// Classify every raw entry against the denylist + binary flags. Runs before
-/// the 200-file cap so sensitive entries don't evict real changes (plan
-/// § Unit 5: R31 acts before R27).
+/// the 200-file cap so sensitive entries don't evict real changes.
 fn classify_entries(
     raw: &[RawDiffEntry],
     binary_paths: &HashSet<String>,
@@ -939,12 +930,12 @@ fn collect_blob_shas(classified: &[ClassifiedEntry]) -> Vec<String> {
 /// Phase 2 (contents): bulk `cat-file --batch` on the remaining SHAs.
 ///
 /// Failure modes:
-/// - Phase 1 permanent error: fall through with an empty size map; phase 2
-///   runs against the full SHA list (current behavior before this split).
+/// - Phase 1 permanent error: fall through with an empty size map; phase 2 runs
+///   against the full SHA list (current behavior before this split).
 /// - Phase 1 transient error: 503 to the client.
-/// - Phase 2 permanent error (malformed blob in stream): only the
-///   phase-2 SHAs get `None`; phase-1-classified oversized SHAs keep their
-///   `None` entries but with a semantically-accurate cause.
+/// - Phase 2 permanent error (malformed blob in stream): only the phase-2 SHAs
+///   get `None`; phase-1-classified oversized SHAs keep their `None` entries
+///   but with a semantically-accurate cause.
 /// - Phase 2 transient error: 503 to the client.
 async fn fetch_blob_table(
     sandbox: &dyn Sandbox,
@@ -956,26 +947,28 @@ async fn fetch_blob_table(
 
     let mut table: HashMap<String, Option<String>> = HashMap::with_capacity(shas.len());
 
-    // Phase 1: --batch-check for sizes.
-    let oversized: HashSet<String> = match stream_blob_metadata(sandbox, shas).await {
-        Ok(metas) => {
-            let mut set = HashSet::new();
-            for meta in metas {
-                if let Some(size) = meta.size {
-                    if size > PER_FILE_BYTES_CAP {
-                        set.insert(meta.sha);
-                    }
-                }
+    // Phase 1: --batch-check for sizes. Skipped for small SHA lists where
+    // the pre-filter's ~100 ms round-trip is pure overhead — `stream_blobs`
+    // already size-caps per blob and returns `None` for oversized ones.
+    // Phase 1 only earns its cost when a single malformed/huge blob could
+    // poison a large batch's parse.
+    let oversized: HashSet<String> = if shas.len() >= METADATA_PHASE_SHA_THRESHOLD {
+        match stream_blob_metadata(sandbox, shas).await {
+            Ok(metas) => metas
+                .into_iter()
+                .filter_map(|m| {
+                    m.size
+                        .filter(|size| *size > PER_FILE_BYTES_CAP)
+                        .map(|_| m.sha)
+                })
+                .collect(),
+            Err(DiffError::Permanent { .. }) => HashSet::new(),
+            Err(DiffError::Transient { message }) => {
+                return Err(transient_503("git cat-file --batch-check", &message));
             }
-            set
         }
-        Err(DiffError::Permanent { .. }) => HashSet::new(),
-        Err(DiffError::Transient { message }) => {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Sandbox git cat-file --batch-check failed: {message}"),
-            ));
-        }
+    } else {
+        HashSet::new()
     };
 
     // Record oversized blobs in the table as `None` so the caller emits
@@ -1009,10 +1002,7 @@ async fn fetch_blob_table(
             }
         }
         Err(DiffError::Transient { message }) => {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("Sandbox git cat-file --batch failed: {message}"),
-            ));
+            return Err(transient_503("git cat-file --batch", &message));
         }
     }
 
@@ -1189,9 +1179,9 @@ mod tests {
 
     #[tokio::test]
     async fn first_caller_cancelling_does_not_block_other_callers() {
-        // P2-13 regression: tokio::spawn detaches materialization from any
-        // individual caller, so the first caller dropping its future must
-        // not prevent a subsequent caller from receiving the result.
+        // tokio::spawn detaches materialization from any individual
+        // caller; the first caller dropping its future must not prevent
+        // a subsequent caller from receiving the result.
         let inflight = new_registry();
         let counter = Arc::new(AtomicUsize::new(0));
         let run = run_id("run_ffffffffffffffffffffffffff");
@@ -1230,7 +1220,7 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
-    // ── Tracing allowlist assertion (P2-11) ──────────────────────────────
+    // ── Tracing allowlist assertion ──────────────────────────────
 
     use std::sync::{Mutex as StdMutex, OnceLock};
 
@@ -1282,8 +1272,8 @@ mod tests {
 
     #[test]
     fn run_files_metrics_emit_writes_only_allowlisted_fields() {
-        // Plan § Unit 5: the tracing field set is an allowlist — no paths,
-        // contents, or raw git stderr may leak.
+        // The tracing field set is an allowlist — no paths, contents, or
+        // raw git stderr may leak.
         let captured = install_tracing_capture();
         captured.lock().unwrap().clear();
 
@@ -1391,9 +1381,9 @@ diff --git a/src/bar.rs b/src/bar.rs
 
     #[test]
     fn strip_denylisted_sections_catches_rename_with_sensitive_old_side() {
-        // Regression for P1-2: renaming away from a sensitive path must
-        // still strip the patch — the benign new path alone doesn't reveal
-        // the secret but the hunk body does.
+        // Renaming away from a sensitive path must still strip the patch
+        // — the benign new path alone doesn't reveal the secret but the
+        // hunk body does.
         let patch = "\
 diff --git a/.env.production b/docs/NOTES.md
 rename from .env.production
@@ -1414,9 +1404,9 @@ rename to docs/NOTES.md
 
     #[test]
     fn stitch_file_diff_returns_distinct_old_and_new_contents_for_modified() {
-        // Regression for P1-1: before this fix, the handler fetched only the
-        // new-side blob and duplicated it onto both sides, producing no-op
-        // diffs for all modified files.
+        // Modified files must expose distinct old/new contents; pulling
+        // only the new_blob and duplicating it would render as a no-op
+        // diff in `MultiFileDiff`.
         let entry = RawDiffEntry::Modified {
             path:     "src/main.rs".to_string(),
             old_blob: "aaaa000000000000000000000000000000000000".to_string(),

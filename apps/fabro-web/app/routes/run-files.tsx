@@ -26,6 +26,7 @@ import {
   EmptyState,
   InlineErrorBanner,
   LoadingSkeleton,
+  renderStatusError,
   RunFilesErrorBoundary,
   Toast,
 } from "./run-files/states";
@@ -38,13 +39,12 @@ export const handle = { wide: true };
  * Loader return type. Both initial loads and revalidations flow through the
  * same discriminated union so a revalidation failure does NOT unmount to
  * the route ErrorBoundary — it stays in-band as `{ data: null, error }`
- * and the component keeps showing the last-good data with an inline banner.
- * This is the plan's "prior content stays mounted; inline banner with
- * Retry" behavior for mid-session refresh failures (§ Unit 11).
+ * and the component keeps showing the last-good data with an inline
+ * banner.
  *
- * `error.requestId` is extracted from the 500-response body per R5 so the
- * UI can surface it verbatim in the copy ("Request ID: xyz. Contact
- * support.") — not just the bare status code.
+ * `error.requestId` is extracted from the 500-response body so the UI can
+ * surface it verbatim ("Request ID: xyz. Contact support.") rather than
+ * just the bare status code.
  */
 export type RunFilesLoaderResult = {
   data: PaginatedRunFileList | null;
@@ -185,11 +185,17 @@ function useFreshness(
   meta: PaginatedRunFileList["meta"] | null,
   lastFetchedAt: number | null,
 ): string | null {
+  // Only tick when there is actually a freshness label to keep fresh — no
+  // point re-rendering every 10s when `meta == null` and the toolbar
+  // would show nothing.
+  const hasLabel =
+    !!meta && (!!meta.to_sha_committed_at || lastFetchedAt !== null);
   const [, setTick] = useState(0);
   useEffect(() => {
+    if (!hasLabel) return undefined;
     const id = setInterval(() => setTick((t) => t + 1), 10_000);
     return () => clearInterval(id);
-  }, []);
+  }, [hasLabel]);
 
   if (!meta) return null;
   const now = Date.now();
@@ -289,38 +295,29 @@ export default function RunFiles({ loaderData }: any) {
   const runStatus = resolveRunStatus(matches);
 
   // Preserve the last successful payload so a failed revalidation can keep
-  // rendering the previous files while surfacing an inline banner. On the
-  // very first failure (no prior good data), we render the error state
-  // equivalent of the ErrorBoundary inline.
+  // rendering the previous files while surfacing an inline banner.
   const lastGoodDataRef = useRef<PaginatedRunFileList | null>(null);
-  if (result?.data) {
-    lastGoodDataRef.current = result.data;
-  }
-  const data: PaginatedRunFileList | null =
-    result?.data ?? lastGoodDataRef.current;
-
   const lastFetchedAtRef = useRef<number | null>(null);
-  const lastToShaRef = useRef<string | null>(null);
-  const previousDataLengthRef = useRef<number | null>(null);
   const [emptyToast, setEmptyToast] = useState<string | null>(null);
   const [deepLinkToast, setDeepLinkToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!result?.data) return;
-    lastFetchedAtRef.current = Date.now();
-    const currentToSha = (result.data.meta?.to_sha ?? null) as string | null;
-    const prevLen = previousDataLengthRef.current;
-    if (prevLen !== null && prevLen > 0 && result.data.data.length === 0) {
-      // Revalidation-now-empty toast: the user was looking at files, the
-      // latest fetch shows none.
+    const prev = lastGoodDataRef.current;
+    if (prev && prev.data.length > 0 && result.data.data.length === 0) {
       setEmptyToast("No changes in this run.");
       const id = setTimeout(() => setEmptyToast(null), 3500);
+      lastGoodDataRef.current = result.data;
+      lastFetchedAtRef.current = Date.now();
       return () => clearTimeout(id);
     }
-    previousDataLengthRef.current = result.data.data.length;
-    lastToShaRef.current = currentToSha;
+    lastGoodDataRef.current = result.data;
+    lastFetchedAtRef.current = Date.now();
     return undefined;
   }, [result?.data]);
+
+  const data: PaginatedRunFileList | null =
+    result?.data ?? lastGoodDataRef.current;
 
   useSseRevalidation(params.id);
 
@@ -469,54 +466,15 @@ export default function RunFiles({ loaderData }: any) {
     return <LoadingSkeleton />;
   }
 
-  // Initial load failed and we have no prior data to fall back on — render
-  // the status-specific error state inline per plan § R5. The route does
-  // not unmount; the RunFilesErrorBoundary is reserved for render-time
-  // errors that aren't surfaced by the loader at all.
+  // Initial load failed with no prior data to fall back on. The route
+  // stays mounted; `RunFilesErrorBoundary` is reserved for render-time
+  // React errors (the loader doesn't throw).
   if (initialError) {
-    // R5(c): access denied.
-    if (initialError.status === 401 || initialError.status === 403) {
-      return (
-        <div
-          role="status"
-          className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
-        >
-          You don't have access to this run's files.
-        </div>
-      );
-    }
-    // R5(a): 4xx transient (429) / 503 — retry affordance.
-    if (initialError.status === 429 || initialError.status === 503) {
-      return (
-        <InlineErrorBanner
-          message="The diff service is temporarily unavailable."
-          onRetry={() => revalidator.revalidate()}
-        />
-      );
-    }
-    // R5(d): 500 — surface request ID if we have it.
-    if (initialError.status >= 500) {
-      const suffix = initialError.requestId
-        ? ` Request ID: ${initialError.requestId}.`
-        : "";
-      return (
-        <div
-          role="status"
-          className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
-        >
-          Something went wrong.{suffix} Please contact support if this
-          persists.
-        </div>
-      );
-    }
-    // Any other 4xx that isn't 401/403/404/429 — treat like a retryable
-    // transient failure. The banner keeps the user in context.
-    return (
-      <InlineErrorBanner
-        message={`Couldn't load files (${initialError.status}).`}
-        onRetry={() => revalidator.revalidate()}
-      />
-    );
+    return renderStatusError({
+      status:    initialError.status,
+      requestId: initialError.requestId,
+      onRetry:   () => revalidator.revalidate(),
+    });
   }
 
   if (!data) {
@@ -534,11 +492,12 @@ export default function RunFiles({ loaderData }: any) {
   const { data: files, meta } = data;
 
   // Refresh is disabled when the server reports the same `to_sha` it
-  // reported on the previous fetch — no new checkpoint yet.
+  // reported on the previous successful fetch — no new checkpoint yet.
+  // `lastGoodDataRef.current` is updated in a useEffect, so during render
+  // it still holds the previous render's data (or null on first load).
+  const prevToSha = lastGoodDataRef.current?.meta?.to_sha ?? null;
   const refreshDisabled =
-    !!meta.to_sha &&
-    lastToShaRef.current !== null &&
-    lastToShaRef.current === meta.to_sha;
+    !!meta.to_sha && prevToSha !== null && prevToSha === meta.to_sha;
 
   const toolbar = (
     <Toolbar

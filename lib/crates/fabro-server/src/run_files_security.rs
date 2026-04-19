@@ -1,19 +1,13 @@
-#![allow(unreachable_pub, dead_code)]
+#![allow(unreachable_pub)]
 
-//! Security helpers shared by the Run Files Changed endpoint: a globset-based
-//! sensitive-path denylist, a sandbox-git env-hardening helper, and a
-//! structured metrics emitter that enforces the tracing allowlist.
+//! Security helpers for the Run Files Changed endpoint: a globset-based
+//! sensitive-path denylist and a structured metrics emitter that enforces
+//! the tracing allowlist.
 //!
-//! All matching is path-based and case-insensitive. The denylist is a
-//! defense-in-depth control — it is not a content scanner and will not
-//! catch arbitrary secrets hidden inside non-secret file extensions.
-//!
-//! `sandbox_git_env` and `RunFilesMetrics` are intentionally public APIs
-//! even though they're currently consumed by a single caller — the module
-//! is designed as a reusable surface for any future sensitive-data-adjacent
-//! endpoint.
+//! Matching is path-based and case-insensitive. The denylist is a
+//! defense-in-depth control — not a content scanner, and it won't catch
+//! arbitrary secrets hidden inside non-secret file extensions.
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use fabro_types::RunId;
@@ -140,17 +134,6 @@ fn normalize_for_match(path: &str) -> String {
     out
 }
 
-/// Environment additions applied to every sandbox-side git invocation under
-/// the Run Files endpoint. Pairs with the hardened `-c` flags the sandbox
-/// git helpers already use.
-#[must_use]
-pub fn sandbox_git_env() -> HashMap<String, String> {
-    HashMap::from([
-        ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
-        ("GIT_EXTERNAL_DIFF".to_string(), String::new()),
-    ])
-}
-
 /// Metrics emitted at the tail of every Run Files response. The field set is
 /// deliberately the only shape of tracing output the endpoint produces —
 /// enforced by `emit`, which never interpolates or logs individual paths,
@@ -261,15 +244,5 @@ mod tests {
         assert!(is_sensitive("keys/ID_RSA")); // ASCII baseline
         // A non-sensitive unicode path must still not match any glob.
         assert!(!is_sensitive("docs/Ähnlichkeit.md"));
-    }
-
-    #[test]
-    fn sandbox_git_env_sets_expected_pairs() {
-        let env = sandbox_git_env();
-        assert_eq!(
-            env.get("GIT_TERMINAL_PROMPT").map(String::as_str),
-            Some("0")
-        );
-        assert_eq!(env.get("GIT_EXTERNAL_DIFF").map(String::as_str), Some(""));
     }
 }

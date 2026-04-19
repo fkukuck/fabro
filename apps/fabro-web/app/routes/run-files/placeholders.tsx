@@ -1,5 +1,8 @@
 import type { ReactElement } from "react";
-import type { FileDiff as ApiFileDiff } from "@qltysh/fabro-api-client";
+import type {
+  FileDiff as ApiFileDiff,
+  RunFilesMetaDegradedReasonEnum,
+} from "@qltysh/fabro-api-client";
 
 const PLACEHOLDER_CLASSES =
   "flex items-center justify-between rounded-md border border-line bg-panel/60 px-4 py-3 text-sm text-fg-muted";
@@ -95,7 +98,11 @@ export function pickPlaceholder(file: ApiFileDiff): ReactElement | null {
   return null;
 }
 
-export function DegradedBanner({ reason }: { reason?: string }) {
+export function DegradedBanner({
+  reason,
+}: {
+  reason?: RunFilesMetaDegradedReasonEnum;
+}) {
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
       {bannerCopyForReason(reason)}
@@ -103,7 +110,9 @@ export function DegradedBanner({ reason }: { reason?: string }) {
   );
 }
 
-export function bannerCopyForReason(reason: string | undefined): string {
+export function bannerCopyForReason(
+  reason: RunFilesMetaDegradedReasonEnum | undefined | string,
+): string {
   switch (reason) {
     case "sandbox_gone":
       return "Showing final patch only. This run's sandbox has been cleaned up, so individual file contents are no longer available.";
