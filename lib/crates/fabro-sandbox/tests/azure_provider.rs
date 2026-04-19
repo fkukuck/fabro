@@ -19,14 +19,15 @@ fn configure_test_azure_env() {
 async fn azure_parallel_worktree_path_uses_workspace_scratch_dir() {
     configure_test_azure_env();
     let spec = SandboxSpec::Azure {
-        config:       AzureConfig {
+        config:           AzureConfig {
             image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".into()),
             cpu:       Some(2.0),
             memory_gb: Some(4.0),
         },
-        github_app:   None,
-        run_id:       None,
-        clone_branch: None,
+        github_app:       None,
+        run_id:           None,
+        clone_origin_url: None,
+        clone_branch:     None,
     };
     let sandbox = spec.build(None).await.unwrap();
     let path =

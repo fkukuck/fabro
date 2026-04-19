@@ -534,6 +534,7 @@ async fn run_sandbox_check(
             config: daytona_config.unwrap_or_default(),
             github_app,
             run_id: None,
+            clone_origin_url: prepared.git.as_ref().map(|git| git.origin_url.clone()),
             clone_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
             api_key: daytona_api_key,
         }
@@ -544,6 +545,7 @@ async fn run_sandbox_check(
             config: resolve_azure_config(resolved_run).unwrap_or_default(),
             github_app,
             run_id: None,
+            clone_origin_url: prepared.git.as_ref().map(|git| git.origin_url.clone()),
             clone_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
         }
         .build(None)
