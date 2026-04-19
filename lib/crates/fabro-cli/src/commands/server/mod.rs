@@ -181,9 +181,10 @@ fn maybe_install_bootstrap(
         None => default_install_bind_request(),
     };
 
-    let storage_dir = storage_dir
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| legacy_default_storage_root().join("storage"));
+    let storage_dir = storage_dir.map_or_else(
+        || legacy_default_storage_root().join("storage"),
+        std::path::Path::to_path_buf,
+    );
 
     Ok(Some(InstallBootstrap {
         bind_request,

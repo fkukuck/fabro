@@ -54,7 +54,7 @@ pub(crate) async fn ensure_server_running_for_storage(
     config_path: &Path,
 ) -> Result<Bind> {
     ensure_storage_server_autostart_allowed(
-        std::env::var_os(FABRO_CONFIG_ENV),
+        std::env::var_os(FABRO_CONFIG_ENV).as_deref(),
         config_path,
         &default_settings_path(),
     )?;
@@ -143,7 +143,7 @@ async fn ensure_server_running_with_bind(
 }
 
 fn ensure_storage_server_autostart_allowed(
-    config_env: Option<std::ffi::OsString>,
+    config_env: Option<&std::ffi::OsStr>,
     config_path: &Path,
     default_settings_path: &Path,
 ) -> Result<()> {

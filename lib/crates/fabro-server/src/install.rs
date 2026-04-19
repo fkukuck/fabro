@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::convert::Infallible;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use axum::extract::{OriginalUri, Query, State};
+use axum::extract::{OriginalUri, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
-use axum::{Json, Router};
+use axum::{Json, Router, middleware};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use fabro_auth::{AuthCredential, AuthDetails, credential_id_for};
@@ -20,6 +21,7 @@ use fabro_install::{
 };
 use fabro_model::Provider;
 use fabro_store::ArtifactStore;
+use fabro_types::settings::SettingsLayer;
 use fabro_util::version::FABRO_VERSION;
 use fabro_util::{Home, dev_token, session_secret};
 use fabro_vault::SecretType as VaultSecretType;
@@ -37,10 +39,10 @@ use crate::{security_headers, static_files};
 
 #[derive(Clone)]
 pub struct InstallAppState {
-    install_token:      Arc<String>,
+    install_token:      Arc<str>,
     pending_install:    Arc<Mutex<PendingInstall>>,
-    storage_dir:        Arc<PathBuf>,
-    config_path:        Arc<PathBuf>,
+    storage_dir:        Arc<Path>,
+    config_path:        Arc<Path>,
     home:               Option<Home>,
     install_listen:     Arc<Mutex<InstallListenConfig>>,
     first_operator:     Arc<Mutex<Option<InstallOperatorFingerprint>>>,
@@ -71,10 +73,10 @@ impl InstallAppState {
     #[must_use]
     pub fn new(token: String, storage_dir: &Path, config_path: &Path) -> Self {
         Self {
-            install_token:      Arc::new(token),
+            install_token:      Arc::from(token),
             pending_install:    Arc::new(Mutex::new(PendingInstall::default())),
-            storage_dir:        Arc::new(storage_dir.to_path_buf()),
-            config_path:        Arc::new(config_path.to_path_buf()),
+            storage_dir:        Arc::from(storage_dir),
+            config_path:        Arc::from(config_path),
             home:               None,
             install_listen:     Arc::new(Mutex::new(InstallListenConfig::Tcp(
                 DEFAULT_INSTALL_TCP_LISTEN_ADDRESS.to_string(),
@@ -95,10 +97,10 @@ impl InstallAppState {
     #[must_use]
     pub fn for_test_with_paths(token: &str, storage_dir: &Path, config_path: &Path) -> Self {
         Self {
-            install_token:      Arc::new(token.to_string()),
+            install_token:      Arc::from(token),
             pending_install:    Arc::new(Mutex::new(PendingInstall::default())),
-            storage_dir:        Arc::new(storage_dir.to_path_buf()),
-            config_path:        Arc::new(config_path.to_path_buf()),
+            storage_dir:        Arc::from(storage_dir),
+            config_path:        Arc::from(config_path),
             home:               None,
             install_listen:     Arc::new(Mutex::new(InstallListenConfig::Tcp(
                 DEFAULT_INSTALL_TCP_LISTEN_ADDRESS.to_string(),
@@ -338,18 +340,18 @@ pub fn build_install_router(state: InstallAppState) -> Router {
         )
         .route("/install/finish", post(post_install_finish))
         .with_state(state)
-        .fallback_service(service_fn(move |req: axum::extract::Request| async move {
+        .fallback_service(service_fn(move |req: Request| async move {
             let path = req.uri().path().to_string();
             if path.starts_with("/api/") {
-                Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
+                Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
             } else if matches!(req.method(), &Method::GET | &Method::HEAD) {
                 let headers = req.headers().clone();
-                Ok::<_, std::convert::Infallible>(static_files::serve_install(&path, &headers))
+                Ok::<_, Infallible>(static_files::serve_install(&path, &headers))
             } else {
-                Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
+                Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
             }
         }))
-        .layer(axum::middleware::from_fn(security_headers::layer))
+        .layer(middleware::from_fn(security_headers::layer))
 }
 
 struct InstallFinishGuard {
@@ -656,12 +658,7 @@ async fn post_install_github_app_manifest(
         );
     }
 
-    let state_token = match generate_ephemeral_secret() {
-        Ok(token) => token,
-        Err(err) => {
-            return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
-        }
-    };
+    let state_token = generate_ephemeral_secret();
     let manifest = build_github_app_manifest(
         input.app_name.trim(),
         &format!(
@@ -677,7 +674,7 @@ async fn post_install_github_app_manifest(
         owner:            owner.clone(),
         app_name:         input.app_name.trim().to_string(),
         allowed_username: input.allowed_username.trim().to_string(),
-        expires_at:       now + Duration::from_secs(600),
+        expires_at:       now + Duration::from_mins(10),
     });
 
     Json(serde_json::json!({
@@ -747,10 +744,7 @@ async fn get_install_github_app_redirect(
             info!(step = "github_app", "install step completed");
             (StatusCode::FOUND, [(
                 header::LOCATION,
-                format!(
-                    "/install/github/done?token={}",
-                    state.install_token.as_str()
-                ),
+                format!("/install/github/done?token={}", &*state.install_token),
             )])
                 .into_response()
         }
@@ -978,7 +972,7 @@ fn token_is_valid(state: &InstallAppState, headers: &HeaderMap, query_token: Opt
     ]
     .into_iter()
     .flatten()
-    .any(|token| token == state.install_token.as_str())
+    .any(|token| token == &*state.install_token)
 }
 
 fn require_valid_token(
@@ -1144,8 +1138,8 @@ fn validate_canonical_url(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_ephemeral_secret() -> anyhow::Result<String> {
-    Ok(URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>()))
+fn generate_ephemeral_secret() -> String {
+    URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>())
 }
 
 fn build_github_app_manifest(
@@ -1304,7 +1298,7 @@ async fn exchange_github_app_manifest_code(
 }
 
 async fn write_artifact_store_metadata(
-    settings: &fabro_types::settings::SettingsLayer,
+    settings: &SettingsLayer,
     storage_dir: &Path,
 ) -> anyhow::Result<()> {
     use fabro_types::settings::interp::InterpString;
