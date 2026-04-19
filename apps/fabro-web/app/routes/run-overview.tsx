@@ -12,6 +12,7 @@ import {
   GRAPH_ZOOM_STEPS,
   GraphToolbar,
 } from "../components/graph-toolbar";
+import { EmptyState } from "../components/state";
 import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
@@ -230,9 +231,10 @@ export default function RunOverview({ loaderData }: any) {
             </div>
           </div>
         ) : (
-          <div className="rounded-md border border-line bg-panel-alt p-10 text-center">
-            <p className="text-sm/6 text-fg-3">No workflow graph available.</p>
-          </div>
+          <EmptyState
+            title="No workflow graph"
+            description="This run doesn't have a renderable graph yet."
+          />
         )}
       </div>
     </div>

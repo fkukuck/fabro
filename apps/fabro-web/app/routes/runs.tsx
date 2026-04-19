@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { ciConfig, columnStatusDisplay, deriveCiStatus, mapRunListItem } from "../data/runs";
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
 import { apiPaginatedJson } from "../api";
+import { EmptyState } from "../components/state";
 import type { PaginatedBoardRunList } from "@qltysh/fabro-api-client";
 
 export function meta({}: any) {
@@ -607,7 +608,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function EmptyState() {
+function RunsLandingEmpty() {
   return (
     <div className="mt-4 flex flex-col items-center">
       <div className="w-full max-w-lg space-y-5">
@@ -741,6 +742,10 @@ export default function Runs({ loaderData }: any) {
           (item.number != null && `#${item.number}`.includes(lowerQuery))),
     ),
   }));
+  const filteredRuns = filteredColumns.reduce(
+    (sum, col) => sum + col.items.length,
+    0,
+  );
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -808,9 +813,16 @@ export default function Runs({ loaderData }: any) {
                 </div>
               ))}
             </div>
-            {totalRuns === 0 && (
-              <EmptyState />
-            )}
+            {totalRuns === 0 ? (
+              <RunsLandingEmpty />
+            ) : filteredRuns === 0 ? (
+              <div className="py-8">
+                <EmptyState
+                  title="No matching runs"
+                  description="Try clearing the search or repo filter."
+                />
+              </div>
+            ) : null}
           </>
         ) : (
           <>
@@ -853,9 +865,16 @@ export default function Runs({ loaderData }: any) {
                 );
               })}
             </div>
-            {totalRuns === 0 && (
-              <EmptyState />
-            )}
+            {totalRuns === 0 ? (
+              <RunsLandingEmpty />
+            ) : filteredRuns === 0 ? (
+              <div className="py-8">
+                <EmptyState
+                  title="No matching runs"
+                  description="Try clearing the search or repo filter."
+                />
+              </div>
+            ) : null}
           </>
         )}
       </div>

@@ -43,6 +43,7 @@ import {
   PRIMARY_BUTTON_CLASS,
   SECONDARY_BUTTON_CLASS,
 } from "./components/ui";
+import { LoadingState } from "./components/state";
 
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
@@ -260,9 +261,7 @@ export default function InstallApp() {
   if (sessionState.status === "loading") {
     return (
       <InstallLayout currentStep={currentStep} completedSteps={completedSteps}>
-        <StatusPanel title="Connecting to install session">
-          Reading the current install state from the server.
-        </StatusPanel>
+        <LoadingState label="Connecting to install session…" />
       </InstallLayout>
     );
   }
@@ -1190,24 +1189,6 @@ function GithubAppDoneScreen({
           Continue to review
           <ArrowRightIcon className="size-4 shrink-0" />
         </Link>
-      </div>
-    </div>
-  );
-}
-
-function StatusPanel({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg bg-overlay px-4 py-3 outline-1 -outline-offset-1 outline-white/10">
-      <Spinner className="mt-0.5 text-teal-300" />
-      <div>
-        <p className="text-sm font-medium text-fg">{title}</p>
-        <p className="mt-1 text-sm/6 text-fg-3">{children}</p>
       </div>
     </div>
   );

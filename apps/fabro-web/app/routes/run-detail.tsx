@@ -4,6 +4,7 @@ import { Link, Outlet, useFetcher, useLocation } from "react-router";
 import { mapRunSummaryToRunItem, runStatusDisplay, isRunStatus } from "../data/runs";
 import type { RunSummaryResponse } from "../data/runs";
 import { apiJson } from "../api";
+import { ErrorState } from "../components/state";
 import { useDemoMode } from "../lib/demo-mode";
 import type { PreviewUrlResponse } from "@qltysh/fabro-api-client";
 
@@ -72,7 +73,14 @@ export default function RunDetail({ loaderData, params }: any) {
   }, [previewFetcher.data]);
 
   if (!run) {
-    return <p className="py-8 text-center text-sm text-fg-muted">Run not found.</p>;
+    return (
+      <div className="py-12">
+        <ErrorState
+          title="Run not found"
+          description="The run you're looking for doesn't exist or was deleted."
+        />
+      </div>
+    );
   }
 
   return (

@@ -1,4 +1,5 @@
 import { apiJson } from "../api";
+import { EmptyState } from "../components/state";
 import { formatDurationSecs } from "../lib/format";
 import type { RunBilling } from "@qltysh/fabro-api-client";
 
@@ -42,8 +43,11 @@ export default function RunBilling({ loaderData }: any) {
 
   if (!stages.length) {
     return (
-      <div className="rounded-md border border-line bg-panel-alt p-10 text-center">
-        <p className="text-sm/6 text-fg-3">No billing recorded for this run yet.</p>
+      <div className="py-12">
+        <EmptyState
+          title="No billing yet"
+          description="Token usage and cost will appear here once stages complete."
+        />
       </div>
     );
   }

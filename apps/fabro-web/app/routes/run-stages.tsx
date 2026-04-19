@@ -6,6 +6,7 @@ import { ToolBlock } from "../components/tool-use";
 import type { ToolUse } from "../components/tool-use";
 import { StageSidebar, statusConfig } from "../components/stage-sidebar";
 import type { Stage } from "../components/stage-sidebar";
+import { EmptyState } from "../components/state";
 import { apiJson, apiJsonOrNull } from "../api";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
@@ -313,7 +314,14 @@ export default function RunStages({ loaderData }: any) {
   }, [isRunning]);
 
   if (!stages.length) {
-    return <p className="py-8 text-center text-sm text-fg-muted">No stages available for this run.</p>;
+    return (
+      <div className="py-12">
+        <EmptyState
+          title="No stages yet"
+          description="Stages will appear here once the run begins executing."
+        />
+      </div>
+    );
   }
 
   const selectedConfig = statusConfig[selectedStage.status];
