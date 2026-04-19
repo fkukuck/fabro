@@ -80,3 +80,39 @@ name = "sonnet"
     );
     assert_eq!(settings.model.name, Some(InterpString::parse("sonnet")));
 }
+
+#[test]
+fn resolves_run_scm_github_permissions() {
+    let file = parse(
+        r#"
+_version = 1
+
+[run.scm.github.permissions]
+contents = "write"
+issues = "read"
+"#,
+    );
+
+    let settings = fabro_config::resolve_run_from_file(&file).expect("run settings should resolve");
+
+    let github = settings
+        .scm
+        .github
+        .expect("github scm settings should resolve");
+    assert_eq!(
+        github
+            .permissions
+            .get("contents")
+            .map(InterpString::as_source)
+            .as_deref(),
+        Some("write")
+    );
+    assert_eq!(
+        github
+            .permissions
+            .get("issues")
+            .map(InterpString::as_source)
+            .as_deref(),
+        Some("read")
+    );
+}

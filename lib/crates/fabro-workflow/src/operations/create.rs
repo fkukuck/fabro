@@ -815,6 +815,15 @@ mod tests {
                             mode: Some(RunMode::DryRun),
                             ..RunExecutionLayer::default()
                         }),
+                        scm: Some(RunScmLayer {
+                            github: Some(ScmGitHubLayer {
+                                permissions: HashMap::from([(
+                                    "contents".to_string(),
+                                    InterpString::parse("write"),
+                                )]),
+                            }),
+                            ..RunScmLayer::default()
+                        }),
                         ..RunLayer::default()
                     }
                 }),
@@ -881,6 +890,20 @@ mod tests {
                 .run
                 .pull_request
                 .is_none()
+        );
+        assert_eq!(
+            created
+                .persisted
+                .run_spec()
+                .settings
+                .run
+                .scm
+                .github
+                .as_ref()
+                .and_then(|github| github.permissions.get("contents"))
+                .map(fabro_types::settings::InterpString::as_source)
+                .as_deref(),
+            Some("write")
         );
         assert_eq!(
             created.persisted.run_spec().workflow_slug.as_deref(),
