@@ -58,18 +58,19 @@
 /* ── Light theme overrides ── */
 
 .light {
-  /* Semantic tokens */
-  --color-page: #ffffff;
-  --color-panel: #f8fafc;
-  --color-panel-alt: #f1f5f9;
-  --color-overlay: rgba(0, 0, 0, 0.04);
-  --color-overlay-strong: rgba(0, 0, 0, 0.10);
+  /* Semantic tokens — page is softly tinted so panels/cards (white)
+     read as the lighter surface, mirroring the dark-theme hierarchy. */
+  --color-page: #f3f6fa;
+  --color-panel: #ffffff;
+  --color-panel-alt: #e9eef5;
+  --color-overlay: rgba(15, 23, 41, 0.04);
+  --color-overlay-strong: rgba(15, 23, 41, 0.08);
   --color-fg: #0f172a;
   --color-fg-2: #1e293b;
   --color-fg-3: #475569;
   --color-fg-muted: #94a3b8;
-  --color-line: rgba(0, 0, 0, 0.08);
-  --color-line-strong: rgba(0, 0, 0, 0.15);
+  --color-line: rgba(15, 23, 41, 0.08);
+  --color-line-strong: rgba(15, 23, 41, 0.14);
   --color-focus: rgba(14, 116, 144, 0.5);
 
   /* Accent — darkened for WCAG AA on white */
