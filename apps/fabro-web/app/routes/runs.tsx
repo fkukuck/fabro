@@ -309,7 +309,7 @@ function PrCard({
   const lifecycleLabel = boardLifecycleStatusLabel(pr);
 
   return (
-    <Link to={`/runs/${pr.id}`} className="group block rounded-md border border-line bg-panel/80 p-4 transition-all duration-200 hover:border-line-strong hover:bg-panel hover:shadow-lg hover:shadow-black/20">
+    <Link to={`/runs/${pr.id}`} className="group block rounded-md border border-line bg-panel p-4 transition-all duration-200 hover:border-line-strong hover:shadow-lg hover:shadow-black/20">
       <div className="mb-2 flex items-center gap-1.5">
         <Icon className={`size-3.5 shrink-0 ${iconColor}`} />
         <span className="font-mono text-xs font-medium text-teal-500">
@@ -321,7 +321,7 @@ function PrCard({
           </span>
         )}
         {lifecycleLabel != null && (
-          <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-fg-muted">
+          <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-fg-muted">
             {lifecycleLabel}
           </span>
         )}
@@ -336,10 +336,10 @@ function PrCard({
           )}
           {pr.additions != null && pr.deletions != null && (
             <>
-              <span className="text-mint">
+              <span className="tabular-nums text-mint">
                 +{pr.additions.toLocaleString()}
               </span>
-              <span className="text-coral">
+              <span className="tabular-nums text-coral">
                 -{pr.deletions.toLocaleString()}
               </span>
             </>
@@ -459,7 +459,7 @@ function BoardColumn({ column }: { column: Column }) {
   const Icon = iconMap[column.iconType];
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-3 flex items-center gap-3">
         <div className={`h-2.5 w-2.5 rounded-full ${column.dot}`} />
         <h3 className="text-sm font-semibold tracking-wide text-fg-2">
           {column.name}
@@ -501,7 +501,7 @@ function RunRow({ run }: { run: RunWithStatus }) {
         <span className="font-mono text-xs font-medium text-teal-500">{run.repo}</span>
         <span className="truncate text-sm text-fg-2">{run.title}</span>
         {lifecycleLabel != null && (
-          <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-fg-muted">
+          <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-fg-muted">
             {lifecycleLabel}
           </span>
         )}
@@ -612,7 +612,7 @@ function EmptyState() {
     <div className="mt-4 flex flex-col items-center">
       <div className="w-full max-w-lg space-y-5">
         <p className="text-center text-sm text-fg-muted">
-          Workflow runs will appear here as you run them.
+          Your runs will appear here.
         </p>
 
         <div className="rounded-lg border border-line bg-panel/60 p-5">
@@ -750,7 +750,9 @@ export default function Runs({ loaderData }: any) {
             <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
             <input
               type="text"
-              placeholder="Search runs..."
+              name="search"
+              aria-label="Search runs"
+              placeholder="Search runs…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full rounded-md border border-line bg-panel/80 py-2 pl-9 pr-3 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
@@ -758,6 +760,8 @@ export default function Runs({ loaderData }: any) {
           </div>
           <div className="relative">
             <select
+              name="repo"
+              aria-label="Filter by repository"
               value={repoFilter}
               onChange={(e) => setRepoFilter(e.target.value)}
               className="appearance-none rounded-md border border-line bg-panel/80 py-2 pl-3 pr-8 text-sm text-fg-2 outline-none transition-colors focus:border-focus focus:ring-0"
@@ -769,11 +773,12 @@ export default function Runs({ loaderData }: any) {
             </select>
             <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-fg-muted" />
           </div>
-          <div className="flex rounded-md border border-line bg-panel/80">
+          <div role="group" aria-label="Run list view" className="flex rounded-md border border-line bg-panel/80 p-0.5">
             <button
               type="button"
               onClick={() => setView("columns")}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "columns" ? "text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
+              aria-pressed={view === "columns"}
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "columns" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
               aria-label="Columns view"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
@@ -783,7 +788,8 @@ export default function Runs({ loaderData }: any) {
             <button
               type="button"
               onClick={() => setView("list")}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${view === "list" ? "text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
+              aria-pressed={view === "list"}
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "list" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
               aria-label="List view"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
