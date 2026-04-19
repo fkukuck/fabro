@@ -903,7 +903,7 @@ async fn post_install_finish(
         state.storage_dir.as_ref(),
         &server_env_secrets,
         &vault_secrets,
-        Some(PendingSettingsWrite {
+        Some(&PendingSettingsWrite {
             path:              state.config_path.as_ref(),
             contents:          &settings_toml,
             previous_contents: previous_settings.as_deref(),

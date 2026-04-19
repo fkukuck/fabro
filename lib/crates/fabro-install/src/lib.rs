@@ -290,11 +290,11 @@ pub fn persist_install_outputs_direct(
     storage_dir: &Path,
     server_env_secrets: &[(String, String)],
     vault_secrets: &[VaultSecretWrite],
-    settings_write: Option<PendingSettingsWrite<'_>>,
+    settings_write: Option<&PendingSettingsWrite<'_>>,
 ) -> Result<()> {
     persist_server_env_secrets(storage_dir, server_env_secrets)?;
 
-    if let Some(ref write) = settings_write {
+    if let Some(write) = settings_write {
         if let Some(parent) = write.path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating settings directory {}", parent.display()))?;
@@ -308,7 +308,7 @@ pub fn persist_install_outputs_direct(
 
     if let Err(err) = persist_vault_secrets_direct(storage_dir, vault_secrets) {
         let mut rollback_failures = Vec::new();
-        if let Some(ref write) = settings_write {
+        if let Some(write) = settings_write {
             if let Err(restore_err) = restore_optional_file(write.path, write.previous_contents) {
                 rollback_failures.push(restore_err.to_string());
             }
@@ -332,7 +332,7 @@ pub fn persist_install_outputs_direct(
 
 #[cfg(test)]
 mod tests {
-    use fabro_config::Storage;
+    use fabro_config::{Storage, envfile};
     use fabro_vault::{SecretType as VaultSecretType, Vault};
 
     use super::{
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn config_toml_has_auth_strategies() {
-        use fabro_types::settings::SettingsLayer;
+        use fabro_types::settings::{ServerAuthMethod, SettingsLayer};
 
         let toml_str = format_config_toml();
         let cfg: SettingsLayer = fabro_config::parse_settings_layer(&toml_str).unwrap();
@@ -362,10 +362,7 @@ mod tests {
             .as_ref()
             .and_then(|s| s.auth.as_ref())
             .expect("server.auth should be set");
-        assert_eq!(
-            auth.methods,
-            Some(vec![fabro_types::settings::ServerAuthMethod::DevToken])
-        );
+        assert_eq!(auth.methods, Some(vec![ServerAuthMethod::DevToken]));
     }
 
     #[test]
@@ -464,7 +461,7 @@ name = "custom"
                 secret_type: VaultSecretType::Environment,
                 description: None,
             }],
-            Some(PendingSettingsWrite {
+            Some(&PendingSettingsWrite {
                 path:              &settings_path,
                 contents:          "_version = 1\n[server]\nfoo = \"bar\"\n",
                 previous_contents: Some("_version = 1\n[server]\n"),
@@ -481,8 +478,7 @@ name = "custom"
         assert_eq!(restored.get("EXISTING_SECRET"), Some("keep"));
         assert_eq!(restored.get("bad-secret-name"), None);
 
-        let server_env =
-            fabro_config::envfile::read_env_file(&storage.server_state().env_path()).unwrap();
+        let server_env = envfile::read_env_file(&storage.server_state().env_path()).unwrap();
         assert_eq!(
             server_env.get("SESSION_SECRET").map(String::as_str),
             Some("session")
@@ -491,6 +487,8 @@ name = "custom"
 
     #[test]
     fn merge_server_settings_keeps_tcp_bind_separate_from_public_web_url() {
+        use fabro_types::settings::server::ServerListenSettings;
+
         let mut doc = toml::Value::Table(toml::Table::default());
         merge_server_settings(
             &mut doc,
@@ -506,10 +504,10 @@ name = "custom"
         let resolved =
             fabro_config::resolve_server_from_file(&settings).expect("settings should resolve");
         match resolved.listen {
-            fabro_types::settings::server::ServerListenSettings::Tcp { address, .. } => {
+            ServerListenSettings::Tcp { address, .. } => {
                 assert_eq!(address.to_string(), "0.0.0.0:32276");
             }
-            fabro_types::settings::server::ServerListenSettings::Unix { .. } => {
+            ServerListenSettings::Unix { .. } => {
                 panic!("expected tcp listen settings");
             }
         }

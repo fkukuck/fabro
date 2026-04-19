@@ -27,6 +27,7 @@ fabro-github = { path = "../fabro-github" }
 fabro-agent = { path = "../fabro-agent" }
 fabro-devcontainer = { path = "../fabro-devcontainer" }
 fabro-hooks = { path = "../fabro-hooks" }
+fabro-install = { path = "../fabro-install" }
 fabro-interview = { path = "../fabro-interview" }
 fabro-mcp = { path = "../fabro-mcp" }
 fabro-proc = { path = "../fabro-proc" }

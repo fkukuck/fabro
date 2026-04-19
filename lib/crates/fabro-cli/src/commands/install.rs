@@ -18,6 +18,10 @@ use fabro_api::types::{CreateSecretRequest, SecretType as ApiSecretType};
 use fabro_auth::{AuthCredential, AuthMethod, codex_oauth_config, credential_id_for};
 use fabro_config::user::{SETTINGS_CONFIG_FILENAME, legacy_default_storage_root};
 use fabro_config::{ResolveError, Storage, envfile, legacy_env};
+use fabro_install::{
+    InstallListenConfig, generate_jwt_keypair, merge_server_settings as merge_server_settings_impl,
+    write_github_app_settings, write_token_settings,
+};
 use fabro_model::Provider;
 use fabro_server::bind::Bind;
 use fabro_server::serve;
@@ -32,8 +36,6 @@ use fabro_util::{dev_token, path, session_secret};
 use fabro_vault::{SecretType as VaultSecretType, Vault};
 use futures::future::BoxFuture;
 use rand::Rng;
-use ring::rand::SystemRandom;
-use ring::signature::{Ed25519KeyPair, KeyPair as _};
 use tokio::net::TcpListener;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::oneshot;
@@ -52,58 +54,10 @@ use crate::shared::provider_auth::{
 };
 use crate::{server_client, user_config};
 
-// ---------------------------------------------------------------------------
-// JWT keypair generation
-// ---------------------------------------------------------------------------
-
-const ED25519_SPKI_PREFIX: [u8; 12] = [
-    0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00,
-];
-const ED25519_PUBLIC_KEY_LEN: usize = 32;
 const GITHUB_TOKEN_SECRET_KEY: &str = "GITHUB_TOKEN";
 const GITHUB_APP_PRIVATE_KEY_KEY: &str = "GITHUB_APP_PRIVATE_KEY";
 const GITHUB_APP_CLIENT_SECRET_KEY: &str = "GITHUB_APP_CLIENT_SECRET";
 const GITHUB_APP_WEBHOOK_SECRET_KEY: &str = "GITHUB_APP_WEBHOOK_SECRET";
-
-fn pem_encode(label: &str, bytes: &[u8]) -> String {
-    let body = BASE64_STANDARD.encode(bytes);
-    let mut pem = String::new();
-    pem.push_str("-----BEGIN ");
-    pem.push_str(label);
-    pem.push_str("-----\n");
-    for chunk in body.as_bytes().chunks(64) {
-        pem.push_str(std::str::from_utf8(chunk).expect("base64 output should be valid UTF-8"));
-        pem.push('\n');
-    }
-    pem.push_str("-----END ");
-    pem.push_str(label);
-    pem.push_str("-----\n");
-    pem
-}
-
-fn ed25519_public_key_spki(public_key: &[u8]) -> Result<Vec<u8>> {
-    if public_key.len() != ED25519_PUBLIC_KEY_LEN {
-        bail!("generated Ed25519 public key had unexpected length");
-    }
-
-    let mut spki = Vec::with_capacity(ED25519_SPKI_PREFIX.len() + public_key.len());
-    spki.extend_from_slice(&ED25519_SPKI_PREFIX);
-    spki.extend_from_slice(public_key);
-    Ok(spki)
-}
-
-fn generate_jwt_keypair() -> Result<(String, String)> {
-    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new())
-        .map_err(|_| anyhow!("failed to generate Ed25519 keypair"))?;
-    let keypair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
-        .map_err(|_| anyhow!("failed to parse generated Ed25519 keypair"))?;
-    let public_der = ed25519_public_key_spki(keypair.public_key().as_ref())?;
-
-    Ok((
-        pem_encode("PRIVATE KEY", pkcs8.as_ref()),
-        pem_encode("PUBLIC KEY", &public_der),
-    ))
-}
 
 // ---------------------------------------------------------------------------
 // Auth status display
@@ -143,19 +97,6 @@ fn print_auth_status(
 // Config TOML generation
 // ---------------------------------------------------------------------------
 
-fn root_table_mut(doc: &mut toml::Value) -> Result<&mut toml::Table> {
-    doc.as_table_mut()
-        .context("settings.toml root is not a table")
-}
-
-fn ensure_table<'a>(table: &'a mut toml::Table, key: &str) -> Result<&'a mut toml::Table> {
-    table
-        .entry(key.to_string())
-        .or_insert_with(|| toml::Value::Table(toml::Table::default()))
-        .as_table_mut()
-        .with_context(|| format!("settings.toml [{key}] is not a table"))
-}
-
 /// Default web URL used by `fabro install` when `--web-url` is omitted.
 pub(crate) fn default_web_url() -> String {
     format!("http://127.0.0.1:{}", serve::DEFAULT_TCP_PORT)
@@ -170,132 +111,11 @@ fn merge_server_settings(doc: &mut toml::Value, web_url: &str) -> Result<()> {
         .split('/')
         .next()
         .unwrap_or(web_url);
-
-    let root = root_table_mut(doc)?;
-    root.insert("_version".to_string(), toml::Value::Integer(1));
-
-    let server = ensure_table(root, "server")?;
-
-    let api = ensure_table(server, "api")?;
-    api.insert(
-        "url".to_string(),
-        toml::Value::String(format!("{web_url}/api/v1")),
-    );
-
-    let listen = ensure_table(server, "listen")?;
-    listen.insert("type".to_string(), toml::Value::String("tcp".to_string()));
-    listen.insert(
-        "address".to_string(),
-        toml::Value::String(authority.to_string()),
-    );
-
-    let web = ensure_table(server, "web")?;
-    web.insert("enabled".to_string(), toml::Value::Boolean(true));
-    web.insert("url".to_string(), toml::Value::String(web_url.to_string()));
-
-    let auth = ensure_table(server, "auth")?;
-    auth.insert(
-        "methods".to_string(),
-        toml::Value::Array(vec![toml::Value::String("dev-token".to_string())]),
-    );
-
-    let cli = ensure_table(root, "cli")?;
-    let target = ensure_table(cli, "target")?;
-    target.insert("type".to_string(), toml::Value::String("http".to_string()));
-    target.insert("url".to_string(), toml::Value::String(web_url.to_string()));
-
-    Ok(())
-}
-
-fn github_integration_table(doc: &mut toml::Value) -> Result<&mut toml::Table> {
-    let root = doc
-        .as_table_mut()
-        .context("settings.toml root is not a table")?;
-    let server = root
-        .entry("server")
-        .or_insert(toml::Value::Table(toml::Table::default()));
-    let server_table = server
-        .as_table_mut()
-        .context("settings.toml [server] is not a table")?;
-    let integrations = server_table
-        .entry("integrations")
-        .or_insert(toml::Value::Table(toml::Table::default()));
-    let integrations_table = integrations
-        .as_table_mut()
-        .context("settings.toml [server.integrations] is not a table")?;
-    let github = integrations_table
-        .entry("github")
-        .or_insert(toml::Value::Table(toml::Table::default()));
-    github
-        .as_table_mut()
-        .context("settings.toml [server.integrations.github] is not a table")
-}
-
-fn write_token_settings(doc: &mut toml::Value) -> Result<()> {
-    if let Some(server) = doc.get_mut("server").and_then(toml::Value::as_table_mut) {
-        if let Some(auth) = server.get_mut("auth").and_then(toml::Value::as_table_mut) {
-            if let Some(methods) = auth.get_mut("methods").and_then(toml::Value::as_array_mut) {
-                methods.retain(|value| value.as_str() != Some("github"));
-                if methods.is_empty() {
-                    methods.push(toml::Value::String("dev-token".to_string()));
-                }
-            }
-            auth.remove("github");
-        }
-    }
-
-    let github = github_integration_table(doc)?;
-    github.insert("strategy".into(), toml::Value::String("token".to_string()));
-    github.remove("app_id");
-    github.remove("slug");
-    github.remove("client_id");
-    Ok(())
-}
-
-fn write_github_app_settings(
-    doc: &mut toml::Value,
-    app_id: &str,
-    slug: &str,
-    client_id: &str,
-    allowed_usernames: &[String],
-) -> Result<()> {
-    anyhow::ensure!(
-        !allowed_usernames.is_empty(),
-        "GitHub App install requires at least one allowed GitHub username"
-    );
-
-    let root = root_table_mut(doc)?;
-    let server = ensure_table(root, "server")?;
-    let auth = ensure_table(server, "auth")?;
-    let methods = auth
-        .entry("methods".to_string())
-        .or_insert_with(|| toml::Value::Array(Vec::new()))
-        .as_array_mut()
-        .context("settings.toml [server.auth].methods is not an array")?;
-    if !methods.iter().any(|value| value.as_str() == Some("github")) {
-        methods.push(toml::Value::String("github".to_string()));
-    }
-    let github_auth = ensure_table(auth, "github")?;
-    github_auth.insert(
-        "allowed_usernames".to_string(),
-        toml::Value::Array(
-            allowed_usernames
-                .iter()
-                .cloned()
-                .map(toml::Value::String)
-                .collect(),
-        ),
-    );
-
-    let github = github_integration_table(doc)?;
-    github.insert("strategy".into(), toml::Value::String("app".to_string()));
-    github.insert("app_id".into(), toml::Value::String(app_id.to_string()));
-    github.insert("slug".into(), toml::Value::String(slug.to_string()));
-    github.insert(
-        "client_id".into(),
-        toml::Value::String(client_id.to_string()),
-    );
-    Ok(())
+    merge_server_settings_impl(
+        doc,
+        web_url,
+        &InstallListenConfig::Tcp(authority.to_string()),
+    )
 }
 
 #[cfg(test)]
