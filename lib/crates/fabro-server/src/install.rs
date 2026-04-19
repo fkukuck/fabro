@@ -1179,6 +1179,51 @@ fn install_http_client_for_url(base_url: &str) -> Result<fabro_http::HttpClient,
     builder.build().map_err(|err| err.to_string())
 }
 
+/// Parse and validate an install-time upstream URL.
+///
+/// In production the base URL is a hardcoded constant
+/// (`DEFAULT_INSTALL_GITHUB_API_BASE_URL`, `DEFAULT_ANTHROPIC_BASE_URL`, …).
+/// Only test code can override via
+/// [`InstallAppState::with_github_api_base_url`]
+/// or [`InstallAppState::with_provider_base_url`], but CodeQL sees those
+/// `pub` setters as external entry points and traces taint into the
+/// `format!` URL construction sites below. Passing every upstream URL
+/// through this parser turns it into a typed `Url` with a verified scheme
+/// and host before it is combined with a path segment.
+fn parse_install_upstream_url(raw: &str) -> Result<fabro_http::Url, String> {
+    let url = fabro_http::Url::parse(raw).map_err(|err| err.to_string())?;
+    match url.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(format!(
+                "install upstream URL must use http or https, got {other}"
+            ));
+        }
+    }
+    if url.host_str().is_none() {
+        return Err("install upstream URL must include a host".to_string());
+    }
+    Ok(url)
+}
+
+/// Append `segments` as new path segments to a validated base URL.
+///
+/// Each segment is percent-encoded by `url`, so caller-controlled values
+/// (e.g. a GitHub manifest `code`) cannot insert additional path components,
+/// alter the host, or redirect the request to a different URL scheme.
+fn install_upstream_endpoint(base_url: &str, segments: &[&str]) -> Result<fabro_http::Url, String> {
+    let mut url = parse_install_upstream_url(base_url)?;
+    {
+        let mut path = url
+            .path_segments_mut()
+            .map_err(|()| "install upstream URL cannot be a base".to_string())?;
+        for segment in segments {
+            path.push(segment);
+        }
+    }
+    Ok(url)
+}
+
 async fn validate_llm_provider(
     state: &InstallAppState,
     input: &InstallLlmTestInput,
@@ -1200,9 +1245,10 @@ async fn validate_llm_provider(
     };
 
     let base_url = provider_base_url(state, input.provider);
+    let endpoint = install_upstream_endpoint(&base_url, &["models"])?;
     let client = install_http_client_for_url(&base_url)?;
     let mut request = client
-        .get(format!("{base_url}/models"))
+        .get(endpoint)
         .header(auth_header, auth_value)
         .header("User-Agent", "fabro-server");
     if matches!(input.provider, Provider::Anthropic) {
@@ -1256,9 +1302,10 @@ async fn validate_github_token(state: &InstallAppState, token: &str) -> Result<S
         .github_api_base_url
         .clone()
         .unwrap_or_else(|| DEFAULT_INSTALL_GITHUB_API_BASE_URL.to_string());
+    let endpoint = install_upstream_endpoint(&base_url, &["user"])?;
     let client = install_http_client_for_url(&base_url)?;
     let response = client
-        .get(format!("{base_url}/user"))
+        .get(endpoint)
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "fabro-server")
@@ -1276,14 +1323,18 @@ async fn exchange_github_app_manifest_code(
     state: &InstallAppState,
     code: &str,
 ) -> Result<GitHubAppManifestConversion, String> {
+    if !is_valid_github_manifest_code(code) {
+        return Err("install GitHub manifest code is not in the expected format".to_string());
+    }
     let base_url = state
         .upstreams
         .github_api_base_url
         .clone()
         .unwrap_or_else(|| DEFAULT_INSTALL_GITHUB_API_BASE_URL.to_string());
+    let endpoint = install_upstream_endpoint(&base_url, &["app-manifests", code, "conversions"])?;
     let client = install_http_client_for_url(&base_url)?;
     let response = client
-        .post(format!("{base_url}/app-manifests/{code}/conversions"))
+        .post(endpoint)
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "fabro-server")
         .send()
@@ -1295,6 +1346,18 @@ async fn exchange_github_app_manifest_code(
         return Err(format!("GitHub manifest conversion failed ({status})"));
     }
     response.json().await.map_err(|err| err.to_string())
+}
+
+/// GitHub's manifest-conversion `code` is short, unpadded-base64url by
+/// construction. Reject anything outside that alphabet so a malicious
+/// browser callback cannot smuggle extra path segments, host overrides, or
+/// query parameters into the request.
+fn is_valid_github_manifest_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.len() <= 256
+        && code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 async fn write_artifact_store_metadata(
