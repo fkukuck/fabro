@@ -247,8 +247,10 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
         ));
     };
 
-    // Resolve HEAD to a concrete `to_sha`.
+    // Resolve HEAD to a concrete `to_sha` and capture its commit time for
+    // the "Checkpoint Xm ago" freshness indicator on the client.
     let to_sha = resolve_head_sha(sandbox.as_ref()).await?;
+    let to_sha_committed_at = resolve_commit_time(sandbox.as_ref(), &to_sha).await;
 
     // Enumerate changes. Permanent errors (bad_sha, missing object) fall
     // through to the patch-only fallback; transient errors surface as 503.
@@ -346,7 +348,7 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
                 .then(|| i64::try_from(files_omitted_by_budget).unwrap_or(i64::MAX)),
             total_changed: i64::try_from(total_changed_before_cap).unwrap_or(i64::MAX),
             to_sha: Some(to_sha_wrapper(&to_sha)),
-            to_sha_committed_at: None,
+            to_sha_committed_at,
             degraded: Some(false),
             degraded_reason: None,
             patch: None,
@@ -398,6 +400,11 @@ fn build_fallback_response(
         .and_then(|c| c.final_git_commit_sha.clone())
         .map(|s| to_sha_wrapper(&s));
 
+    // The patch was captured when the run ended; no live sandbox to query
+    // for strict commit time, so the conclusion timestamp is the closest
+    // proxy. The client renders this as "Captured Xm ago".
+    let to_sha_committed_at = projection.conclusion.as_ref().map(|c| c.timestamp);
+
     PaginatedRunFileList {
         data: Vec::new(),
         meta: RunFilesMeta {
@@ -405,7 +412,7 @@ fn build_fallback_response(
             files_omitted_by_budget: None,
             total_changed: i64::try_from(total_changed).unwrap_or(i64::MAX),
             to_sha,
-            to_sha_committed_at: None,
+            to_sha_committed_at,
             degraded: Some(true),
             degraded_reason: Some(reason),
             patch: Some(filtered_patch),
@@ -568,6 +575,32 @@ async fn try_reconnect_run_sandbox(
         Ok(sandbox) => Ok(Some(sandbox)),
         Err(_) => Ok(None),
     }
+}
+
+/// Return the commit time of `sha` in strict ISO 8601 via
+/// `git show -s --format=%cI`. `None` on any error (best-effort: the
+/// handler still succeeds without the freshness timestamp).
+async fn resolve_commit_time(
+    sandbox: &dyn Sandbox,
+    sha: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    // SHAs come from `git rev-parse HEAD` so they're trusted hex; reject
+    // anything non-conforming as defense in depth before interpolation.
+    if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.is_empty() {
+        return None;
+    }
+    let cmd = format!("git -c core.hooksPath=/dev/null show -s --format=%cI {sha}");
+    let res = sandbox
+        .exec_command(&cmd, SANDBOX_GIT_TIMEOUT_MS, None, None, None)
+        .await
+        .ok()?;
+    if res.exit_code != 0 {
+        return None;
+    }
+    let iso = res.stdout.trim();
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
 }
 
 async fn resolve_head_sha(sandbox: &dyn Sandbox) -> std::result::Result<String, ApiError> {
