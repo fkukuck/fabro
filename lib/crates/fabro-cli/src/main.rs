@@ -420,66 +420,58 @@ async fn pre_tracing_bootstrap(command: &Commands) -> Result<PreTracingBootstrap
         Commands::Server(ServerNamespace {
             command: ServerCommand::Start(args),
         }) if args.foreground => {
-            prepare_foreground_server_bootstrap(
+            prepare_server_bootstrap(
                 args.serve_args.config.as_deref(),
                 args.storage_dir.as_deref(),
+                true,
             )
             .await
         }
         Commands::Server(ServerNamespace {
             command: ServerCommand::Restart(args),
         }) if args.foreground => {
-            prepare_foreground_server_bootstrap(
+            prepare_server_bootstrap(
                 args.serve_args.config.as_deref(),
                 args.storage_dir.as_deref(),
+                true,
             )
             .await
         }
         Commands::Server(ServerNamespace {
             command: ServerCommand::Serve(args),
-        }) => prepare_server_sink_bootstrap(
-            args.serve_args.config.as_deref(),
-            args.storage_dir.as_deref(),
-        ),
+        }) => {
+            prepare_server_bootstrap(
+                args.serve_args.config.as_deref(),
+                args.storage_dir.as_deref(),
+                false,
+            )
+            .await
+        }
         _ => Ok(PreTracingBootstrap::cli()),
     }
 }
 
-async fn prepare_foreground_server_bootstrap(
+async fn prepare_server_bootstrap(
     config_path: Option<&std::path::Path>,
     storage_dir: Option<&std::path::Path>,
+    foreground: bool,
 ) -> Result<PreTracingBootstrap> {
     let settings =
         user_config::load_settings_with_config_and_storage_dir(config_path, storage_dir)?;
     let storage_dir = user_config::storage_dir(&settings)?;
     let storage = fabro_config::Storage::new(&storage_dir);
-    let foreground_server_log_bootstrap =
-        commands::server::start::prepare_foreground_server_log(&storage_dir).await?;
+    let foreground_server_log_bootstrap = if foreground {
+        Some(commands::server::start::prepare_foreground_server_log(&storage_dir).await?)
+    } else {
+        None
+    };
 
     Ok(PreTracingBootstrap {
         sink: logging::InternalLogSink::Server {
             path: storage.server_state().log_path(),
         },
         config_log_level: server_config_log_level(&settings),
-        foreground_server_log_bootstrap: Some(foreground_server_log_bootstrap),
-    })
-}
-
-fn prepare_server_sink_bootstrap(
-    config_path: Option<&std::path::Path>,
-    storage_dir: Option<&std::path::Path>,
-) -> Result<PreTracingBootstrap> {
-    let settings =
-        user_config::load_settings_with_config_and_storage_dir(config_path, storage_dir)?;
-    let storage_dir = user_config::storage_dir(&settings)?;
-    let storage = fabro_config::Storage::new(&storage_dir);
-
-    Ok(PreTracingBootstrap {
-        sink: logging::InternalLogSink::Server {
-            path: storage.server_state().log_path(),
-        },
-        config_log_level: server_config_log_level(&settings),
-        foreground_server_log_bootstrap: None,
+        foreground_server_log_bootstrap,
     })
 }
 

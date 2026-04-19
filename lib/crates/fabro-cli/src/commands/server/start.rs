@@ -18,7 +18,8 @@ use tokio::time;
 use super::record;
 
 pub(crate) struct ForegroundServerLogBootstrap {
-    _lock_file: std::fs::File,
+    #[expect(dead_code, reason = "held for its Drop to release the server lock")]
+    lock_file: std::fs::File,
 }
 
 pub(crate) async fn execute(
@@ -76,9 +77,7 @@ pub(crate) async fn prepare_foreground_server_log(
     std::fs::File::create(&log_path)
         .with_context(|| format!("creating server log file {}", log_path.display()))?;
 
-    Ok(ForegroundServerLogBootstrap {
-        _lock_file: lock_file,
-    })
+    Ok(ForegroundServerLogBootstrap { lock_file })
 }
 
 pub(crate) async fn ensure_server_running_for_storage(
@@ -364,7 +363,7 @@ async fn execute_daemon(
     printer: Printer,
 ) -> Result<()> {
     let lock_file = acquire_lock(storage_dir).await?;
-    let _lock_file = lock_file; // keep alive until function returns
+    let _lock_file = lock_file;
 
     if let Some(existing) = record::active_server_record(storage_dir)? {
         if announce {

@@ -158,6 +158,6 @@ mod tests {
         write_server_record(&path, &record).unwrap();
 
         assert!(active_server_record(dir.path()).unwrap().is_none());
-        assert!(!path.exists()); // lazy cleanup removed file
+        assert!(!path.exists());
     }
 }
