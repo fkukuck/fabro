@@ -31,14 +31,14 @@ We need per-user, per-device CLI credentials that are server-side revocable, sho
 - **R9.** Server-side errors in the browser flow reach the CLI via OAuth-style redirect to loopback (`?error=&state=&error_description=`) when `redirect_uri`+`state` have validated; plain HTML page otherwise. (origin §Browser-to-CLI error handoff)
 - **R10.** GitHub allowlist rejection at `/auth/callback/github` happens **before** a session is minted; `/auth/cli/resume` must forward the callback's `?error=` to the CLI loopback without checking session first. (origin §/auth/cli/resume algorithm)
 - **R11.** `SESSION_SECRET` is reused as an HKDF master; cookie and JWT keys are domain-separated subkeys. No new env vars. (origin §Settings and secrets)
-- **R12.** `server.auth.methods=[github]` combined with `web.enabled=false` fails at server startup with a clear config error. Other "CLI login unavailable" states (github not in methods) are running-server states reported via preflight. (origin §Web mode and config validation)
+- **R12.** Startup validation refuses the server when `github` is in `auth.methods` AND any of: (a) `web.enabled = false`, (b) `SESSION_SECRET` missing or shorter than 32 bytes, (c) `server.auth.github.single_node_ack != true` (operator acknowledgment of the v1 single-node deployment constraint — see §Deployment constraint in Scope Boundaries). "CLI login unavailable" states reachable via preflight: `github` not in methods. (origin §Web mode and config validation, extended for single-node enforcement)
 - **R13.** IP allowlist, when enabled, covers every new endpoint (no carve-outs). (origin §IP allowlist)
 - **R14.** `fabro auth status` runs fully offline against local state (no server call); `--json` emits structured output; credentials and their expiry windows are shown per server. (origin §CLI UX)
 - **R15.** Integration tests exercise the real `web_auth.rs` OAuth glue end-to-end against a black-box `twin-github` extended with OAuth endpoints, not via `#[cfg(test)]` session injection. (origin §Prerequisite: twin-github OAuth extension)
 
 ## Scope Boundaries
 
-**Deployment constraint: single-node only for CLI OAuth login in v1.** The `/auth/cli/*` routes require single-node deployment of `fabro-server`. Multi-node deployments that enable `github` in `server.auth.methods` will have a genuine security gap (see below) and are **not supported** in v1. Operators who need multi-node must either (a) use `dev-token` auth only on multi-node deployments, (b) front their multi-node cluster with consistent-header-hashing routing (nginx/envoy) that pins the same refresh token to the same backend, or (c) wait for a future work item that adds distributed coordination.
+**Deployment constraint: single-node only for CLI OAuth login in v1 (enforced at startup).** The `/auth/cli/*` routes require single-node deployment of `fabro-server`. Multi-node deployments that enable `github` in `server.auth.methods` will have a genuine security gap (see below) and are **not supported** in v1. **The server refuses to boot when `github` is in methods unless the operator sets `server.auth.github.single_node_ack = true`** (Unit 5 startup validation). This forces an affirmative acknowledgment of the constraint; it does not auto-detect multi-node topology but makes the tradeoff legible and unambiguous. Operators who need multi-node must either (a) use `dev-token` auth only on multi-node deployments, (b) front their multi-node cluster with consistent-header-hashing routing (nginx/envoy) that pins the same refresh token to the same backend, or (c) wait for a future work item that adds distributed coordination.
 
 **Why single-node is required (refresh-token rotation):** Unit 10's per-hash mutex is in-process. Across nodes, SlateDB does not expose distributed compare-and-swap. Two concurrent refreshes of the same token landing on different nodes can both read `used=false`, both commit their WriteBatches, both mint valid descendants — and the refresh token itself is the only credential (no PKCE-equivalent second factor). This defeats theft-detection in the attacker-races-legitimate-client case: attacker's descendant lives indefinitely because neither party ever replays the old token. This is the precise failure mode rotation-with-reuse-detection is meant to prevent. Fabro's documented production deployment (AWS ALB + ECS) cannot natively do consistent-header-hashing at the ALB layer; operators wanting multi-node CLI auth must add a proxy layer (nginx/envoy) or wait for future work.
 
@@ -346,38 +346,54 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 
 ---
 
-- [ ] **Unit 5: Startup validation — `github + !web.enabled` fails at boot**
+- [ ] **Unit 5: Startup validation — GitHub-auth prerequisites (web enabled, SESSION_SECRET entropy, single-node acknowledgment)**
 
-**Goal:** Reject the incoherent config combination `server.auth.methods=[..., github, ...]` with `server.web.enabled=false` at startup.
+**Goal:** Refuse to boot when `github` is in `server.auth.methods` unless three preconditions are all satisfied:
+1. `server.web.enabled = true` (web routes are required for `/auth/cli/*`).
+2. `SESSION_SECRET` is present and ≥32 bytes (entropy floor for HKDF master).
+3. **`server.auth.github.single_node_ack = true`** — operator has acknowledged the v1 single-node deployment constraint (see §Deployment constraint in Scope Boundaries). Fails closed by default.
 
-**Requirements:** R12
+The third check is the enforcement mechanism for the "documentation-only constraint" gap: instead of letting an unsupported multi-node deployment silently boot with broken theft detection, the server refuses to start unless the operator explicitly affirms understanding.
+
+**Requirements:** R12 (extended)
 
 **Dependencies:** Unit 4
 
 **Files:**
-- Modify: `lib/crates/fabro-server/src/jwt_auth.rs` — extend `resolve_auth_mode_with_lookup` (`:46`) with the cross-field check; produce a `ResolveError::Invalid { path: "server.auth.methods", reason: "GitHub auth is enabled but server.web.enabled is false" }`.
+- Modify: `lib/crates/fabro-types/src/settings/server.rs` — extend `ServerAuthGithubSettings` with `pub single_node_ack: bool` (default `false`). Extend `ServerAuthGithubLayer` with `pub single_node_ack: Option<bool>`.
+- Modify: `lib/crates/fabro-config/src/resolve/server.rs` — resolve the new field (default `false` if absent).
+- Modify: `lib/crates/fabro-server/src/jwt_auth.rs` — extend `resolve_auth_mode_with_lookup` (`:46`) with the cross-field checks below.
 - Modify: `lib/crates/fabro-server/src/jwt_auth.rs` — store the HKDF-derived JWT key on `AuthMode::Enabled` (field `jwt_key: Option<JwtSigningKey>`); derive it in the same resolver using Unit 4's helper when `SESSION_SECRET` is present and github is enabled.
+- Modify: `lib/crates/fabro-config/src/defaults.toml` — no default for `single_node_ack` (so it defaults to `false`, fail-closed).
 - Test: `lib/crates/fabro-server/src/jwt_auth.rs` (existing `#[cfg(test)] mod tests`).
+- Test: `lib/crates/fabro-config/tests/resolve_server.rs` — round-trip the new field.
 
 **Approach:**
-- Add three checks alongside the existing `SESSION_SECRET` and `GITHUB_APP_CLIENT_SECRET` validations at `:60-65`:
-  1. `github in methods` with `web.enabled=false` → `ResolveError::Invalid`.
+- Add four checks alongside the existing `SESSION_SECRET` and `GITHUB_APP_CLIENT_SECRET` validations at `:60-65`:
+  1. `github in methods` with `web.enabled=false` → `ResolveError::Invalid { path: "server.auth.methods", reason: "GitHub auth requires server.web.enabled = true" }`.
   2. `github in methods` but `SESSION_SECRET` missing → (existing behavior, unchanged).
-  3. `github in methods` with `SESSION_SECRET` present but shorter than 32 bytes → `ResolveError::Invalid { path: "SESSION_SECRET", reason: "SESSION_SECRET must be at least 32 bytes (64 hex characters) when github auth is enabled — it now signs JWTs as well as session cookies. Current length: {got} bytes." }`. Uses the `KeyDeriveError::TooShort` from Unit 4's helper; the startup path translates it to `ResolveError`.
+  3. `github in methods` with `SESSION_SECRET` present but shorter than 32 bytes → `ResolveError::Invalid { path: "SESSION_SECRET", reason: "SESSION_SECRET must be at least 32 bytes (64 hex characters) when github auth is enabled — it now signs JWTs as well as session cookies. Current length: {got} bytes." }`. Uses the `KeyDeriveError::TooShort` from Unit 4's helper.
+  4. **`github in methods` with `single_node_ack != true` → `ResolveError::Invalid { path: "server.auth.github.single_node_ack", reason: "CLI OAuth login in v1 requires single-node deployment for refresh-token theft detection to work. Set server.auth.github.single_node_ack = true to acknowledge this constraint. See docs/administration/server-configuration.mdx for details, including multi-node workarounds (dev-token only, or a consistent-header-hashing proxy layer in front of the cluster)." }`**
 - `jwt_key` is `None` when github is not enabled — keeps non-github deployments clean.
+
+**Why an acknowledgment flag and not auto-detection?** Auto-detection via a SlateDB boot-heartbeat would add runtime complexity (heartbeat TTL, rolling-deploy false-positives, startup-time vs runtime semantics) for a security property the operator is in a better position to verify. An explicit config flag makes the constraint legible to operators reading their `settings.toml` and forces an active affirmative choice. Future multi-node support can introduce a different value (e.g., `multi_node_coordination = "redis_lock"`) when distributed coordination is actually implemented.
 
 **Patterns to follow:**
 - Existing `ResolveError::Invalid` pushes in `fabro-config/src/resolve/server.rs:103`.
+- Existing `ServerAuthGithubSettings` layer/resolved pair as the template for adding the bool field.
 
 **Test scenarios:**
-- Happy path: `methods=[dev-token, github]` + `web.enabled=true` + 32-byte `SESSION_SECRET` → resolves successfully with `jwt_key = Some(_)`.
-- Error path: `methods=[github]` + `web.enabled=false` → returns `ResolveError::Invalid` with the specific reason text.
+- Happy path: `methods=[dev-token, github]` + `web.enabled=true` + 32-byte `SESSION_SECRET` + `single_node_ack=true` → resolves successfully with `jwt_key = Some(_)`.
+- Error path: `methods=[github]` + `web.enabled=false` → returns `ResolveError::Invalid` with the web-enabled reason text.
 - Error path: `methods=[github]` + `web.enabled=true` + 31-byte `SESSION_SECRET` → returns `ResolveError::Invalid` with a path-of-`SESSION_SECRET` and a reason mentioning minimum length.
-- Edge case: `methods=[dev-token]` + `web.enabled=false` + weak `SESSION_SECRET` → resolves successfully (no github, no JWT key, entropy rule doesn't apply) with `jwt_key = None`.
+- **Error path — missing single_node_ack:** `methods=[github]` + `web.enabled=true` + 32-byte `SESSION_SECRET` + `single_node_ack=false` (or absent) → returns `ResolveError::Invalid` with `path = server.auth.github.single_node_ack`. The error message includes the three listed workarounds (dev-token-only, proxy layer, wait for future work).
+- **Happy path — opt-in:** same as above but with `single_node_ack=true` → resolves.
+- Edge case: `methods=[dev-token]` + `single_node_ack=<anything>` → `single_node_ack` is ignored (the constraint only applies when github is enabled). Resolves successfully with `jwt_key = None`.
 - Edge case: `methods=[github]` + `web.enabled=true` but no `SESSION_SECRET` → existing error wins (no regression).
 
 **Verification:**
 - New tests pass; existing `jwt_auth` tests still pass.
+- `settings.toml` round-trips the new field via `fabro-config`.
 
 ---
 
@@ -1318,7 +1334,7 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 | Risk | Mitigation |
 |------|------------|
 | Concurrent refresh race within a node masked by test flakiness | Unit 10's integration test uses N=32 tasks on one `SlateAuthTokenStore`, asserts the outcome histogram (exactly one `Rotated`, 31 `Reused`), and exercises a two-Arc-clone scenario to guard against accidental per-clone DashMaps. |
-| **Multi-node deployment of CLI OAuth login silently defeats refresh-token theft detection** | v1 does NOT support multi-node deployments with `github` in methods. Documented explicitly in Scope Boundaries + admin docs. The server does not detect and refuse the misconfiguration at startup — this is a documentation-only constraint in v1. Future work: add distributed coordination (SlateDB CAS / coordination service / LB consistent-hashing / leader election) OR add a startup-time detection where each node writes an ephemeral `fabro-server-node` row to SlateDB on boot and refuses to start CLI-auth routes if it sees another node's row. |
+| **Multi-node deployment of CLI OAuth login silently defeats refresh-token theft detection** | **Enforced at startup by Unit 5:** server refuses to boot when `github` is in methods unless `server.auth.github.single_node_ack = true`. The flag defaults to `false` (fail-closed). This is an operator-affirmation enforcement, not auto-detection — an operator who sets the flag and then deploys multi-node anyway bears the responsibility. Future work: add real auto-detection (boot-heartbeat in SlateDB) or distributed coordination (SlateDB CAS / coordination service / LB consistent-hashing / leader election). |
 | `SessionCookie` v1 → v2 migration + cookie-key derivation change forces global re-login | Acceptable; documented in plan; lands before CLI login GA. In-flight GitHub authorize flows at cutover also lose the `fabro_oauth_state` cookie and must restart — acceptable. |
 | Browser-to-CLI error handoff depends on `return_to` preservation on the existing GitHub callback error path | Unit 12 explicitly covers error-path `return_to` preservation; integration test in Unit 22 exercises the allowlist-rejection path end-to-end. |
 | Browser cannot reach `web_url` (dockerized dev stack, VPN/Tailscale mismatch, SSH-plus-browser-on-different-hosts) | v1 has no override. Preflight exposes the `web_url` so the CLI prints the exact URL it will open, making the failure mode at least visible. `--browser-url` deferred to a fast-follow (see Scope Boundaries). |
@@ -1344,7 +1360,7 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 ## Documentation Plan
 
 - **`docs/authentication/`** (new if absent) — user-facing guide for `fabro auth login`: preflight explanation, per-server credentials, dev-token vs JWT coexistence, logout semantics.
-- **`docs/administration/server-configuration.mdx`** — document the startup-error combination (`github + !web.enabled`), the preflight endpoint, the `return_to` whitelist behavior, and the **v1 single-node-deployment constraint for CLI OAuth login** (see Scope Boundaries §Deployment constraint). Operators running multi-node clusters that enable `github` in methods MUST be warned: refresh-token theft detection can fail in that configuration. Workarounds listed in Scope Boundaries: dev-token-only on multi-node, consistent-header-hashing at a proxy layer, or wait for future work.
+- **`docs/administration/server-configuration.mdx`** — document the startup-validation preconditions for GitHub auth (web enabled, `SESSION_SECRET` ≥32 bytes, `single_node_ack = true`), the preflight endpoint, the `return_to` whitelist behavior, and the **v1 single-node-deployment constraint for CLI OAuth login** (see Scope Boundaries §Deployment constraint). The docs must spell out what `single_node_ack = true` actually promises (operator guarantees the cluster is single-node for refresh-token theft detection to work) and what breaks if they enable it on a multi-node cluster (attacker-races-legitimate-client scenario described in Scope Boundaries). Workarounds listed in Scope Boundaries: dev-token-only on multi-node, consistent-header-hashing at a proxy layer, or wait for future work.
 - **`docs-internal/logging-strategy.md`** — review for any changes needed (new `WARN` log on reuse detection, new `INFO` on login/rotate/logout). Likely no doc change; follow the existing conventions.
 - **`fabro-api.yaml`** — Unit 1 and Unit 3 update this directly.
 - **`CHANGELOG.md` / release notes** — "CLI now supports OAuth login on GitHub-auth-only servers" + "v1 session cookies invalidated — users will need to log in again on web."
