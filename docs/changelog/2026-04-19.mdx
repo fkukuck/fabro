@@ -1,0 +1,24 @@
+---
+title: "Archive terminal runs"
+date: "2026-04-19"
+---
+
+## Archive terminal runs
+
+Terminal runs — `succeeded`, `failed`, and `dead` — can now be explicitly archived to signal "reviewed, no further action needed." Archived runs are hidden from default listings (`fabro ps`, `GET /api/v1/runs`) and are read-only: any mutation on an archived run returns an actionable error asking you to unarchive first.
+
+Two new CLI commands mirror `fabro rm`'s bulk-by-ID shape:
+
+```
+fabro archive <run-id> [<run-id> ...]
+fabro unarchive <run-id> [<run-id> ...]
+```
+
+Both are idempotent in their respective directions — archiving an already-archived run is a no-op, and unarchiving a non-archived terminal run is a no-op — so retries and mixed-id batches are safe. Unarchive restores the run's exact prior terminal status.
+
+On the HTTP surface, two new endpoints sit alongside the existing control family:
+
+- `POST /api/v1/runs/{id}/archive`
+- `POST /api/v1/runs/{id}/unarchive`
+
+`GET /api/v1/runs` gained an `include_archived=true` query parameter for opting in. `fabro ps` continues to show active runs only by default; `fabro ps -a` now shows active, terminal, and archived runs together.
