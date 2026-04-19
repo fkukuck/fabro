@@ -13,7 +13,6 @@ import {
 } from "react-router";
 import { MultiFileDiff, PatchDiff, Virtualizer } from "@pierre/diffs/react";
 import { useTheme } from "../lib/theme";
-import { apiJsonOrNull } from "../api";
 import type {
   FileDiff as ApiFileDiff,
   PaginatedRunFileList,
@@ -42,34 +41,93 @@ export const handle = { wide: true };
  * and the component keeps showing the last-good data with an inline banner.
  * This is the plan's "prior content stays mounted; inline banner with
  * Retry" behavior for mid-session refresh failures (§ Unit 11).
+ *
+ * `error.requestId` is extracted from the 500-response body per R5 so the
+ * UI can surface it verbatim in the copy ("Request ID: xyz. Contact
+ * support.") — not just the bare status code.
  */
 export type RunFilesLoaderResult = {
   data: PaginatedRunFileList | null;
-  error: { status: number; message: string } | null;
+  error: {
+    status:    number;
+    message:   string;
+    requestId: string | null;
+  } | null;
 };
 
-export async function loader({ request, params }: any): Promise<RunFilesLoaderResult> {
-  try {
-    const data = await apiJsonOrNull<PaginatedRunFileList>(
-      `/runs/${params.id}/files`,
-      { request },
-    );
-    return { data, error: null };
-  } catch (e) {
-    if (e instanceof Response) {
-      return {
-        data:  null,
-        error: {
-          status:  e.status,
-          message: e.statusText || `HTTP ${e.status}`,
-        },
-      };
-    }
-    return {
-      data:  null,
-      error: { status: 0, message: String(e) },
-    };
+export async function loader({
+  request,
+  params,
+}: any): Promise<RunFilesLoaderResult> {
+  // Avoid apiJsonOrNull's `throw new Response(null, ...)` pattern — it
+  // strips the response body, and we need the body to parse request_id
+  // out of 500s per R5.
+  const response = await fetch(`/api/v1/runs/${params.id}/files`, {
+    credentials: "include",
+    ...(request?.signal ? { signal: request.signal } : {}),
+  });
+
+  if (response.status === 404 || response.status === 501) {
+    return { data: null, error: null };
   }
+  if (response.ok) {
+    const data = (await response.json()) as PaginatedRunFileList;
+    return { data, error: null };
+  }
+
+  // Parse the body once. 500 responses carry request_id per the server's
+  // uniform error envelope; other statuses may not.
+  let bodyText = "";
+  try {
+    bodyText = await response.text();
+  } catch {
+    // Body read failed — fall through with an empty string; the error
+    // surface still reports the status.
+  }
+  let bodyJson: unknown = null;
+  if (bodyText) {
+    try {
+      bodyJson = JSON.parse(bodyText);
+    } catch {
+      // non-JSON body is fine; we still got the status
+    }
+  }
+
+  return {
+    data:  null,
+    error: {
+      status:    response.status,
+      message:   response.statusText || `HTTP ${response.status}`,
+      requestId: extractRequestId(bodyJson),
+    },
+  };
+}
+
+/**
+ * Pull request_id out of the server's uniform error envelope:
+ *   { "errors": [{ "status": "500", "title": "...", "detail": "..." }] }
+ * Some deployments tag request_id at top level or within errors[].detail.
+ *
+ * Exported for unit testing; callers should prefer the already-extracted
+ * value on `RunFilesLoaderResult.error.requestId`.
+ */
+export function extractRequestId(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.request_id === "string") return b.request_id;
+  const errors = b.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    const first = errors[0];
+    if (first && typeof first === "object") {
+      const rec = first as Record<string, unknown>;
+      if (typeof rec.request_id === "string") return rec.request_id;
+      if (typeof rec.detail === "string") {
+        const m = rec.detail.match(/request[_ ]id[=:]?\s*([a-zA-Z0-9-_]+)/i);
+        if (m) return m[1];
+      }
+    }
+  }
+  return null;
 }
 
 // Events that should trigger a revalidation. CheckpointCompleted is the
@@ -411,22 +469,51 @@ export default function RunFiles({ loaderData }: any) {
     return <LoadingSkeleton />;
   }
 
-  // Initial load failed and we have no prior data to fall back on —
-  // render the status-specific error state inline (mirrors what the
-  // ErrorBoundary would show, but without unmounting the route).
+  // Initial load failed and we have no prior data to fall back on — render
+  // the status-specific error state inline per plan § R5. The route does
+  // not unmount; the RunFilesErrorBoundary is reserved for render-time
+  // errors that aren't surfaced by the loader at all.
   if (initialError) {
+    // R5(c): access denied.
     if (initialError.status === 401 || initialError.status === 403) {
       return (
-        <EmptyState kind="unknown" />
+        <div
+          role="status"
+          className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
+        >
+          You don't have access to this run's files.
+        </div>
       );
     }
+    // R5(a): 4xx transient (429) / 503 — retry affordance.
+    if (initialError.status === 429 || initialError.status === 503) {
+      return (
+        <InlineErrorBanner
+          message="The diff service is temporarily unavailable."
+          onRetry={() => revalidator.revalidate()}
+        />
+      );
+    }
+    // R5(d): 500 — surface request ID if we have it.
+    if (initialError.status >= 500) {
+      const suffix = initialError.requestId
+        ? ` Request ID: ${initialError.requestId}.`
+        : "";
+      return (
+        <div
+          role="status"
+          className="rounded-md border border-dashed border-line bg-panel/40 px-6 py-10 text-center text-sm text-fg-muted"
+        >
+          Something went wrong.{suffix} Please contact support if this
+          persists.
+        </div>
+      );
+    }
+    // Any other 4xx that isn't 401/403/404/429 — treat like a retryable
+    // transient failure. The banner keeps the user in context.
     return (
       <InlineErrorBanner
-        message={
-          initialError.status >= 500
-            ? `Something went wrong (${initialError.status}).`
-            : `Couldn't load files (${initialError.status}).`
-        }
+        message={`Couldn't load files (${initialError.status}).`}
         onRetry={() => revalidator.revalidate()}
       />
     );
