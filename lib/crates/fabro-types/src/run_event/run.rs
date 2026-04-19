@@ -131,6 +131,10 @@ pub struct RunFailedProps {
     pub reason:         Option<StatusReason>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_commit_sha: Option<String>,
+    // Optional unified-patch text captured at run end. Additive for back-compat:
+    // pre-change events replay with `final_patch: None` via serde default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_patch:    Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

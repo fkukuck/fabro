@@ -11,6 +11,7 @@ import type { PreviewUrlResponse } from "@qltysh/fabro-api-client";
 const allTabs = [
   { name: "Overview", path: "", count: null, demoOnly: false },
   { name: "Stages", path: "/stages", count: null, demoOnly: false },
+  { name: "Files Changed", path: "/files", count: null, demoOnly: false },
   { name: "Graph", path: "/graph", count: null, demoOnly: false },
   { name: "Billing", path: "/billing", count: null, demoOnly: false },
 ];

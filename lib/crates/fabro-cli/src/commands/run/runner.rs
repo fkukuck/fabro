@@ -682,6 +682,7 @@ mod tests {
                 duration_ms:    10,
                 reason:         Some(StatusReason::Cancelled),
                 git_commit_sha: None,
+                final_patch:    None,
             })),
             Some(WorkerTitlePhase::Cancelled)
         );
@@ -691,6 +692,7 @@ mod tests {
                 duration_ms:    10,
                 reason:         Some(StatusReason::Terminated),
                 git_commit_sha: None,
+                final_patch:    None,
             })),
             Some(WorkerTitlePhase::Failed)
         );

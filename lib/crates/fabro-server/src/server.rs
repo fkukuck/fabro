@@ -116,6 +116,7 @@ use crate::jwt_auth::{
     AuthMode, AuthenticatedService, AuthenticatedSubject, authenticate_service_parts,
 };
 use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
+use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
 use crate::server_secrets::{
     LlmClientResult, ProviderCredentials, ServerSecrets, auth_issue_message,
 };
@@ -553,15 +554,19 @@ impl SlackService {
 
 /// Shared application state for the server.
 pub struct AppState {
-    runs:                   Mutex<HashMap<RunId, ManagedRun>>,
-    aggregate_billing:      Mutex<BillingAccumulator>,
-    store:                  Arc<Database>,
-    artifact_store:         ArtifactStore,
+    runs: Mutex<HashMap<RunId, ManagedRun>>,
+    aggregate_billing: Mutex<BillingAccumulator>,
+    store: Arc<Database>,
+    artifact_store: ArtifactStore,
     artifact_upload_tokens: ArtifactUploadTokenKeys,
-    started_at:             Instant,
-    max_concurrent_runs:    usize,
-    scheduler_notify:       Notify,
-    global_event_tx:        broadcast::Sender<EventEnvelope>,
+    started_at: Instant,
+    max_concurrent_runs: usize,
+    scheduler_notify: Notify,
+    global_event_tx: broadcast::Sender<EventEnvelope>,
+    /// Per-run coalescing registry for `GET /runs/{id}/files`. Concurrent
+    /// callers for the same run share one materialization; different runs
+    /// proceed in parallel. See `crate::run_files` for semantics.
+    pub(crate) files_in_flight: FilesInFlight,
 
     pub(crate) vault:                Arc<AsyncRwLock<Vault>>,
     pub(crate) server_secrets:       ServerSecrets,
@@ -667,6 +672,18 @@ impl AppState {
                 .ok()
                 .and_then(|vault| vault.get(name).map(str::to_string))
         })
+    }
+
+    /// Public accessor used by `run_files` — mirrors `vault_or_env` without
+    /// changing its visibility semantics.
+    pub(crate) fn vault_or_env_pub(&self, name: &str) -> Option<String> {
+        self.vault_or_env(name)
+    }
+
+    /// Borrow the persistent store so sibling modules can open run readers
+    /// without cross-module state coupling on the `AppState` field layout.
+    pub(crate) fn store_ref(&self) -> &Arc<Database> {
+        &self.store
     }
 
     pub(crate) fn server_secret(&self, name: &str) -> Option<String> {
@@ -1051,6 +1068,7 @@ fn demo_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/graph", get(demo::get_run_graph))
         .route("/runs/{id}/stages", get(demo::get_run_stages))
         .route("/runs/{id}/artifacts", get(demo::list_run_artifacts_stub))
+        .route("/runs/{id}/files", get(demo::list_run_files_stub))
         .route(
             "/runs/{id}/stages/{stageId}/turns",
             get(demo::get_stage_turns),
@@ -1134,6 +1152,7 @@ fn real_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/graph", get(get_graph))
         .route("/runs/{id}/stages", get(list_run_stages))
         .route("/runs/{id}/artifacts", get(list_run_artifacts))
+        .route("/runs/{id}/files", get(list_run_files))
         .route("/runs/{id}/stages/{stageId}/turns", get(not_implemented))
         .route(
             "/runs/{id}/stages/{stageId}/artifacts",
@@ -2596,6 +2615,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         max_concurrent_runs,
         scheduler_notify: Notify::new(),
         global_event_tx,
+        files_in_flight: new_files_in_flight(),
         vault,
         server_secrets,
         provider_credentials,
@@ -3031,6 +3051,13 @@ fn parse_run_id_path(id: &str) -> Result<RunId, Response> {
         .map_err(|_| ApiError::bad_request("Invalid run ID.").into_response())
 }
 
+/// Public re-export so sibling modules (e.g. `run_files`) can share the same
+/// 400-on-invalid-ULID parse behavior without duplicating the helper.
+#[allow(clippy::result_large_err)]
+pub(crate) fn parse_run_id_path_pub(id: &str) -> Result<RunId, Response> {
+    parse_run_id_path(id)
+}
+
 #[allow(clippy::result_large_err)]
 fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
     StageId::from_str(stage_id)
@@ -3233,6 +3260,7 @@ pub(crate) async fn reconcile_incomplete_runs_on_startup(
                 duration_ms: 0,
                 reason,
                 git_commit_sha: None,
+                final_patch: None,
             },
         )
         .await?;
@@ -3289,6 +3317,7 @@ async fn persist_shutdown_run_failures(
                 duration_ms: 0,
                 reason,
                 git_commit_sha: None,
+                final_patch: None,
             },
         )
         .await?;
@@ -3362,6 +3391,7 @@ async fn persist_cancelled_run_status(state: &AppState, run_id: RunId) -> anyhow
             duration_ms:    0,
             reason:         Some(WorkflowStatusReason::Cancelled),
             git_commit_sha: None,
+            final_patch:    None,
         },
     )
     .await
@@ -3599,6 +3629,7 @@ async fn append_worker_exit_failure(
             duration_ms: 0,
             reason,
             git_commit_sha: None,
+            final_patch: None,
         },
     )
     .await
@@ -4575,6 +4606,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                     duration_ms:    0,
                     reason:         Some(WorkflowStatusReason::LaunchFailed),
                     git_commit_sha: None,
+                    final_patch:    None,
                 },
             )
             .await;
@@ -4596,6 +4628,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4625,6 +4658,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4645,6 +4679,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4677,6 +4712,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                     duration_ms:    0,
                     reason:         Some(WorkflowStatusReason::Terminated),
                     git_commit_sha: None,
+                    final_patch:    None,
                 },
             )
             .await;

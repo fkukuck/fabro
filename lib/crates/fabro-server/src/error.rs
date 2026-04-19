@@ -67,6 +67,7 @@ struct ErrorBody {
 ///
 /// Serializes to `{"errors": [{"status": "4xx", "title": "...", "detail":
 /// "..."}]}`.
+#[derive(Clone, Debug)]
 pub struct ApiError {
     status: StatusCode,
     detail: String,
@@ -94,6 +95,10 @@ impl ApiError {
 
     pub fn forbidden() -> Self {
         Self::new(StatusCode::FORBIDDEN, "Access denied.")
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.status
     }
 }
 

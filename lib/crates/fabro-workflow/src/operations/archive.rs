@@ -190,6 +190,7 @@ mod tests {
             duration_ms:    10,
             reason:         None,
             git_commit_sha: None,
+            final_patch:    None,
         })
         .await
         .unwrap();

@@ -18,7 +18,7 @@ use crate::outcome::{BilledModelUsage, Outcome, StageStatus};
 use crate::run_dump::RunDump;
 use crate::run_options::RunOptions;
 use crate::runtime_store::RunStoreHandle;
-use crate::sandbox_git::{git_checkpoint, git_diff, git_push_host};
+use crate::sandbox_git::{git_checkpoint, git_diff, git_diff_with_timeout, git_push_host};
 
 type WfRunState = ExecutionState<Option<BilledModelUsage>>;
 type WfNodeResult = NodeResult<Option<BilledModelUsage>>;
@@ -301,31 +301,39 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
     }
 
     async fn on_run_end(&self, outcome: &Outcome, _state: &WfRunState) {
-        // Capture the final diff on success for event/store projection.
-        if (outcome.status == StageStatus::Success || outcome.status == StageStatus::PartialSuccess)
-            && self.run_options.git.is_some()
+        // Capture the final diff for event/store projection.
+        //
+        // Success/PartialSuccess uses the standard 30 s timeout. Failed runs
+        // use a shorter 10 s timeout: a pathological workspace (FS locks,
+        // corrupted index) must not stall terminal event emission downstream
+        // (Slack notifier, SSE RunFailed, CI hooks).
+        if self.run_options.git.is_none() {
+            return;
+        }
+        let timeout_ms = match outcome.status {
+            StageStatus::Success | StageStatus::PartialSuccess => 30_000,
+            _ => 10_000,
+        };
+        if let Some(base_sha) = self
+            .run_options
+            .git
+            .as_ref()
+            .and_then(|g| g.base_sha.clone())
         {
-            if let Some(base_sha) = self
-                .run_options
-                .git
-                .as_ref()
-                .and_then(|g| g.base_sha.clone())
-            {
-                match git_diff(&*self.sandbox, &base_sha).await {
-                    Ok(patch) if !patch.is_empty() => {
-                        *self.final_patch.lock().unwrap() = Some(patch.clone());
-                    }
-                    Ok(_) => {
-                        *self.final_patch.lock().unwrap() = None;
-                    }
-                    Err(err) => {
-                        *self.final_patch.lock().unwrap() = None;
-                        self.emitter.emit(&Event::RunNotice {
-                            level:   RunNoticeLevel::Warn,
-                            code:    "git_diff_failed".to_string(),
-                            message: format!("final diff failed: {err}"),
-                        });
-                    }
+            match git_diff_with_timeout(&*self.sandbox, &base_sha, timeout_ms).await {
+                Ok(patch) if !patch.is_empty() => {
+                    *self.final_patch.lock().unwrap() = Some(patch.clone());
+                }
+                Ok(_) => {
+                    *self.final_patch.lock().unwrap() = None;
+                }
+                Err(err) => {
+                    *self.final_patch.lock().unwrap() = None;
+                    self.emitter.emit(&Event::RunNotice {
+                        level:   RunNoticeLevel::Warn,
+                        code:    "git_diff_failed".to_string(),
+                        message: format!("final diff failed: {err}"),
+                    });
                 }
             }
         }

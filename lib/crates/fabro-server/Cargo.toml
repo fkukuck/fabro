@@ -42,6 +42,7 @@ axum.workspace = true
 axum-extra.workspace = true
 cookie.workspace = true
 dirs.workspace = true
+globset.workspace = true
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
 tokio-stream = { workspace = true, features = ["sync"] }
@@ -82,4 +83,7 @@ tower = "0.5"
 http-body-util = "0.1"
 httpmock = "0.8"
 serde_yaml = "0.9"
-fabro-sandbox = { path = "../fabro-sandbox" }
+tracing-subscriber.workspace = true
+async-trait.workspace = true
+tokio-util.workspace = true
+fabro-sandbox = { path = "../fabro-sandbox", features = ["test-support"] }

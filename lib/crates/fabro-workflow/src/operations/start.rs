@@ -267,6 +267,7 @@ async fn persist_terminal_engine_failure(
         duration_ms:    u64::try_from(duration.as_millis()).unwrap(),
         reason:         status_reason,
         git_commit_sha: None,
+        final_patch:    None,
     })
     .await
     {
@@ -862,6 +863,7 @@ impl Drop for DetachedRunBootstrapGuard {
                         duration_ms:    0,
                         reason:         Some(reason),
                         git_commit_sha: None,
+                        final_patch:    None,
                     })
                     .await;
                 });
@@ -929,6 +931,7 @@ impl Drop for DetachedRunCompletionGuard {
                     duration_ms:    0,
                     reason:         Some(reason),
                     git_commit_sha: None,
+                    final_patch:    None,
                 })
                 .await;
                 let _ = append_event_to_sink(&event_sink, &run_id, &Event::RunNotice {
@@ -957,6 +960,7 @@ async fn persist_detached_failure(
         duration_ms:    0,
         reason:         Some(reason),
         git_commit_sha: None,
+        final_patch:    None,
     })
     .await
     {

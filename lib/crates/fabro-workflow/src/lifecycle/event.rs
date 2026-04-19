@@ -456,6 +456,7 @@ impl RunLifecycle<WorkflowGraph> for EventLifecycle {
                 duration_ms,
                 reason: Some(StatusReason::Cancelled),
                 git_commit_sha: last_sha,
+                final_patch: final_patch.clone(),
             });
             return;
         }
@@ -484,6 +485,7 @@ impl RunLifecycle<WorkflowGraph> for EventLifecycle {
                 duration_ms,
                 reason: Some(StatusReason::WorkflowError),
                 git_commit_sha: last_sha,
+                final_patch,
             });
         }
     }
