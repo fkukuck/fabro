@@ -62,7 +62,7 @@ use fabro_slack::{blocks as slack_blocks, connection as slack_connection};
 use fabro_store::{
     ArtifactStore, Database, EventEnvelope, EventPayload, PendingInterviewRecord, StageId,
 };
-use fabro_types::settings::run::RunMode;
+use fabro_types::settings::run::{RunMode, RunSettings};
 use fabro_types::settings::server::{GithubIntegrationSettings, GithubIntegrationStrategy};
 use fabro_types::settings::{
     InterpString, ServerSettings as ResolvedServerSettings, SettingsLayer,
@@ -1724,6 +1724,14 @@ fn resolved_github_settings(settings: &SettingsLayer) -> Result<GithubIntegratio
     let resolved =
         resolve_server_from_file(settings).map_err(|errors| render_resolve_errors(&errors))?;
     Ok(resolved.integrations.github)
+}
+
+fn run_requests_github_credentials(settings: &RunSettings) -> bool {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .is_some_and(|github| !github.permissions.is_empty())
 }
 
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
@@ -4570,7 +4578,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         Ok(settings) => {
             let required_github_credentials = (settings.execution.mode != RunMode::DryRun
                 && settings.sandbox.provider == "daytona")
-                || !github_settings.permissions.is_empty();
+                || run_requests_github_credentials(&settings);
             if required_github_credentials {
                 state.github_credentials(&github_settings)
             } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some()
@@ -9908,6 +9916,25 @@ level = "debug"
                 .as_deref(),
             Some("12345"),
         );
+    }
+
+    #[test]
+    fn run_requests_github_credentials_when_run_scm_permissions_are_present() {
+        let settings = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[run.execution]
+mode = "normal"
+
+[run.scm.github.permissions]
+issues = "read"
+"#,
+        )
+        .unwrap();
+        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+
+        assert!(run_requests_github_credentials(&resolved));
     }
 
     #[tokio::test]

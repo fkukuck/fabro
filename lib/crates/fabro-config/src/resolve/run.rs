@@ -461,7 +461,9 @@ fn resolve_scm(scm: Option<&RunScmLayer>) -> RunScmSettings {
         provider:   scm.provider.clone(),
         owner:      scm.owner.clone(),
         repository: scm.repository.clone(),
-        github:     scm.github.as_ref().map(|_| ScmGitHubSettings),
+        github:     scm.github.as_ref().map(|github| ScmGitHubSettings {
+            permissions: github.permissions.clone(),
+        }),
     }
 }
 

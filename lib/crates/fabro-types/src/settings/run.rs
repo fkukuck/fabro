@@ -388,17 +388,9 @@ pub struct RunScmSettings {
     pub github:     Option<ScmGitHubSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ScmGitHubSettings;
-
-impl Serialize for ScmGitHubSettings {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let state = serializer.serialize_struct("ScmGitHubSettings", 0)?;
-        state.end()
-    }
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ScmGitHubSettings {
+    pub permissions: HashMap<String, InterpString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -971,12 +963,13 @@ pub struct RunScmLayer {
     pub github:     Option<ScmGitHubLayer>,
 }
 
-/// `[run.scm.github]` — GitHub-specific SCM leaf. Intentionally minimal in
-/// the first pass; additional branch/checkout context stays on `run` or
-/// `run.pull_request` until a concrete use case lands.
+/// `[run.scm.github]` — GitHub-specific SCM leaf.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScmGitHubLayer;
+pub struct ScmGitHubLayer {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub permissions: HashMap<String, InterpString>,
+}
 
 /// `[run.pull_request]` — provider-neutral PR behavior.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
