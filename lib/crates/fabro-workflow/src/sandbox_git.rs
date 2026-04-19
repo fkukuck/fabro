@@ -181,13 +181,30 @@ pub async fn git_push_host(
     }
 }
 
-/// Run a git diff via the sandbox.
+/// Run a git diff via the sandbox (30 s default timeout).
 pub(crate) async fn git_diff(
     sandbox: &dyn Sandbox,
     base: &str,
 ) -> std::result::Result<String, String> {
+    git_diff_with_timeout(sandbox, base, 30_000).await
+}
+
+/// Run a git diff via the sandbox with a caller-supplied timeout in
+/// milliseconds.
+///
+/// Failure-path capture uses a shorter timeout than the checkpoint path so a
+/// pathological workspace (FS locks, corrupted index) doesn't stall terminal
+/// event emission downstream (Slack notifier, SSE, CI hooks).
+pub(crate) async fn git_diff_with_timeout(
+    sandbox: &dyn Sandbox,
+    base: &str,
+    timeout_ms: u64,
+) -> std::result::Result<String, String> {
     let cmd = format!("{GIT_REMOTE} diff {base} HEAD");
-    match sandbox.exec_command(&cmd, 30_000, None, None, None).await {
+    match sandbox
+        .exec_command(&cmd, timeout_ms, None, None, None)
+        .await
+    {
         Ok(r) if r.exit_code == 0 => Ok(r.stdout),
         Ok(r) => Err(format!("exit {}: {}", r.exit_code, r.stderr.trim())),
         Err(e) => Err(e.clone()),

@@ -3157,6 +3157,7 @@ pub(crate) async fn reconcile_incomplete_runs_on_startup(
                 duration_ms: 0,
                 reason,
                 git_commit_sha: None,
+                final_patch: None,
             },
         )
         .await?;
@@ -3213,6 +3214,7 @@ async fn persist_shutdown_run_failures(
                 duration_ms: 0,
                 reason,
                 git_commit_sha: None,
+                final_patch: None,
             },
         )
         .await?;
@@ -3286,6 +3288,7 @@ async fn persist_cancelled_run_status(state: &AppState, run_id: RunId) -> anyhow
             duration_ms:    0,
             reason:         Some(WorkflowStatusReason::Cancelled),
             git_commit_sha: None,
+            final_patch:    None,
         },
     )
     .await
@@ -3522,6 +3525,7 @@ async fn append_worker_exit_failure(
             duration_ms: 0,
             reason,
             git_commit_sha: None,
+            final_patch: None,
         },
     )
     .await
@@ -4476,6 +4480,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                     duration_ms:    0,
                     reason:         Some(WorkflowStatusReason::LaunchFailed),
                     git_commit_sha: None,
+                    final_patch:    None,
                 },
             )
             .await;
@@ -4497,6 +4502,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4526,6 +4532,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4546,6 +4553,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 duration_ms:    0,
                 reason:         Some(WorkflowStatusReason::LaunchFailed),
                 git_commit_sha: None,
+                final_patch:    None,
             },
         )
         .await;
@@ -4578,6 +4586,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                     duration_ms:    0,
                     reason:         Some(WorkflowStatusReason::Terminated),
                     git_commit_sha: None,
+                    final_patch:    None,
                 },
             )
             .await;

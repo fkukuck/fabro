@@ -141,6 +141,8 @@ pub enum Event {
         reason:         Option<StatusReason>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         git_commit_sha: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        final_patch:    Option<String>,
     },
     RunNotice {
         level:   RunNoticeLevel,
@@ -1608,11 +1610,13 @@ fn event_body_from_event(event: &Event) -> EventBody {
             duration_ms,
             reason,
             git_commit_sha,
+            final_patch,
         } => EventBody::RunFailed(fabro_types::RunFailedProps {
             error:          error.to_string(),
             duration_ms:    *duration_ms,
             reason:         *reason,
             git_commit_sha: git_commit_sha.clone(),
+            final_patch:    final_patch.clone(),
         }),
         Event::RunNotice {
             level,
@@ -3093,6 +3097,7 @@ mod tests {
             duration_ms:    900,
             reason:         Some(StatusReason::WorkflowError),
             git_commit_sha: Some("abc123".to_string()),
+            final_patch:    None,
         });
 
         assert_eq!(stored.event_name(), "run.failed");

@@ -207,6 +207,7 @@ impl RunProjection {
                 self.status = Some(run_status_record(RunStatus::Failed, props.reason, ts));
                 self.pending_control = None;
                 self.conclusion = Some(conclusion_from_failed(props, ts));
+                self.final_patch.clone_from(&props.final_patch);
                 self.pending_interviews.clear();
             }
             EventBody::RunRewound(_) => {
@@ -655,6 +656,7 @@ mod tests {
     use std::collections::HashMap;
 
     use chrono::Utc;
+    use fabro_types::run_event::run::RunFailedProps;
     use fabro_types::run_event::{
         InterviewCompletedProps, InterviewOption, InterviewStartedProps, RunControlEffectProps,
     };
@@ -1096,5 +1098,46 @@ mod tests {
             value["run"]["definition_blob"],
             events[1].payload.as_value()["properties"]["definition_blob"]
         );
+    }
+
+    #[test]
+    fn run_failed_with_final_patch_populates_projection() {
+        let mut state = RunProjection::default();
+        let patch = "diff --git a/foo.rs b/foo.rs\n@@ -1 +1 @@\n-a\n+b\n";
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunFailed(RunFailedProps {
+                    error:          "boom".to_string(),
+                    duration_ms:    42,
+                    reason:         None,
+                    git_commit_sha: Some("abc123".to_string()),
+                    final_patch:    Some(patch.to_string()),
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(state.final_patch.as_deref(), Some(patch));
+    }
+
+    #[test]
+    fn legacy_run_failed_event_without_final_patch_replays_as_none() {
+        let mut state = RunProjection::default();
+        // Existing SlateDB events predating the final_patch field should deserialize
+        // cleanly as None — no backfill required.
+        state
+            .apply_event(&test_raw_event(
+                1,
+                "run.failed",
+                &json!({
+                    "error": "boom",
+                    "duration_ms": 1,
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert!(state.final_patch.is_none());
     }
 }
