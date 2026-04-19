@@ -21,6 +21,7 @@ use fabro_sandbox::config::{
 use fabro_sandbox::daytona::DaytonaConfig;
 use fabro_sandbox::{DockerSandboxOptions, Sandbox, SandboxProvider, SandboxSpec};
 use fabro_types::RunId;
+use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::cli::{CliLayer, CliOutputLayer, OutputVerbosity};
 use fabro_types::settings::interp::InterpString;
 use fabro_types::settings::run::{
@@ -28,7 +29,6 @@ use fabro_types::settings::run::{
     DockerfileSource, RunExecutionLayer, RunGoalLayer, RunLayer, RunMode, RunModelLayer,
     RunSandboxLayer, RunSettings,
 };
-use fabro_types::settings::{ServerSettings, SettingsLayer};
 use fabro_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus};
 use fabro_validate::Severity;
 use fabro_workflow::Error as WorkflowError;
@@ -376,10 +376,11 @@ async fn build_preflight_report(
         } else {
             sandbox_provider
         };
+    let github_permissions = requested_github_permissions(&resolved_run);
     let needs_github_credentials = matches!(
         sandbox_provider,
         SandboxProvider::Daytona | SandboxProvider::Azure
-    ) || !resolved_server.integrations.github.permissions.is_empty();
+    ) || !github_permissions.is_empty();
     let github_app = if needs_github_credentials {
         state
             .github_credentials(&resolved_server.integrations.github)
@@ -406,7 +407,7 @@ async fn build_preflight_report(
         &configured_providers,
     )
     .await;
-    run_github_token_check(&mut checks, prepared, &resolved_server, github_app).await;
+    run_github_token_check(&mut checks, prepared, &resolved_run, github_app).await;
 
     let checks_ok = sandbox_ok && llm_ok;
 
@@ -786,25 +787,31 @@ fn runtime_azure_config(settings: &AzureSettings) -> AzureConfig {
     }
 }
 
+fn requested_github_permissions(settings: &RunSettings) -> HashMap<String, String> {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .map(|github| {
+            github
+                .permissions
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_source()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 async fn run_github_token_check(
     checks: &mut Vec<CheckResult>,
     prepared: &PreparedManifest,
-    settings: &ServerSettings,
+    settings: &RunSettings,
     github_app: Option<fabro_github::GitHubCredentials>,
 ) {
-    if settings.integrations.github.permissions.is_empty() {
+    let github_permissions = requested_github_permissions(settings);
+    if github_permissions.is_empty() {
         return;
     }
-
-    // Resolve InterpString permission values eagerly for token minting and
-    // for display in the preflight report.
-    let github_permissions: HashMap<String, String> = settings
-        .integrations
-        .github
-        .permissions
-        .iter()
-        .map(|(k, v)| (k.clone(), v.as_source()))
-        .collect();
 
     let perm_details = github_permissions
         .iter()
@@ -1185,6 +1192,78 @@ enabled = true
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         assert!(!validated.has_errors());
+
+        let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
+            .await
+            .unwrap();
+
+        assert!(ok);
+        assert!(response.workflow.diagnostics.is_empty());
+        assert!(
+            response.checks.sections[0]
+                .checks
+                .iter()
+                .all(|check| check.name != "GitHub Token")
+        );
+    }
+
+    #[tokio::test]
+    async fn preflight_reports_github_token_check_for_run_scm_permissions() {
+        let state = crate::server::create_app_state();
+        let mut manifest = minimal_manifest();
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(
+                r#"
+_version = 1
+
+[run.scm.github.permissions]
+issues = "read"
+"#
+                .to_string(),
+            ),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared =
+            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
+
+        let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
+            .await
+            .unwrap();
+
+        assert!(ok);
+        assert!(response.workflow.diagnostics.is_empty());
+        assert!(
+            response.checks.sections[0]
+                .checks
+                .iter()
+                .any(|check| check.name == "GitHub Token")
+        );
+    }
+
+    #[tokio::test]
+    async fn preflight_ignores_project_server_github_permissions_under_remote_mode() {
+        let state = crate::server::create_app_state();
+        let mut manifest = minimal_manifest();
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(
+                r#"
+_version = 1
+
+[server.integrations.github.permissions]
+issues = "read"
+"#
+                .to_string(),
+            ),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared =
+            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
 
         let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
             .await
