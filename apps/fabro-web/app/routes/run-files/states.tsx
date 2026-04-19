@@ -49,7 +49,7 @@ export function emptyStateCopy(kind: EmptyKind): string {
 ///
 /// The full RunStatus enum (per fabro-types/src/status.rs) is:
 ///   submitted, queued, starting, running, blocked, paused, removing,
-///   succeeded, failed, dead
+///   succeeded, failed, dead, archived
 /// partial_success is a stage status, not a run status.
 export function deriveEmptyKind(args: {
   runStatus: string | undefined;
@@ -81,10 +81,10 @@ export function deriveEmptyKind(args: {
     return degraded ? "unknown" : "failed_before_checkpoint";
   }
 
-  // Terminal-success + teardown states: the run ran to completion or is
-  // shutting down. Distinguish "succeeded with no changes" (R4b) from
-  // "succeeded but diff lost" (R4c2) via total_changed.
-  if (s === "succeeded" || s === "removing") {
+  // Terminal-success, teardown, and archive states: the run ran to
+  // completion (possibly long ago). Distinguish "had no changes" (R4b)
+  // from "diff captured then lost" (R4c2) via total_changed.
+  if (s === "succeeded" || s === "removing" || s === "archived") {
     if (degraded) {
       // We have a patch; the component renders PatchDiff instead of an
       // empty state. Shouldn't reach here in practice.

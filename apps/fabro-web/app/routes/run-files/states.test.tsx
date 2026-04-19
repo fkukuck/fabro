@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import TestRenderer from "react-test-renderer";
 
+import { RunStatus } from "@qltysh/fabro-api-client";
 import {
   deriveEmptyKind,
   emptyStateCopy,
@@ -59,7 +60,7 @@ describe("deriveEmptyKind", () => {
 
   // Terminal-success + teardown states → R4(b) or R4(c2) depending on
   // whether files were ever changed
-  test.each(["succeeded", "removing"])(
+  test.each(["succeeded", "removing", "archived"])(
     "%s with changes but no data is R4(c2) 'diff_lost'",
     (status) => {
       expect(
@@ -72,7 +73,7 @@ describe("deriveEmptyKind", () => {
     },
   );
 
-  test.each(["succeeded", "removing"])(
+  test.each(["succeeded", "removing", "archived"])(
     "%s with no changes is R4(b)",
     (status) => {
       expect(
@@ -105,24 +106,13 @@ describe("deriveEmptyKind", () => {
     ).toBe("unknown");
   });
 
-  test("every documented RunStatus gets a non-unknown empty kind when applicable", () => {
-    // Regression guard: if a new RunStatus appears in
-    // `apps/fabro-web/app/data/runs.ts` without a matching branch here,
-    // the decision table silently returns "unknown" ("not available right
-    // now") — misleading copy for a cancelled or paused run.
-    const knownRunStatuses = [
-      "submitted",
-      "queued",
-      "starting",
-      "running",
-      "blocked",
-      "paused",
-      "removing",
-      "succeeded",
-      "failed",
-      "dead",
-    ];
-    for (const status of knownRunStatuses) {
+  test("every documented RunStatus gets a non-unknown empty kind", () => {
+    // Regression guard sourced from the generated API client enum so any
+    // new RunStatus added to the OpenAPI spec fails this test until the
+    // decision table grows a branch. Without this guard, unhandled
+    // statuses silently render as "unknown" ("not available right now") —
+    // misleading copy for e.g. a paused or archived run.
+    for (const status of Object.values(RunStatus)) {
       const result = deriveEmptyKind({
         runStatus: status,
         totalChanged: 0,
