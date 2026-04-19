@@ -27,11 +27,11 @@ pub(crate) fn assert_install_mode_shell_ready() {
 }
 
 fn cached_install_mode_shell() -> Option<Vec<u8>> {
+    static SHELL: OnceLock<Option<Vec<u8>>> = OnceLock::new();
     if cfg!(debug_assertions) {
         // In debug builds the SPA is reloaded from disk on every request.
         return load_injected_install_shell();
     }
-    static SHELL: OnceLock<Option<Vec<u8>>> = OnceLock::new();
     SHELL.get_or_init(load_injected_install_shell).clone()
 }
 
