@@ -269,131 +269,163 @@ test azure_integration::azure_exec_command_round_trip ... ok
 
 ## Validated Server-Hosted Path
 
-The smoke test above only proves raw Azure sandbox creation and command execution. The server-hosted path below was also validated far enough to:
+The smoke test above only proves raw Azure sandbox creation and command execution. The server-hosted path below is the validated end-to-end path for running a real repository through a VM-hosted `fabro-server` and Azure Container Instance sandboxes.
 
-- start `fabro-server` on an Azure VM
-- access the embedded web UI over SSH port forwarding
-- configure GitHub App browser auth
-- authenticate the local CLI to the remote server
-- submit a real run that provisions an Azure sandbox
+This path validates:
 
-### 1. Use a repo you can install the GitHub App on
+- `fabro-server` running on an Azure VM
+- the local CLI submitting runs to the VM over `--server`
+- private-repo cloning into Azure sandboxes
+- workflow-scoped GitHub token injection for `gh` CLI usage via `run.scm.github.permissions`
+- custom Azure workflow images built from a repo-owned `snapshot.Dockerfile`
 
-If the target repository is private and you do not control the owning organization, create a private repo under a personal account you control and push the code there first.
+### 1. Use a repo you control
 
-The current Azure validation path assumes you can:
+The target repository should live under a GitHub user or organization you control. The validated path used a private repository under a personal account so the VM's GitHub token could clone it and the workflow could call `gh` against it.
 
-- install the GitHub App on the repository
-- let Fabro mint repo-scoped credentials for clone, issue intake, and PR creation
+At minimum, the repo should contain:
 
-### 2. Install or build `fabro` on the VM
+- `.fabro/workflows/<name>/workflow.fabro`
+- `.fabro/workflows/<name>/workflow.toml`
+- any helper scripts referenced by the workflow under `.fabro/workflows/<name>/scripts/`
 
-If `fabro` is not already on `PATH`, either install it or run it through Cargo.
+### 2. Shape the repo workflow config for Azure
 
-```bash
-cargo install --path lib/crates/fabro-cli
-export PATH="$HOME/.cargo/bin:$PATH"
+For remote Azure runs, the checked-in workflow must express Azure runtime settings in the run domain, not in workflow-local `server.*` stanzas.
+
+Validated pattern:
+
+```toml
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+[run.sandbox]
+provider = "azure"
+preserve = false
+
+[run.sandbox.azure]
+cpu = 4.0
+memory_gb = 8.0
+image = "<acr-login-server>/fabro-sandboxes/software-factory:20260419-2"
+
+[run.scm.github.permissions]
+contents = "write"
+issues = "read"
+pull_requests = "write"
 ```
 
-Fallback:
+Notes:
 
-```bash
-cargo run -p fabro-cli -- server start --bind 127.0.0.1:3000
+- `run.scm.github.permissions` is the run-owned request that survives remote-run persistence and drives sandbox `GITHUB_TOKEN` injection.
+- Workflow and project `server.*` stanzas remain owner-scoped and inert in remote-server mode.
+- Set `run.sandbox.azure.image` explicitly in the checked-in workflow TOML. Do not rely on a server-local default image for remote runs.
+
+### 3. Build a workflow-specific Azure image when the workflow needs extra tools
+
+Azure does not automatically build or use `.fabro/workflows/<name>/snapshot.Dockerfile`. If the workflow needs tools beyond the generic Azure base image, build and push a custom image yourself, then point `run.sandbox.azure.image` at it.
+
+The validated workflow image had to include:
+
+- `gh`
+- `jq`
+- `python3`
+- `node`
+- browser tooling
+
+Important: start the workflow image from Fabro's Azure base image so `fabro-sandboxd` is still present.
+
+Validated Dockerfile pattern:
+
+```dockerfile
+FROM <acr-login-server>/fabro-sandboxes/base:trial
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    jq \
+    python3 \
+    python3-pip \
+    unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update \
+  && apt-get install -y nodejs \
+  && npm install -g npm@10 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y gh \
+  && rm -rf /var/lib/apt/lists/*
 ```
 
-### 3. Create the minimal server config on the VM
+Build and push from the repo root on a machine with Docker access:
+
+```bash
+docker login "$FABRO_AZURE_ACR_SERVER" -u "$FABRO_AZURE_ACR_USERNAME" -p "$FABRO_AZURE_ACR_PASSWORD"
+
+docker buildx build \
+  --platform linux/amd64 \
+  -f ".fabro/workflows/software-factory/snapshot.Dockerfile" \
+  -t "$FABRO_AZURE_ACR_SERVER/fabro-sandboxes/software-factory:20260419-2" \
+  --push .
+```
+
+### 4. Install the same Fabro branch on both the laptop and the VM
+
+When you are testing branch-specific workflow schema or Azure behavior, install the same `fabro` build on:
+
+- the laptop that runs `fabro run --server ...`
+- the Azure VM that runs `fabro server start`
+
+On both machines:
+
+```bash
+cargo install --path lib/crates/fabro-cli --force
+hash -r
+type -a fabro
+```
+
+This matters because the local CLI parses `workflow.toml` before it uploads anything to the remote server. A stale local binary can reject config that the VM already understands.
+
+### 5. Create the minimal server config on the VM
 
 The CLI/server path expects `~/.fabro/settings.toml` to exist.
 
-```bash
-mkdir -p ~/.fabro
-printf '_version = 1\n' > ~/.fabro/settings.toml
-```
-
-### 4. Run the web UI through the server, not Bun
-
-For this validation path, the embedded server UI was sufficient. `bun run dev` was not required on the VM.
-
-Start the server on the VM:
-
-```bash
-fabro server start --bind 127.0.0.1:3000
-```
-
-Then from your laptop:
-
-```bash
-ssh -L 3000:127.0.0.1:3000 azureuser@<vm-ip-or-host>
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Only install Bun on the VM if you want to modify `apps/fabro-web` and rebuild frontend assets there.
-
-### 5. Configure GitHub App auth on the VM
-
-Run this on the VM:
-
-```bash
-fabro install github
-```
-
-Choose:
-
-- `GitHub App`
-- a personal account or organization that owns the repository you will actually run against
-
-`fabro install github` opens a temporary localhost callback such as `http://127.0.0.1:44207/`. On a remote VM, you must forward that exact ephemeral port from your laptop to the VM while the installer is waiting.
-
-Example, in a second terminal on your laptop:
-
-```bash
-ssh -L 44207:127.0.0.1:44207 azureuser@<vm-ip-or-host>
-```
-
-Then open the printed `http://127.0.0.1:<port>/` URL in the laptop browser and complete the GitHub App manifest flow.
-
-After the app is created, install it on the repository Fabro should access.
-
-### 6. Configure GitHub browser login correctly
-
-Fabro builds the GitHub OAuth callback from `server.web.url`, so the GitHub App callback URL must exactly match:
-
-```text
-{server.web.url}/auth/callback/github
-```
-
-The validated setup used:
+Validated minimal server shape for the token-based path:
 
 ```toml
-[server.web]
-enabled = true
-url = "http://localhost:3000"
+_version = 1
+
+[run.sandbox]
+provider = "azure"
 
 [server.auth]
-methods = ["github", "dev-token"]
+methods = ["dev-token"]
 
-[server.auth.github]
-allowed_usernames = ["<your-github-username>"]
+[server.integrations.github]
+strategy = "token"
 ```
 
-With that configuration, the GitHub App callback URL must be:
+Notes:
 
-```text
-http://localhost:3000/auth/callback/github
-```
+- `strategy = "token"` makes the VM use `GITHUB_TOKEN` from its own environment as the server-side GitHub credential source.
+- Sandbox token scope is requested from the workflow via `run.scm.github.permissions`, not from `server.integrations.github.permissions`.
+- If you also want browser GitHub login for the embedded web UI, configure the GitHub App flow as described in `docs/integrations/github.mdx`, but keep workflow token requests under `run.scm.github.permissions`.
 
-`localhost` and `127.0.0.1` are not interchangeable for GitHub OAuth callback matching.
+### 6. Keep `dev-token` enabled for CLI access
 
-### 7. Keep `dev-token` enabled for CLI access
-
-Browser login authenticates the web UI session only. `fabro run --server ...` is a separate API client and must authenticate separately.
-
-The validated setup kept `dev-token` enabled and exported the server-generated token on the laptop before running the remote CLI.
+`fabro run --server ...` is a separate API client and must authenticate to the remote server independently.
 
 On the VM:
 
@@ -405,12 +437,11 @@ On the laptop:
 
 ```bash
 export FABRO_DEV_TOKEN='fabro_dev_...'
-fabro run .fabro/workflows/software-factory/workflow.toml --server http://localhost:3000/api/v1
 ```
 
-### 8. Start the server from a shell that already has all Azure and LLM env vars
+### 7. Start the server from a shell that already has Azure, GitHub, and LLM env vars
 
-The server process reads Azure platform configuration from its own environment. Export these variables before starting `fabro server start`:
+The server process reads Azure platform configuration, GitHub token credentials, and LLM keys from its own environment. Export these variables before starting `fabro server start`:
 
 ```bash
 export FABRO_AZURE_SUBSCRIPTION_ID="..."
@@ -425,59 +456,74 @@ export FABRO_AZURE_ACR_USERNAME="..."
 export FABRO_AZURE_ACR_PASSWORD="..."
 export FABRO_AZURE_SANDBOXD_PORT="7777"
 
+export GITHUB_TOKEN="..."
+
 export OPENAI_API_KEY="..."
 # or
 export ANTHROPIC_API_KEY="..."
 ```
 
-Then restart the server from that same shell:
+Then start or restart the server from that same shell:
 
 ```bash
 fabro server stop
 fabro server start --bind 127.0.0.1:3000
 ```
 
-### 9. Validated `settings.toml` shape for the Azure VM server
+### 8. Run the remote server UI through SSH port forwarding when needed
 
-The validated VM used a server-local `~/.fabro/settings.toml` shaped like this:
+For server-hosted validation, the embedded UI served by `fabro server start` was sufficient. `bun run dev` was not required on the VM.
 
-```toml
-_version = 1
+From your laptop:
 
-[run.sandbox]
-provider = "azure"
-
-[run.sandbox.azure]
-image = "<acr-login-server>/fabro-sandboxes/base:trial"
-
-[server.auth]
-methods = ["github", "dev-token"]
-
-[server.auth.github]
-allowed_usernames = ["<your-github-username>"]
-
-[server.integrations.github]
-strategy = "app"
-app_id = "..."
-client_id = "..."
-slug = "..."
-permissions = { contents = "write", issues = "read", pull_requests = "write" }
-
-[server.web]
-enabled = true
-url = "http://localhost:3000"
+```bash
+ssh -L 3000:127.0.0.1:3000 azureuser@<vm-ip-or-host>
 ```
 
-### 10. Branch-specific limitations discovered during validation
+Open:
 
-The following limitations or workarounds were observed on the validated `azure-sandbox` branch:
+```text
+http://localhost:3000
+```
 
-- `run.sandbox.azure.image` in server-local defaults was not reliably picked up for remote runs. The validated workaround was to also set the image explicitly in the checked-in workflow TOML.
-- GitHub App browser auth and `fabro doctor` succeeded, but the remote worker path still emitted `GITHUB_TOKEN not configured` for a real workflow run. The validated workaround was to export `GITHUB_TOKEN` in the server shell before starting `fabro server`.
-- Azure Container Instance rejects mixed-case container names. The branch required `0f843550` so run-based sandbox names are lowercased before provisioning.
+Only install Bun on the VM if you want to modify `apps/fabro-web` and rebuild frontend assets there.
+
+### 9. Run the workflow from the laptop
+
+From the repo on the laptop:
+
+```bash
+fabro run .fabro/workflows/software-factory/workflow.toml --server http://localhost:3000/api/v1
+```
+
+### 10. Use a fresh Azure Files share when isolating retries
+
+Azure sandboxes mount `/workspace` from Azure Files, and the current Azure provider reuses that mounted workspace if `.git` is already present.
+
+For clean retries while debugging clone, image, or startup problems, create a fresh share and restart the server with it:
+
+```bash
+az storage share create \
+  --account-name "$FABRO_AZURE_STORAGE_ACCOUNT" \
+  --account-key "$FABRO_AZURE_STORAGE_KEY" \
+  --name workspace-fresh-1
+
+export FABRO_AZURE_STORAGE_SHARE="workspace-fresh-1"
+fabro server start --bind 127.0.0.1:3000
+```
+
+This avoids stale `/workspace` contents from masking newer code or config changes during validation.
+
+### 11. Azure-specific behaviors confirmed during validation
+
+The current `azure-sandbox` branch validated the following Azure-specific fixes and behaviors:
+
+- Azure Container Instance rejects mixed-case container names, so run-based sandbox names must be lowercased before provisioning.
+- Azure startup should wait for a reachable sandbox IP, not treat `0.0.0.0` as ready.
+- Custom workflow images must keep `fabro-sandboxd` in `PATH`, which is why repo-owned workflow images should start from `fabro-sandboxes/base:trial`.
 - Trial subscriptions can have very small ACI quota. Clean up stale `fabro-*` container groups before retrying failed runs.
 
-### 11. Remaining warning seen during validation
+### 12. Remaining warning seen during validation
 
 The validated real-run path still emitted this warning before sandbox startup:
 
@@ -485,4 +531,4 @@ The validated real-run path still emitted this warning before sandbox startup:
 Failed to push fabro-software-factory to origin: Engine error: git push failed: No such file or directory (os error 2)
 ```
 
-That warning did not block Azure sandbox creation, but it indicates the current branch still has at least one unresolved remote checkpoint or push-path issue.
+That warning did not block Azure sandbox creation or `gh` usage inside the sandbox, but it indicates the branch still has at least one unresolved remote checkpoint or push-path issue.
