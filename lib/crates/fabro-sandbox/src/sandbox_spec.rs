@@ -35,18 +35,20 @@ pub enum SandboxSpec {
     },
     #[cfg(feature = "daytona")]
     Daytona {
-        config:       DaytonaConfig,
-        github_app:   Option<GitHubCredentials>,
-        run_id:       Option<RunId>,
-        clone_branch: Option<String>,
-        api_key:      Option<String>,
+        config:           DaytonaConfig,
+        github_app:       Option<GitHubCredentials>,
+        run_id:           Option<RunId>,
+        clone_origin_url: Option<String>,
+        clone_branch:     Option<String>,
+        api_key:          Option<String>,
     },
     #[cfg(feature = "azure")]
     Azure {
-        config:       AzureConfig,
-        github_app:   Option<GitHubCredentials>,
-        run_id:       Option<RunId>,
-        clone_branch: Option<String>,
+        config:           AzureConfig,
+        github_app:       Option<GitHubCredentials>,
+        run_id:           Option<RunId>,
+        clone_origin_url: Option<String>,
+        clone_branch:     Option<String>,
     },
 }
 
@@ -208,6 +210,7 @@ impl SandboxSpec {
                 config,
                 github_app,
                 run_id,
+                clone_origin_url,
                 clone_branch,
                 api_key,
             } => {
@@ -215,6 +218,7 @@ impl SandboxSpec {
                     config.clone(),
                     github_app.clone(),
                     *run_id,
+                    clone_origin_url.clone(),
                     clone_branch.clone(),
                     api_key.clone(),
                 )
@@ -230,12 +234,14 @@ impl SandboxSpec {
                 config,
                 github_app,
                 run_id,
+                clone_origin_url,
                 clone_branch,
             } => {
                 let mut sandbox = AzureSandbox::new(
                     config.clone(),
                     github_app.clone(),
                     *run_id,
+                    clone_origin_url.clone(),
                     clone_branch.clone(),
                 )
                 .map_err(|e| anyhow!(e))?;

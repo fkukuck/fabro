@@ -12,7 +12,7 @@ use tokio::sync::OnceCell;
 use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
-use crate::repo::detect_repo_info as detect_repo_info_impl;
+use crate::repo::{detect_repo_info as detect_repo_info_impl, resolve_clone_source};
 use crate::sandbox::resolve_path;
 use crate::{
     DirEntry, ExecResult, GrepOptions, Sandbox, SandboxEvent, SandboxEventCallback,
@@ -50,20 +50,21 @@ fn elapsed_ms(start: &Instant) -> u64 {
 
 /// Sandbox that runs all operations inside a Daytona cloud sandbox.
 pub struct DaytonaSandbox {
-    config:         DaytonaConfig,
-    client:         daytona_sdk::Client,
-    github_app:     Option<GitHubCredentials>,
-    sandbox:        OnceCell<daytona_sdk::Sandbox>,
-    rg_available:   OnceCell<bool>,
-    event_callback: Option<SandboxEventCallback>,
+    config:           DaytonaConfig,
+    client:           daytona_sdk::Client,
+    github_app:       Option<GitHubCredentials>,
+    sandbox:          OnceCell<daytona_sdk::Sandbox>,
+    rg_available:     OnceCell<bool>,
+    event_callback:   Option<SandboxEventCallback>,
     /// HTTPS origin URL stored after clone so we can refresh push credentials
     /// later.
-    origin_url:     OnceCell<String>,
-    run_id:         Option<RunId>,
+    origin_url:       OnceCell<String>,
+    run_id:           Option<RunId>,
+    clone_origin_url: Option<String>,
     /// Explicit branch to clone. When set, overrides the branch detected by
     /// `detect_repo_info` — avoids cloning a local-only worktree branch
     /// (e.g. `fabro/run/...`) that was never pushed to origin.
-    clone_branch:   Option<String>,
+    clone_branch:     Option<String>,
 }
 
 impl DaytonaSandbox {
@@ -75,6 +76,7 @@ impl DaytonaSandbox {
         config: DaytonaConfig,
         github_app: Option<GitHubCredentials>,
         run_id: Option<RunId>,
+        clone_origin_url: Option<String>,
         clone_branch: Option<String>,
         api_key: Option<String>,
     ) -> Result<Self, String> {
@@ -90,6 +92,7 @@ impl DaytonaSandbox {
             event_callback: None,
             origin_url: OnceCell::new(),
             run_id,
+            clone_origin_url,
             clone_branch,
         })
     }
@@ -117,6 +120,7 @@ impl DaytonaSandbox {
             event_callback: None,
             origin_url: OnceCell::new(),
             run_id: None,
+            clone_origin_url: None,
             clone_branch: None,
         })
     }
@@ -490,16 +494,17 @@ impl Sandbox for DaytonaSandbox {
                 .await
                 .map_err(|e| format!("Failed to create working directory: {e}"))?;
         } else {
-            match detect_repo_info(&cwd) {
+            match resolve_clone_source(
+                self.clone_origin_url.as_deref(),
+                self.clone_branch.as_deref(),
+                &cwd,
+            ) {
                 Ok((detected_url, detected_branch)) => {
-                    // Use explicit clone_branch if provided (avoids cloning a local-only
-                    // worktree branch like fabro/run/... that hasn't been pushed).
-                    let branch = self.clone_branch.clone().or(detected_branch);
                     // Daytona clones over HTTPS with token auth, so rewrite SSH URLs.
                     let url = ssh_url_to_https(&detected_url);
                     self.emit(SandboxEvent::GitCloneStarted {
                         url:    url.clone(),
-                        branch: branch.clone(),
+                        branch: detected_branch.clone(),
                     });
                     let clone_start = Instant::now();
 
@@ -567,7 +572,7 @@ impl Sandbox for DaytonaSandbox {
                     let clone_token = password.clone();
                     let clone_result = git_svc
                         .clone(&url, WORKING_DIRECTORY, daytona_sdk::GitCloneOptions {
-                            branch,
+                            branch: detected_branch,
                             username,
                             password,
                             ..Default::default()
