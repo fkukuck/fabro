@@ -113,7 +113,7 @@ export default function RunDetail({ loaderData, params }: any) {
             <button
               type="submit"
               disabled={previewFetcher.state !== "idle"}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-500 px-3.5 py-1.5 text-sm font-medium text-navy-950 transition-colors hover:bg-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-teal-500"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-500 px-3.5 py-1.5 text-sm font-medium text-on-primary transition-colors hover:bg-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-teal-500"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="size-3.5 shrink-0" aria-hidden="true">
                 <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />

@@ -708,9 +708,9 @@ function Stepper({
           const isLast = index === STEPPER_STEPS.length - 1;
           const isLinkable = isComplete || isCurrent;
           const circleClass = isComplete
-            ? "bg-mint text-navy-950"
+            ? "bg-mint text-on-primary"
             : isCurrent
-              ? "bg-teal-500 text-navy-950"
+              ? "bg-teal-500 text-on-primary"
               : "bg-overlay text-fg-muted outline-1 -outline-offset-1 outline-white/10";
           const labelClass = isCurrent
             ? "text-fg"

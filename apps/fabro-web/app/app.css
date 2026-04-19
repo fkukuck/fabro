@@ -53,6 +53,10 @@
   --color-line: rgba(255, 255, 255, 0.06);
   --color-line-strong: rgba(255, 255, 255, 0.12);
   --color-focus: rgba(103, 178, 215, 0.4);
+  /* Text color that sits on --color-teal-500 primary fills.
+     Dark mode: teal-500 is light (#67B2D7) so dark text reads best.
+     Light mode: teal-500 is dark (#0e7490) so white reads best. */
+  --color-on-primary: #0F1729;
 }
 
 /* ── Light theme overrides ── */
@@ -60,18 +64,19 @@
 .light {
   /* Semantic tokens — page is softly tinted so panels/cards (white)
      read as the lighter surface, mirroring the dark-theme hierarchy. */
-  --color-page: #f3f6fa;
+  --color-page: #eef2f7;
   --color-panel: #ffffff;
-  --color-panel-alt: #e9eef5;
-  --color-overlay: rgba(15, 23, 41, 0.04);
-  --color-overlay-strong: rgba(15, 23, 41, 0.08);
+  --color-panel-alt: #e4eaf1;
+  --color-overlay: rgba(15, 23, 41, 0.05);
+  --color-overlay-strong: rgba(15, 23, 41, 0.10);
   --color-fg: #0f172a;
   --color-fg-2: #1e293b;
   --color-fg-3: #475569;
-  --color-fg-muted: #94a3b8;
-  --color-line: rgba(15, 23, 41, 0.08);
-  --color-line-strong: rgba(15, 23, 41, 0.14);
+  --color-fg-muted: #64748b;
+  --color-line: rgba(15, 23, 41, 0.10);
+  --color-line-strong: rgba(15, 23, 41, 0.18);
   --color-focus: rgba(14, 116, 144, 0.5);
+  --color-on-primary: #ffffff;
 
   /* Accent — darkened for WCAG AA on white */
   --color-mint: #0d9488;
