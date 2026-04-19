@@ -50,10 +50,11 @@ pub enum SandboxSpec {
     },
     #[cfg(feature = "azure")]
     Azure {
-        config:       AzureConfig,
-        github_app:   Option<GitHubCredentials>,
-        run_id:       Option<RunId>,
-        clone_branch: Option<String>,
+        config:           AzureConfig,
+        github_app:       Option<GitHubCredentials>,
+        run_id:           Option<RunId>,
+        clone_origin_url: Option<String>,
+        clone_branch:     Option<String>,
     },
 }
 
@@ -273,12 +274,14 @@ impl SandboxSpec {
                 config,
                 github_app,
                 run_id,
+                clone_origin_url,
                 clone_branch,
             } => {
                 let mut sandbox = AzureSandbox::new(
                     config.clone(),
                     github_app.clone(),
                     *run_id,
+                    clone_origin_url.clone(),
                     clone_branch.clone(),
                 )
                 .map_err(|e| anyhow!(e))?;

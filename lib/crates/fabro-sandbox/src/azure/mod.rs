@@ -17,7 +17,7 @@ use crate::azure::config::AzurePlatformConfig;
 use crate::azure::protocol::ExecRequest;
 use crate::azure::resource_id::ContainerGroupResourceId;
 use crate::config::AzureConfig;
-use crate::repo::detect_repo_info;
+use crate::repo::resolve_clone_source;
 use crate::{
     DirEntry, ExecResult, GrepOptions, Sandbox, SandboxEvent, SandboxEventCallback,
     format_lines_numbered, git_push_via_exec, setup_git_via_exec, shell_quote,
@@ -36,16 +36,17 @@ const DEFAULT_CPU: f64 = 2.0;
 const DEFAULT_MEMORY_GB: f64 = 4.0;
 
 pub struct AzureSandbox {
-    runtime:        AzureConfig,
-    platform:       AzurePlatformConfig,
-    arm:            AzureArmClient,
-    sandboxd:       OnceCell<SandboxdClient>,
-    resource_id:    OnceCell<ContainerGroupResourceId>,
-    github_app:     Option<GitHubCredentials>,
-    run_id:         Option<RunId>,
-    clone_branch:   Option<String>,
-    origin_url:     OnceCell<String>,
-    event_callback: Option<SandboxEventCallback>,
+    runtime:          AzureConfig,
+    platform:         AzurePlatformConfig,
+    arm:              AzureArmClient,
+    sandboxd:         OnceCell<SandboxdClient>,
+    resource_id:      OnceCell<ContainerGroupResourceId>,
+    github_app:       Option<GitHubCredentials>,
+    run_id:           Option<RunId>,
+    clone_origin_url: Option<String>,
+    clone_branch:     Option<String>,
+    origin_url:       OnceCell<String>,
+    event_callback:   Option<SandboxEventCallback>,
 }
 
 impl AzureSandbox {
@@ -53,6 +54,7 @@ impl AzureSandbox {
         runtime: AzureConfig,
         github_app: Option<GitHubCredentials>,
         run_id: Option<RunId>,
+        clone_origin_url: Option<String>,
         clone_branch: Option<String>,
     ) -> Result<Self, String> {
         let platform = AzurePlatformConfig::from_env()?;
@@ -65,6 +67,7 @@ impl AzureSandbox {
             resource_id: OnceCell::new(),
             github_app,
             run_id,
+            clone_origin_url,
             clone_branch,
             origin_url: OnceCell::new(),
             event_callback: None,
@@ -87,6 +90,7 @@ impl AzureSandbox {
             resource_id: resource_id_cell,
             github_app: None,
             run_id: None,
+            clone_origin_url: None,
             clone_branch: None,
             origin_url: OnceCell::new(),
             event_callback: None,
@@ -170,7 +174,11 @@ impl AzureSandbox {
         }
 
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let Ok((detected_url, detected_branch)) = detect_repo_info(&cwd) else {
+        let Ok((detected_url, detected_branch)) = resolve_clone_source(
+            self.clone_origin_url.as_deref(),
+            self.clone_branch.as_deref(),
+            &cwd,
+        ) else {
             let mkdir = format!("mkdir -p {}", shell_quote(WORKING_DIRECTORY));
             let result = self.exec_command(&mkdir, 10_000, None, None, None).await?;
             if result.exit_code != 0 {
@@ -183,7 +191,7 @@ impl AzureSandbox {
         };
 
         let url = fabro_github::ssh_url_to_https(&detected_url);
-        let branch = self.clone_branch.clone().or(detected_branch);
+        let branch = detected_branch;
         self.emit(SandboxEvent::GitCloneStarted {
             url:    url.clone(),
             branch: branch.clone(),
@@ -662,44 +670,45 @@ mod tests {
     fn sandbox_name_lowercases_run_ids_for_aci() {
         let run_id: RunId = "01KPJGM228CBVW27W2KRJE7NP1".parse().unwrap();
         let sandbox = AzureSandbox {
-            runtime: AzureConfig::default(),
-            platform: AzurePlatformConfig {
+            runtime:          AzureConfig::default(),
+            platform:         AzurePlatformConfig {
                 subscription_id: "sub".into(),
-                resource_group: "rg".into(),
-                location: "loc".into(),
-                subnet_id: "subnet".into(),
+                resource_group:  "rg".into(),
+                location:        "loc".into(),
+                subnet_id:       "subnet".into(),
                 storage_account: "storage".into(),
-                storage_share: "share".into(),
-                storage_key: "key".into(),
-                acr_server: "acr.azurecr.io".into(),
-                sandboxd_port: 7777,
-                acr_username: None,
-                acr_password: None,
+                storage_share:   "share".into(),
+                storage_key:     "key".into(),
+                acr_server:      "acr.azurecr.io".into(),
+                sandboxd_port:   7777,
+                acr_username:    None,
+                acr_password:    None,
             },
-            arm: AzureArmClient::new_with_base_url(
+            arm:              AzureArmClient::new_with_base_url(
                 fabro_http::http_client().unwrap(),
                 AzurePlatformConfig {
                     subscription_id: "sub".into(),
-                    resource_group: "rg".into(),
-                    location: "loc".into(),
-                    subnet_id: "subnet".into(),
+                    resource_group:  "rg".into(),
+                    location:        "loc".into(),
+                    subnet_id:       "subnet".into(),
                     storage_account: "storage".into(),
-                    storage_share: "share".into(),
-                    storage_key: "key".into(),
-                    acr_server: "acr.azurecr.io".into(),
-                    sandboxd_port: 7777,
-                    acr_username: None,
-                    acr_password: None,
+                    storage_share:   "share".into(),
+                    storage_key:     "key".into(),
+                    acr_server:      "acr.azurecr.io".into(),
+                    sandboxd_port:   7777,
+                    acr_username:    None,
+                    acr_password:    None,
                 },
                 "https://management.azure.com".into(),
             ),
-            resource_id: OnceCell::new(),
-            sandboxd: OnceCell::new(),
-            run_id: Some(run_id),
-            github_app: None,
-            clone_branch: None,
-            origin_url: OnceCell::new(),
-            event_callback: None,
+            resource_id:      OnceCell::new(),
+            sandboxd:         OnceCell::new(),
+            run_id:           Some(run_id),
+            github_app:       None,
+            clone_origin_url: None,
+            clone_branch:     None,
+            origin_url:       OnceCell::new(),
+            event_callback:   None,
         };
 
         assert_eq!(sandbox.sandbox_name(), "fabro-01kpjgm228cbvw27w2krje7np1");
