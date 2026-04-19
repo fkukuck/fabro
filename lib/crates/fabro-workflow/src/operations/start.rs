@@ -365,15 +365,17 @@ impl RunSession {
                     config: resolve_daytona_config(&resolved).unwrap_or_default(),
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
+                    clone_origin_url: origin_url.clone(),
                     clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
                     api_key,
                 }
             }
             SandboxProvider::Azure => SandboxSpec::Azure {
-                config:       resolve_azure_config(&resolved).unwrap_or_default(),
-                github_app:   services.github_app.clone(),
-                run_id:       Some(record.run_id),
-                clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+                config:           resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:       services.github_app.clone(),
+                run_id:           Some(record.run_id),
+                clone_origin_url: origin_url.clone(),
+                clone_branch:     detected_base_branch.or_else(|| record.base_branch.clone()),
             },
         };
 
