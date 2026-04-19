@@ -7,7 +7,7 @@ use fabro_util::terminal::Styles;
 use crate::args::RunArgs;
 use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
-use crate::user_config::settings_layer_with_storage_dir;
+use crate::user_config::load_settings_with_storage_dir;
 
 pub(crate) async fn execute(
     mut args: RunArgs,
@@ -17,7 +17,7 @@ pub(crate) async fn execute(
 ) -> Result<()> {
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
     let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
-    let cli_defaults = settings_layer_with_storage_dir(None)?;
+    let cli_defaults = load_settings_with_storage_dir(None)?;
     args.verbose = args.verbose || cli.output.verbosity == OutputVerbosity::Verbose;
 
     let quiet = args.detach;

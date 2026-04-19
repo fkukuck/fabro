@@ -21,10 +21,8 @@ fn config_layers(
         Some(path) => workflow_and_project_layers(path, cwd)?,
         None => (SettingsLayer::default(), load_settings_project(cwd)?),
     };
-    let user_layer = user_config::settings_layer_with_config_and_storage_dir(
-        Some(ctx.base_config_path()),
-        None,
-    )?;
+    let user_layer =
+        user_config::load_settings_with_config_and_storage_dir(Some(ctx.base_config_path()), None)?;
     Ok(EffectiveSettingsLayers::new(
         SettingsLayer::default(),
         workflow_layer,

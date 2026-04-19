@@ -1,10 +1,4 @@
-use fabro_test::{fabro_snapshot, test_context};
-
-fn isolated_storage_dir() -> tempfile::TempDir {
-    let root = tempfile::tempdir_in("/tmp").unwrap();
-    std::fs::create_dir_all(root.path().join("storage")).unwrap();
-    root
-}
+use fabro_test::{fabro_snapshot, isolated_storage_dir, test_context};
 
 #[test]
 fn help() {
