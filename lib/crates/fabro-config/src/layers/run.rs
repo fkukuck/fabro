@@ -541,7 +541,10 @@ pub struct RunScmLayer {
 /// `run.pull_request` until a concrete use case lands.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScmGitHubLayer;
+pub struct ScmGitHubLayer {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub permissions: HashMap<String, InterpString>,
+}
 
 /// `[run.pull_request]` — provider-neutral PR behavior.
 #[derive(

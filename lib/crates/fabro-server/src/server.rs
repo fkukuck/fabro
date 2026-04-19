@@ -1738,6 +1738,14 @@ fn system_sandbox_provider(
     )
 }
 
+fn run_requests_github_credentials(settings: &RunNamespace) -> bool {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .is_some_and(|github| !github.permissions.is_empty())
+}
+
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
     let raw = raw.trim();
     anyhow::ensure!(!raw.is_empty(), "empty duration string");
@@ -4602,7 +4610,8 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
     let github_app_result = {
         let settings = &persisted.run_spec().settings.run;
         let required_github_credentials = (settings.execution.mode != RunMode::DryRun
-            && settings.sandbox.provider == "daytona")
+            && matches!(settings.sandbox.provider.as_str(), "daytona" | "azure"))
+            || run_requests_github_credentials(settings)
             || !github_settings.permissions.is_empty();
         if required_github_credentials {
             state.github_credentials(github_settings)
@@ -12706,6 +12715,25 @@ level = "debug"
         // server and are read via AppState::server_settings().
         let settings_json = serde_json::to_value(&run_spec.settings).unwrap();
         assert!(settings_json.pointer("/server").is_none());
+    }
+
+    #[test]
+    fn run_requests_github_credentials_when_run_scm_permissions_are_present() {
+        let settings = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[run.execution]
+mode = "normal"
+
+[run.scm.github.permissions]
+issues = "read"
+"#,
+        )
+        .unwrap();
+        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+
+        assert!(run_requests_github_credentials(&resolved));
     }
 
     #[tokio::test]
