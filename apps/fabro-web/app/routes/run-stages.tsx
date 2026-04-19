@@ -176,28 +176,52 @@ function Markdown({ content }: { content: string }) {
 
 function SystemBlock({ content }: { content: string }) {
   return (
-    <div className="rounded-md border border-amber/10 bg-amber/5 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <section className="border-l-2 border-amber/50 pl-4">
+      <header className="mb-1.5 flex items-center gap-2">
         <CommandLineIcon className="size-4 shrink-0 text-amber" />
-        <span className="text-xs font-medium text-fg-3">System Prompt</span>
-      </div>
-      <div className="border-t border-line px-3 py-2.5">
-        <Markdown content={content} />
-      </div>
-    </div>
+        <span className="text-xs font-medium text-fg-3">System prompt</span>
+      </header>
+      <Markdown content={content} />
+    </section>
   );
 }
 
 function AssistantBlock({ content }: { content: string }) {
   return (
-    <div className="rounded-md border border-teal-500/10 bg-teal-500/5 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <section className="border-l-2 border-teal-500/50 pl-4">
+      <header className="mb-1.5 flex items-center gap-2">
         <ChatBubbleLeftIcon className="size-4 shrink-0 text-teal-500" />
         <span className="text-xs font-medium text-fg-3">Assistant</span>
-      </div>
-      <div className="border-t border-line px-3 py-2.5">
-        <Markdown content={content} />
-      </div>
+      </header>
+      <Markdown content={content} />
+    </section>
+  );
+}
+
+function StatusPill({
+  tone,
+  children,
+}: {
+  tone: "running" | "failed" | "success" | "neutral";
+  children: React.ReactNode;
+}) {
+  const toneClass = {
+    running: "bg-teal-500/15 text-teal-500",
+    failed: "bg-coral/15 text-coral",
+    success: "bg-mint/15 text-mint",
+    neutral: "bg-overlay text-fg-3",
+  }[tone];
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${toneClass}`}>
+      {children}
+    </span>
+  );
+}
+
+function StreamLabel({ label }: { label: string }) {
+  return (
+    <div className="mb-1 font-mono text-[11px] uppercase tracking-wider text-fg-muted">
+      {label}
     </div>
   );
 }
@@ -215,46 +239,48 @@ function CommandBlock({ turn }: { turn: Extract<TurnType, { kind: "command" }> }
         <span className="text-xs font-medium text-fg-3">
           {turn.language === "python" ? "Python" : "Shell"}
         </span>
-        {turn.running && (
-          <span className="ml-auto text-[11px] font-medium text-teal-500 animate-pulse">Running...</span>
-        )}
-        {!turn.running && turn.timedOut && (
-          <span className="ml-auto rounded bg-coral/15 px-1.5 py-0.5 text-[11px] font-medium text-coral">Timed out</span>
-        )}
-        {!turn.running && !turn.timedOut && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${failed ? "bg-coral/15 text-coral" : "bg-mint/15 text-mint"}`}>
-              exit {turn.exitCode ?? "?"}
-            </span>
-            {turn.durationMs != null && (
-              <span className="text-[11px] tabular-nums text-fg-muted">
-                {turn.durationMs < 1000 ? `${turn.durationMs}ms` : `${(turn.durationMs / 1000).toFixed(1)}s`}
-              </span>
-            )}
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {turn.running ? (
+            <StatusPill tone="running">Running…</StatusPill>
+          ) : turn.timedOut ? (
+            <StatusPill tone="failed">Timed out</StatusPill>
+          ) : (
+            <>
+              <StatusPill tone={failed ? "failed" : "success"}>
+                exit {turn.exitCode ?? "?"}
+              </StatusPill>
+              {turn.durationMs != null && (
+                <StatusPill tone="neutral">
+                  {turn.durationMs < 1000
+                    ? `${turn.durationMs}ms`
+                    : `${(turn.durationMs / 1000).toFixed(1)}s`}
+                </StatusPill>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Script */}
       {turn.script && (
         <div className="border-t border-line px-3 py-2.5">
-          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{turn.script}</pre>
+          <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-fg-3 sm:text-xs">{turn.script}</pre>
         </div>
       )}
 
       {/* stdout */}
       {turn.stdout && (
         <div className="border-t border-line px-3 py-2.5">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">stdout</div>
-          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{turn.stdout}</pre>
+          <StreamLabel label="stdout" />
+          <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-fg-3 sm:text-xs">{turn.stdout}</pre>
         </div>
       )}
 
       {/* stderr */}
       {turn.stderr && (
         <div className="border-t border-line px-3 py-2.5">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">stderr</div>
-          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-coral">{turn.stderr}</pre>
+          <StreamLabel label="stderr" />
+          <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-coral sm:text-xs">{turn.stderr}</pre>
         </div>
       )}
     </div>
@@ -303,8 +329,8 @@ export default function RunStages({ loaderData }: any) {
       <div className="min-w-0 flex-1 space-y-3">
         <div className="flex items-center gap-2">
           <SelectedIcon className={`size-5 ${selectedConfig.color} ${isRunning ? "animate-spin" : ""}`} />
-          <h3 className="text-sm font-medium text-fg">{selectedStage.name}</h3>
-          <span className="font-mono text-xs text-fg-muted">{headerDuration}</span>
+          <h3 className="text-base font-semibold text-fg">{selectedStage.name}</h3>
+          <span className="font-mono text-xs tabular-nums text-fg-muted">{headerDuration}</span>
         </div>
 
         {turns.map((turn: TurnType, i: number) => {

@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useRevalidator } from "react-router";
-import { CheckCircleIcon, ArrowPathIcon, PauseCircleIcon, XCircleIcon } from "@heroicons/react/24/solid";
+import {
+  ArrowPathIcon,
+  CheckCircleIcon,
+  NoSymbolIcon,
+  PauseCircleIcon,
+  XCircleIcon,
+} from "@heroicons/react/24/solid";
 import { DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
 import { formatDurationSecs } from "../lib/format";
 
@@ -19,7 +25,7 @@ export const statusConfig: Record<StageStatus, { icon: typeof CheckCircleIcon; c
   running: { icon: ArrowPathIcon, color: "text-teal-500" },
   pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
   failed: { icon: XCircleIcon, color: "text-coral" },
-  cancelled: { icon: XCircleIcon, color: "text-fg-muted" },
+  cancelled: { icon: NoSymbolIcon, color: "text-fg-muted" },
 };
 
 interface StageSidebarProps {
