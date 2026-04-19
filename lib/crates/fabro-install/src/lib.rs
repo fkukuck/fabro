@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
@@ -25,6 +25,12 @@ pub struct VaultSecretWrite {
     pub value:       String,
     pub secret_type: VaultSecretType,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallListenConfig {
+    Tcp(String),
+    Unix(PathBuf),
 }
 
 fn pem_encode(label: &str, bytes: &[u8]) -> String {
@@ -69,7 +75,7 @@ pub fn generate_jwt_keypair() -> Result<(String, String)> {
 }
 
 pub fn default_web_url() -> String {
-    format!("http://127.0.0.1:32276")
+    "http://127.0.0.1:32276".to_string()
 }
 
 fn root_table_mut(doc: &mut toml::Value) -> Result<&mut toml::Table> {
@@ -109,15 +115,11 @@ fn github_integration_table(doc: &mut toml::Value) -> Result<&mut toml::Table> {
         .context("settings.toml [server.integrations.github] is not a table")
 }
 
-pub fn merge_server_settings(doc: &mut toml::Value, web_url: &str) -> Result<()> {
-    let authority = web_url
-        .split("://")
-        .nth(1)
-        .unwrap_or(web_url)
-        .split('/')
-        .next()
-        .unwrap_or(web_url);
-
+pub fn merge_server_settings(
+    doc: &mut toml::Value,
+    web_url: &str,
+    listen_config: &InstallListenConfig,
+) -> Result<()> {
     let root = root_table_mut(doc)?;
     root.insert("_version".to_string(), toml::Value::Integer(1));
 
@@ -130,11 +132,21 @@ pub fn merge_server_settings(doc: &mut toml::Value, web_url: &str) -> Result<()>
     );
 
     let listen = ensure_table(server, "listen")?;
-    listen.insert("type".to_string(), toml::Value::String("tcp".to_string()));
-    listen.insert(
-        "address".to_string(),
-        toml::Value::String(authority.to_string()),
-    );
+    match listen_config {
+        InstallListenConfig::Tcp(address) => {
+            listen.insert("type".to_string(), toml::Value::String("tcp".to_string()));
+            listen.insert("address".to_string(), toml::Value::String(address.clone()));
+            listen.remove("path");
+        }
+        InstallListenConfig::Unix(path) => {
+            listen.insert("type".to_string(), toml::Value::String("unix".to_string()));
+            listen.insert(
+                "path".to_string(),
+                toml::Value::String(path.display().to_string()),
+            );
+            listen.remove("address");
+        }
+    }
 
     let web = ensure_table(server, "web")?;
     web.insert("enabled".to_string(), toml::Value::Boolean(true));
@@ -295,11 +307,24 @@ pub fn persist_install_outputs_direct(
     let previous_vault = std::fs::read_to_string(&vault_path).ok();
 
     if let Err(err) = persist_vault_secrets_direct(storage_dir, vault_secrets) {
+        let mut rollback_failures = Vec::new();
         if let Some(ref write) = settings_write {
-            restore_optional_file(write.path, write.previous_contents)?;
+            if let Err(restore_err) = restore_optional_file(write.path, write.previous_contents) {
+                rollback_failures.push(restore_err.to_string());
+            }
         }
-        restore_optional_file(&vault_path, previous_vault.as_deref())?;
-        return Err(err.context("persisting install outputs directly"));
+        if let Err(restore_err) = restore_optional_file(&vault_path, previous_vault.as_deref()) {
+            rollback_failures.push(restore_err.to_string());
+        }
+        let error = if rollback_failures.is_empty() {
+            err.context("persisting install outputs directly")
+        } else {
+            err.context(format!(
+                "persisting install outputs directly; rollback failures: {}",
+                rollback_failures.join("; ")
+            ))
+        };
+        return Err(error);
     }
 
     Ok(())
@@ -311,14 +336,18 @@ mod tests {
     use fabro_vault::{SecretType as VaultSecretType, Vault};
 
     use super::{
-        PendingSettingsWrite, VaultSecretWrite, default_web_url, merge_server_settings,
-        persist_install_outputs_direct, write_github_app_settings,
+        InstallListenConfig, PendingSettingsWrite, VaultSecretWrite, default_web_url,
+        merge_server_settings, persist_install_outputs_direct, write_github_app_settings,
     };
 
     fn format_config_toml() -> String {
         let mut doc = toml::Value::Table(toml::Table::default());
-        merge_server_settings(&mut doc, &default_web_url())
-            .expect("default server config should be valid");
+        merge_server_settings(
+            &mut doc,
+            &default_web_url(),
+            &InstallListenConfig::Tcp("127.0.0.1:32276".to_string()),
+        )
+        .expect("default server config should be valid");
         toml::to_string_pretty(&doc).expect("default server config should serialize")
     }
 
@@ -351,7 +380,12 @@ name = "custom"
         )
         .unwrap();
 
-        merge_server_settings(&mut doc, &default_web_url()).unwrap();
+        merge_server_settings(
+            &mut doc,
+            &default_web_url(),
+            &InstallListenConfig::Tcp("127.0.0.1:32276".to_string()),
+        )
+        .unwrap();
 
         assert_eq!(
             doc.get("project")
@@ -365,7 +399,12 @@ name = "custom"
     #[test]
     fn write_github_app_settings_uses_server_integrations_github() {
         let mut doc = toml::Value::Table(toml::Table::default());
-        merge_server_settings(&mut doc, &default_web_url()).unwrap();
+        merge_server_settings(
+            &mut doc,
+            &default_web_url(),
+            &InstallListenConfig::Tcp("127.0.0.1:32276".to_string()),
+        )
+        .unwrap();
 
         write_github_app_settings(&mut doc, "123", "fabro-app", "client-id", &[
             "brynary".to_string()
@@ -448,5 +487,31 @@ name = "custom"
             server_env.get("SESSION_SECRET").map(String::as_str),
             Some("session")
         );
+    }
+
+    #[test]
+    fn merge_server_settings_keeps_tcp_bind_separate_from_public_web_url() {
+        let mut doc = toml::Value::Table(toml::Table::default());
+        merge_server_settings(
+            &mut doc,
+            "https://fabro.example.com",
+            &InstallListenConfig::Tcp("0.0.0.0:32276".to_string()),
+        )
+        .unwrap();
+
+        let settings = fabro_config::parse_settings_layer(
+            &toml::to_string_pretty(&doc).expect("settings should serialize"),
+        )
+        .expect("settings should parse");
+        let resolved =
+            fabro_config::resolve_server_from_file(&settings).expect("settings should resolve");
+        match resolved.listen {
+            fabro_types::settings::server::ServerListenSettings::Tcp { address, .. } => {
+                assert_eq!(address.to_string(), "0.0.0.0:32276");
+            }
+            fabro_types::settings::server::ServerListenSettings::Unix { .. } => {
+                panic!("expected tcp listen settings");
+            }
+        }
     }
 }

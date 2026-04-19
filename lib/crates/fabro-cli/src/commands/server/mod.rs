@@ -16,6 +16,7 @@ use fabro_server::serve::{self, ServeArgs};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use ring::rand::{SecureRandom, SystemRandom};
+use tracing::info;
 
 use crate::args::{
     GlobalArgs, ServerCommand, ServerRestartArgs, ServerServeArgs, ServerStartArgs,
@@ -43,12 +44,6 @@ pub(crate) async fn dispatch(
                     fabro_util::printerr!(
                         printer,
                         "Warning: --no-web is ignored during install; will be respected on next start."
-                    );
-                }
-                if !foreground {
-                    fabro_util::printerr!(
-                        printer,
-                        "Warning: --foreground is implicit during install."
                     );
                 }
                 return run_install_mode(bootstrap, printer).await;
@@ -97,12 +92,6 @@ pub(crate) async fn dispatch(
                     fabro_util::printerr!(
                         printer,
                         "Warning: --no-web is ignored during install; will be respected on next start."
-                    );
-                }
-                if !foreground {
-                    fabro_util::printerr!(
-                        printer,
-                        "Warning: --foreground is implicit during install."
                     );
                 }
                 return run_install_mode(bootstrap, printer).await;
@@ -220,6 +209,11 @@ async fn run_install_mode(bootstrap: InstallBootstrap, printer: Printer) -> Resu
 }
 
 fn announce_install_mode(bind: &Bind, token: &str, styles: &Styles, printer: Printer) {
+    info!(
+        bind = %bind,
+        install_url = install_url_hint(bind, "<redacted>").as_deref().unwrap_or("<unavailable>"),
+        "entering install mode"
+    );
     fabro_util::printerr!(printer, "");
     fabro_util::printerr!(
         printer,

@@ -4,12 +4,24 @@ use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
+const INSTALL_MODE_MARKER: &str = "__FABRO_MODE__ = \"install\"";
+
 pub fn serve(path: &str, headers: &HeaderMap) -> Response {
     serve_with_mode(path, headers, SpaMode::Normal)
 }
 
 pub fn serve_install(path: &str, headers: &HeaderMap) -> Response {
     serve_with_mode(path, headers, SpaMode::Install)
+}
+
+pub(crate) fn assert_install_mode_shell_ready() {
+    let index = load_asset("index.html").expect("install-mode SPA shell asset missing");
+    let injected = inject_install_mode(index);
+    let html = String::from_utf8(injected).expect("install-mode SPA shell must be valid UTF-8");
+    assert!(
+        html.contains(INSTALL_MODE_MARKER),
+        "install-mode SPA shell marker missing after injection"
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,13 +99,17 @@ fn inject_install_mode(bytes: Vec<u8>) -> Vec<u8> {
     let Ok(html) = String::from_utf8(bytes.clone()) else {
         return bytes;
     };
-    if html.contains("__FABRO_MODE__ = \"install\"") {
+    if html.contains(INSTALL_MODE_MARKER) {
         return html.into_bytes();
     }
 
     let injected = html.replace(
         "</head>",
         "    <script>window.__FABRO_MODE__ = \"install\";</script>\n  </head>",
+    );
+    assert!(
+        injected.contains(INSTALL_MODE_MARKER),
+        "install-mode SPA shell is missing a writable </head> tag"
     );
     injected.into_bytes()
 }
@@ -162,7 +178,9 @@ fn is_source_map(path: &str) -> bool {
 mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
 
-    use super::{accepts_html, cache_control, is_source_map, read_disk_asset_from_root};
+    use super::{
+        accepts_html, cache_control, inject_install_mode, is_source_map, read_disk_asset_from_root,
+    };
 
     fn headers_with_accept(value: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -212,5 +230,11 @@ mod tests {
 
         let bytes = read_disk_asset_from_root(temp_dir.path(), "assets/override.txt").unwrap();
         assert_eq!(bytes, b"override");
+    }
+
+    #[test]
+    #[should_panic(expected = "install-mode SPA shell is missing a writable </head> tag")]
+    fn install_mode_injection_panics_when_html_head_is_missing() {
+        let _ = inject_install_mode(b"<html><body>no head tag</body></html>".to_vec());
     }
 }

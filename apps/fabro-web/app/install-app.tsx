@@ -21,7 +21,11 @@ import {
 import { AuthLayout } from "./components/auth-layout";
 import { INSTALL_PROVIDERS } from "./install-config";
 import { shouldRedirectAfterHealthPoll } from "./install-flow";
-import { consumeInstallTokenFromUrl } from "./mode";
+import {
+  consumeInstallGithubErrorFromUrl,
+  consumeInstallTokenFromUrl,
+  shouldConsumeInstallGithubErrorForPath,
+} from "./mode";
 
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
@@ -80,6 +84,14 @@ export default function InstallApp() {
   }, []);
 
   useEffect(() => {
+    if (shouldConsumeInstallGithubErrorForPath(location.pathname)) {
+      const { error, sanitizedUrl } = consumeInstallGithubErrorFromUrl(window.location.href);
+      if (error) {
+        setSaveError(error);
+        window.history.replaceState(window.history.state, "", sanitizedUrl);
+        return;
+      }
+    }
     setSaveError(null);
   }, [location.pathname]);
 

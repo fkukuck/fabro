@@ -1,25 +1,24 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use axum::extract::{OriginalUri, Query, State};
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
-use fabro_auth::{ApiCredential, ApiKeyHeader, AuthCredential, AuthDetails, credential_id_for};
+use fabro_auth::{AuthCredential, AuthDetails, credential_id_for};
 use fabro_config::{Storage, resolve_server_from_file};
-use fabro_github::github_api_base_url;
 use fabro_install::{
-    PendingSettingsWrite, VaultSecretWrite, generate_jwt_keypair, merge_server_settings,
-    persist_install_outputs_direct, write_github_app_settings, write_token_settings,
+    InstallListenConfig, PendingSettingsWrite, VaultSecretWrite, generate_jwt_keypair,
+    merge_server_settings, persist_install_outputs_direct, write_github_app_settings,
+    write_token_settings,
 };
-use fabro_llm::client::Client as LlmClient;
-use fabro_llm::generate::{GenerateParams, generate};
-use fabro_model::{Catalog, Provider};
+use fabro_model::Provider;
 use fabro_store::ArtifactStore;
 use fabro_util::version::FABRO_VERSION;
 use fabro_util::{Home, dev_token, session_secret};
@@ -27,7 +26,7 @@ use fabro_vault::SecretType as VaultSecretType;
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::watch;
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use tower::service_fn;
 use tracing::{error, info, warn};
 
@@ -37,12 +36,15 @@ use crate::{security_headers, static_files};
 
 #[derive(Clone)]
 pub struct InstallAppState {
-    install_token:   Arc<String>,
-    pending_install: Arc<Mutex<PendingInstall>>,
-    storage_dir:     Arc<PathBuf>,
-    config_path:     Arc<PathBuf>,
-    upstreams:       InstallUpstreamConfig,
-    on_finish:       Option<Arc<dyn Fn() + Send + Sync>>,
+    install_token:      Arc<String>,
+    pending_install:    Arc<Mutex<PendingInstall>>,
+    storage_dir:        Arc<PathBuf>,
+    config_path:        Arc<PathBuf>,
+    install_listen:     Arc<Mutex<InstallListenConfig>>,
+    first_operator:     Arc<Mutex<Option<InstallOperatorFingerprint>>>,
+    finish_in_progress: Arc<AtomicBool>,
+    upstreams:          InstallUpstreamConfig,
+    on_finish:          Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -51,16 +53,33 @@ struct InstallUpstreamConfig {
     github_api_base_url: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct InstallOperatorFingerprint {
+    user_agent: Option<String>,
+    remote_ip:  Option<String>,
+}
+
+pub const DEFAULT_INSTALL_GITHUB_API_BASE_URL: &str = "https://api.github.com";
+const DEFAULT_INSTALL_TCP_LISTEN_ADDRESS: &str = "127.0.0.1:32276";
+const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
+const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
 impl InstallAppState {
     #[must_use]
     pub fn new(token: String, storage_dir: &Path, config_path: &Path) -> Self {
         Self {
-            install_token:   Arc::new(token),
-            pending_install: Arc::new(Mutex::new(PendingInstall::default())),
-            storage_dir:     Arc::new(storage_dir.to_path_buf()),
-            config_path:     Arc::new(config_path.to_path_buf()),
-            upstreams:       InstallUpstreamConfig::default(),
-            on_finish:       None,
+            install_token:      Arc::new(token),
+            pending_install:    Arc::new(Mutex::new(PendingInstall::default())),
+            storage_dir:        Arc::new(storage_dir.to_path_buf()),
+            config_path:        Arc::new(config_path.to_path_buf()),
+            install_listen:     Arc::new(Mutex::new(InstallListenConfig::Tcp(
+                DEFAULT_INSTALL_TCP_LISTEN_ADDRESS.to_string(),
+            ))),
+            first_operator:     Arc::new(Mutex::new(None)),
+            finish_in_progress: Arc::new(AtomicBool::new(false)),
+            upstreams:          InstallUpstreamConfig::default(),
+            on_finish:          None,
         }
     }
 
@@ -73,12 +92,17 @@ impl InstallAppState {
     #[must_use]
     pub fn for_test_with_paths(token: &str, storage_dir: &Path, config_path: &Path) -> Self {
         Self {
-            install_token:   Arc::new(token.to_string()),
-            pending_install: Arc::new(Mutex::new(PendingInstall::default())),
-            storage_dir:     Arc::new(storage_dir.to_path_buf()),
-            config_path:     Arc::new(config_path.to_path_buf()),
-            upstreams:       InstallUpstreamConfig::default(),
-            on_finish:       None,
+            install_token:      Arc::new(token.to_string()),
+            pending_install:    Arc::new(Mutex::new(PendingInstall::default())),
+            storage_dir:        Arc::new(storage_dir.to_path_buf()),
+            config_path:        Arc::new(config_path.to_path_buf()),
+            install_listen:     Arc::new(Mutex::new(InstallListenConfig::Tcp(
+                DEFAULT_INSTALL_TCP_LISTEN_ADDRESS.to_string(),
+            ))),
+            first_operator:     Arc::new(Mutex::new(None)),
+            finish_in_progress: Arc::new(AtomicBool::new(false)),
+            upstreams:          InstallUpstreamConfig::default(),
+            on_finish:          None,
         }
     }
 
@@ -105,6 +129,14 @@ impl InstallAppState {
     pub fn with_github_api_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.upstreams.github_api_base_url = Some(base_url.into());
         self
+    }
+
+    fn set_install_bind(&self, bind: &Bind) {
+        *lock_unpoisoned(&self.install_listen, "install listen") = install_listen_config(bind);
+    }
+
+    fn install_listen_config(&self) -> InstallListenConfig {
+        lock_unpoisoned(&self.install_listen, "install listen").clone()
     }
 }
 
@@ -191,8 +223,8 @@ struct GithubAppManifestInput {
 
 #[derive(Clone, Debug, Deserialize)]
 struct GithubAppRedirectQuery {
-    code:  String,
-    state: String,
+    code:  Option<String>,
+    state: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -247,6 +279,8 @@ impl GitHubAppOwner {
 }
 
 pub fn build_install_router(state: InstallAppState) -> Router {
+    static_files::assert_install_mode_shell_ready();
+
     Router::new()
         .route("/health", get(health))
         .route("/install/session", get(get_install_session))
@@ -288,6 +322,34 @@ pub fn build_install_router(state: InstallAppState) -> Router {
         .layer(axum::middleware::from_fn(security_headers::layer))
 }
 
+struct InstallFinishGuard {
+    flag:    Arc<AtomicBool>,
+    release: bool,
+}
+
+impl InstallFinishGuard {
+    fn try_acquire(flag: Arc<AtomicBool>) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        Some(Self {
+            flag,
+            release: true,
+        })
+    }
+
+    fn disarm(mut self) {
+        self.release = false;
+    }
+}
+
+impl Drop for InstallFinishGuard {
+    fn drop(&mut self) {
+        if self.release {
+            self.flag.store(false, Ordering::Release);
+        }
+    }
+}
+
 pub async fn serve_install_command<F>(
     bind_request: BindRequest,
     state: InstallAppState,
@@ -300,9 +362,10 @@ where
     let finish_callback: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         let _ = shutdown_tx.send(true);
     });
+    let bound_listener = bind_install_listener(&bind_request).await?;
+    state.set_install_bind(&bound_listener.bind);
     let state = state.with_finish_callback(finish_callback);
     let router = build_install_router(state);
-    let bound_listener = bind_install_listener(&bind_request).await?;
     let bind = bound_listener.bind.clone();
     on_ready(&bind)?;
 
@@ -325,6 +388,20 @@ where
     Ok(())
 }
 
+fn lock_unpoisoned<'a, T>(mutex: &'a Mutex<T>, label: &'static str) -> MutexGuard<'a, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        error!(lock = label, "recovering from poisoned install lock");
+        poisoned.into_inner()
+    })
+}
+
+fn install_listen_config(bind: &Bind) -> InstallListenConfig {
+    match bind {
+        Bind::Tcp(address) => InstallListenConfig::Tcp(address.to_string()),
+        Bind::Unix(path) => InstallListenConfig::Unix(path.clone()),
+    }
+}
+
 async fn health() -> Response {
     Json(serde_json::json!({
         "status": "ok",
@@ -341,12 +418,9 @@ async fn get_install_session(
     if !token_is_valid(&state, &headers, query.token.as_deref()) {
         return (StatusCode::UNAUTHORIZED, "invalid install token").into_response();
     }
+    observe_operator(&state, &headers);
 
-    let pending_install = state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned")
-        .clone();
+    let pending_install = lock_unpoisoned(&state.pending_install, "install session").clone();
 
     Json(serde_json::json!({
         "completed_steps": completed_steps(&pending_install),
@@ -369,6 +443,7 @@ async fn post_install_llm_test(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
     if let Some(error) = unsupported_install_provider_error(input.provider) {
         return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, error);
@@ -395,6 +470,7 @@ async fn put_install_llm(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
     if input.providers.is_empty() {
         return (
@@ -416,12 +492,8 @@ async fn put_install_llm(
         }
     }
 
-    state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned")
-        .llm = Some(input);
-    info!("install step completed: llm");
+    lock_unpoisoned(&state.pending_install, "install session").llm = Some(input);
+    info!(step = "llm", "install step completed");
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -436,13 +508,15 @@ async fn put_install_server(
     State(state): State<InstallAppState>,
     headers: HeaderMap,
     Query(query): Query<InstallTokenQuery>,
-    Json(input): Json<ServerConfigInput>,
+    Json(mut input): Json<ServerConfigInput>,
 ) -> Response {
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
-    if input.canonical_url.trim().is_empty() {
+    let canonical_url = input.canonical_url.trim();
+    if canonical_url.is_empty() {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(serde_json::json!({ "error": "canonical_url is required" })),
@@ -450,16 +524,13 @@ async fn put_install_server(
             .into_response();
     }
 
-    if let Err(err) = validate_canonical_url(&input.canonical_url) {
+    if let Err(err) = validate_canonical_url(canonical_url) {
         return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err);
     }
+    input.canonical_url = canonical_url.to_string();
 
-    state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned")
-        .server = Some(input);
-    info!("install step completed: server");
+    lock_unpoisoned(&state.pending_install, "install session").server = Some(input);
+    info!(step = "server", "install step completed");
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -472,6 +543,7 @@ async fn post_install_github_token_test(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
     if input.token.trim().is_empty() {
         return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, "token is required");
@@ -495,6 +567,7 @@ async fn put_install_github_token(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
     if input.token.trim().is_empty() || input.username.trim().is_empty() {
         return (
@@ -504,12 +577,9 @@ async fn put_install_github_token(
             .into_response();
     }
 
-    state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned")
-        .github = Some(GithubInstallState::Token(input));
-    info!("install step completed: github_token");
+    lock_unpoisoned(&state.pending_install, "install session").github =
+        Some(GithubInstallState::Token(input));
+    info!(step = "github_token", "install step completed");
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -522,6 +592,7 @@ async fn post_install_github_app_manifest(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
 
     let owner = match GitHubAppOwner::parse(&input.owner) {
         Ok(owner) => owner,
@@ -539,13 +610,21 @@ async fn post_install_github_app_manifest(
         );
     }
 
-    let mut pending_install = state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned");
+    let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
     let Some(server) = pending_install.server.clone() else {
         return missing_step_response("server");
     };
+    let now = Instant::now();
+    if pending_install
+        .pending_github_app
+        .as_ref()
+        .is_some_and(|pending| pending.expires_at > now)
+    {
+        return install_error_response(
+            StatusCode::CONFLICT,
+            "GitHub App setup is already pending; finish it or wait for it to expire.",
+        );
+    }
 
     let state_token = match generate_ephemeral_secret() {
         Ok(token) => token,
@@ -563,13 +642,12 @@ async fn post_install_github_app_manifest(
         &format!("{}/setup", server.canonical_url),
     );
 
-    pending_install.github = None;
     pending_install.pending_github_app = Some(PendingGithubApp {
         state:            state_token,
         owner:            owner.clone(),
         app_name:         input.app_name.trim().to_string(),
         allowed_username: input.allowed_username.trim().to_string(),
-        expires_at:       Instant::now() + Duration::from_secs(600),
+        expires_at:       now + Duration::from_secs(600),
     });
 
     Json(serde_json::json!({
@@ -581,41 +659,50 @@ async fn post_install_github_app_manifest(
 
 async fn get_install_github_app_redirect(
     State(state): State<InstallAppState>,
+    headers: HeaderMap,
     Query(query): Query<GithubAppRedirectQuery>,
 ) -> Response {
+    observe_operator(&state, &headers);
+
+    let Some(state_token) = query
+        .state
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return install_github_redirect_error(&state, "missing-install-github-app-state");
+    };
+    let Some(code) = query
+        .code
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return install_github_redirect_error(&state, "missing-install-github-app-code");
+    };
+
     let pending = {
-        let mut pending_install = state
-            .pending_install
-            .lock()
-            .expect("install session lock poisoned");
-        let Some(pending) = pending_install.pending_github_app.take() else {
-            return install_error_response(
-                StatusCode::BAD_REQUEST,
-                "install GitHub app state is missing",
-            );
+        let pending_install = lock_unpoisoned(&state.pending_install, "install session");
+        let Some(pending) = pending_install.pending_github_app.clone() else {
+            return install_github_redirect_error(&state, "missing-install-github-app-state");
         };
         if pending.expires_at <= Instant::now() {
-            return install_error_response(
-                StatusCode::BAD_REQUEST,
-                "install GitHub app state expired",
-            );
+            return install_github_redirect_error(&state, "expired-install-github-app-state");
         }
-        if pending.state != query.state {
-            pending_install.pending_github_app = Some(pending);
-            return install_error_response(
-                StatusCode::BAD_REQUEST,
-                "invalid install GitHub app state",
-            );
+        if pending.state != state_token {
+            return install_github_redirect_error(&state, "invalid-install-github-app-state");
         }
         pending
     };
 
-    match exchange_github_app_manifest_code(&state, &query.code).await {
+    match exchange_github_app_manifest_code(&state, code).await {
         Ok(conversion) => {
-            let mut pending_install = state
-                .pending_install
-                .lock()
-                .expect("install session lock poisoned");
+            let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
+            let Some(still_pending) = pending_install.pending_github_app.as_ref() else {
+                return install_github_redirect_error(&state, "missing-install-github-app-state");
+            };
+            if still_pending.state != pending.state {
+                return install_github_redirect_error(&state, "invalid-install-github-app-state");
+            }
+            pending_install.pending_github_app = None;
             pending_install.github = Some(GithubInstallState::App(GithubAppInstall {
                 owner:            pending.owner,
                 app_name:         pending.app_name,
@@ -627,9 +714,9 @@ async fn get_install_github_app_redirect(
                 webhook_secret:   conversion.webhook_secret,
                 pem:              conversion.pem,
             }));
-            info!("install step completed: github_app");
+            info!(step = "github_app", "install step completed");
             (StatusCode::FOUND, [(
-                axum::http::header::LOCATION,
+                header::LOCATION,
                 format!(
                     "/install/github/done?token={}",
                     state.install_token.as_str()
@@ -639,7 +726,7 @@ async fn get_install_github_app_redirect(
         }
         Err(err) => {
             error!(error = %err, "install GitHub app exchange failed");
-            install_error_response(StatusCode::BAD_GATEWAY, err)
+            install_github_redirect_error(&state, "github-app-manifest-conversion-failed")
         }
     }
 }
@@ -652,12 +739,13 @@ async fn post_install_finish(
     if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
         return response;
     }
+    observe_operator(&state, &headers);
+    let Some(finish_guard) = InstallFinishGuard::try_acquire(Arc::clone(&state.finish_in_progress))
+    else {
+        return install_error_response(StatusCode::CONFLICT, "install finish already in progress");
+    };
 
-    let pending_install = state
-        .pending_install
-        .lock()
-        .expect("install session lock poisoned")
-        .clone();
+    let pending_install = lock_unpoisoned(&state.pending_install, "install session").clone();
 
     let Some(llm) = pending_install.llm else {
         return missing_step_response("llm");
@@ -670,7 +758,10 @@ async fn post_install_finish(
     };
 
     let mut settings_doc = toml::Value::Table(toml::Table::default());
-    if let Err(err) = merge_server_settings(&mut settings_doc, &server.canonical_url) {
+    let install_listen = state.install_listen_config();
+    if let Err(err) =
+        merge_server_settings(&mut settings_doc, &server.canonical_url, &install_listen)
+    {
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
     let mut vault_secrets = Vec::new();
@@ -807,11 +898,16 @@ async fn post_install_finish(
     }
 
     if let Some(on_finish) = state.on_finish.clone() {
+        info!(restart_url = %server.canonical_url, "install finish succeeded");
+        info!("install exit scheduled");
         tokio::spawn(async move {
             sleep(Duration::from_millis(500)).await;
             on_finish();
         });
+    } else {
+        info!(restart_url = %server.canonical_url, "install finish succeeded");
     }
+    finish_guard.disarm();
 
     (
         StatusCode::ACCEPTED,
@@ -829,8 +925,19 @@ async fn render_install_shell(headers: HeaderMap, uri: OriginalUri) -> Response 
 }
 
 fn token_is_valid(state: &InstallAppState, headers: &HeaderMap, query_token: Option<&str>) -> bool {
-    install_token_from_request(headers, query_token)
-        .is_some_and(|token| token == state.install_token.as_str())
+    [
+        headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer ")),
+        query_token,
+        headers
+            .get("x-install-token")
+            .and_then(|value| value.to_str().ok()),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|token| token == state.install_token.as_str())
 }
 
 fn require_valid_token(
@@ -842,19 +949,53 @@ fn require_valid_token(
         .then(|| (StatusCode::UNAUTHORIZED, "invalid install token").into_response())
 }
 
-fn install_token_from_request(headers: &HeaderMap, query_token: Option<&str>) -> Option<String> {
+fn observe_operator(state: &InstallAppState, headers: &HeaderMap) {
+    let current = InstallOperatorFingerprint {
+        user_agent: headers
+            .get(header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string),
+        remote_ip:  detect_remote_ip(headers),
+    };
+    if current.user_agent.is_none() && current.remote_ip.is_none() {
+        return;
+    }
+
+    let mut first = lock_unpoisoned(&state.first_operator, "install operator");
+    match first.as_ref() {
+        None => *first = Some(current),
+        Some(initial) if initial != &current => {
+            warn!(
+                initial_user_agent = ?initial.user_agent,
+                current_user_agent = ?current.user_agent,
+                initial_remote_ip = ?initial.remote_ip,
+                current_remote_ip = ?current.remote_ip,
+                "suspected concurrent install operators"
+            );
+        }
+        Some(_) => {}
+    }
+}
+
+fn detect_remote_ip(headers: &HeaderMap) -> Option<String> {
     headers
-        .get("authorization")
+        .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(ToString::to_string)
-        .or_else(|| query_token.map(ToString::to_string))
-        .or_else(|| {
-            headers
-                .get("x-install-token")
-                .and_then(|value| value.to_str().ok())
-                .map(ToString::to_string)
-        })
+}
+
+fn install_github_redirect_error(state: &InstallAppState, error: &str) -> Response {
+    (StatusCode::FOUND, [(
+        header::LOCATION,
+        format!(
+            "/install/github?token={}&error={error}",
+            state.install_token
+        ),
+    )])
+        .into_response()
 }
 
 fn detect_canonical_url(headers: &HeaderMap) -> String {
@@ -940,13 +1081,26 @@ fn install_error_response(status: StatusCode, message: impl Into<String>) -> Res
 }
 
 fn validate_canonical_url(value: &str) -> Result<(), String> {
-    let parsed = fabro_http::Url::parse(value).map_err(|err| err.to_string())?;
+    let trimmed = value.trim();
+    let parsed = fabro_http::Url::parse(trimmed).map_err(|err| err.to_string())?;
     match parsed.scheme() {
         "http" | "https" => {}
         other => return Err(format!("canonical_url must use http or https, got {other}")),
     }
     if parsed.host_str().is_none() {
         return Err("canonical_url must include a host".to_string());
+    }
+    if trimmed.ends_with('/') {
+        return Err("canonical_url must not end with a trailing slash".to_string());
+    }
+    if parsed.path() != "/" {
+        return Err("canonical_url must not include a path".to_string());
+    }
+    if parsed.query().is_some() {
+        return Err("canonical_url must not include a query string".to_string());
+    }
+    if parsed.fragment().is_some() {
+        return Err("canonical_url must not include a fragment".to_string());
     }
     Ok(())
 }
@@ -996,48 +1150,51 @@ async fn validate_llm_provider(
     state: &InstallAppState,
     input: &InstallLlmTestInput,
 ) -> Result<(), String> {
-    let auth_header = if input.provider == Provider::Anthropic {
-        ApiKeyHeader::Custom {
-            name:  "x-api-key".to_string(),
-            value: input.api_key.clone(),
+    let base_url = provider_base_url(state, input.provider);
+    let client = install_http_client_for_url(&base_url)?;
+    let request = match input.provider {
+        Provider::Anthropic => client
+            .get(format!("{base_url}/models"))
+            .header("x-api-key", &input.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("User-Agent", "fabro-server"),
+        Provider::OpenAi => client
+            .get(format!("{base_url}/models"))
+            .header("Authorization", format!("Bearer {}", input.api_key))
+            .header("User-Agent", "fabro-server"),
+        Provider::Gemini => client
+            .get(format!("{base_url}/models"))
+            .header("x-goog-api-key", &input.api_key)
+            .header("User-Agent", "fabro-server"),
+        Provider::Kimi
+        | Provider::Zai
+        | Provider::Minimax
+        | Provider::Inception
+        | Provider::OpenAiCompatible => {
+            return Err(format!(
+                "{} is not supported by install validation",
+                input.provider.as_str()
+            ));
         }
-    } else {
-        ApiKeyHeader::Bearer(input.api_key.clone())
     };
 
-    let client = LlmClient::from_credentials(vec![ApiCredential {
-        provider: input.provider,
-        auth_header,
-        extra_headers: HashMap::new(),
-        base_url: provider_base_url(state, input.provider),
-        codex_mode: false,
-        org_id: None,
-        project_id: None,
-    }])
-    .await
-    .map_err(|err| err.to_string())?;
-
-    let probe_model = Catalog::builtin()
-        .probe_for_provider(input.provider)
-        .map_or_else(
-            || format!("unknown-{}", input.provider.as_str()),
-            |model| model.id.clone(),
-        );
-
-    let params = GenerateParams::new(probe_model)
-        .provider(input.provider.as_str())
-        .prompt("Say OK")
-        .max_tokens(16)
-        .client(Arc::new(client));
-
-    timeout(Duration::from_secs(30), generate(params))
+    let response = request
+        .timeout(Duration::from_secs(10))
+        .send()
         .await
-        .map_err(|_| "timeout (30s)".to_string())?
-        .map(|_| ())
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} model lookup failed ({})",
+            input.provider.as_str(),
+            response.status()
+        ))
+    }
 }
 
-fn provider_base_url(state: &InstallAppState, provider: Provider) -> Option<String> {
+fn provider_base_url(state: &InstallAppState, provider: Provider) -> String {
     state
         .upstreams
         .provider_base_urls
@@ -1050,6 +1207,16 @@ fn provider_base_url(state: &InstallAppState, provider: Provider) -> Option<Stri
             Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => None,
             Provider::OpenAiCompatible => std::env::var("OPENAI_COMPATIBLE_BASE_URL").ok(),
         })
+        .unwrap_or_else(|| match provider {
+            Provider::Anthropic => DEFAULT_ANTHROPIC_BASE_URL.to_string(),
+            Provider::OpenAi => DEFAULT_OPENAI_BASE_URL.to_string(),
+            Provider::Gemini => DEFAULT_GEMINI_BASE_URL.to_string(),
+            Provider::Kimi
+            | Provider::Zai
+            | Provider::Minimax
+            | Provider::Inception
+            | Provider::OpenAiCompatible => String::new(),
+        })
 }
 
 async fn validate_github_token(state: &InstallAppState, token: &str) -> Result<String, String> {
@@ -1057,7 +1224,7 @@ async fn validate_github_token(state: &InstallAppState, token: &str) -> Result<S
         .upstreams
         .github_api_base_url
         .clone()
-        .unwrap_or_else(github_api_base_url);
+        .unwrap_or_else(|| DEFAULT_INSTALL_GITHUB_API_BASE_URL.to_string());
     let client = install_http_client_for_url(&base_url)?;
     let response = client
         .get(format!("{base_url}/user"))
@@ -1082,7 +1249,7 @@ async fn exchange_github_app_manifest_code(
         .upstreams
         .github_api_base_url
         .clone()
-        .unwrap_or_else(github_api_base_url);
+        .unwrap_or_else(|| DEFAULT_INSTALL_GITHUB_API_BASE_URL.to_string());
     let client = install_http_client_for_url(&base_url)?;
     let response = client
         .post(format!("{base_url}/app-manifests/{code}/conversions"))
@@ -1093,10 +1260,8 @@ async fn exchange_github_app_manifest_code(
         .map_err(|err| err.to_string())?;
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "GitHub manifest conversion failed ({status}): {body}"
-        ));
+        let _ = response.text().await;
+        return Err(format!("GitHub manifest conversion failed ({status})"));
     }
     response.json().await.map_err(|err| err.to_string())
 }
@@ -1179,37 +1344,34 @@ async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+
     use axum::http::HeaderMap;
 
     use super::{
-        InstallAppState, detect_canonical_url, install_token_from_request, token_is_valid,
+        DEFAULT_INSTALL_GITHUB_API_BASE_URL, InstallAppState, InstallFinishGuard, PendingInstall,
+        detect_canonical_url, lock_unpoisoned, token_is_valid,
     };
 
     #[test]
-    fn install_token_resolution_prefers_authorization_header() {
+    fn token_validation_accepts_any_matching_source() {
+        let state = InstallAppState::for_test("expected");
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", "Bearer header-token".parse().unwrap());
-        headers.insert("x-install-token", "header-fallback".parse().unwrap());
+        headers.insert("authorization", "Bearer wrong".parse().unwrap());
+        headers.insert("x-install-token", "also-wrong".parse().unwrap());
 
-        assert_eq!(
-            install_token_from_request(&headers, Some("query-token")).as_deref(),
-            Some("header-token")
-        );
+        assert!(token_is_valid(&state, &headers, Some("expected")));
     }
 
     #[test]
-    fn install_token_resolution_falls_back_to_query_then_custom_header() {
+    fn token_validation_falls_back_to_custom_header() {
+        let state = InstallAppState::for_test("expected");
         let mut headers = HeaderMap::new();
-        headers.insert("x-install-token", "header-token".parse().unwrap());
+        headers.insert("authorization", "Bearer wrong".parse().unwrap());
+        headers.insert("x-install-token", "expected".parse().unwrap());
 
-        assert_eq!(
-            install_token_from_request(&headers, Some("query-token")).as_deref(),
-            Some("query-token")
-        );
-        assert_eq!(
-            install_token_from_request(&headers, None).as_deref(),
-            Some("header-token")
-        );
+        assert!(token_is_valid(&state, &headers, None));
     }
 
     #[test]
@@ -1230,5 +1392,35 @@ mod tests {
 
         headers.insert("authorization", "Bearer wrong".parse().unwrap());
         assert!(!token_is_valid(&state, &headers, None));
+    }
+
+    #[test]
+    fn pending_install_lock_recovers_after_poison() {
+        let pending = Arc::new(Mutex::new(PendingInstall::default()));
+        let poisoned = Arc::clone(&pending);
+        let _ = std::panic::catch_unwind(move || {
+            let _guard = poisoned.lock().unwrap();
+            panic!("poison install lock");
+        });
+
+        let _guard = lock_unpoisoned(&pending, "install session");
+    }
+
+    #[test]
+    fn finish_guard_rejects_concurrent_finish_calls() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let first = InstallFinishGuard::try_acquire(Arc::clone(&flag));
+        assert!(first.is_some());
+        assert!(InstallFinishGuard::try_acquire(Arc::clone(&flag)).is_none());
+        drop(first);
+        assert!(InstallFinishGuard::try_acquire(flag).is_some());
+    }
+
+    #[test]
+    fn install_github_requests_default_to_fixed_github_api_base_url() {
+        assert_eq!(
+            DEFAULT_INSTALL_GITHUB_API_BASE_URL,
+            "https://api.github.com"
+        );
     }
 }

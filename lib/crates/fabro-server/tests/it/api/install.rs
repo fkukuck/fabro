@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use fabro_config::Storage;
+use fabro_config::{Storage, parse_settings_layer, resolve_server_from_file};
 use fabro_model::Provider;
 use fabro_server::install::{InstallAppState, build_install_router};
 use fabro_vault::Vault;
@@ -187,6 +187,25 @@ async fn install_endpoints_reject_missing_and_wrong_tokens() {
 }
 
 #[tokio::test]
+async fn install_endpoints_accept_query_token_when_authorization_header_is_wrong() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session?token=test-install-token")
+                .header("authorization", "Bearer wrong-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn token_install_finish_persists_settings_env_and_vault() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("settings.toml");
@@ -271,6 +290,19 @@ async fn token_install_finish_persists_settings_env_and_vault() {
     let settings = std::fs::read_to_string(&config_path).unwrap();
     assert!(settings.contains("https://fabro.example.com"));
     assert!(settings.contains("strategy = \"token\""));
+    let parsed = parse_settings_layer(&settings).expect("settings should parse");
+    let resolved = resolve_server_from_file(&parsed).expect("settings should resolve");
+    assert_eq!(
+        match resolved.listen {
+            fabro_types::settings::server::ServerListenSettings::Tcp { address, .. } => {
+                address.to_string()
+            }
+            fabro_types::settings::server::ServerListenSettings::Unix { .. } => {
+                String::new()
+            }
+        },
+        "127.0.0.1:32276"
+    );
 
     let server_env = std::fs::read_to_string(
         fabro_config::Storage::new(temp_dir.path())
@@ -293,18 +325,17 @@ async fn install_validation_endpoints_validate_credentials_and_github_token() {
     let llm_mock = MockServer::start_async().await;
     llm_mock
         .mock_async(|when, then| {
-            when.method("POST").path("/v1/messages");
+            when.method("GET").path("/v1/models");
             then.status(200)
                 .header("content-type", "application/json")
                 .body(
                     serde_json::to_string(&serde_json::json!({
-                        "id": "msg_test_123",
-                        "type": "message",
-                        "role": "assistant",
-                        "model": "claude-sonnet-4-5",
-                        "content": [{"type": "text", "text": "OK"}],
-                        "stop_reason": "end_turn",
-                        "usage": {"input_tokens": 10, "output_tokens": 5}
+                        "data": [
+                            {
+                                "id": "claude-sonnet-4-5",
+                                "type": "model"
+                            }
+                        ]
                     }))
                     .unwrap(),
                 );
@@ -490,6 +521,107 @@ async fn github_app_manifest_round_trip_updates_install_session() {
 }
 
 #[tokio::test]
+async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_token_strategy() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let server_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/server")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"canonical_url":"https://fabro.example.com"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(server_response.status(), StatusCode::NO_CONTENT);
+
+    let github_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/github/token")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"token":"ghp_test_token","username":"brynary"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(github_response.status(), StatusCode::NO_CONTENT);
+
+    let manifest_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/github/app/manifest")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"owner":"personal","app_name":"Fabro Test","allowed_username":"octocat"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(manifest_response.status(), StatusCode::OK);
+
+    let session_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session_response.status(), StatusCode::OK);
+    let session_body = body_json(session_response.into_body()).await;
+    assert_eq!(session_body["github"]["strategy"], "token");
+    assert_eq!(session_body["github"]["username"], "brynary");
+    assert!(
+        session_body["completed_steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "github")
+    );
+
+    let retry_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/github/app/manifest")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"owner":"personal","app_name":"Fabro Retry","allowed_username":"octocat"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retry_response.status(), StatusCode::CONFLICT);
+    let retry_body = body_json(retry_response.into_body()).await;
+    assert_eq!(
+        retry_body["error"],
+        "GitHub App setup is already pending; finish it or wait for it to expire."
+    );
+}
+
+#[tokio::test]
 async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_session() {
     let github_mock = MockServer::start_async().await;
     let conversion_mock = github_mock
@@ -570,7 +702,14 @@ async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_s
         )
         .await
         .unwrap();
-    assert_eq!(wrong_state_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(wrong_state_response.status(), StatusCode::FOUND);
+    assert_eq!(
+        wrong_state_response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/install/github?token=test-install-token&error=invalid-install-github-app-state")
+    );
     conversion_mock.assert_calls_async(0).await;
 
     let session_response = app
@@ -607,7 +746,14 @@ async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_s
         )
         .await
         .unwrap();
-    assert_eq!(missing_state_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(missing_state_response.status(), StatusCode::FOUND);
+    assert_eq!(
+        missing_state_response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/install/github?token=test-install-token&error=missing-install-github-app-state")
+    );
     conversion_mock.assert_calls_async(0).await;
 
     let valid_state_response = app
@@ -624,6 +770,133 @@ async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_s
         .unwrap();
     assert_eq!(valid_state_response.status(), StatusCode::FOUND);
     conversion_mock.assert_calls_async(1).await;
+}
+
+#[tokio::test]
+async fn github_app_redirect_exchange_failure_returns_to_wizard_and_keeps_pending_state() {
+    let github_mock = MockServer::start_async().await;
+    let conversion_mock = github_mock
+        .mock_async(|when, then| {
+            when.method("POST")
+                .path("/app-manifests/stub-code/conversions");
+            then.status(502).body("upstream exploded");
+        })
+        .await;
+    let app = build_install_router(
+        InstallAppState::for_test("test-install-token")
+            .with_github_api_base_url(github_mock.url("")),
+    );
+
+    let server_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/server")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"canonical_url":"https://fabro.example.com"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(server_response.status(), StatusCode::NO_CONTENT);
+
+    let manifest_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/github/app/manifest")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"owner":"personal","app_name":"Fabro Test","allowed_username":"octocat"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(manifest_response.status(), StatusCode::OK);
+    let manifest_body = body_json(manifest_response.into_body()).await;
+    let redirect_url = manifest_body["manifest"]["redirect_url"]
+        .as_str()
+        .expect("redirect_url should be present");
+    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
+    let state = redirect_uri
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.into_owned())
+        .expect("state should be embedded in redirect_url");
+
+    let callback_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/install/github/app/redirect?code=stub-code&state={state}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(callback_response.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback_response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "/install/github?token=test-install-token&error=github-app-manifest-conversion-failed"
+        )
+    );
+    conversion_mock.assert_calls_async(1).await;
+
+    let retry_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/install/github/app/redirect?code=stub-code&state={state}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retry_response.status(), StatusCode::FOUND);
+    conversion_mock.assert_calls_async(2).await;
+}
+
+#[tokio::test]
+async fn install_server_rejects_trailing_slash_canonical_urls() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/server")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"canonical_url":"https://fabro.example.com/"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_json(response.into_body()).await;
+    assert_eq!(
+        body["error"],
+        "canonical_url must not end with a trailing slash"
+    );
 }
 
 #[tokio::test]
