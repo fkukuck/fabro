@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use ::fabro_types::{
     ActorRef, BilledTokenCounts, BlockedReason, ParallelBranchId, RunBlobId, RunControlAction,
-    RunEvent, RunId, RunProvenance, StageId, StageStatus, StatusReason, run_event as fabro_types,
+    RunEvent, RunId, RunProvenance, RunStatus, StageId, StageStatus, StatusReason,
+    run_event as fabro_types,
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -117,6 +118,15 @@ pub enum Event {
         previous_status:           Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run_commit_sha:            Option<String>,
+    },
+    RunArchived {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actor: Option<ActorRef>,
+    },
+    RunUnarchived {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actor:           Option<ActorRef>,
+        restored_status: RunStatus,
     },
     WorkflowRunCompleted {
         duration_ms:          u64,
@@ -629,6 +639,15 @@ impl Event {
                     run_commit_sha = run_commit_sha.as_deref().unwrap_or(""),
                     "Run rewound"
                 );
+            }
+            Self::RunArchived { actor } => {
+                info!(?actor, "Run archived");
+            }
+            Self::RunUnarchived {
+                actor,
+                restored_status,
+            } => {
+                info!(?actor, ?restored_status, "Run unarchived");
             }
             Self::WorkflowRunCompleted {
                 duration_ms,
@@ -1174,6 +1193,8 @@ pub fn event_name(event: &Event) -> &'static str {
         Event::RunPaused => "run.paused",
         Event::RunUnpaused => "run.unpaused",
         Event::RunRewound { .. } => "run.rewound",
+        Event::RunArchived { .. } => "run.archived",
+        Event::RunUnarchived { .. } => "run.unarchived",
         Event::WorkflowRunCompleted { .. } => "run.completed",
         Event::WorkflowRunFailed { .. } => "run.failed",
         Event::RunNotice { .. } => "run.notice",
@@ -1359,7 +1380,9 @@ fn stored_event_fields_for_variant(event: &Event) -> StoredEventFields {
         },
         Event::RunCancelRequested { actor }
         | Event::RunPauseRequested { actor }
-        | Event::RunUnpauseRequested { actor } => StoredEventFields {
+        | Event::RunUnpauseRequested { actor }
+        | Event::RunArchived { actor }
+        | Event::RunUnarchived { actor, .. } => StoredEventFields {
             actor: actor.clone(),
             ..StoredEventFields::default()
         },
@@ -1585,6 +1608,16 @@ fn event_body_from_event(event: &Event) -> EventBody {
             target_visit:              *target_visit,
             previous_status:           previous_status.clone(),
             run_commit_sha:            run_commit_sha.clone(),
+        }),
+        Event::RunArchived { actor } => EventBody::RunArchived(fabro_types::RunArchivedProps {
+            actor: actor.clone(),
+        }),
+        Event::RunUnarchived {
+            actor,
+            restored_status,
+        } => EventBody::RunUnarchived(fabro_types::RunUnarchivedProps {
+            actor:           actor.clone(),
+            restored_status: *restored_status,
         }),
         Event::WorkflowRunCompleted {
             duration_ms,
@@ -3398,6 +3431,60 @@ mod tests {
             actor: None,
         });
         assert!(unpause.actor.is_none());
+    }
+
+    #[test]
+    fn run_archived_event_name_matches_dot_notation() {
+        assert_eq!(
+            event_name(&Event::RunArchived { actor: None }),
+            "run.archived"
+        );
+        assert_eq!(
+            event_name(&Event::RunUnarchived {
+                actor:           None,
+                restored_status: RunStatus::Succeeded,
+            }),
+            "run.unarchived"
+        );
+    }
+
+    #[test]
+    fn run_archived_round_trips_actor_in_envelope() {
+        let actor = ActorRef {
+            kind:    ActorKind::User,
+            id:      Some("alice".to_string()),
+            display: Some("alice".to_string()),
+        };
+
+        let archived = to_run_event(&fixtures::RUN_1, &Event::RunArchived {
+            actor: Some(actor.clone()),
+        });
+        assert_eq!(archived.event_name(), "run.archived");
+        assert_eq!(archived.actor.as_ref().expect("actor set"), &actor);
+        assert!(matches!(archived.body, EventBody::RunArchived(_)));
+    }
+
+    #[test]
+    fn run_unarchived_round_trips_actor_and_restored_status() {
+        let actor = ActorRef {
+            kind:    ActorKind::User,
+            id:      Some("bob".to_string()),
+            display: Some("bob".to_string()),
+        };
+
+        let unarchived = to_run_event(&fixtures::RUN_1, &Event::RunUnarchived {
+            actor:           Some(actor.clone()),
+            restored_status: RunStatus::Failed,
+        });
+        assert_eq!(unarchived.event_name(), "run.unarchived");
+        assert_eq!(unarchived.actor.as_ref().expect("actor set"), &actor);
+        match &unarchived.body {
+            EventBody::RunUnarchived(props) => {
+                assert_eq!(props.restored_status, RunStatus::Failed);
+                assert_eq!(props.actor.as_ref().expect("actor set"), &actor);
+            }
+            other => panic!("expected RunUnarchived body, got {other:?}"),
+        }
     }
 
     #[test]

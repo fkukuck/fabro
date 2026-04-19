@@ -99,7 +99,7 @@ fn ps_default_excludes_non_running_runs() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-    No running processes found. Use -a to show all runs.
+    No running processes found. Use -a to show all runs (including archived).
     ");
 }
 

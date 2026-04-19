@@ -293,6 +293,26 @@ pub(crate) struct RunsRemoveArgs {
 }
 
 #[derive(Args)]
+pub(crate) struct RunsArchiveArgs {
+    #[command(flatten)]
+    pub(crate) server: ServerTargetArgs,
+
+    /// Run IDs or workflow names to archive
+    #[arg(required = true)]
+    pub(crate) runs: Vec<String>,
+}
+
+#[derive(Args)]
+pub(crate) struct RunsUnarchiveArgs {
+    #[command(flatten)]
+    pub(crate) server: ServerTargetArgs,
+
+    /// Run IDs or workflow names to unarchive
+    #[arg(required = true)]
+    pub(crate) runs: Vec<String>,
+}
+
+#[derive(Args)]
 pub(crate) struct LogsArgs {
     #[command(flatten)]
     pub(crate) server: ServerTargetArgs,
@@ -942,6 +962,11 @@ pub(crate) enum RunsCommands {
     Rm(RunsRemoveArgs),
     /// Show detailed information about a workflow run
     Inspect(InspectArgs),
+    /// Mark terminal runs as archived (reviewed, no further action needed).
+    /// Archived runs are hidden from default listings.
+    Archive(RunsArchiveArgs),
+    /// Restore archived runs to their prior terminal status.
+    Unarchive(RunsUnarchiveArgs),
 }
 
 impl RunsCommands {
@@ -950,6 +975,8 @@ impl RunsCommands {
             Self::Ps(_) => "ps",
             Self::Rm(_) => "rm",
             Self::Inspect(_) => "inspect",
+            Self::Archive(_) => "archive",
+            Self::Unarchive(_) => "unarchive",
         }
     }
 }

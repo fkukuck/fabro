@@ -30,11 +30,11 @@ export function ToolRow({ tool }: { tool: ToolUse }) {
       {open && (
         <div className="space-y-px bg-overlay px-2.5 pb-2 pt-1">
           <div className="rounded bg-overlay px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Input</div>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-muted">Input</div>
             <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-fg-3">{tool.input}</pre>
           </div>
           <div className="rounded bg-overlay px-2.5 py-2">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Result</div>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-fg-muted">Result</div>
             <pre className={`whitespace-pre-wrap font-mono text-xs leading-relaxed ${tool.isError ? "text-coral" : "text-fg-3"}`}>{tool.result}</pre>
           </div>
         </div>

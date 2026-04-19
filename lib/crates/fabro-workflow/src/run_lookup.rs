@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use fabro_config::Storage;
+use fabro_config::user::default_storage_dir;
 use fabro_store::{Database, RunSummary};
 use fabro_types::RunId;
 use serde::Serialize;
@@ -140,7 +141,7 @@ pub fn scratch_base(storage_dir: &Path) -> PathBuf {
 }
 
 pub fn default_scratch_base() -> PathBuf {
-    scratch_base(&fabro_util::Home::from_env().storage_dir())
+    scratch_base(&default_storage_dir())
 }
 
 fn scan_orphan_runs(base: &Path) -> Result<Vec<RunInfo>> {

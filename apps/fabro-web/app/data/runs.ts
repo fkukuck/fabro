@@ -132,7 +132,8 @@ export type RunStatus =
   | "removing"
   | "succeeded"
   | "failed"
-  | "dead";
+  | "dead"
+  | "archived";
 
 export const runStatusDisplay: Record<RunStatus, { label: string; dot: string; text: string }> = {
   submitted: { label: "Submitted", dot: "bg-fg-muted", text: "text-fg-muted" },
@@ -145,6 +146,7 @@ export const runStatusDisplay: Record<RunStatus, { label: string; dot: string; t
   succeeded: { label: "Succeeded", dot: "bg-mint", text: "text-mint" },
   failed: { label: "Failed", dot: "bg-coral", text: "text-coral" },
   dead: { label: "Dead", dot: "bg-coral", text: "text-coral" },
+  archived: { label: "Archived", dot: "bg-fg-muted", text: "text-fg-muted" },
 };
 
 const knownRunStatuses = new Set<string>(Object.keys(runStatusDisplay));

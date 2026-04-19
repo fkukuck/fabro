@@ -114,6 +114,10 @@ pub enum EventBody {
     RunUnpaused(RunControlEffectProps),
     #[serde(rename = "run.rewound")]
     RunRewound(RunRewoundProps),
+    #[serde(rename = "run.archived")]
+    RunArchived(RunArchivedProps),
+    #[serde(rename = "run.unarchived")]
+    RunUnarchived(RunUnarchivedProps),
     #[serde(rename = "run.completed")]
     RunCompleted(RunCompletedProps),
     #[serde(rename = "run.failed")]
@@ -375,6 +379,8 @@ impl EventBody {
             Self::RunPaused(_) => "run.paused",
             Self::RunUnpaused(_) => "run.unpaused",
             Self::RunRewound(_) => "run.rewound",
+            Self::RunArchived(_) => "run.archived",
+            Self::RunUnarchived(_) => "run.unarchived",
             Self::RunCompleted(_) => "run.completed",
             Self::RunFailed(_) => "run.failed",
             Self::RunNotice(_) => "run.notice",
@@ -504,6 +510,8 @@ fn is_known_event_name(event: &str) -> bool {
             | "run.unblocked"
             | "run.removing"
             | "run.rewound"
+            | "run.archived"
+            | "run.unarchived"
             | "run.completed"
             | "run.failed"
             | "run.notice"
@@ -1104,6 +1112,76 @@ mod tests {
             serialized["properties"]["blocked_reason"],
             value["properties"]["blocked_reason"]
         );
+    }
+
+    #[test]
+    fn run_archived_serializes_with_dotted_event_name_and_actor_property() {
+        let body = EventBody::RunArchived(RunArchivedProps {
+            actor: Some(ActorRef::user("alice".to_string())),
+        });
+        let value = serde_json::to_value(&body).unwrap();
+        assert_eq!(value["event"], "run.archived");
+        assert_eq!(value["properties"]["actor"]["kind"], "user");
+        assert_eq!(value["properties"]["actor"]["id"], "alice");
+    }
+
+    #[test]
+    fn run_unarchived_serializes_with_restored_status() {
+        let body = EventBody::RunUnarchived(RunUnarchivedProps {
+            actor:           None,
+            restored_status: crate::RunStatus::Failed,
+        });
+        let value = serde_json::to_value(&body).unwrap();
+        assert_eq!(value["event"], "run.unarchived");
+        assert_eq!(value["properties"]["restored_status"], "failed");
+    }
+
+    #[test]
+    fn run_archived_round_trips_through_from_value() {
+        let value = json!({
+            "id": "evt_archived",
+            "ts": "2026-04-19T12:00:00.000Z",
+            "run_id": fixtures::RUN_1,
+            "event": "run.archived",
+            "properties": {
+                "actor": {
+                    "kind": "user",
+                    "id": "alice",
+                    "display": "alice"
+                }
+            }
+        });
+
+        let parsed = RunEvent::from_value(value.clone()).unwrap();
+        assert!(matches!(parsed.body, EventBody::RunArchived(_)));
+        let serialized = parsed.to_value().unwrap();
+        assert_eq!(serialized["event"], "run.archived");
+        assert_eq!(
+            serialized["properties"]["actor"],
+            value["properties"]["actor"]
+        );
+    }
+
+    #[test]
+    fn run_unarchived_round_trips_through_from_value() {
+        let value = json!({
+            "id": "evt_unarchived",
+            "ts": "2026-04-19T12:00:00.000Z",
+            "run_id": fixtures::RUN_1,
+            "event": "run.unarchived",
+            "properties": {
+                "restored_status": "succeeded"
+            }
+        });
+
+        let parsed = RunEvent::from_value(value.clone()).unwrap();
+        match &parsed.body {
+            EventBody::RunUnarchived(props) => {
+                assert_eq!(props.restored_status, crate::RunStatus::Succeeded);
+                assert!(props.actor.is_none());
+            }
+            other => panic!("expected RunUnarchived body, got {other:?}"),
+        }
     }
 
     #[test]

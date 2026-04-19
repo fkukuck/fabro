@@ -150,6 +150,91 @@ fn apply_test_isolation_with_lookup(
     cmd.env(TEST_IN_MEMORY_STORE_ENV, "1");
 }
 
+/// Create a fresh tempdir containing an empty `storage/` subdirectory, for
+/// isolating server lifecycle tests from the shared nextest session storage.
+#[must_use]
+pub fn isolated_storage_dir() -> tempfile::TempDir {
+    let root = tempfile::tempdir_in("/tmp").expect("tempdir under /tmp");
+    std::fs::create_dir_all(root.path().join("storage")).expect("create storage dir");
+    root
+}
+
+/// Sleep tick for the test polling helpers below. These are synchronous
+/// helpers called from blocking integration tests — there's no runtime to
+/// hand off to, so `std::thread::sleep` is the right primitive.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sync polling helper for blocking integration tests"
+)]
+fn poll_sleep() {
+    std::thread::sleep(std::time::Duration::from_millis(50));
+}
+
+/// Poll up to 5s for a path to appear; panic on timeout.
+pub fn wait_for_path(path: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if path.exists() {
+            return;
+        }
+        poll_sleep();
+    }
+    panic!("timed out waiting for {}", path.display());
+}
+
+/// Poll up to 5s for `needle` to appear in the contents of `path`; panic on
+/// timeout.
+pub fn wait_for_log_line(path: &Path, needle: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if std::fs::read_to_string(path)
+            .ok()
+            .is_some_and(|contents| contents.contains(needle))
+        {
+            return;
+        }
+        poll_sleep();
+    }
+    panic!("timed out waiting for {needle:?} in {}", path.display());
+}
+
+/// SIGTERM the pid, wait up to 5s for it to exit, then SIGKILL if still alive.
+pub fn stop_pid(pid: u32) {
+    fabro_proc::sigterm(pid);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !fabro_proc::process_alive(pid) {
+            return;
+        }
+        poll_sleep();
+    }
+    fabro_proc::sigkill(pid);
+}
+
+/// List any `server.*.log` files under `logs_dir`. Used by server-lifecycle
+/// tests to assert that no server logs leak into the home logs directory.
+#[must_use]
+pub fn server_log_files(logs_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(logs_dir) else {
+        return Vec::new();
+    };
+
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            let has_log_ext = path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("log"));
+            let has_server_prefix = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("server."));
+            has_log_ext && has_server_prefix
+        })
+        .collect()
+}
+
 /// A test context for running fabro CLI commands.
 ///
 /// Each context gets isolated home/temp directories. The storage directory is

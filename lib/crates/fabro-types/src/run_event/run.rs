@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{BilledTokenCounts, RunNoticeLevel};
+use super::{ActorRef, BilledTokenCounts, RunNoticeLevel};
 use crate::settings::SettingsLayer;
-use crate::status::BlockedReason;
+use crate::status::{BlockedReason, RunStatus};
 use crate::{Graph, RunBlobId, RunControlAction, RunProvenance, StatusReason};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +91,19 @@ pub struct RunRewoundProps {
     pub previous_status:           Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_commit_sha:            Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunArchivedProps {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<ActorRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunUnarchivedProps {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor:           Option<ActorRef>,
+    pub restored_status: RunStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

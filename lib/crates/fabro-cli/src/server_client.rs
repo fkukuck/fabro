@@ -231,7 +231,7 @@ fn remote_dev_token_auth_for_target<'a>(
 }
 
 fn remote_url_matches_active_local_tcp_server(api_url: &str, storage_dir: &Path) -> bool {
-    let Some(record) = record::active_server_record(storage_dir) else {
+    let Ok(Some(record)) = record::active_server_record(storage_dir) else {
         return false;
     };
     let Bind::Tcp(bind_addr) = record.bind else {
@@ -594,6 +594,26 @@ impl ServerStoreClient {
         Ok(())
     }
 
+    pub(crate) async fn archive_run(&self, run_id: &RunId) -> Result<()> {
+        self.client
+            .archive_run()
+            .id(run_id.to_string())
+            .send()
+            .await
+            .map_err(map_api_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn unarchive_run(&self, run_id: &RunId) -> Result<()> {
+        self.client
+            .unarchive_run()
+            .id(run_id.to_string())
+            .send()
+            .await
+            .map_err(map_api_error)?;
+        Ok(())
+    }
+
     pub(crate) async fn list_store_runs(&self) -> Result<Vec<RunSummary>> {
         let mut all_runs = Vec::new();
         let mut offset = 0_u64;
@@ -605,6 +625,7 @@ impl ServerStoreClient {
                 .list_runs()
                 .page_limit(limit)
                 .page_offset(offset)
+                .include_archived(true)
                 .send()
                 .await
                 .map_err(map_api_error)?;
@@ -1190,7 +1211,9 @@ mod tests {
         record::write_server_record(&record_path, &record::ServerRecord {
             pid:            std::process::id(),
             bind:           Bind::Unix(temp_home.path().join("fabro.sock")),
-            log_path:       storage.path().join("server.log"),
+            log_path:       fabro_config::Storage::new(storage.path())
+                .server_state()
+                .log_path(),
             dev_token_path: Some(token_path),
             started_at:     chrono::Utc::now(),
         })

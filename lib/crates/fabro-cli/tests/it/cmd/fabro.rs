@@ -28,6 +28,8 @@ fn help() {
       store       Export store-backed run state for debugging
       rm          Remove one or more workflow runs
       inspect     Show detailed information about a workflow run
+      archive     Mark terminal runs as archived (reviewed, no further action needed). Archived runs are hidden from default listings
+      unarchive   Restore archived runs to their prior terminal status
       model       List and test LLM models
       server      Server operations
       doctor      Check environment and integration health

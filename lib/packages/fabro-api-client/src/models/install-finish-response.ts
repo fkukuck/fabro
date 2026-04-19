@@ -20,7 +20,10 @@
 export interface InstallFinishResponse {
     'status': InstallFinishResponseStatusEnum;
     'restart_url': string;
-    'dev_token': string;
+    /**
+     * Dev token used to bootstrap login. Only included when the operator chose the personal access token flow; GitHub App installs rely on OAuth and do not receive a dev token. 
+     */
+    'dev_token'?: string;
 }
 
 export const InstallFinishResponseStatusEnum = {

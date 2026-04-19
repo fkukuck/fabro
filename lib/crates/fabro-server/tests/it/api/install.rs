@@ -382,6 +382,150 @@ async fn token_install_finish_persists_settings_env_and_vault() {
 }
 
 #[tokio::test]
+async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let home_root = tempfile::tempdir().unwrap();
+    let home = Home::new(home_root.path().join(".fabro"));
+    let config_path = temp_dir.path().join("settings.toml");
+    let github_mock = MockServer::start_async().await;
+    github_mock
+        .mock_async(|when, then| {
+            when.method("POST")
+                .path("/app-manifests/stub-code/conversions");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(
+                    r#"{
+                        "id": 42,
+                        "slug": "fabro-test-app",
+                        "client_id": "Iv1.test-client-id",
+                        "client_secret": "test-client-secret",
+                        "webhook_secret": "test-webhook-secret",
+                        "pem": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+                    }"#,
+                );
+        })
+        .await;
+    let app = build_install_router(
+        InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
+            .with_home(home.clone())
+            .with_github_api_base_url(github_mock.url("")),
+    );
+
+    let llm_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/llm")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"providers":[{"provider":"anthropic","api_key":"anthropic-test-key"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(llm_response.status(), StatusCode::NO_CONTENT);
+
+    let server_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/server")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"canonical_url":"https://fabro.example.com"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(server_response.status(), StatusCode::NO_CONTENT);
+
+    let manifest_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/github/app/manifest")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"owner":{"kind":"personal"},"app_name":"Fabro Test","allowed_username":"octocat"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(manifest_response.status(), StatusCode::OK);
+    let manifest_body = body_json(manifest_response.into_body()).await;
+    let redirect_url = manifest_body["manifest"]["redirect_url"]
+        .as_str()
+        .expect("redirect_url should be present");
+    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
+    let state = redirect_uri
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.into_owned())
+        .expect("state should be embedded in redirect_url");
+
+    let callback_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/install/github/app/redirect?code=stub-code&state={state}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(callback_response.status(), StatusCode::FOUND);
+
+    let finish_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finish_response.status(), StatusCode::ACCEPTED);
+    let finish_body = body_json(finish_response.into_body()).await;
+    assert_eq!(finish_body["status"], "completing");
+    assert_eq!(finish_body["restart_url"], "https://fabro.example.com");
+    assert!(
+        finish_body.get("dev_token").is_none(),
+        "App installs must not expose a dev token"
+    );
+
+    let server_env =
+        std::fs::read_to_string(Storage::new(temp_dir.path()).server_state().env_path()).unwrap();
+    assert!(!server_env.contains("FABRO_DEV_TOKEN="));
+
+    assert!(
+        !home.dev_token_path().exists(),
+        "home dev token file should not be created for App installs"
+    );
+    assert!(
+        !Storage::new(temp_dir.path())
+            .server_state()
+            .dev_token_path()
+            .exists(),
+        "storage dev token file should not be created for App installs"
+    );
+}
+
+#[tokio::test]
 async fn token_install_finish_invokes_shutdown_callback_after_accepting() {
     let temp_dir = tempfile::tempdir().unwrap();
     let home_root = tempfile::tempdir().unwrap();

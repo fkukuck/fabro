@@ -1,45 +1,68 @@
 import { AuthLayout } from "../components/auth-layout";
+import { PRIMARY_BUTTON_CLASS } from "../components/ui";
+
+const steps = [
+  {
+    title: "Open a terminal on the server host",
+    body: (
+      <p className="text-sm/6 text-fg-3">
+        Run{" "}
+        <code className="font-mono text-fg-2">fabro install</code> on the same
+        host that runs the Fabro server.
+      </p>
+    ),
+  },
+  {
+    title: "Choose GitHub App setup",
+    body: (
+      <p className="text-sm/6 text-fg-3">
+        The CLI opens GitHub, exchanges the manifest code, and writes the
+        required settings and secrets locally.
+      </p>
+    ),
+  },
+  {
+    title: "Restart the server, then return to sign in",
+    body: (
+      <p className="text-sm/6 text-fg-3">
+        Once the server comes back up, you can authenticate from the browser.
+      </p>
+    ),
+  },
+];
 
 export default function Setup() {
   return (
     <AuthLayout footer="GitHub App setup is managed from the terminal, not the browser.">
-      <h1 className="text-center text-lg font-semibold text-fg">
+      <h1 className="text-center text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]">
         Set up Fabro
       </h1>
-      <p className="mt-2 text-center text-sm text-fg-3">
-        Run the installer on the same host that runs the Fabro server to
-        register a GitHub App and write local configuration.
+      <p className="mt-3 text-center text-sm/6 text-fg-3 text-pretty">
+        Run the installer on the server host to register a GitHub App and write
+        local configuration.
       </p>
-      <div className="mt-6 space-y-4">
-        <div className="rounded-lg border border-line-strong bg-overlay px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-            1. Open a terminal on the server host
-          </p>
-          <pre className="mt-2 overflow-x-auto text-sm text-fg-2">
-            <code>fabro install</code>
-          </pre>
-        </div>
-        <div className="rounded-lg border border-line-strong bg-overlay px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-            2. Choose GitHub App setup
-          </p>
-          <p className="mt-2 text-sm text-fg-3">
-            The CLI opens GitHub, exchanges the manifest code, and writes the
-            required settings and secrets locally.
-          </p>
-        </div>
-        <div className="rounded-lg border border-line-strong bg-overlay px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-            3. Restart the server, then return to sign in
-          </p>
-          <a
-            href="/login"
-            className="mt-3 flex w-full items-center justify-center rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-300"
-          >
-            Continue to sign in
-          </a>
-        </div>
-      </div>
+      <ol
+        role="list"
+        className="mt-8 divide-y divide-line border-y border-line"
+      >
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex items-start gap-4 py-4">
+            <span
+              className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-overlay text-xs font-semibold tabular-nums text-fg-2 outline-1 -outline-offset-1 outline-white/10"
+              aria-hidden="true"
+            >
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-fg">{step.title}</p>
+              <div className="mt-1">{step.body}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <a href="/login" className={`${PRIMARY_BUTTON_CLASS} mt-8 w-full`}>
+        Continue to sign in
+      </a>
     </AuthLayout>
   );
 }

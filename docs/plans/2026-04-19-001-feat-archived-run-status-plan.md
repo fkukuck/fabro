@@ -1,7 +1,7 @@
 ---
 title: "feat: Add terminal `archived` status to workflow runs"
 type: feat
-status: active
+status: completed
 date: 2026-04-19
 origin: docs/brainstorms/2026-04-19-run-archived-status-requirements.md
 ---

@@ -1,4 +1,5 @@
 import { apiJson } from "../api";
+import { EmptyState } from "../components/state";
 import { formatDurationSecs } from "../lib/format";
 import type { RunBilling } from "@qltysh/fabro-api-client";
 
@@ -39,12 +40,24 @@ export async function loader({ request, params }: any) {
 export default function RunBilling({ loaderData }: any) {
   const { stages, totalRuntime, totalUsdMicros, totalInput, totalOutput, modelBreakdown } =
     loaderData;
+
+  if (!stages.length) {
+    return (
+      <div className="py-12">
+        <EmptyState
+          title="No billing yet"
+          description="Token usage and cost will appear here once stages complete."
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="overflow-hidden rounded-md border border-line">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
+            <tr className="border-b border-line bg-panel/60 text-left text-xs font-medium text-fg-3">
               <th className="px-4 py-2.5 font-medium">Stage</th>
               <th className="px-4 py-2.5 font-medium">Model</th>
               <th className="px-4 py-2.5 font-medium text-right">Tokens</th>
@@ -69,7 +82,7 @@ export default function RunBilling({ loaderData }: any) {
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-line-strong bg-panel/40">
+            <tr className="border-t border-line-strong bg-overlay">
               <td className="px-4 py-3 font-medium text-fg">Total</td>
               <td />
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
@@ -88,13 +101,11 @@ export default function RunBilling({ loaderData }: any) {
       </div>
 
       <div>
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-fg-muted">
-          By Model
-        </h3>
+        <h3 className="mb-3 text-sm font-semibold text-fg">By model</h3>
         <div className="overflow-hidden rounded-md border border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line bg-panel/60 text-left text-xs text-fg-muted">
+              <tr className="border-b border-line bg-panel/60 text-left text-xs font-medium text-fg-3">
                 <th className="px-4 py-2.5 font-medium">Model</th>
                 <th className="px-4 py-2.5 font-medium text-right">Stages</th>
                 <th className="px-4 py-2.5 font-medium text-right">Tokens</th>
@@ -119,7 +130,7 @@ export default function RunBilling({ loaderData }: any) {
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-line-strong bg-panel/40">
+              <tr className="border-t border-line-strong bg-overlay">
                 <td className="px-4 py-3 font-medium text-fg">Total</td>
                 <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
                   {stages.length}

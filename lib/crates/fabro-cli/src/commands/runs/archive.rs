@@ -1,0 +1,138 @@
+use anyhow::{Result, bail};
+use fabro_types::settings::CliSettings;
+use fabro_types::settings::cli::{CliLayer, OutputFormat};
+use fabro_util::printer::Printer;
+
+use super::short_run_id;
+use crate::args::{RunsArchiveArgs, RunsUnarchiveArgs};
+use crate::command_context::CommandContext;
+use crate::server_client;
+use crate::server_runs::{
+    ServerRunSummaryInfo, ServerSummaryLookup, resolve_server_run_from_summaries,
+};
+use crate::shared::print_json_pretty;
+
+pub(crate) async fn archive_command(
+    args: &RunsArchiveArgs,
+    cli: &CliSettings,
+    cli_layer: &CliLayer,
+    printer: Printer,
+) -> Result<()> {
+    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
+    run_bulk(
+        Action::Archive,
+        &args.runs,
+        lookup.client(),
+        lookup.runs(),
+        cli,
+        printer,
+    )
+    .await
+}
+
+pub(crate) async fn unarchive_command(
+    args: &RunsUnarchiveArgs,
+    cli: &CliSettings,
+    cli_layer: &CliLayer,
+    printer: Printer,
+) -> Result<()> {
+    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
+    run_bulk(
+        Action::Unarchive,
+        &args.runs,
+        lookup.client(),
+        lookup.runs(),
+        cli,
+        printer,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum Action {
+    Archive,
+    Unarchive,
+}
+
+impl Action {
+    fn past(self) -> &'static str {
+        match self {
+            Self::Archive => "archived",
+            Self::Unarchive => "unarchived",
+        }
+    }
+
+    fn json_key(self) -> &'static str {
+        self.past()
+    }
+}
+
+async fn run_bulk(
+    action: Action,
+    identifiers: &[String],
+    client: &server_client::ServerStoreClient,
+    runs: &[ServerRunSummaryInfo],
+    cli: &CliSettings,
+    printer: Printer,
+) -> Result<()> {
+    let json = cli.output.format == OutputFormat::Json;
+    let mut had_errors = false;
+    let mut changed = Vec::new();
+    let mut errors = Vec::new();
+
+    for identifier in identifiers {
+        let run = match resolve_server_run_from_summaries(runs, identifier) {
+            Ok(run) => run,
+            Err(err) => {
+                if !json {
+                    fabro_util::printerr!(printer, "error: {identifier}: {err}");
+                }
+                errors.push(serde_json::json!({
+                    "identifier": identifier,
+                    "error": err.to_string(),
+                }));
+                had_errors = true;
+                continue;
+            }
+        };
+
+        let run_id = run.run_id();
+        let result = match action {
+            Action::Archive => client.archive_run(&run_id).await,
+            Action::Unarchive => client.unarchive_run(&run_id).await,
+        };
+        match result {
+            Ok(()) => {
+                let run_id_string = run_id.to_string();
+                changed.push(run_id_string.clone());
+                if !json {
+                    fabro_util::printerr!(printer, "{}", short_run_id(&run_id_string));
+                }
+            }
+            Err(err) => {
+                if !json {
+                    fabro_util::printerr!(printer, "error: {identifier}: {err}");
+                }
+                errors.push(serde_json::json!({
+                    "identifier": identifier,
+                    "error": err.to_string(),
+                }));
+                had_errors = true;
+            }
+        }
+    }
+
+    if json {
+        let mut body = serde_json::Map::new();
+        body.insert(action.json_key().to_string(), serde_json::json!(changed));
+        body.insert("errors".to_string(), serde_json::json!(errors));
+        print_json_pretty(&serde_json::Value::Object(body))?;
+    }
+
+    if had_errors {
+        bail!("some runs could not be {}", action.past());
+    }
+    Ok(())
+}

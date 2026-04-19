@@ -6,6 +6,7 @@ use fabro_util::terminal::Styles;
 
 use crate::args::RunsCommands;
 
+pub(crate) mod archive;
 pub(crate) mod inspect;
 pub(crate) mod list;
 pub(crate) mod rm;
@@ -23,6 +24,12 @@ pub(crate) async fn dispatch(
         }
         RunsCommands::Rm(args) => rm::remove_command(&args, cli, cli_layer, printer).await,
         RunsCommands::Inspect(args) => inspect::run(&args, cli, cli_layer, printer).await,
+        RunsCommands::Archive(args) => {
+            archive::archive_command(&args, cli, cli_layer, printer).await
+        }
+        RunsCommands::Unarchive(args) => {
+            archive::unarchive_command(&args, cli, cli_layer, printer).await
+        }
     }
 }
 

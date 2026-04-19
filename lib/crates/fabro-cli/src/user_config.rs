@@ -22,31 +22,18 @@ pub(crate) fn load_settings() -> anyhow::Result<SettingsLayer> {
     load_settings_with_config_and_storage_dir(None, None)
 }
 
-pub(crate) fn settings_layer_with_config_and_storage_dir(
-    config_path: Option<&Path>,
-    storage_dir: Option<&Path>,
-) -> anyhow::Result<SettingsLayer> {
-    let layer = load_settings_config(config_path)?;
-    Ok(apply_storage_dir_override(layer, storage_dir))
-}
-
-pub(crate) fn settings_layer_with_storage_dir(
-    storage_dir: Option<&Path>,
-) -> anyhow::Result<SettingsLayer> {
-    settings_layer_with_config_and_storage_dir(None, storage_dir)
-}
-
 pub(crate) fn load_settings_with_storage_dir(
     storage_dir: Option<&Path>,
 ) -> anyhow::Result<SettingsLayer> {
-    settings_layer_with_storage_dir(storage_dir)
+    load_settings_with_config_and_storage_dir(None, storage_dir)
 }
 
 pub(crate) fn load_settings_with_config_and_storage_dir(
     config_path: Option<&Path>,
     storage_dir: Option<&Path>,
 ) -> anyhow::Result<SettingsLayer> {
-    settings_layer_with_config_and_storage_dir(config_path, storage_dir)
+    let layer = load_settings_config(config_path)?;
+    Ok(apply_storage_dir_override(layer, storage_dir))
 }
 
 fn render_resolve_errors(errors: Vec<fabro_config::ResolveError>) -> anyhow::Error {

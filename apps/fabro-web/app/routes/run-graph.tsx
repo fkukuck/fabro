@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { ArrowDownIcon, ArrowRightIcon, MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { useTheme } from "../lib/theme";
 import { getGraphTheme } from "../lib/graph-theme";
 import { apiFetch, apiJsonOrNull } from "../api";
@@ -8,6 +7,11 @@ import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
 import { StageSidebar } from "../components/stage-sidebar";
 import type { Stage } from "../components/stage-sidebar";
+import {
+  GRAPH_DEFAULT_ZOOM_INDEX,
+  GRAPH_ZOOM_STEPS,
+  GraphToolbar,
+} from "../components/graph-toolbar";
 import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
@@ -169,9 +173,6 @@ function annotateRunningNodes(svg: SVGSVGElement, gt: ReturnType<typeof getGraph
 
 }
 
-const ZOOM_STEPS = [25, 50, 75, 100, 150, 200];
-const DEFAULT_ZOOM_INDEX = 2;
-
 export default function RunGraph({ loaderData }: any) {
   const { id } = useParams();
   const { stages, graphSvg } = loaderData;
@@ -179,11 +180,11 @@ export default function RunGraph({ loaderData }: any) {
   const innerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
+  const [zoomIndex, setZoomIndex] = useState(GRAPH_DEFAULT_ZOOM_INDEX);
   const [direction, setDirection] = useState<Direction>("LR");
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragState = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
-  const zoom = ZOOM_STEPS[zoomIndex];
+  const zoom = GRAPH_ZOOM_STEPS[zoomIndex];
   const { theme } = useTheme();
   const graphTheme = getGraphTheme(theme);
 
@@ -264,8 +265,8 @@ export default function RunGraph({ loaderData }: any) {
 
     const fitPct = Math.min(containerW / svgW, containerH / svgH) * 100;
     let best = 0;
-    for (let i = ZOOM_STEPS.length - 1; i >= 0; i--) {
-      if (ZOOM_STEPS[i] <= fitPct) { best = i; break; }
+    for (let i = GRAPH_ZOOM_STEPS.length - 1; i >= 0; i--) {
+      if (GRAPH_ZOOM_STEPS[i] <= fitPct) { best = i; break; }
     }
     setZoomIndex(best);
     setPan({ x: 0, y: 0 });
@@ -280,61 +281,14 @@ export default function RunGraph({ loaderData }: any) {
       <StageSidebar stages={stages} runId={id!} activeLink="graph" />
 
       <div className="min-w-0 flex-1">
-        <div className="graph-svg relative rounded-md border border-line bg-panel-alt/40">
-          <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
-              <button
-                type="button"
-                title="Left to right"
-                onClick={() => setDirection("LR")}
-                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "LR" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
-              >
-                <ArrowRightIcon className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Top to bottom"
-                onClick={() => setDirection("TB")}
-                className={`flex size-7 items-center justify-center rounded transition-colors ${direction === "TB" ? "bg-overlay-strong text-fg-3" : "text-fg-muted hover:bg-overlay hover:text-fg-3"}`}
-              >
-                <ArrowDownIcon className="size-3.5" />
-              </button>
-            </div>
-
-            <div className="flex items-center rounded-md border border-line bg-panel/90 p-0.5">
-              <button
-                type="button"
-                title="Fit to window"
-                onClick={fitToWindow}
-                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3"
-              >
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" className="size-3.5" aria-hidden="true">
-                  <rect x="1" y="1" width="12" height="12" rx="1.5" strokeWidth="1.5" strokeDasharray="3 2" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-0.5 rounded-md border border-line bg-panel/90 p-0.5">
-              <button
-                type="button"
-                title="Zoom out"
-                onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}
-                disabled={zoomIndex === 0}
-                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-              >
-                <MinusIcon className="size-4" />
-              </button>
-              <button
-                type="button"
-                title="Zoom in"
-                onClick={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
-                disabled={zoomIndex === ZOOM_STEPS.length - 1}
-                className="flex size-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-overlay hover:text-fg-3 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-              >
-                <PlusIcon className="size-4" />
-              </button>
-            </div>
-          </div>
+        <div className="graph-svg relative rounded-md border border-line bg-panel-alt">
+          <GraphToolbar
+            direction={direction}
+            setDirection={setDirection}
+            fitToWindow={fitToWindow}
+            zoomIndex={zoomIndex}
+            setZoomIndex={setZoomIndex}
+          />
 
           <div
             ref={containerRef}

@@ -17,10 +17,25 @@ pub enum RunStatus {
     Succeeded,
     Failed,
     Dead,
+    Archived,
 }
 
 impl RunStatus {
+    /// Whether the run has reached a terminal outcome and stops poll loops,
+    /// finalization, and similar "done" handling. `Archived` is terminal
+    /// because it is only reachable from another terminal status.
     pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Succeeded | Self::Failed | Self::Dead | Self::Archived
+        )
+    }
+
+    /// Whether the run's status is frozen and cannot transition outbound
+    /// (except via the `* -> Dead` escape hatch). `Archived` is intentionally
+    /// NOT immutable — it can transition back to its prior terminal status
+    /// via `unarchive`.
+    pub fn is_immutable(self) -> bool {
         matches!(self, Self::Succeeded | Self::Failed | Self::Dead)
     }
 
@@ -41,8 +56,13 @@ impl RunStatus {
         if to == Self::Dead {
             return true;
         }
-        if self.is_terminal() {
-            return false;
+        if self.is_immutable() {
+            // Allow immutable terminal statuses to archive.
+            return matches!(to, Self::Archived);
+        }
+        if self == Self::Archived {
+            // Unarchive: restore to any prior terminal status.
+            return matches!(to, Self::Succeeded | Self::Failed);
         }
         matches!(
             (self, to),
@@ -84,6 +104,7 @@ impl fmt::Display for RunStatus {
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Dead => "dead",
+            Self::Archived => "archived",
         };
         f.write_str(s)
     }
@@ -104,6 +125,7 @@ impl FromStr for RunStatus {
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
             "dead" => Ok(Self::Dead),
+            "archived" => Ok(Self::Archived),
             _ => Err(ParseRunStatusError(s.to_string())),
         }
     }
@@ -189,7 +211,7 @@ impl RunStatusRecord {
 mod tests {
     use std::str::FromStr;
 
-    use super::RunStatus;
+    use super::{InvalidTransition, RunStatus};
 
     #[test]
     fn queued_and_blocked_parse_and_format() {
@@ -218,5 +240,64 @@ mod tests {
         assert!(blocked.can_transition_to(running));
         assert!(blocked.can_transition_to(paused));
         assert!(blocked.can_transition_to(RunStatus::from_str("failed").unwrap()));
+    }
+
+    #[test]
+    fn archived_parses_and_round_trips() {
+        let parsed = RunStatus::from_str("archived").expect("archived should parse");
+        assert_eq!(parsed, RunStatus::Archived);
+        assert_eq!(parsed.to_string(), "archived");
+    }
+
+    #[test]
+    fn terminal_statuses_can_transition_to_archived() {
+        assert!(RunStatus::Succeeded.can_transition_to(RunStatus::Archived));
+        assert!(RunStatus::Failed.can_transition_to(RunStatus::Archived));
+        assert!(RunStatus::Dead.can_transition_to(RunStatus::Archived));
+    }
+
+    #[test]
+    fn archived_can_transition_back_to_terminal() {
+        assert!(RunStatus::Archived.can_transition_to(RunStatus::Succeeded));
+        assert!(RunStatus::Archived.can_transition_to(RunStatus::Failed));
+        // Dead is always reachable via the escape hatch.
+        assert!(RunStatus::Archived.can_transition_to(RunStatus::Dead));
+    }
+
+    #[test]
+    fn running_cannot_transition_to_archived() {
+        assert!(!RunStatus::Running.can_transition_to(RunStatus::Archived));
+        assert!(!RunStatus::Queued.can_transition_to(RunStatus::Archived));
+        assert!(!RunStatus::Submitted.can_transition_to(RunStatus::Archived));
+        assert!(!RunStatus::Paused.can_transition_to(RunStatus::Archived));
+    }
+
+    #[test]
+    fn archived_to_archived_is_rejected() {
+        // Idempotency of archive is handled at the operation layer, not the guard.
+        assert!(!RunStatus::Archived.can_transition_to(RunStatus::Archived));
+    }
+
+    #[test]
+    fn archived_is_terminal_but_not_immutable() {
+        assert!(RunStatus::Archived.is_terminal());
+        assert!(!RunStatus::Archived.is_immutable());
+        assert!(!RunStatus::Archived.is_active());
+    }
+
+    #[test]
+    fn immutable_terminal_statuses_are_also_terminal() {
+        for status in [RunStatus::Succeeded, RunStatus::Failed, RunStatus::Dead] {
+            assert!(status.is_terminal(), "{status} should be terminal");
+            assert!(status.is_immutable(), "{status} should be immutable");
+        }
+    }
+
+    #[test]
+    fn invalid_transition_carries_from_and_to() {
+        let from = RunStatus::Running;
+        let to = RunStatus::Archived;
+        let err = from.transition_to(to).expect_err("should reject");
+        assert_eq!(err, InvalidTransition { from, to });
     }
 }

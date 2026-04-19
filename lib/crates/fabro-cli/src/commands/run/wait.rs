@@ -108,7 +108,8 @@ fn print_human_output(
         RunStatus::Succeeded => (&styles.bold_green, "Succeeded"),
         RunStatus::Failed => (&styles.bold_red, "Failed"),
         RunStatus::Dead => (&styles.bold_red, "Dead"),
-        // Poll loop only breaks on is_terminal() which is Succeeded | Failed | Dead
+        RunStatus::Archived => (&styles.dim, "Archived"),
+        // Poll loop only breaks on is_terminal() which is the four arms above.
         _ => unreachable!(),
     };
     let status_display = style.apply_to(label);

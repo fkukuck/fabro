@@ -401,10 +401,11 @@ paths:
       operationId: listRuns
       tags: [Runs]
       summary: List Runs
-      description: Returns durable run summaries from the backing store, including runs persisted before the current server boot.
+      description: Returns durable run summaries from the backing store, including runs persisted before the current server boot. Archived runs are hidden by default; pass `include_archived=true` to include them in the response.
       parameters:
         - $ref: "#/components/parameters/PageLimit"
         - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/IncludeArchived"
       responses:
         "200":
           description: Paginated durable run summaries
@@ -641,6 +642,69 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: Run is not paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/runs/{id}/archive:
+    post:
+      operationId: archiveRun
+      tags: [Runs]
+      summary: Archive Run
+      description: >
+        Marks a terminal run (`succeeded`, `failed`, or `dead`) as `archived`.
+        Archived runs are hidden from default listings and are read-only until
+        unarchived. Idempotent on already-archived runs. Returns 409 if the run
+        is not terminal.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run archived (or already archived)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunStatusResponse"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Run is not terminal and cannot be archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/runs/{id}/unarchive:
+    post:
+      operationId: unarchiveRun
+      tags: [Runs]
+      summary: Unarchive Run
+      description: >
+        Restores an archived run to its prior terminal status. Idempotent on
+        runs that are terminal but not archived (returns the current status
+        without emitting an event). Returns 409 if the run is active.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run unarchived (or already not archived)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunStatusResponse"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Run is active and cannot be unarchived
           content:
             application/json:
               schema:
@@ -1988,6 +2052,16 @@ components:
         default: 0
       example: 0
 
+    IncludeArchived:
+      name: include_archived
+      in: query
+      required: false
+      description: Whether to include archived runs in the response. Defaults to `false`.
+      schema:
+        type: boolean
+        default: false
+      example: false
+
     ModelProviderFilter:
       name: provider
       in: query
@@ -2225,7 +2299,6 @@ components:
       required:
         - status
         - restart_url
-        - dev_token
       properties:
         status:
           type: string
@@ -2235,6 +2308,10 @@ components:
           format: uri
         dev_token:
           type: string
+          description: |
+            Dev token used to bootstrap login. Only included when the operator
+            chose the personal access token flow; GitHub App installs rely on
+            OAuth and do not receive a dev token.
 
     # ── Pagination ───────────────────────────────────────────────────────
 
@@ -2648,7 +2725,11 @@ components:
     # ── Run Schemas ──────────────────────────────────────────────────────
 
     RunStatus:
-      description: Lifecycle status of a run.
+      description: >
+        Lifecycle status of a run. `archived` is a terminal status reached by
+        an explicit user action on a previously terminal (`succeeded`, `failed`,
+        or `dead`) run; archived runs are hidden from default listings and are
+        read-only until unarchived.
       type: string
       enum:
         - submitted
@@ -2661,6 +2742,7 @@ components:
         - succeeded
         - failed
         - dead
+        - archived
 
     RunManifest:
       description: Self-contained workflow run manifest.

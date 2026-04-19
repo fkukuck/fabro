@@ -24,6 +24,8 @@ pub struct RunProjection {
     pub graph_source:       Option<String>,
     pub start:              Option<StartRecord>,
     pub status:             Option<RunStatusRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_status:       Option<RunStatus>,
     pub pending_control:    Option<RunControlAction>,
     pub checkpoint:         Option<Checkpoint>,
     pub checkpoints:        Vec<(u32, Checkpoint)>,
@@ -212,6 +214,42 @@ impl RunProjection {
             }
             EventBody::RunRewound(_) => {
                 self.reset_for_rewind();
+            }
+            EventBody::RunArchived(_props) => {
+                // Idempotent on replay: a second RunArchived (from a concurrent
+                // archive race or a tampered log) must not overwrite
+                // prior_status — doing so would permanently corrupt the run
+                // (unarchive would then restore status=Archived and never
+                // recover). We also ignore the archive attempt when current
+                // status is not a terminal non-archived — the operations
+                // layer is the only legitimate emitter and it validates
+                // there, but replay must be defensive.
+                let current = self.status.as_ref().map(|record| record.status);
+                if matches!(
+                    current,
+                    Some(RunStatus::Succeeded | RunStatus::Failed | RunStatus::Dead)
+                ) {
+                    self.prior_status = current;
+                    self.status = Some(run_status_record(RunStatus::Archived, None, ts));
+                }
+            }
+            EventBody::RunUnarchived(props)
+                if matches!(
+                    self.status.as_ref().map(|record| record.status),
+                    Some(RunStatus::Archived)
+                ) && matches!(
+                    props.restored_status,
+                    RunStatus::Succeeded | RunStatus::Failed | RunStatus::Dead
+                ) =>
+            {
+                // Defensive: restored_status must be a real terminal status.
+                // Accepting e.g. Running here would produce a projection
+                // whose status is Running without any RunRunning event in
+                // the log, breaking the is_active / is_terminal invariants.
+                // The operations layer only ever writes validated terminals,
+                // but replay must enforce it.
+                self.status = Some(run_status_record(props.restored_status, None, ts));
+                self.prior_status = None;
             }
             EventBody::CheckpointCompleted(props) => {
                 let checkpoint = checkpoint_from_props(props, ts);
@@ -1139,5 +1177,274 @@ mod tests {
             .unwrap();
 
         assert!(state.final_patch.is_none());
+    }
+
+    #[test]
+    fn run_archived_captures_prior_status_and_sets_archived() {
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunCompletedProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunCompleted(RunCompletedProps {
+                    duration_ms:          10,
+                    artifact_count:       0,
+                    status:               "success".to_string(),
+                    reason:               None,
+                    total_usd_micros:     None,
+                    final_git_commit_sha: None,
+                    final_patch:          None,
+                    billing:              None,
+                }),
+                None,
+            ))
+            .unwrap();
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Succeeded)
+        );
+        assert_eq!(state.prior_status, None);
+
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Archived)
+        );
+        assert_eq!(state.prior_status, Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn run_unarchived_restores_status_and_clears_prior_status() {
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunCompletedProps, RunUnarchivedProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunCompleted(RunCompletedProps {
+                    duration_ms:          10,
+                    artifact_count:       0,
+                    status:               "success".to_string(),
+                    reason:               None,
+                    total_usd_micros:     None,
+                    final_git_commit_sha: None,
+                    final_patch:          None,
+                    billing:              None,
+                }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                3,
+                EventBody::RunUnarchived(RunUnarchivedProps {
+                    actor:           None,
+                    restored_status: RunStatus::Succeeded,
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Succeeded)
+        );
+        assert_eq!(state.prior_status, None);
+    }
+
+    #[test]
+    fn run_unarchived_uses_event_payload_even_when_prior_status_differs() {
+        // The event payload is authoritative: the unarchive apply arm sets status
+        // from `restored_status`, ignoring whatever `prior_status` was captured.
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunCompletedProps, RunUnarchivedProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunCompleted(RunCompletedProps {
+                    duration_ms:          10,
+                    artifact_count:       0,
+                    status:               "success".to_string(),
+                    reason:               None,
+                    total_usd_micros:     None,
+                    final_git_commit_sha: None,
+                    final_patch:          None,
+                    billing:              None,
+                }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                3,
+                EventBody::RunUnarchived(RunUnarchivedProps {
+                    actor:           None,
+                    restored_status: RunStatus::Failed,
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Failed)
+        );
+        assert_eq!(state.prior_status, None);
+    }
+
+    #[test]
+    fn double_archive_preserves_prior_status() {
+        // Two RunArchived events in sequence — possible under a concurrent
+        // archive race or a replayed/retried write — must not overwrite
+        // prior_status with Archived. Otherwise unarchive would emit
+        // restored_status=Archived, the apply arm would set status=Archived +
+        // prior_status=None, and the run would be permanently unrecoverable.
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunCompletedProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunCompleted(RunCompletedProps {
+                    duration_ms:          10,
+                    artifact_count:       0,
+                    status:               "success".to_string(),
+                    reason:               None,
+                    total_usd_micros:     None,
+                    final_git_commit_sha: None,
+                    final_patch:          None,
+                    billing:              None,
+                }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                3,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Archived)
+        );
+        assert_eq!(state.prior_status, Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn run_unarchived_with_non_terminal_restored_status_is_ignored() {
+        // The operations layer never emits this, but a corrupt log or an
+        // imported event must not drag the projection into a nonsense state
+        // (status=Running without any RunRunning event preceding it).
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunCompletedProps, RunUnarchivedProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunCompleted(RunCompletedProps {
+                    duration_ms:          10,
+                    artifact_count:       0,
+                    status:               "success".to_string(),
+                    reason:               None,
+                    total_usd_micros:     None,
+                    final_git_commit_sha: None,
+                    final_patch:          None,
+                    billing:              None,
+                }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                3,
+                EventBody::RunUnarchived(RunUnarchivedProps {
+                    actor:           None,
+                    restored_status: RunStatus::Running,
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Archived)
+        );
+        assert_eq!(state.prior_status, Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn run_archived_on_non_terminal_projection_is_ignored() {
+        // Same defensive posture on the other side: an event log that
+        // somehow contains RunArchived on a Running run must not produce
+        // a projection with status=Archived and prior_status=Some(Running).
+        use fabro_types::RunStatus;
+        use fabro_types::run_event::{RunArchivedProps, RunStatusTransitionProps};
+
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunRunning(RunStatusTransitionProps { reason: None }),
+                None,
+            ))
+            .unwrap();
+        state
+            .apply_event(&test_event(
+                2,
+                EventBody::RunArchived(RunArchivedProps { actor: None }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.status.as_ref().map(|record| record.status),
+            Some(RunStatus::Running)
+        );
+        assert_eq!(state.prior_status, None);
     }
 }

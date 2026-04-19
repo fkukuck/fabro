@@ -11,6 +11,7 @@ import {
   Bars3Icon,
   BeakerIcon,
   ChartBarIcon,
+  Cog6ToothIcon,
   MoonIcon,
   PlayIcon,
   RectangleStackIcon,
@@ -30,6 +31,7 @@ const allNavigation = [
   { name: "Workflows", href: "/workflows", icon: RectangleStackIcon, demoOnly: true },
   { name: "Runs", href: "/runs", icon: PlayIcon, demoOnly: false },
   { name: "Insights", href: "/insights", icon: ChartBarIcon, demoOnly: true },
+  { name: "Settings", href: "/settings", icon: Cog6ToothIcon, demoOnly: false },
 ];
 
 export function getVisibleNavigation(demoMode: boolean) {
@@ -70,8 +72,8 @@ export default function AppShell({ loaderData }: any) {
 
   return (
     <DemoModeProvider value={demoMode}>
-    <div className="min-h-full">
-      <Disclosure as="nav" className="bg-panel/50">
+    <div className="isolate min-h-full">
+      <Disclosure as="nav" className="bg-panel">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center">
@@ -255,10 +257,12 @@ export default function AppShell({ loaderData }: any) {
       </Disclosure>
 
       {!hideHeader && (
-        <header className="relative bg-panel after:pointer-events-none after:absolute after:inset-x-0 after:inset-y-0 after:bottom-0 after:border-y after:border-line-strong">
+        <header className="relative bg-panel after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-line-strong">
           <div className={`mx-auto ${maxWidth} px-4 py-4 sm:px-6 lg:px-8`}>
             <div className="flex items-center">
-              <h1 className="text-lg/6 font-semibold text-fg">{title}</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-fg">
+                {title}
+              </h1>
               {headerExtra && <div className="ml-auto">{headerExtra}</div>}
             </div>
           </div>

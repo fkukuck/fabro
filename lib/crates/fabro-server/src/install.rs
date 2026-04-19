@@ -815,6 +815,7 @@ async fn post_install_finish(
     }
 
     let mut server_env_secrets = Vec::new();
+    let mut dev_token: Option<String> = None;
     match github {
         GithubInstallState::Token(github) => {
             if let Err(err) = write_token_settings(&mut settings_doc) {
@@ -826,6 +827,25 @@ async fn post_install_finish(
                 secret_type: VaultSecretType::Environment,
                 description: None,
             });
+            let home = state.home.clone().unwrap_or_else(Home::from_env);
+            let token = match dev_token::load_or_create_dev_token(&home.dev_token_path()) {
+                Ok(value) => value,
+                Err(err) => {
+                    return install_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        err.to_string(),
+                    );
+                }
+            };
+            if let Err(err) = dev_token::write_dev_token(
+                &Storage::new(state.storage_dir.as_ref())
+                    .server_state()
+                    .dev_token_path(),
+                &token,
+            ) {
+                return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+            }
+            dev_token = Some(token);
         }
         GithubInstallState::App(github) => {
             if let Err(err) = write_github_app_settings(
@@ -862,22 +882,6 @@ async fn post_install_finish(
             return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
         }
     };
-    let home = state.home.clone().unwrap_or_else(Home::from_env);
-    let dev_token = match dev_token::load_or_create_dev_token(&home.dev_token_path()) {
-        Ok(value) => value,
-        Err(err) => {
-            return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
-        }
-    };
-    if let Err(err) = dev_token::write_dev_token(
-        &Storage::new(state.storage_dir.as_ref())
-            .server_state()
-            .dev_token_path(),
-        &dev_token,
-    ) {
-        return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
-    }
-
     server_env_secrets.extend([
         (
             "FABRO_JWT_PRIVATE_KEY".to_string(),
@@ -888,8 +892,10 @@ async fn post_install_finish(
             BASE64_STANDARD.encode(jwt_public_pem.as_bytes()),
         ),
         ("SESSION_SECRET".to_string(), session_secret),
-        ("FABRO_DEV_TOKEN".to_string(), dev_token.clone()),
     ]);
+    if let Some(token) = dev_token.as_ref() {
+        server_env_secrets.push(("FABRO_DEV_TOKEN".to_string(), token.clone()));
+    }
 
     let previous_settings = std::fs::read_to_string(state.config_path.as_ref()).ok();
 
@@ -944,15 +950,14 @@ async fn post_install_finish(
     }
     finish_guard.disarm();
 
-    (
-        StatusCode::ACCEPTED,
-        Json(serde_json::json!({
-            "status": "completing",
-            "restart_url": server.canonical_url,
-            "dev_token": dev_token,
-        })),
-    )
-        .into_response()
+    let mut body = serde_json::json!({
+        "status": "completing",
+        "restart_url": server.canonical_url,
+    });
+    if let Some(token) = dev_token {
+        body["dev_token"] = serde_json::Value::String(token);
+    }
+    (StatusCode::ACCEPTED, Json(body)).into_response()
 }
 
 async fn render_install_shell(headers: HeaderMap, uri: OriginalUri) -> Response {

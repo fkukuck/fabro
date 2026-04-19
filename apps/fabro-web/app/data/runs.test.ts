@@ -126,6 +126,11 @@ describe("mapRunSummaryToRunItem", () => {
     expect(runStatusDisplay).toHaveProperty("blocked");
   });
 
+  test("recognizes archived as a terminal run status", () => {
+    expect(isRunStatus("archived")).toBe(true);
+    expect(runStatusDisplay).toHaveProperty("archived");
+  });
+
   test("uses blocked board column instead of waiting", () => {
     expect(columnStatusDisplay).toHaveProperty("blocked");
     expect(columnStatusDisplay).not.toHaveProperty("waiting");

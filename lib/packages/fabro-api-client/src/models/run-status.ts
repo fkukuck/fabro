@@ -15,7 +15,7 @@
 
 
 /**
- * Lifecycle status of a run.
+ * Lifecycle status of a run. `archived` is a terminal status reached by an explicit user action on a previously terminal (`succeeded`, `failed`, or `dead`) run; archived runs are hidden from default listings and are read-only until unarchived. 
  */
 
 export const RunStatus = {
@@ -28,7 +28,8 @@ export const RunStatus = {
     REMOVING: 'removing',
     SUCCEEDED: 'succeeded',
     FAILED: 'failed',
-    DEAD: 'dead'
+    DEAD: 'dead',
+    ARCHIVED: 'archived'
 } as const;
 
 export type RunStatus = typeof RunStatus[keyof typeof RunStatus];

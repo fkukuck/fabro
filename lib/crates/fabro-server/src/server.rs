@@ -138,6 +138,25 @@ pub struct PaginationParams {
 }
 
 #[derive(serde::Deserialize)]
+struct ListRunsParams {
+    #[serde(rename = "page[limit]", default = "default_page_limit")]
+    limit:            u32,
+    #[serde(rename = "page[offset]", default)]
+    offset:           u32,
+    #[serde(default)]
+    include_archived: bool,
+}
+
+impl ListRunsParams {
+    fn pagination(&self) -> PaginationParams {
+        PaginationParams {
+            limit:  self.limit,
+            offset: self.offset,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
 struct ModelListParams {
     #[serde(rename = "page[limit]", default = "default_page_limit")]
     limit:    u32,
@@ -1125,6 +1144,8 @@ fn real_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/start", post(start_run))
         .route("/runs/{id}/pause", post(pause_run))
         .route("/runs/{id}/unpause", post(unpause_run))
+        .route("/runs/{id}/archive", post(archive_run))
+        .route("/runs/{id}/unarchive", post(unarchive_run))
         .route("/runs/{id}/graph", get(get_graph))
         .route("/runs/{id}/stages", get(list_run_stages))
         .route("/runs/{id}/artifacts", get(list_run_artifacts))
@@ -2613,7 +2634,7 @@ fn board_column(status: WorkflowRunStatus) -> Option<&'static str> {
         WorkflowRunStatus::Blocked => Some("blocked"),
         WorkflowRunStatus::Succeeded => Some("succeeded"),
         WorkflowRunStatus::Failed | WorkflowRunStatus::Dead => Some("failed"),
-        WorkflowRunStatus::Removing => None,
+        WorkflowRunStatus::Removing | WorkflowRunStatus::Archived => None,
     }
 }
 
@@ -2791,7 +2812,7 @@ async fn list_board_runs(
 async fn list_runs(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
-    Query(pagination): Query<PaginationParams>,
+    Query(params): Query<ListRunsParams>,
 ) -> Response {
     match state
         .store
@@ -2799,11 +2820,13 @@ async fn list_runs(
         .await
     {
         Ok(runs) => {
+            let include_archived = params.include_archived;
             let items = runs
                 .into_iter()
+                .filter(|summary| include_archived || summary.status != WorkflowRunStatus::Archived)
                 .map(summary_to_api_run_summary)
                 .collect::<Vec<_>>();
-            let (data, has_more) = paginate_items(items, &pagination);
+            let (data, has_more) = paginate_items(items, &params.pagination());
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
@@ -3379,6 +3402,7 @@ fn api_status_from_workflow(status: WorkflowRunStatus) -> RunStatus {
         WorkflowRunStatus::Succeeded => RunStatus::Succeeded,
         WorkflowRunStatus::Failed => RunStatus::Failed,
         WorkflowRunStatus::Dead => RunStatus::Dead,
+        WorkflowRunStatus::Archived => RunStatus::Archived,
     }
 }
 
@@ -4042,6 +4066,9 @@ async fn start_run(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let resume = body.is_some_and(|Json(req)| req.resume);
 
     {
@@ -4869,6 +4896,9 @@ async fn submit_answer(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let pending = match load_pending_interview(state.as_ref(), id, &qid).await {
         Ok(pending) => pending,
         Err(response) => return response,
@@ -4913,6 +4943,9 @@ async fn append_run_event(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let event = match RunEvent::from_value(value.clone()) {
         Ok(event) => event,
         Err(err) => {
@@ -4921,6 +4954,12 @@ async fn append_run_event(
     };
     if event.run_id != id {
         return ApiError::bad_request("Event run_id does not match path run ID.").into_response();
+    }
+    if let Some(denied) = denied_lifecycle_event_name(&event.body) {
+        return ApiError::bad_request(format!(
+            "{denied} is a lifecycle event; clients must call the corresponding operation endpoint instead of injecting it via append_run_event"
+        ))
+        .into_response();
     }
     let payload = match EventPayload::new(value, &id) {
         Ok(payload) => payload,
@@ -5160,6 +5199,9 @@ async fn write_run_blob(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     match state.store.open_run(&id).await {
         Ok(run_store) => match run_store.write_blob(&body).await {
             Ok(blob_id) => Json(WriteBlobResponse {
@@ -5643,6 +5685,9 @@ async fn put_stage_artifact(
     if let Err(err) = authorize_artifact_upload(&parts, state.as_ref(), &id) {
         return err.into_response();
     }
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     if let Err(response) = load_run_record(state.as_ref(), &id).await.map(|_| ()) {
         return response;
     }
@@ -5864,6 +5909,9 @@ async fn put_sandbox_file(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let sandbox = match reconnect_run_sandbox(&state, &id).await {
         Ok(sandbox) => sandbox,
         Err(response) => return response,
@@ -5959,6 +6007,40 @@ fn actor_from_subject(subject: &AuthenticatedSubject) -> Option<ActorRef> {
     subject.login.clone().map(ActorRef::user)
 }
 
+/// Returns the wire event name if the given body has a dedicated operation
+/// endpoint that clients must use instead of injecting via `append_run_event`.
+/// These endpoints enforce authorization and status-transition preconditions
+/// (e.g. "archive only from terminal") that a direct event append would
+/// bypass. Other run-lifecycle events flow through this endpoint legitimately:
+/// the worker subprocess emits state transitions during execution, and the
+/// rewind CLI relays `RunRewound` / `RunSubmitted` here.
+fn denied_lifecycle_event_name(body: &EventBody) -> Option<&'static str> {
+    match body {
+        EventBody::RunArchived(_) => Some("run.archived"),
+        EventBody::RunUnarchived(_) => Some("run.unarchived"),
+        EventBody::RunCancelRequested(_) => Some("run.cancel.requested"),
+        EventBody::RunPauseRequested(_) => Some("run.pause.requested"),
+        EventBody::RunUnpauseRequested(_) => Some("run.unpause.requested"),
+        _ => None,
+    }
+}
+
+/// Returns a 409 response with an actionable "unarchive first" message if the
+/// run is currently archived. Returns `None` otherwise (including when the run
+/// doesn't exist — the caller's own not-found handling will surface that).
+async fn reject_if_archived(state: &AppState, run_id: &RunId) -> Option<Response> {
+    let run_store = state.store.open_run_reader(run_id).await.ok()?;
+    let projection = run_store.state().await.ok()?;
+    let status = projection.status.as_ref()?.status;
+    (status == WorkflowRunStatus::Archived).then(|| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            operations::archived_rejection_message(run_id),
+        )
+        .into_response()
+    })
+}
+
 fn schedule_worker_kill(state: Arc<AppState>, run_id: RunId, worker_pid: u32) {
     tokio::spawn(async move {
         sleep(WORKER_CANCEL_GRACE).await;
@@ -5982,6 +6064,9 @@ async fn cancel_run(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let pending_control = match load_pending_control(state.as_ref(), id).await {
         Ok(pending_control) => pending_control,
         Err(err) => {
@@ -6129,6 +6214,9 @@ async fn pause_run(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let pending_control = match load_pending_control(state.as_ref(), id).await {
         Ok(pending_control) => pending_control,
         Err(err) => {
@@ -6221,6 +6309,9 @@ async fn unpause_run(
         Ok(id) => id,
         Err(response) => return response,
     };
+    if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
+        return response;
+    }
     let pending_control = match load_pending_control(state.as_ref(), id).await {
         Ok(pending_control) => pending_control,
         Err(err) => {
@@ -6310,6 +6401,99 @@ async fn unpause_run(
             status_reason,
             pending_control,
             created_at,
+        }),
+    )
+        .into_response()
+}
+
+async fn archive_run(
+    subject: AuthenticatedSubject,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    run_archive_action(state, subject, id, ArchiveAction::Archive).await
+}
+
+async fn unarchive_run(
+    subject: AuthenticatedSubject,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    run_archive_action(state, subject, id, ArchiveAction::Unarchive).await
+}
+
+#[derive(Clone, Copy)]
+enum ArchiveAction {
+    Archive,
+    Unarchive,
+}
+
+async fn run_archive_action(
+    state: Arc<AppState>,
+    subject: AuthenticatedSubject,
+    id: String,
+    action: ArchiveAction,
+) -> Response {
+    let id = match parse_run_id_path(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor = actor_from_subject(&subject);
+    let result = match action {
+        ArchiveAction::Archive => operations::archive(&state.store, &id, actor)
+            .await
+            .map(|_| ()),
+        ArchiveAction::Unarchive => operations::unarchive(&state.store, &id, actor)
+            .await
+            .map(|_| ()),
+    };
+    match result {
+        Ok(()) => archive_status_response(state.as_ref(), id).await,
+        Err(WorkflowError::Precondition(message)) => {
+            ApiError::new(StatusCode::CONFLICT, message).into_response()
+        }
+        Err(WorkflowError::RunNotFound(_)) => ApiError::not_found("Run not found.").into_response(),
+        Err(err) => {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
+    }
+}
+
+/// Build a `RunStatusResponse` reflecting the durable projection after an
+/// archive/unarchive transition. The run is terminal in both directions, so no
+/// live queue position or worker-only fields apply.
+async fn archive_status_response(state: &AppState, id: RunId) -> Response {
+    let Ok(run_store) = state.store.open_run_reader(&id).await else {
+        return ApiError::not_found("Run not found.").into_response();
+    };
+    let projection = match run_store.state().await {
+        Ok(projection) => projection,
+        Err(err) => {
+            return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+                .into_response();
+        }
+    };
+    let Some(record) = projection.status.as_ref() else {
+        return ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "run has no status record after archive/unarchive",
+        )
+        .into_response();
+    };
+    let status = api_status_from_workflow(record.status);
+    let status_reason = record.status_reason.map(api_status_reason);
+    let blocked_reason = record.blocked_reason.map(api_blocked_reason);
+    (
+        StatusCode::OK,
+        Json(RunStatusResponse {
+            id: id.to_string(),
+            blocked_reason,
+            status,
+            error: None,
+            queue_position: None,
+            status_reason,
+            pending_control: None,
+            created_at: id.created_at(),
         }),
     )
         .into_response()
@@ -8121,6 +8305,41 @@ slug = "fabro"
     }
 
     #[tokio::test]
+    async fn append_run_event_rejects_reserved_archive_event() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = create_run(&app, MINIMAL_DOT).await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(api(&format!("/runs/{run_id}/events")))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "id": "evt-run-archived",
+                    "ts": "2026-04-19T12:00:00Z",
+                    "run_id": run_id,
+                    "event": "run.archived",
+                    "properties": {
+                        "actor": null
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = body_json(response.into_body()).await;
+        assert!(
+            body["errors"][0]["detail"]
+                .as_str()
+                .is_some_and(|message| message.contains("run.archived is a lifecycle event")),
+            "expected lifecycle rejection, got: {body}"
+        );
+    }
+
+    #[tokio::test]
     async fn get_checkpoint_returns_null_initially() {
         let state = create_app_state();
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
@@ -8753,6 +8972,145 @@ slug = "fabro"
         assert!(items[0]["status_reason"].is_null());
         assert!(items[0]["pending_control"].is_null());
         assert!(items[0]["total_usd_micros"].is_null());
+    }
+
+    #[tokio::test]
+    async fn archive_and_unarchive_updates_listing_visibility() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = fixtures::RUN_1;
+
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                reason:          None,
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting { reason: None },
+            workflow_event::Event::RunRunning { reason: None },
+            workflow_event::Event::WorkflowRunCompleted {
+                duration_ms:          1000,
+                artifact_count:       0,
+                status:               "success".to_string(),
+                reason:               None,
+                total_usd_micros:     None,
+                final_git_commit_sha: None,
+                final_patch:          None,
+                billing:              None,
+            },
+        ])
+        .await;
+
+        let archive_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(api(&format!("/runs/{run_id}/archive")))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(archive_response.status(), StatusCode::OK);
+        let archive_body = body_json(archive_response.into_body()).await;
+        assert_eq!(archive_body["status"].as_str(), Some("archived"));
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(api("/runs"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::OK);
+        let hidden_body = body_json(hidden_response.into_body()).await;
+        assert!(
+            !hidden_body["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["run_id"].as_str() == Some(&run_id.to_string())),
+            "archived run should be hidden from default listing"
+        );
+
+        let visible_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(api("/runs?include_archived=true"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(visible_response.status(), StatusCode::OK);
+        let visible_body = body_json(visible_response.into_body()).await;
+        let archived_item = visible_body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["run_id"].as_str() == Some(&run_id.to_string()))
+            .expect("archived run should appear when include_archived=true");
+        assert_eq!(archived_item["status"].as_str(), Some("archived"));
+
+        let unarchive_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(api(&format!("/runs/{run_id}/unarchive")))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unarchive_response.status(), StatusCode::OK);
+        let unarchive_body = body_json(unarchive_response.into_body()).await;
+        assert_eq!(unarchive_body["status"].as_str(), Some("succeeded"));
+
+        let restored_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(api("/runs"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(restored_response.status(), StatusCode::OK);
+        let restored_body = body_json(restored_response.into_body()).await;
+        let restored_item = restored_body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["run_id"].as_str() == Some(&run_id.to_string()))
+            .expect("unarchived run should reappear in default listing");
+        assert_eq!(restored_item["status"].as_str(), Some("succeeded"));
+    }
+
+    #[tokio::test]
+    async fn archive_unknown_run_returns_not_found() {
+        let app = test_app_with();
+        let run_id = fixtures::RUN_64;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(api(&format!("/runs/{run_id}/archive")))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

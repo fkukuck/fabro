@@ -131,7 +131,7 @@ export default function Start({ loaderData }: any) {
                   <button
                     onClick={handleSubmit}
                     disabled={!prompt.trim()}
-                    className="flex items-center justify-center size-8 rounded-lg bg-teal-500 text-navy-950 transition-all duration-200 hover:bg-teal-300 disabled:opacity-30 disabled:hover:bg-teal-500 disabled:cursor-default"
+                    className="flex items-center justify-center size-8 rounded-lg bg-teal-500 text-on-primary transition-all duration-200 hover:bg-teal-300 disabled:opacity-30 disabled:hover:bg-teal-500 disabled:cursor-default"
                   >
                     <ArrowUpIcon className="size-4" />
                   </button>
