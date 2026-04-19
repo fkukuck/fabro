@@ -625,6 +625,7 @@ impl ServerStoreClient {
                 .list_runs()
                 .page_limit(limit)
                 .page_offset(offset)
+                .include_archived(true)
                 .send()
                 .await
                 .map_err(map_api_error)?;
