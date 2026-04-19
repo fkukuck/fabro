@@ -114,7 +114,7 @@ impl AzureSandbox {
 
     fn sandbox_name(&self) -> String {
         if let Some(run_id) = self.run_id {
-            return format!("fabro-{run_id}");
+            return format!("fabro-{}", run_id.to_string().to_lowercase());
         }
 
         let millis = SystemTime::now()
@@ -652,4 +652,56 @@ fn container_group_base_url(
         .and_then(|ip_address| ip_address.fqdn.clone().or_else(|| ip_address.ip.clone()))
         .ok_or_else(|| "container group has no reachable IP address yet".to_string())?;
     Ok(format!("http://{host}:{sandboxd_port}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_name_lowercases_run_ids_for_aci() {
+        let run_id: RunId = "01KPJGM228CBVW27W2KRJE7NP1".parse().unwrap();
+        let sandbox = AzureSandbox {
+            runtime: AzureConfig::default(),
+            platform: AzurePlatformConfig {
+                subscription_id: "sub".into(),
+                resource_group: "rg".into(),
+                location: "loc".into(),
+                subnet_id: "subnet".into(),
+                storage_account: "storage".into(),
+                storage_share: "share".into(),
+                storage_key: "key".into(),
+                acr_server: "acr.azurecr.io".into(),
+                sandboxd_port: 7777,
+                acr_username: None,
+                acr_password: None,
+            },
+            arm: AzureArmClient::new_with_base_url(
+                fabro_http::http_client().unwrap(),
+                AzurePlatformConfig {
+                    subscription_id: "sub".into(),
+                    resource_group: "rg".into(),
+                    location: "loc".into(),
+                    subnet_id: "subnet".into(),
+                    storage_account: "storage".into(),
+                    storage_share: "share".into(),
+                    storage_key: "key".into(),
+                    acr_server: "acr.azurecr.io".into(),
+                    sandboxd_port: 7777,
+                    acr_username: None,
+                    acr_password: None,
+                },
+                "https://management.azure.com".into(),
+            ),
+            resource_id: OnceCell::new(),
+            sandboxd: OnceCell::new(),
+            run_id: Some(run_id),
+            github_app: None,
+            clone_branch: None,
+            origin_url: OnceCell::new(),
+            event_callback: None,
+        };
+
+        assert_eq!(sandbox.sandbox_name(), "fabro-01kpjgm228cbvw27w2krje7np1");
+    }
 }
