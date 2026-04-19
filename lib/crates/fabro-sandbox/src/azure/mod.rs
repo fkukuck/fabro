@@ -34,6 +34,7 @@ use sandboxd_client::SandboxdClient;
 const WORKING_DIRECTORY: &str = "/workspace";
 const DEFAULT_CPU: f64 = 2.0;
 const DEFAULT_MEMORY_GB: f64 = 4.0;
+const SANDBOXD_READY_TIMEOUT: Duration = Duration::from_mins(3);
 
 pub struct AzureSandbox {
     runtime:          AzureConfig,
@@ -150,7 +151,7 @@ impl AzureSandbox {
     }
 
     async fn wait_for_sandboxd(&self) -> Result<(), String> {
-        let deadline = Instant::now() + Duration::from_mins(1);
+        let deadline = Instant::now() + SANDBOXD_READY_TIMEOUT;
         let mut last_error = "sandboxd not ready".to_string();
 
         while Instant::now() < deadline {
@@ -661,7 +662,15 @@ fn container_group_base_url(
         .properties
         .ip_address
         .as_ref()
-        .and_then(|ip_address| ip_address.fqdn.clone().or_else(|| ip_address.ip.clone()))
+        .and_then(|ip_address| {
+            ip_address.fqdn.clone().or_else(|| {
+                ip_address
+                    .ip
+                    .as_deref()
+                    .filter(|ip| *ip != "0.0.0.0")
+                    .map(str::to_string)
+            })
+        })
         .ok_or_else(|| "container group has no reachable IP address yet".to_string())?;
     Ok(format!("http://{host}:{sandboxd_port}"))
 }
@@ -669,10 +678,28 @@ fn container_group_base_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::azure::arm::{ContainerGroupIpAddress, ContainerGroupPropertiesView};
 
     #[test]
     fn exec_working_dir_defaults_to_workspace() {
         assert_eq!(AzureSandbox::exec_working_dir(None), "/workspace");
+    }
+
+    #[test]
+    fn container_group_base_url_rejects_unspecified_ip() {
+        let view = ContainerGroupView {
+            properties: ContainerGroupPropertiesView {
+                ip_address: Some(ContainerGroupIpAddress {
+                    ip:   Some("0.0.0.0".into()),
+                    fqdn: None,
+                }),
+                ..ContainerGroupPropertiesView::default()
+            },
+            ..ContainerGroupView::default()
+        };
+
+        let err = container_group_base_url(&view, 7777).unwrap_err();
+        assert!(err.contains("reachable IP address"));
     }
 
     #[test]
