@@ -307,9 +307,10 @@ impl RunSession {
         let workflow_bundle =
             accepted_definition.map(|definition| Arc::new(definition.workflow_bundle()));
 
-        let detected_base_branch = fabro_sandbox::daytona::detect_repo_info(&working_directory)
-            .ok()
-            .and_then(|(_, branch)| branch);
+        let (origin_url, detected_base_branch) = fabro_sandbox::daytona::detect_repo_info(
+            &working_directory,
+        )
+        .map_or((None, None), |(url, branch)| (Some(url), branch));
 
         let resolved = &settings.run;
 
@@ -376,16 +377,17 @@ impl RunSession {
                     config: resolve_daytona_config(resolved).unwrap_or_default(),
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
-                    clone_origin_url: record.repo_origin_url.clone(),
-                    clone_branch: record.base_branch.clone(),
+                    clone_origin_url: record.repo_origin_url.clone().or(origin_url.clone()),
+                    clone_branch: record.base_branch.clone().or(detected_base_branch.clone()),
                     api_key,
                 }
             }
             SandboxProvider::Azure => SandboxSpec::Azure {
-                config:       resolve_azure_config(&resolved).unwrap_or_default(),
-                github_app:   services.github_app.clone(),
-                run_id:       Some(record.run_id),
-                clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+                config:           resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:       services.github_app.clone(),
+                run_id:           Some(record.run_id),
+                clone_origin_url: record.repo_origin_url.clone().or(origin_url),
+                clone_branch:     record.base_branch.clone().or(detected_base_branch),
             },
         };
 
