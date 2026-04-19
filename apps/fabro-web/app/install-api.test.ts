@@ -4,10 +4,15 @@ import { buildGithubOwnerValue, readInstallError } from "./install-api";
 
 describe("readInstallError", () => {
   test("prefers the structured install error payload", async () => {
-    const response = new Response(JSON.stringify({ error: "invalid token" }), {
-      status: 422,
-      headers: { "Content-Type": "application/json" },
-    });
+    const response = new Response(
+      JSON.stringify({
+        errors: [{ status: "422", title: "Unprocessable Entity", detail: "invalid token" }],
+      }),
+      {
+        status: 422,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
 
     await expect(
       readInstallError(response, "install request failed"),

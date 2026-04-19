@@ -31,6 +31,7 @@ use tower::service_fn;
 use tracing::{error, info, warn};
 
 use crate::bind::{Bind, BindRequest};
+use crate::error::ApiError;
 use crate::serve::{self, DEFAULT_TCP_PORT};
 use crate::{security_headers, static_files};
 
@@ -426,7 +427,7 @@ async fn get_install_session(
     Query(query): Query<InstallTokenQuery>,
 ) -> Response {
     if !token_is_valid(&state, &headers, query.token.as_deref()) {
-        return (StatusCode::UNAUTHORIZED, "invalid install token").into_response();
+        return ApiError::new(StatusCode::UNAUTHORIZED, "invalid install token").into_response();
     }
     observe_operator(&state, &headers);
 
@@ -890,11 +891,22 @@ async fn post_install_finish(
         }),
     ) {
         error!(error = %err, "install persistence failed");
+        let status = StatusCode::INTERNAL_SERVER_ERROR;
+        let detail = err.to_string();
+        let title = status.canonical_reason().unwrap_or("Unknown").to_string();
+        let leftover_env_keys: Vec<String> = server_env_secrets
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect();
         return (
-            StatusCode::INTERNAL_SERVER_ERROR,
+            status,
             Json(serde_json::json!({
-                "error": err.to_string(),
-                "leftover_env_keys": server_env_secrets.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>(),
+                "errors": [{
+                    "status": status.as_u16().to_string(),
+                    "title": title,
+                    "detail": detail,
+                }],
+                "leftover_env_keys": leftover_env_keys,
             })),
         )
             .into_response();
@@ -956,7 +968,7 @@ fn require_valid_token(
     query_token: Option<&str>,
 ) -> Option<Response> {
     (!token_is_valid(state, headers, query_token))
-        .then(|| (StatusCode::UNAUTHORIZED, "invalid install token").into_response())
+        .then(|| ApiError::new(StatusCode::UNAUTHORIZED, "invalid install token").into_response())
 }
 
 fn observe_operator(state: &InstallAppState, headers: &HeaderMap) {
@@ -1077,17 +1089,15 @@ fn redacted_github(pending_install: &PendingInstall) -> serde_json::Value {
 }
 
 fn missing_step_response(step: &str) -> Response {
-    (
+    ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,
-        Json(serde_json::json!({
-            "error": format!("install step '{step}' is incomplete"),
-        })),
+        format!("install step '{step}' is incomplete"),
     )
-        .into_response()
+    .into_response()
 }
 
 fn install_error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    (status, Json(serde_json::json!({ "error": message.into() }))).into_response()
+    ApiError::new(status, message).into_response()
 }
 
 fn validate_canonical_url(value: &str) -> Result<(), String> {

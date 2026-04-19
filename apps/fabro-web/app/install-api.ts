@@ -81,8 +81,11 @@ export async function readInstallError(
   fallback: string,
 ): Promise<string> {
   try {
-    const body = (await response.clone().json()) as { error?: string };
-    if (body.error) return body.error;
+    const body = (await response.clone().json()) as {
+      errors?: Array<{ detail?: string }>;
+    };
+    const detail = body.errors?.[0]?.detail;
+    if (detail) return detail;
   } catch {
     // fall through to the default message
   }

@@ -27,7 +27,7 @@ async fn install_llm_endpoints_reject_openai_compatible_in_v1() {
     assert_eq!(test_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let test_body = body_json(test_response.into_body()).await;
     assert_eq!(
-        test_body["error"],
+        test_body["errors"][0]["detail"],
         "openai_compatible is not supported by install in v1"
     );
 
@@ -48,7 +48,7 @@ async fn install_llm_endpoints_reject_openai_compatible_in_v1() {
     assert_eq!(put_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let put_body = body_json(put_response.into_body()).await;
     assert_eq!(
-        put_body["error"],
+        put_body["errors"][0]["detail"],
         "openai_compatible is not supported by install in v1"
     );
 }

@@ -710,7 +710,7 @@ async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_tok
     assert_eq!(retry_response.status(), StatusCode::CONFLICT);
     let retry_body = body_json(retry_response.into_body()).await;
     assert_eq!(
-        retry_body["error"],
+        retry_body["errors"][0]["detail"],
         "GitHub App setup is already pending; finish it or wait for it to expire."
     );
 }
@@ -988,7 +988,7 @@ async fn install_server_rejects_trailing_slash_canonical_urls() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body = body_json(response.into_body()).await;
     assert_eq!(
-        body["error"],
+        body["errors"][0]["detail"],
         "canonical_url must not end with a trailing slash"
     );
 }
@@ -1032,7 +1032,7 @@ async fn install_finish_failure_restores_settings_and_vault_but_leaves_env_keys(
     assert_eq!(finish_response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let finish_body = body_json(finish_response.into_body()).await;
     assert!(
-        finish_body["error"]
+        finish_body["errors"][0]["detail"]
             .as_str()
             .is_some_and(|value| value.contains("persisting install outputs directly"))
     );
