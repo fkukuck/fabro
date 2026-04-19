@@ -2579,7 +2579,7 @@ fn board_columns() -> serde_json::Value {
     ])
 }
 
-fn truncate_goal(goal: &str) -> String {
+pub(crate) fn truncate_goal(goal: &str) -> String {
     const MAX_LEN: usize = 100;
 
     let stripped = strip_goal_decoration(goal);
@@ -2698,23 +2698,26 @@ async fn list_board_runs(
                 .into_response();
         }
     };
-    let mut all_items = Vec::new();
-    for summary in summaries {
-        let Some(status) = summary.status else {
-            continue;
-        };
-        let Some(column) = board_column(status) else {
-            continue;
-        };
+    let board_summaries: Vec<_> = summaries
+        .into_iter()
+        .filter_map(|summary| {
+            let status = summary.status?;
+            let column = board_column(status)?;
+            Some((summary, column))
+        })
+        .collect();
+    let (page_summaries, has_more) = paginate_items(board_summaries, pagination);
+
+    let mut data = Vec::with_capacity(page_summaries.len());
+    for (summary, column) in page_summaries {
         let run_id = summary.run_id;
         let mut item = summary_to_api_run_summary(summary);
         item["column"] = serde_json::json!(column);
         if let Some(object) = item.as_object_mut() {
             object.extend(board_run_metadata(state.as_ref(), run_id).await);
         }
-        all_items.push(item);
+        data.push(item);
     }
-    let (data, has_more) = paginate_items(all_items, pagination);
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -9466,6 +9469,61 @@ timeout = "30s"
         assert_eq!(item["pull_request"]["number"].as_u64(), Some(42));
         assert_eq!(item["sandbox"]["id"].as_str(), Some("sb-test"));
         assert_eq!(item["question"]["text"].as_str(), Some("Ship it?"));
+    }
+
+    #[tokio::test]
+    async fn boards_runs_page_limit_preserves_metadata_for_paged_items() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+
+        let first_run_id = create_and_start_run(&app, MINIMAL_DOT)
+            .await
+            .parse::<RunId>()
+            .unwrap();
+        let second_run_id = create_and_start_run(&app, MINIMAL_DOT)
+            .await
+            .parse::<RunId>()
+            .unwrap();
+
+        for (run_id, sandbox_id) in [
+            (first_run_id, "sb-first"),
+            (second_run_id, "sb-second"),
+        ] {
+            let run_store = state.store.open_run(&run_id).await.unwrap();
+            for event in [
+                workflow_event::Event::RunRunning { reason: None },
+                workflow_event::Event::SandboxInitialized {
+                    provider:               "local".to_string(),
+                    working_directory:      "/sandbox/workdir".to_string(),
+                    identifier:             Some(sandbox_id.to_string()),
+                    host_working_directory: Some("/tmp/repo".to_string()),
+                    container_mount_point:  None,
+                },
+            ] {
+                workflow_event::append_event(&run_store, &run_id, &event)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api("/boards/runs?page[limit]=1"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        assert_eq!(body["meta"]["has_more"].as_bool(), Some(true));
+
+        let data = body["data"].as_array().expect("data should be array");
+        assert_eq!(data.len(), 1);
+
+        let item = &data[0];
+        let sandbox_id = item["sandbox"]["id"]
+            .as_str()
+            .expect("paged item should still include sandbox metadata");
+        assert!(matches!(sandbox_id, "sb-first" | "sb-second"));
     }
 
     #[test]

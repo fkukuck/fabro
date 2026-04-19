@@ -8,6 +8,9 @@ export interface PaginatedEnvelope<T> {
   meta: { has_more: boolean };
 }
 
+const PAGINATED_API_MAX_PAGES = 50;
+const PAGINATED_API_MAX_ITEMS = 5000;
+
 function buildApiPath(path: string): string {
   return `/api/v1${path}`;
 }
@@ -51,6 +54,7 @@ export async function apiPaginatedJson<TItem, TExtra extends object = {}>(
   let offset = 0;
   const data: TItem[] = [];
   let extras: TExtra | null = null;
+  let pagesLoaded = 0;
 
   while (true) {
     const response = await fetch(buildPaginatedApiPath(path, limit, offset), {
@@ -74,12 +78,29 @@ export async function apiPaginatedJson<TItem, TExtra extends object = {}>(
       extras = rest as TExtra;
     }
 
-    data.push(...page.data);
+    pagesLoaded += 1;
+    const remainingItemBudget = PAGINATED_API_MAX_ITEMS - data.length;
+    const pageItems = remainingItemBudget > 0 ? page.data.slice(0, remainingItemBudget) : [];
+    data.push(...pageItems);
     if (!page.meta.has_more || page.data.length === 0) {
       return {
         ...(extras ?? ({} as TExtra)),
         data,
         meta: { has_more: false },
+      };
+    }
+    if (
+      pagesLoaded >= PAGINATED_API_MAX_PAGES ||
+      pageItems.length < page.data.length ||
+      data.length >= PAGINATED_API_MAX_ITEMS
+    ) {
+      console.warn(
+        `Stopped paginated API fetch for ${path} after ${pagesLoaded} pages and ${data.length} items because the safety cap was reached.`,
+      );
+      return {
+        ...(extras ?? ({} as TExtra)),
+        data,
+        meta: { has_more: true },
       };
     }
 

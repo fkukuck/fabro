@@ -647,6 +647,7 @@ mod runs {
     use fabro_api::types::*;
 
     use super::ts;
+    use crate::server::truncate_goal;
 
     fn labels(entries: &[(&str, &str)]) -> HashMap<String, String> {
         entries
@@ -669,12 +670,7 @@ mod runs {
         total_usd_micros: Option<i64>,
         entries: &[(&str, &str)],
     ) -> StoreRunSummary {
-        let status_reason = match status_reason {
-            Some("completed") => Some(StatusReason::Completed),
-            Some("workflow_error") => Some(StatusReason::WorkflowError),
-            Some(other) => panic!("unsupported demo status_reason: {other}"),
-            None => None,
-        };
+        let status_reason = status_reason.and_then(parse_status_reason);
 
         StoreRunSummary {
             created_at: ts(created_at),
@@ -691,10 +687,27 @@ mod runs {
             start_time: Some(ts(created_at)),
             status: status.map(str::to_string),
             status_reason,
-            title: goal.into(),
+            title: truncate_goal(goal),
             total_usd_micros,
             workflow_name: Some(workflow_name.into()),
             workflow_slug: Some(workflow_slug.into()),
+        }
+    }
+
+    fn parse_status_reason(reason: &str) -> Option<StatusReason> {
+        match reason {
+            "completed" => Some(StatusReason::Completed),
+            "partial_success" => Some(StatusReason::PartialSuccess),
+            "workflow_error" => Some(StatusReason::WorkflowError),
+            "cancelled" => Some(StatusReason::Cancelled),
+            "terminated" => Some(StatusReason::Terminated),
+            "transient_infra" => Some(StatusReason::TransientInfra),
+            "budget_exhausted" => Some(StatusReason::BudgetExhausted),
+            "launch_failed" => Some(StatusReason::LaunchFailed),
+            "bootstrap_failed" => Some(StatusReason::BootstrapFailed),
+            "sandbox_init_failed" => Some(StatusReason::SandboxInitFailed),
+            "sandbox_initializing" => Some(StatusReason::SandboxInitializing),
+            _ => None,
         }
     }
 
@@ -949,6 +962,72 @@ mod runs {
                 None,
             ),
         ]
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn summary_parses_known_status_reason_values() {
+            let summary = summary(
+                "run-test",
+                "demo-repo",
+                "implement",
+                "Implement",
+                "Goal",
+                Some("failed"),
+                "2026-03-06T14:30:00Z",
+                Some(1.0),
+                Some("cancelled"),
+                None,
+                None,
+                &[],
+            );
+
+            assert_eq!(summary.status_reason, Some(StatusReason::Cancelled));
+        }
+
+        #[test]
+        fn summary_ignores_unknown_status_reason() {
+            let summary = summary(
+                "run-test",
+                "demo-repo",
+                "implement",
+                "Implement",
+                "Goal",
+                Some("failed"),
+                "2026-03-06T14:30:00Z",
+                Some(1.0),
+                Some("unexpected_reason"),
+                None,
+                None,
+                &[],
+            );
+
+            assert_eq!(summary.status_reason, None);
+        }
+
+        #[test]
+        fn summary_derives_title_like_server() {
+            let goal = format!("## Plan: {}", "a".repeat(120));
+            let summary = summary(
+                "run-test",
+                "demo-repo",
+                "implement",
+                "Implement",
+                &goal,
+                Some("running"),
+                "2026-03-06T14:30:00Z",
+                Some(1.0),
+                None,
+                None,
+                None,
+                &[],
+            );
+
+            assert_eq!(summary.title, format!("{}...", "a".repeat(97)));
+        }
     }
 
     pub(super) fn stages() -> Vec<RunStage> {

@@ -122,4 +122,42 @@ describe("apiPaginatedJson", () => {
       },
     );
   });
+
+  test("stops after a bounded number of pages when the server keeps advertising more data", async () => {
+    const warnMock = mock(() => {});
+    const originalWarn = console.warn;
+    console.warn = warnMock;
+
+    let callCount = 0;
+    const fetchMock = mock(() => {
+      callCount += 1;
+      if (callCount > 50) {
+        throw new Error("apiPaginatedJson should have stopped at the page cap");
+      }
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: `run-${callCount}` }],
+            meta: { has_more: true },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const result = await apiPaginatedJson<{ id: string }>("/boards/runs");
+
+      expect(result.data).toHaveLength(50);
+      expect(result.meta).toEqual({ has_more: true });
+      expect(warnMock).toHaveBeenCalledTimes(1);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
