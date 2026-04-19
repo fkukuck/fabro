@@ -1,7 +1,3 @@
-//! End-to-end HTTP coverage for the archived run status: the R14 mutation
-//! rejection contract, archive/unarchive status codes, and the
-//! `include_archived` listing filter.
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
@@ -23,7 +19,6 @@ async fn archived_runs_reject_mutations_with_actionable_body() {
     let status = wait_for_run_status(&app, &run_id, &["succeeded", "failed"]).await;
     assert_eq!(status, "succeeded");
 
-    // Archive the run.
     let req = Request::builder()
         .method("POST")
         .uri(api(&format!("/runs/{run_id}/archive")))
@@ -34,8 +29,6 @@ async fn archived_runs_reject_mutations_with_actionable_body() {
     let body = body_json(response.into_body()).await;
     assert_eq!(body["status"], "archived");
 
-    // Every mutation endpoint that guards against archived runs returns 409 with
-    // an actionable "unarchive first" body.
     for path in &["/cancel", "/pause", "/unpause", "/start"] {
         let req = Request::builder()
             .method("POST")
@@ -56,7 +49,6 @@ async fn archived_runs_reject_mutations_with_actionable_body() {
         );
     }
 
-    // Client-supplied lifecycle events on the archived run are rejected.
     let req = Request::builder()
         .method("POST")
         .uri(api(&format!("/runs/{run_id}/events")))
@@ -79,10 +71,9 @@ async fn archived_runs_reject_mutations_with_actionable_body() {
         "expected 409 for POST /runs/{{id}}/events on archived run"
     );
 
-    // Additional write surfaces that the Unit 4 audit guards but the scenario
-    // loop doesn't cover. The `reject_if_archived` check runs before each
-    // endpoint's state-specific lookups, so synthetic stage/question/filename
-    // values are fine — the archive guard fires first.
+    // The archive guard runs before each endpoint's state-specific lookups, so
+    // synthetic stage/question/filename values are enough to drive these
+    // write surfaces into the guard.
     for (method, path, body, content_type) in [
         (
             "POST",

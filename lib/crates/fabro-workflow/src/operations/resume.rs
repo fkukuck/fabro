@@ -15,12 +15,7 @@ pub async fn resume(run_dir: &Path, services: StartServices) -> Result<Started, 
         .map_err(|err| Error::engine(err.to_string()))?;
 
     if let Some(record) = state.status {
-        if record.status == RunStatus::Archived {
-            return Err(Error::Precondition(format!(
-                "run {run_id} is archived; run `fabro unarchive {run_id}` to restore it and try again",
-                run_id = services.run_id,
-            )));
-        }
+        super::archive::ensure_not_archived(Some(record.status), &services.run_id)?;
         if record.status == RunStatus::Succeeded {
             return Err(Error::Precondition(
                 "run already finished successfully — nothing to resume".to_string(),

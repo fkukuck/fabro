@@ -118,10 +118,10 @@ pub struct RewindInput {
     pub run_id:         RunId,
     pub target:         RewindTarget,
     pub push:           bool,
-    /// Current durable run status. Callers must thread this through so rewind
-    /// can enforce the archived-run precondition itself instead of relying on
-    /// an upstream check.
-    pub current_status: Option<RunStatus>,
+    /// Current durable run status. Callers must load this from the projection
+    /// store before calling rewind so the archived-run precondition can be
+    /// enforced here rather than by an upstream check that can drift.
+    pub current_status: RunStatus,
 }
 
 pub fn build_timeline(store: &Store, run_id: &str) -> Result<RunTimeline> {
@@ -254,13 +254,7 @@ fn detect_parallel_interior(graph: &Graph) -> HashMap<String, String> {
 }
 
 pub fn rewind(store: &Store, input: &RewindInput) -> Result<()> {
-    let current_status = input.current_status.ok_or_else(|| {
-        anyhow::anyhow!(
-            "run {} current status is required before rewind",
-            input.run_id
-        )
-    })?;
-    ensure_not_archived(Some(current_status), &input.run_id)
+    ensure_not_archived(Some(input.current_status), &input.run_id)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
     let timeline = build_timeline(store, &input.run_id.to_string())?;
     let entry = timeline.resolve(&input.target)?;
@@ -525,42 +519,12 @@ mod tests {
             run_id:         fixtures::RUN_1,
             target:         RewindTarget::Ordinal(1),
             push:           false,
-            current_status: Some(RunStatus::Succeeded),
+            current_status: RunStatus::Succeeded,
         })
         .unwrap();
 
         let resolved = store.resolve_ref(&branch).unwrap().unwrap();
         assert_eq!(resolved, oid1);
-    }
-
-    #[test]
-    fn rewind_requires_current_status_to_enforce_archived_guard() {
-        let (_dir, store) = temp_repo();
-        let sig = test_sig();
-        let branch = MetadataStore::branch_name(&fixtures::RUN_1.to_string());
-        let bs = BranchStore::new(&store, &branch, &sig);
-        bs.ensure_branch().unwrap();
-
-        bs.write_entry("run.json", b"{}", "init run").unwrap();
-        bs.write_entry(
-            "checkpoint.json",
-            &make_checkpoint_json("start", 1, None),
-            "checkpoint",
-        )
-        .unwrap();
-
-        let err = rewind(&store, &RewindInput {
-            run_id:         fixtures::RUN_1,
-            target:         RewindTarget::Ordinal(1),
-            push:           false,
-            current_status: None,
-        })
-        .unwrap_err();
-
-        assert!(
-            err.to_string().contains("current status"),
-            "expected missing-status error, got: {err}"
-        );
     }
 
     #[test]
@@ -571,7 +535,7 @@ mod tests {
             run_id:         fixtures::RUN_1,
             target:         RewindTarget::Ordinal(1),
             push:           false,
-            current_status: Some(RunStatus::Archived),
+            current_status: RunStatus::Archived,
         })
         .unwrap_err();
         let message = err.to_string();

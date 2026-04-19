@@ -5996,19 +5996,13 @@ async fn reject_if_archived(state: &AppState, run_id: &RunId) -> Option<Response
     let run_store = state.store.open_run_reader(run_id).await.ok()?;
     let projection = run_store.state().await.ok()?;
     let status = projection.status.as_ref()?.status;
-    if status == WorkflowRunStatus::Archived {
-        Some(
-            ApiError::new(
-                StatusCode::CONFLICT,
-                format!(
-                    "run {run_id} is archived; run `fabro unarchive {run_id}` to restore it and try again"
-                ),
-            )
-            .into_response(),
+    (status == WorkflowRunStatus::Archived).then(|| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            operations::archived_rejection_message(run_id),
         )
-    } else {
-        None
-    }
+        .into_response()
+    })
 }
 
 fn schedule_worker_kill(state: Arc<AppState>, run_id: RunId, worker_pid: u32) {
@@ -6381,21 +6375,7 @@ async fn archive_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let actor = actor_from_subject(&subject);
-    match operations::archive(&state.store, &id, actor).await {
-        Ok(_) => archive_status_response(state.as_ref(), id).await,
-        Err(WorkflowError::Precondition(message)) => {
-            ApiError::new(StatusCode::CONFLICT, message).into_response()
-        }
-        Err(WorkflowError::RunNotFound(_)) => ApiError::not_found("Run not found.").into_response(),
-        Err(err) => {
-            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
-        }
-    }
+    run_archive_action(state, subject, id, ArchiveAction::Archive).await
 }
 
 async fn unarchive_run(
@@ -6403,13 +6383,36 @@ async fn unarchive_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
+    run_archive_action(state, subject, id, ArchiveAction::Unarchive).await
+}
+
+#[derive(Clone, Copy)]
+enum ArchiveAction {
+    Archive,
+    Unarchive,
+}
+
+async fn run_archive_action(
+    state: Arc<AppState>,
+    subject: AuthenticatedSubject,
+    id: String,
+    action: ArchiveAction,
+) -> Response {
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
     };
     let actor = actor_from_subject(&subject);
-    match operations::unarchive(&state.store, &id, actor).await {
-        Ok(_) => archive_status_response(state.as_ref(), id).await,
+    let result = match action {
+        ArchiveAction::Archive => operations::archive(&state.store, &id, actor)
+            .await
+            .map(|_| ()),
+        ArchiveAction::Unarchive => operations::unarchive(&state.store, &id, actor)
+            .await
+            .map(|_| ()),
+    };
+    match result {
+        Ok(()) => archive_status_response(state.as_ref(), id).await,
         Err(WorkflowError::Precondition(message)) => {
             ApiError::new(StatusCode::CONFLICT, message).into_response()
         }

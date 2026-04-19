@@ -44,7 +44,11 @@ pub(crate) async fn run(
     let run = lookup.resolve(&args.run_id)?;
     let run_id = run.run_id();
     let state = lookup.client().get_run_state(&run_id).await?;
-    let current_status = state.status.as_ref().map(|record| record.status);
+    let current_status = state
+        .status
+        .as_ref()
+        .map(|record| record.status)
+        .context("run has no recorded status — cannot rewind")?;
     let record = state.run.context("Failed to load run record from store")?;
     ensure_matching_repo_origin(record.repo_origin_url.as_deref(), "rewind")?;
     let store = Store::new(repo);

@@ -1,21 +1,15 @@
-//! End-to-end CLI lifecycle for the archived run status: run → archive →
-//! hide/show → unarchive → still-deletable.
-
 use fabro_test::test_context;
 use serde_json::Value;
 
 use crate::cmd::support::setup_completed_fast_dry_run;
 
 fn ps_runs(context: &fabro_test::TestContext, include_archived: bool) -> Vec<Value> {
-    let mut cmd = context.ps();
-    let mut args = vec!["--json", "--label", ""];
-    // `--label` needs the actual label value; we replace the empty slot below.
     let label = context.test_case_label();
-    args[2] = &label;
+    let mut cmd = context.ps();
     if include_archived {
-        cmd.args(["-a"]);
+        cmd.arg("-a");
     }
-    cmd.args(args);
+    cmd.args(["--json", "--label", &label]);
     let output = cmd.output().expect("ps should execute");
     assert!(
         output.status.success(),
@@ -31,13 +25,11 @@ fn archive_lifecycle_end_to_end() {
     let context = test_context!();
     let run = setup_completed_fast_dry_run(&context);
 
-    // 1. Baseline: `ps -a` sees the succeeded run.
     let visible = ps_runs(&context, true);
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0]["run_id"], run.run_id);
     assert_eq!(visible[0]["status"], "succeeded");
 
-    // 2. Archive the run.
     let archive = context
         .command()
         .args(["archive", &run.run_id])
@@ -49,20 +41,17 @@ fn archive_lifecycle_end_to_end() {
         String::from_utf8_lossy(&archive.stderr)
     );
 
-    // 3. Default `ps` hides archived runs.
     let default_visible = ps_runs(&context, false);
     assert!(
         default_visible.is_empty(),
         "default ps should hide archived, got {default_visible:?}"
     );
 
-    // 4. `ps -a` surfaces the run with status `archived`.
     let with_archived = ps_runs(&context, true);
     assert_eq!(with_archived.len(), 1);
     assert_eq!(with_archived[0]["run_id"], run.run_id);
     assert_eq!(with_archived[0]["status"], "archived");
 
-    // 5. Unarchive restores the prior terminal status.
     let unarchive = context
         .command()
         .args(["unarchive", &run.run_id])
@@ -76,7 +65,8 @@ fn archive_lifecycle_end_to_end() {
     let restored = ps_runs(&context, true);
     assert_eq!(restored[0]["status"], "succeeded");
 
-    // 6. Archived runs remain delete-able (plan Scope Boundaries).
+    // `rm` must remain available on archived runs — archive and delete are
+    // orthogonal per the plan's Scope Boundaries.
     context
         .command()
         .args(["archive", &run.run_id])

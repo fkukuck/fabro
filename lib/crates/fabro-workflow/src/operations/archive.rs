@@ -15,14 +15,14 @@ fn map_open_run_error(run_id: &RunId, err: StoreError) -> Error {
 /// by the operations layer, the CLI rewind precheck, and the server HTTP
 /// guards so the user sees the same actionable guidance everywhere.
 #[must_use]
-pub(crate) fn archived_rejection_message(run_id: &RunId) -> String {
+pub fn archived_rejection_message(run_id: &RunId) -> String {
     format!("run {run_id} is archived; run `fabro unarchive {run_id}` to restore it and try again")
 }
 
 /// Returns `Err(Error::Precondition)` when the given status represents an
 /// archived run. Use this at any mutation entry point that would otherwise
 /// transition or emit events against the run (rewind, resume, etc.).
-pub(crate) fn ensure_not_archived(status: Option<RunStatus>, run_id: &RunId) -> Result<(), Error> {
+pub fn ensure_not_archived(status: Option<RunStatus>, run_id: &RunId) -> Result<(), Error> {
     if status == Some(RunStatus::Archived) {
         Err(Error::Precondition(archived_rejection_message(run_id)))
     } else {
