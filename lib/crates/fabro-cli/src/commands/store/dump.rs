@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "CLI `store dump` command: sync file I/O for dump outputs"
+)]
+
 use std::io::ErrorKind;
 use std::path::Path;
 

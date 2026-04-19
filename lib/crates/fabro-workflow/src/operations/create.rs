@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "FOLLOW-UP: per-run `workflow create` operation; writes .fabro/ scaffolding to disk via sync std::fs"
+)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

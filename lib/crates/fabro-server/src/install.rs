@@ -891,6 +891,11 @@ async fn post_install_finish(
         ("FABRO_DEV_TOKEN".to_string(), dev_token.clone()),
     ]);
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "install-finish handler: reads current settings file once to produce a rollback \
+                  snapshot before writing the new settings; one-shot per install-finish request"
+    )]
     let previous_settings = std::fs::read_to_string(state.config_path.as_ref()).ok();
 
     if let Err(err) = persist_install_outputs_direct(

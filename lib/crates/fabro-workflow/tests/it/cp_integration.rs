@@ -6,6 +6,10 @@
 //! cp_integration -- --ignored`
 
 #![allow(clippy::ignore_without_reason)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "workflow cp integration test: stages sandbox fixtures with sync std::fs"
+)]
 
 use fabro_sandbox::SandboxRecord;
 use fabro_sandbox::reconnect::reconnect;

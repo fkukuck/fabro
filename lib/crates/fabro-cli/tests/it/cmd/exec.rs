@@ -1,4 +1,8 @@
 #![allow(clippy::absolute_paths)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "integration tests stage fixtures with sync std::fs; test infrastructure, not Tokio-hot path"
+)]
 
 use std::process::Output;
 

@@ -6,6 +6,10 @@
     clippy::manual_assert,
     clippy::manual_let_else
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "integration tests stage fixtures with sync std::fs; test infrastructure, not Tokio-hot path"
+)]
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};

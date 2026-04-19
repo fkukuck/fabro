@@ -161,6 +161,12 @@ pub struct DevcontainerResolver;
 
 impl DevcontainerResolver {
     /// path: repo root (or explicit .devcontainer/ path)
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "FOLLOW-UP: DevcontainerResolver::resolve does sync std::fs::read_to_string / \
+                  read_dir across several devcontainer.json lookups. One-shot per workflow run \
+                  (not per-request); acceptable today but should migrate to tokio::fs."
+    )]
     pub async fn resolve(path: &Path) -> Result<DevcontainerSpec> {
         let (json_path, devcontainer) = Self::find_and_parse(path)?;
         let repo_root = Self::repo_root_from_json_path(&json_path, path);
@@ -409,6 +415,11 @@ impl DevcontainerResolver {
         })
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "FOLLOW-UP: sync std::fs helpers for devcontainer.json lookup; called once at \
+                  workflow startup via resolve(). Should migrate to tokio::fs with resolve()."
+    )]
     fn find_and_parse(path: &Path) -> Result<(PathBuf, DevcontainerJson)> {
         // Check standard locations
         let candidates = [

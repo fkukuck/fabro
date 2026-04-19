@@ -1138,6 +1138,10 @@ fn non_zero_u64_from_usize(value: usize) -> Option<NonZeroU64> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "server-client tests stage local dev-token fixtures with sync std::fs::write"
+)]
 mod tests {
     use super::*;
 

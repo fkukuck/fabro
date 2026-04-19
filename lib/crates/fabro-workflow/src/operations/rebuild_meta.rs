@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "FOLLOW-UP: rebuild metadata uses sync std::fs::canonicalize during async checkpoint rebuild; per-run, not per-request"
+)]
+
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::PathBuf;

@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use tokio::fs;
 
 const INSTALL_MODE_MARKER: &str = "__FABRO_MODE__ = \"install\"";
 
@@ -143,7 +144,7 @@ async fn read_disk_asset(path: &str) -> Option<Vec<u8>> {
 async fn read_disk_asset_from_root(root: &Path, path: &str) -> Option<Vec<u8>> {
     let candidate = root.join(path);
     if candidate.is_file() {
-        tokio::fs::read(candidate).await.ok()
+        fs::read(candidate).await.ok()
     } else {
         None
     }
@@ -197,6 +198,10 @@ fn is_source_map(path: &str) -> bool {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests stage static asset fixtures with sync std::fs::write"
+)]
 mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
 

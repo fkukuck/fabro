@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "CLI logging setup: sync directory scan during startup"
+)]
+
 use std::path::Path;
 
 use anyhow::{Context, Result};

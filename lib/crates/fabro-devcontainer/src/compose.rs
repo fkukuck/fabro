@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "sync parse of docker-compose.yml files during devcontainer resolution; not on a Tokio path"
+)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

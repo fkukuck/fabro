@@ -14,6 +14,7 @@ use crate::sandbox_record::SandboxRecord;
 ///
 /// `daytona_api_key` is forwarded to the Daytona SDK when the provider is
 /// `"daytona"`. Pass `None` to fall back to the `DAYTONA_API_KEY` env var.
+#[allow(clippy::unused_async, unused_variables)]
 pub async fn reconnect(
     record: &SandboxRecord,
     daytona_api_key: Option<String>,

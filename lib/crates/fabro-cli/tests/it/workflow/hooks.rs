@@ -3,6 +3,10 @@
     clippy::needless_borrow,
     clippy::needless_borrows_for_generic_args
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "integration tests stage fixtures with sync std::fs; test infrastructure, not Tokio-hot path"
+)]
 
 use std::process::Output;
 

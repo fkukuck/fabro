@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "CLI `server start` command: sync config/record file I/O in startup command; acquire_lock uses spawn_blocking"
+)]
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,6 +19,7 @@ use fabro_util::terminal::Styles;
 use fabro_util::{Home, dev_token, session_secret};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::process::Command as TokioCommand;
+use tokio::task::spawn_blocking;
 use tokio::time;
 
 use super::record;
@@ -514,7 +520,12 @@ async fn acquire_lock(storage_dir: &Path) -> Result<std::fs::File> {
             .with_context(|| format!("creating server lock directory {}", parent.display()))?;
     }
     let lock_path_for_open = lock_path.clone();
-    let lock_file = tokio::task::spawn_blocking(move || {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "OpenOptions::open inside spawn_blocking; file-lock semantics need a real \
+                  std::fs::File handle for fabro_proc::try_flock_exclusive"
+    )]
+    let lock_file = spawn_blocking(move || {
         std::fs::OpenOptions::new()
             .create(true)
             .write(true)

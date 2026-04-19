@@ -4,6 +4,7 @@ use fabro_agent::Sandbox;
 use fabro_sandbox::shell_quote;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::fs;
 use tracing::{debug, warn};
 
 /// A file discovered by the find command.
@@ -264,7 +265,7 @@ async fn compute_artifact_info(
     let mime = mime_guess::from_path(relative_path)
         .first_or_octet_stream()
         .to_string();
-    let data = tokio::fs::read(local_path)
+    let data = fs::read(local_path)
         .await
         .map_err(|e| format!("failed to read {}: {e}", local_path.display()))?;
     let bytes = u64::try_from(data.len()).unwrap_or(u64::MAX);
@@ -353,6 +354,7 @@ pub async fn collect_artifacts(
 }
 
 #[cfg(test)]
+#[expect(clippy::disallowed_methods, reason = "tests write fixtures to disk")]
 mod tests {
     use std::collections::HashMap;
 
@@ -442,11 +444,11 @@ mod tests {
                 .get(remote_path)
                 .ok_or_else(|| format!("File not found: {remote_path}"))?;
             if let Some(parent) = local_path.parent() {
-                tokio::fs::create_dir_all(parent)
+                fs::create_dir_all(parent)
                     .await
                     .map_err(|e| format!("Failed to create dirs: {e}"))?;
             }
-            tokio::fs::write(local_path, content.as_bytes())
+            fs::write(local_path, content.as_bytes())
                 .await
                 .map_err(|e| format!("Failed to write: {e}"))?;
             Ok(())

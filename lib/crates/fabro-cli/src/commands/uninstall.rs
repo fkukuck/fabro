@@ -2,6 +2,10 @@
     clippy::disallowed_types,
     reason = "sync CLI `uninstall` command: blocking std::io::Write is the intended output mechanism"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "CLI `uninstall` command: sync file I/O in command handler"
+)]
 
 use std::fs;
 use std::io::Write;

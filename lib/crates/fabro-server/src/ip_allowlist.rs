@@ -12,6 +12,7 @@ use fabro_types::settings::server::{
 };
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
+use tokio::fs;
 use tracing::warn;
 
 use crate::ApiError;
@@ -130,7 +131,7 @@ impl GitHubMetaResolver {
     }
 
     async fn load_cache(&self) -> Result<Option<GitHubMetaCache>> {
-        match tokio::fs::read(&self.cache_path).await {
+        match fs::read(&self.cache_path).await {
             Ok(contents) => match serde_json::from_slice(&contents) {
                 Ok(cache) => Ok(Some(cache)),
                 Err(error) => {
@@ -151,13 +152,13 @@ impl GitHubMetaResolver {
 
     async fn store_cache(&self, cache: &GitHubMetaCache) -> Result<()> {
         if let Some(parent) = self.cache_path.parent() {
-            tokio::fs::create_dir_all(parent)
+            fs::create_dir_all(parent)
                 .await
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
 
         let contents = serde_json::to_vec(cache).context("serializing GitHub meta cache")?;
-        tokio::fs::write(&self.cache_path, contents)
+        fs::write(&self.cache_path, contents)
             .await
             .with_context(|| format!("writing {}", self.cache_path.display()))?;
         Ok(())
@@ -322,6 +323,10 @@ pub fn github_meta_cache_path(cache_dir: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests stage IP allowlist fixtures with sync std::fs::write"
+)]
 mod tests {
     use std::net::Ipv4Addr;
 

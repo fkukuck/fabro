@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "sync pre-fork filesystem interaction; the whole module runs before fork/exec"
+)]
+
 /// Spawn a fully detached subprocess that survives parent exit and terminal
 /// close.
 ///

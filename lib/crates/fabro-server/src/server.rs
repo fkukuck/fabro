@@ -1420,6 +1420,10 @@ struct PrunePlan {
     total_size_bytes: u64,
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sync helper invoked from async handler via spawn_blocking (see callers at :1301 / :1341)"
+)]
 fn build_disk_usage_response(
     summaries: &[fabro_store::RunSummary],
     storage_dir: &std::path::Path,
@@ -2392,6 +2396,10 @@ pub fn create_app_state_with_env_lookup(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "test helper writes a fixture server.env with sync std::fs::write"
+)]
 pub(crate) fn create_test_app_state_with_session_key(
     settings: SettingsLayer,
     session_secret: Option<&str>,
@@ -3535,6 +3543,11 @@ struct WorkerServerRecord {
 
 fn current_server_target(storage_dir: &std::path::Path) -> anyhow::Result<String> {
     let record_path = Storage::new(storage_dir).server_state().record_path();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sync helper invoked from worker_command (sync) via spawn_blocking at the async \
+                  boundary in execute_run_subprocess; see commit 9d1c0d98c"
+    )]
     let content = std::fs::read_to_string(&record_path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", record_path.display()))?;
     let record: WorkerServerRecord = serde_json::from_str(&content).map_err(|err| {
@@ -4462,7 +4475,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
 
     let state_for_build = Arc::clone(&state);
     let run_dir_for_build = run_dir.clone();
-    let build_cmd_result = tokio::task::spawn_blocking(move || {
+    let build_cmd_result = spawn_blocking(move || {
         worker_command(
             state_for_build.as_ref(),
             run_id,
@@ -6894,6 +6907,10 @@ async fn get_graph(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "server unit tests stage fixtures with sync std::fs writes"
+)]
 mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;

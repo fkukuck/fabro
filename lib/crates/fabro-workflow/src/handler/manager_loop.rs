@@ -348,6 +348,10 @@ impl Handler for SubWorkflowHandler {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests persist manager-loop state fixtures"
+)]
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;

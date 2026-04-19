@@ -92,6 +92,13 @@ pub fn mime_from_extension(path: &str) -> &str {
 ///
 /// # Errors
 /// Returns an error if the file cannot be read.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "FOLLOW-UP: sync std::fs::read for file:// attachments, invoked from sync \
+              translators (translate_input/translate_messages) across all providers. Pre-existing; \
+              7 call sites in sync translators would need restructuring to wrap in spawn_blocking \
+              at each async chokepoint. file:// URLs are rare in practice; revisit if usage grows."
+)]
 pub fn load_file_as_base64(path: &str) -> Result<(String, String), std::io::Error> {
     let expanded = path.strip_prefix("~/").map_or_else(
         || path.to_string(),

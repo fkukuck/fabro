@@ -1,4 +1,8 @@
 #![allow(clippy::absolute_paths)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "workflow attractor compat test: reads fixture files with sync std::fs"
+)]
 
 use std::path::Path;
 

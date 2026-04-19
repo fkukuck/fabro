@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "FOLLOW-UP: mixed async/sync workflow artifact lifecycle. Sync std::fs::write remains at per-stage persistence points; the Tokio-path hot reads were migrated to tokio::fs in commit 9d1c0d98c. Remaining writes should follow."
+)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +14,7 @@ use fabro_types::{
 };
 use futures::future::BoxFuture;
 use serde_json::Value;
+use tokio::fs;
 
 use crate::context::{self, Context};
 use crate::error::{Error, Result};
@@ -174,7 +180,7 @@ pub async fn sync_artifacts_to_env(
             }
         }
 
-        let content = tokio::fs::read_to_string(&local_path).await.map_err(|e| {
+        let content = fs::read_to_string(&local_path).await.map_err(|e| {
             Error::engine(format!("failed to read local artifact {local_path}: {e}"))
         })?;
 
@@ -325,7 +331,7 @@ async fn resolve_explicit_file_ref(value: &str, env: &dyn Sandbox) -> Result<Str
         return Ok(value.to_string());
     }
 
-    let content = tokio::fs::read_to_string(local_path)
+    let content = fs::read_to_string(local_path)
         .await
         .map_err(|e| Error::engine(format!("failed to read local artifact {local_path}: {e}")))?;
     let filename = Path::new(local_path)

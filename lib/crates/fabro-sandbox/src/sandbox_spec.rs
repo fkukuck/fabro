@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 #[cfg(feature = "daytona")]
 use fabro_github::GitHubCredentials;
+#[allow(unused_imports)]
 use fabro_types::RunId;
 
 use crate::config::WorktreeMode;
@@ -142,6 +143,7 @@ impl SandboxSpec {
         }
     }
 
+    #[allow(clippy::unused_async)]
     pub async fn build(
         &self,
         event_callback: Option<SandboxEventCallback>,
