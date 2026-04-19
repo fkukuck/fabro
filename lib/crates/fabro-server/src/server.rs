@@ -9510,10 +9510,7 @@ timeout = "30s"
             .parse::<RunId>()
             .unwrap();
 
-        for (run_id, sandbox_id) in [
-            (first_run_id, "sb-first"),
-            (second_run_id, "sb-second"),
-        ] {
+        for (run_id, sandbox_id) in [(first_run_id, "sb-first"), (second_run_id, "sb-second")] {
             let run_store = state.store.open_run(&run_id).await.unwrap();
             for event in [
                 workflow_event::Event::RunRunning { reason: None },
