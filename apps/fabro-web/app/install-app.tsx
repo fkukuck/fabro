@@ -1,6 +1,18 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowTopRightOnSquareIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ClipboardDocumentCheckIcon,
+  ClipboardIcon,
+  EyeIcon,
+  EyeSlashIcon,
+} from "@heroicons/react/16/solid";
 
 import {
   type InstallFinishResponse,
@@ -18,7 +30,6 @@ import {
   testInstallGithubToken,
   testInstallLlm,
 } from "./install-api";
-import { AuthLayout } from "./components/auth-layout";
 import { INSTALL_PROVIDERS } from "./install-config";
 import { shouldRedirectAfterHealthPoll } from "./install-flow";
 import {
@@ -29,11 +40,13 @@ import {
 
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
-  { id: "llm", label: "LLM", href: "/install/llm" },
   { id: "server", label: "Server", href: "/install/server" },
+  { id: "llm", label: "LLMs", href: "/install/llm" },
   { id: "github", label: "GitHub", href: "/install/github" },
   { id: "review", label: "Review", href: "/install/review" },
 ] as const;
+
+const STEPPER_STEPS = INSTALL_STEPS.slice(1);
 
 type StepId = (typeof INSTALL_STEPS)[number]["id"];
 type FinishState = InstallFinishResponse | null;
@@ -54,12 +67,7 @@ type AppForm = {
   allowedUsername: string;
 };
 
-type ProviderSelection = Record<
-  string,
-  {
-    apiKey: string;
-  }
->;
+type ProviderSelection = Record<string, { apiKey: string }>;
 
 export default function InstallApp() {
   const navigate = useNavigate();
@@ -246,9 +254,9 @@ export default function InstallApp() {
   if (sessionState.status === "loading") {
     return (
       <InstallLayout currentStep={currentStep} completedSteps={completedSteps}>
-        <LoadingPanel title="Connecting to install session">
+        <StatusPanel title="Connecting to install session">
           Reading the current install state from the server.
-        </LoadingPanel>
+        </StatusPanel>
       </InstallLayout>
     );
   }
@@ -278,11 +286,11 @@ export default function InstallApp() {
         <FinishingScreen finishState={finishState} timedOut={timedOut} />
       ) : location.pathname === "/install/llm" ? (
         <StepPanel
-          eyebrow="LLM providers"
-          title="Choose the API keys this server should use."
-          description="Each configured provider is validated before the wizard records it. Leave any provider blank to skip it for now."
+          title="Add your LLM credentials"
+          description="Each key you enter is validated before it's saved. Skip a provider by leaving it blank."
           error={saveError}
           submitting={submitting}
+          backHref="/install/server"
           onSubmit={async () => {
             const providers = INSTALL_PROVIDERS.map(({ id }) => {
               const current = llmSelection[id] ?? { apiKey: "" };
@@ -306,7 +314,7 @@ export default function InstallApp() {
               await putInstallLlm(installToken, providers);
               const nextSession = await getInstallSession(installToken);
               setSessionState({ status: "ready", data: nextSession });
-              navigate("/install/server");
+              navigate("/install/github");
             } catch (error) {
               setSaveError(
                 error instanceof Error ? error.message : "Failed to save LLM settings.",
@@ -320,11 +328,11 @@ export default function InstallApp() {
         </StepPanel>
       ) : location.pathname === "/install/server" ? (
         <StepPanel
-          eyebrow="Server URL"
-          title="Confirm the public URL operators will use."
-          description="The install flow uses this URL for redirects, the GitHub App callback, and the final handoff once setup completes."
+          title="Confirm the public URL"
+          description="This is where operators will reach Fabro after setup. It's also the redirect target for the GitHub App callback."
           error={saveError}
           submitting={submitting}
+          backHref="/install/welcome"
           onSubmit={async () => {
             if (!canonicalUrl.trim()) {
               setSaveError("Enter the canonical server URL before continuing.");
@@ -336,7 +344,7 @@ export default function InstallApp() {
               await putInstallServer(installToken, canonicalUrl.trim());
               const nextSession = await getInstallSession(installToken);
               setSessionState({ status: "ready", data: nextSession });
-              navigate("/install/github");
+              navigate("/install/llm");
             } catch (error) {
               setSaveError(
                 error instanceof Error ? error.message : "Failed to save server settings.",
@@ -348,13 +356,17 @@ export default function InstallApp() {
         >
           <Field
             label="Canonical URL"
-            hint="Detected from forwarded headers when available."
+            hint="Auto-detected from forwarded headers when available."
           >
             <input
+              type="url"
+              name="canonical_url"
               value={canonicalUrl}
               onChange={(event) => setCanonicalUrl(event.target.value)}
               className={INPUT_CLASS}
               placeholder="https://fabro.example.com"
+              autoComplete="url"
+              spellCheck={false}
             />
           </Field>
         </StepPanel>
@@ -362,12 +374,12 @@ export default function InstallApp() {
         <GithubAppDoneScreen github={session?.github} />
       ) : location.pathname === "/install/github" ? (
         <StepPanel
-          eyebrow="GitHub access"
-          title="Choose how Fabro should authenticate to GitHub."
-          description="Token installs validate a personal access token and store it in the vault. App installs hand off to GitHub to create an App, then return here automatically."
+          title="Connect GitHub"
+          description="Choose how Fabro should authenticate. Tokens are stored in the vault; apps hand off to GitHub and return here."
           error={saveError}
           submitting={submitting}
-          submitLabel={githubStrategy === "app" ? "Continue to GitHub" : "Continue"}
+          submitLabel={githubStrategy === "app" ? "Continue on GitHub" : "Continue"}
+          backHref="/install/server"
           onSubmit={async () => {
             setSubmitting(true);
             setSaveError(null);
@@ -421,29 +433,43 @@ export default function InstallApp() {
         >
           <GithubStrategyPicker strategy={githubStrategy} onChange={setGithubStrategy} />
           {githubStrategy === "token" ? (
-            <>
-              <Field label="GitHub token">
-                <textarea
-                  value={tokenForm.token}
-                  onChange={(event) =>
-                    setTokenForm((current) => ({ ...current, token: event.target.value }))
-                  }
-                  className={`${INPUT_CLASS} min-h-28 resize-y`}
-                  placeholder="ghp_..."
-                />
-              </Field>
-              <Field
-                label="Validated username"
-                hint="Filled automatically after token validation."
-              >
-                <input
-                  value={tokenForm.username}
-                  readOnly
-                  className={`${INPUT_CLASS} text-fg-3`}
-                  placeholder="octocat"
-                />
-              </Field>
-            </>
+            <div className="space-y-5">
+              <div>
+                <label
+                  htmlFor="github_token"
+                  className="text-sm font-medium text-fg"
+                >
+                  Personal access token
+                </label>
+                <div className="mt-2">
+                  <PasswordInput
+                    id="github_token"
+                    name="github_token"
+                    value={tokenForm.token}
+                    onChange={(value) =>
+                      setTokenForm((current) => ({ ...current, token: value }))
+                    }
+                    placeholder="ghp_..."
+                  />
+                </div>
+                {tokenForm.username ? (
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-mint">
+                    <CheckCircleIcon className="size-4 shrink-0" />
+                    Previously validated as{" "}
+                    <span className="font-medium">@{tokenForm.username}</span>
+                  </p>
+                ) : null}
+                <HelpDisclosure summary="Where do I get this?">
+                  <p>
+                    Create a fine-grained or classic token with{" "}
+                    <code className="font-mono text-fg-2">repo</code> scope.
+                  </p>
+                  <ExternalLink href="https://github.com/settings/tokens">
+                    github.com/settings/tokens
+                  </ExternalLink>
+                </HelpDisclosure>
+              </div>
+            </div>
           ) : (
             <div className="space-y-5">
               <OwnerPicker
@@ -461,6 +487,7 @@ export default function InstallApp() {
               {appForm.owner.kind === "org" ? (
                 <Field label="Organization slug">
                   <input
+                    name="github_org_slug"
                     value={appForm.owner.slug ?? ""}
                     onChange={(event) =>
                       setAppForm((current) => ({
@@ -470,24 +497,16 @@ export default function InstallApp() {
                     }
                     className={INPUT_CLASS}
                     placeholder="acme"
+                    spellCheck={false}
                   />
                 </Field>
               ) : null}
-              <Field label="GitHub App name">
-                <input
-                  value={appForm.appName}
-                  onChange={(event) =>
-                    setAppForm((current) => ({ ...current, appName: event.target.value }))
-                  }
-                  className={INPUT_CLASS}
-                  placeholder="Fabro"
-                />
-              </Field>
               <Field
                 label="Allowed GitHub username"
-                hint="This username is allowed through the runtime GitHub login flow."
+                hint="Only this username can log in through GitHub after setup."
               >
                 <input
+                  name="github_allowed_username"
                   value={appForm.allowedUsername}
                   onChange={(event) =>
                     setAppForm((current) => ({
@@ -497,13 +516,14 @@ export default function InstallApp() {
                   }
                   className={INPUT_CLASS}
                   placeholder="octocat"
+                  spellCheck={false}
                 />
               </Field>
               {session?.server?.canonical_url ? (
-                <div className="rounded-xl border border-line bg-overlay/70 px-4 py-4 text-sm text-fg-3">
-                  The GitHub App will redirect back to{" "}
-                  <code>{session.server.canonical_url}</code>.
-                </div>
+                <p className="text-xs text-fg-muted">
+                  After creating the app, GitHub will redirect back to{" "}
+                  <code className="font-mono text-fg-3">{session.server.canonical_url}</code>.
+                </p>
               ) : null}
             </div>
           )}
@@ -546,44 +566,78 @@ function TokenEntryScreen({
   onSubmit: () => void;
 }) {
   return (
-    <AuthLayout footer="Fabro install mode is temporary and only available until setup completes.">
-      <p className="text-center text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-        Install Mode
-      </p>
-      <h1 className="mt-3 text-center text-2xl font-semibold tracking-tight text-fg">
-        Finish configuring this Fabro server.
-      </h1>
-      <p className="mt-3 text-center text-sm leading-relaxed text-fg-3">
-        Find the one-time install token in your terminal output, Docker logs, or
-        platform logs, then paste it here to continue.
-      </p>
-      <div className="mt-6 space-y-4">
-        <textarea
-          value={manualToken}
-          onChange={(event) => setManualToken(event.target.value)}
-          className={`${INPUT_CLASS} min-h-28 resize-y`}
-          placeholder="Paste install token"
-        />
-        {sessionError ? (
-          <div className="rounded-lg border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-fg-2">
-            {sessionError}
-          </div>
-        ) : null}
-        <button
-          type="button"
-          onClick={onSubmit}
-          className={PRIMARY_BUTTON_CLASS}
-        >
-          Continue
-        </button>
-        <div className="rounded-lg border border-line-strong bg-overlay px-4 py-3 text-sm text-fg-3">
-          <p className="font-medium text-fg-2">Where to look</p>
-          <p className="mt-2">Local terminal: the `fabro server start` output.</p>
-          <p className="mt-1">Docker: `docker logs &lt;container&gt;`.</p>
-          <p className="mt-1">Railway/systemd: your platform log viewer or `journalctl`.</p>
+    <main className="min-h-dvh bg-atmosphere px-4 py-16 text-fg-2 antialiased sm:py-20">
+      <div className="relative mx-auto max-w-md">
+        <div className="flex items-center gap-3">
+          <img src="/logo.svg" alt="Fabro" className="size-8" draggable={false} />
+          <span className="text-sm font-medium text-fg-3">Install</span>
         </div>
+        <div className="mt-10">
+          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-[1.75rem]">
+            Finish configuring this Fabro server
+          </h1>
+          <p className="mt-3 max-w-[56ch] text-sm/6 text-fg-3 text-pretty">
+            Find the one-time install token in your terminal, Docker logs, or
+            platform log viewer, then paste it here to continue.
+          </p>
+        </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+          className="mt-8 space-y-5"
+        >
+          <div>
+            <label htmlFor="install-token" className="sr-only">
+              Install token
+            </label>
+            <textarea
+              id="install-token"
+              name="install_token"
+              value={manualToken}
+              onChange={(event) => setManualToken(event.target.value)}
+              className={`${INPUT_CLASS} min-h-28 resize-y font-mono`}
+              placeholder="Paste install token"
+              spellCheck={false}
+              autoFocus
+            />
+          </div>
+          {sessionError ? <ErrorMessage message={sessionError} /> : null}
+          <button type="submit" className={PRIMARY_BUTTON_CLASS}>
+            Continue
+            <ArrowRightIcon className="size-4 shrink-0" />
+          </button>
+        </form>
+        <section className="mt-10 border-t border-line pt-6">
+          <h2 className="text-xs font-semibold tracking-wide text-fg uppercase">
+            Where to find it
+          </h2>
+          <dl className="mt-4 space-y-2 text-sm/6 text-fg-3">
+            <div className="flex gap-3">
+              <dt className="w-24 shrink-0 text-fg-2">Local</dt>
+              <dd>
+                Output of{" "}
+                <code className="font-mono text-fg-2">fabro server start</code>
+              </dd>
+            </div>
+            <div className="flex gap-3">
+              <dt className="w-24 shrink-0 text-fg-2">Docker</dt>
+              <dd>
+                <code className="font-mono text-fg-2">docker logs &lt;container&gt;</code>
+              </dd>
+            </div>
+            <div className="flex gap-3">
+              <dt className="w-24 shrink-0 text-fg-2">Hosted</dt>
+              <dd>Your platform's log viewer or <code className="font-mono text-fg-2">journalctl</code></dd>
+            </div>
+          </dl>
+        </section>
+        <p className="mt-10 text-xs text-fg-muted">
+          Install mode is temporary and only available until setup completes.
+        </p>
       </div>
-    </AuthLayout>
+    </main>
   );
 }
 
@@ -596,108 +650,149 @@ function InstallLayout({
   currentStep: StepId;
   completedSteps: Set<string>;
 }) {
+  const showStepper = currentStep !== "welcome";
   return (
-    <main className="min-h-screen bg-atmosphere px-4 py-8 text-fg">
-      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="rounded-2xl border border-line bg-panel/70 p-5 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <img src="/logo.svg" alt="Fabro" className="h-10 w-10" />
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-                Web Install
-              </p>
-              <h2 className="mt-1 text-lg font-semibold tracking-tight text-fg">
-                Server setup
-              </h2>
-            </div>
+    <main className="min-h-dvh bg-atmosphere px-4 py-12 text-fg-2 antialiased sm:py-16">
+      <div className="relative mx-auto max-w-xl">
+        <div className="flex items-center gap-3">
+          <img src="/logo.svg" alt="Fabro" className="size-8" draggable={false} />
+          <span className="text-sm font-medium text-fg-3">Install</span>
+        </div>
+        {showStepper ? (
+          <div className="mt-8">
+            <Stepper currentStep={currentStep} completedSteps={completedSteps} />
           </div>
-          <ol className="mt-6 space-y-3">
-            {INSTALL_STEPS.map((step, index) => {
-              const active = step.id === currentStep;
-              const complete = completedSteps.has(step.id);
-              const linkable = active || complete || step.id === "welcome";
-              const inner = (
-                <>
-                  <span
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold ${
-                      complete
-                        ? "border-mint/50 bg-mint/15 text-mint"
-                        : active
-                          ? "border-teal-300/60 bg-teal-300/10 text-teal-300"
-                          : "border-line-strong text-fg-muted"
-                    }`}
-                  >
-                    {complete ? "✓" : index + 1}
-                  </span>
-                  <span className="text-sm font-medium">{step.label}</span>
-                </>
-              );
-
-              return (
-                <li key={step.id}>
-                  {linkable ? (
-                    <Link
-                      to={step.href}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 transition-colors ${
-                        active
-                          ? "border-teal-500/40 bg-teal-500/12 text-fg"
-                          : "border-line bg-overlay/60 text-fg-3 hover:border-line-strong hover:text-fg"
-                      }`}
-                    >
-                      {inner}
-                    </Link>
-                  ) : (
-                    <span className="flex items-center gap-3 rounded-xl border border-line bg-overlay/30 px-3 py-3 text-fg-muted">
-                      {inner}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </aside>
-        <section className="rounded-2xl border border-line bg-panel/85 p-6 shadow-lg backdrop-blur-sm lg:p-8">
-          {children}
-        </section>
+        ) : null}
+        <div className="mt-10 sm:mt-12">{children}</div>
       </div>
     </main>
   );
 }
 
+function Stepper({
+  currentStep,
+  completedSteps,
+}: {
+  currentStep: StepId;
+  completedSteps: Set<string>;
+}) {
+  const activeIndex = STEPPER_STEPS.findIndex((step) => step.id === currentStep);
+  const safeIndex = activeIndex === -1 ? 0 : activeIndex;
+  const activeStep = STEPPER_STEPS[safeIndex];
+  const progress = ((safeIndex + 1) / STEPPER_STEPS.length) * 100;
+
+  return (
+    <nav aria-label="Install progress">
+      <div className="sm:hidden">
+        <p className="text-xs font-medium text-fg-3 tabular-nums">
+          Step {safeIndex + 1} of {STEPPER_STEPS.length}
+          <span className="text-fg"> · {activeStep.label}</span>
+        </p>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-overlay">
+          <div
+            className="h-full rounded-full bg-teal-500 transition-[width]"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+      <ol role="list" className="hidden items-center sm:flex">
+        {STEPPER_STEPS.map((step, index) => {
+          const isComplete = completedSteps.has(step.id);
+          const isCurrent = step.id === currentStep;
+          const isLast = index === STEPPER_STEPS.length - 1;
+          const isLinkable = isComplete || isCurrent;
+          const circleClass = isComplete
+            ? "bg-mint text-navy-950"
+            : isCurrent
+              ? "bg-teal-500 text-navy-950"
+              : "bg-overlay text-fg-muted outline-1 -outline-offset-1 outline-white/10";
+          const labelClass = isCurrent
+            ? "text-fg"
+            : isComplete
+              ? "text-fg-2"
+              : "text-fg-muted";
+          const connectorClass = isComplete ? "bg-mint/40" : "bg-line-strong";
+          const inner = (
+            <>
+              <span
+                className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${circleClass}`}
+                aria-hidden="true"
+              >
+                {isComplete ? <CheckIcon className="size-3.5" /> : index + 1}
+              </span>
+              <span className={`text-xs font-medium ${labelClass}`}>
+                {step.label}
+              </span>
+            </>
+          );
+          return (
+            <li
+              key={step.id}
+              className={`flex items-center ${isLast ? "" : "flex-1"}`}
+            >
+              {isLinkable ? (
+                <Link
+                  to={step.href}
+                  aria-current={isCurrent ? "step" : undefined}
+                  className="flex items-center gap-2 rounded-md outline-teal-500 focus-visible:outline-2 focus-visible:outline-offset-4"
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <span className="flex items-center gap-2" aria-disabled="true">
+                  {inner}
+                </span>
+              )}
+              {isLast ? null : (
+                <span
+                  aria-hidden="true"
+                  className={`mx-3 h-px flex-1 ${connectorClass}`}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 function WelcomeScreen() {
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-          Welcome
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-fg">
-          This wizard writes the same local state as `fabro install`.
-        </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fg-3">
-          You&apos;ll validate LLM credentials, confirm the public server URL,
-          choose a GitHub token or GitHub App, review the generated state, and
-          then let the server restart into normal mode.
-        </p>
-      </header>
-      <div className="grid gap-4 md:grid-cols-3">
+    <div>
+      <h1 className="text-3xl font-semibold tracking-tight text-fg text-balance sm:text-4xl">
+        Set up your Fabro server
+      </h1>
+      <p className="mt-4 max-w-[56ch] text-base/7 text-fg-3 text-pretty sm:text-[0.9375rem]/7">
+        A short walkthrough to validate your LLM credentials, confirm the public
+        server URL, and connect GitHub. When you finish, Fabro restarts into
+        normal mode.
+      </p>
+      <ol role="list" className="mt-10 divide-y divide-line border-y border-line">
         {[
-          ["LLM", "Validate the provider credentials this server should use."],
-          ["Server URL", "Confirm the URL operators will use after setup completes."],
-          ["GitHub", "Choose either a stored token or a GitHub App install flow."],
-        ].map(([title, body]) => (
-          <article
-            key={title}
-            className="rounded-xl border border-line bg-overlay/70 p-4"
-          >
-            <h2 className="text-sm font-semibold text-fg">{title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-fg-3">{body}</p>
-          </article>
+          ["Server URL", "Confirm where operators will reach Fabro."],
+          ["LLMs", "Validate API keys for Anthropic, OpenAI, or Gemini."],
+          ["GitHub", "Choose a personal access token or a GitHub App."],
+          ["Review", "Double-check the plan, then write the files."],
+        ].map(([title, body], index) => (
+          <li key={title} className="flex items-start gap-4 py-4">
+            <span
+              className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-overlay text-xs font-semibold tabular-nums text-fg-2 outline-1 -outline-offset-1 outline-white/10"
+              aria-hidden="true"
+            >
+              {index + 1}
+            </span>
+            <div>
+              <p className="text-sm font-medium text-fg">{title}</p>
+              <p className="mt-1 text-sm/6 text-fg-3">{body}</p>
+            </div>
+          </li>
         ))}
-      </div>
-      <div className="flex justify-end">
-        <Link to="/install/llm" className={PRIMARY_BUTTON_CLASS}>
+      </ol>
+      <div className="mt-10 flex justify-end">
+        <Link to="/install/server" className={PRIMARY_BUTTON_CLASS}>
           Start setup
+          <ArrowRightIcon className="size-4 shrink-0" />
         </Link>
       </div>
     </div>
@@ -705,54 +800,67 @@ function WelcomeScreen() {
 }
 
 function StepPanel({
-  eyebrow,
   title,
   description,
   children,
   error,
   submitting,
   submitLabel = "Continue",
+  backHref,
   onSubmit,
 }: {
-  eyebrow: string;
   title: string;
   description: string;
   children: ReactNode;
   error: string | null;
   submitting: boolean;
   submitLabel?: string;
+  backHref?: string;
   onSubmit: () => Promise<void>;
 }) {
   return (
-    <div className="space-y-6">
+    <form
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (submitting) return;
+        void onSubmit();
+      }}
+      className="space-y-8"
+    >
       <header>
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-          {eyebrow}
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-fg">
+        <h1 className="text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]">
           {title}
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fg-3">
+        <p className="mt-3 max-w-[56ch] text-sm/6 text-fg-3 text-pretty">
           {description}
         </p>
       </header>
       <div className="space-y-5">{children}</div>
-      {error ? (
-        <div className="rounded-xl border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-fg-2">
-          {error}
-        </div>
-      ) : null}
-      <div className="flex justify-end">
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={() => void onSubmit()}
-          className={PRIMARY_BUTTON_CLASS}
-        >
-          {submitting ? "Saving…" : submitLabel}
+      {error ? <ErrorMessage message={error} /> : null}
+      <div className="flex items-center justify-between gap-3 pt-2">
+        {backHref ? (
+          <Link to={backHref} className={SECONDARY_BUTTON_CLASS}>
+            <ArrowLeftIcon className="size-4 shrink-0" />
+            Back
+          </Link>
+        ) : (
+          <span />
+        )}
+        <button type="submit" disabled={submitting} className={PRIMARY_BUTTON_CLASS}>
+          {submitting ? (
+            <>
+              <Spinner />
+              Saving
+            </>
+          ) : (
+            <>
+              {submitLabel}
+              <ArrowRightIcon className="size-4 shrink-0" />
+            </>
+          )}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -767,49 +875,57 @@ function ReviewScreen({
   submitting: boolean;
   onInstall: () => Promise<void>;
 }) {
+  const providers = (session?.llm?.providers ?? [])
+    .map((provider) => describeProvider(provider.provider))
+    .join(", ");
+  const serverUrl =
+    session?.server?.canonical_url || session?.prefill.canonical_url || "Unknown";
   return (
-    <div className="space-y-6">
+    <form
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (submitting) return;
+        void onInstall();
+      }}
+      className="space-y-8"
+    >
       <header>
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-          Review
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-fg">
-          Confirm the install plan before writing files to disk.
+        <h1 className="text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]">
+          Review and install
         </h1>
+        <p className="mt-3 max-w-[56ch] text-sm/6 text-fg-3 text-pretty">
+          Confirm the plan below. Fabro writes the configuration to disk, then
+          restarts into normal mode.
+        </p>
       </header>
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard
-          title="LLM"
-          body={
-            (session?.llm?.providers ?? []).map((provider) => provider.provider).join(", ") ||
-            "Not configured"
-          }
+      <dl className="divide-y divide-line border-y border-line">
+        <SummaryRow label="LLM providers" value={providers || "Not configured"} />
+        <SummaryRow
+          label="Server URL"
+          value={serverUrl}
+          mono
+          action={<InlineCopyButton value={serverUrl} label="Copy server URL" />}
         />
-        <SummaryCard
-          title="Server URL"
-          body={session?.server?.canonical_url || session?.prefill.canonical_url || "Unknown"}
-        />
-        <SummaryCard
-          title="GitHub"
-          body={describeGithubSummary(session?.github)}
-        />
-      </div>
-      {error ? (
-        <div className="rounded-xl border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-fg-2">
-          {error}
-        </div>
-      ) : null}
-      <div className="flex justify-end">
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={() => void onInstall()}
-          className={PRIMARY_BUTTON_CLASS}
-        >
-          {submitting ? "Installing…" : "Install"}
+        {renderGithubSummaryRows(session?.github)}
+      </dl>
+      {error ? <ErrorMessage message={error} /> : null}
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <Link to="/install/github" className={SECONDARY_BUTTON_CLASS}>
+          <ArrowLeftIcon className="size-4 shrink-0" />
+          Back
+        </Link>
+        <button type="submit" disabled={submitting} className={PRIMARY_BUTTON_CLASS}>
+          {submitting ? (
+            <>
+              <Spinner />
+              Installing
+            </>
+          ) : (
+            "Install"
+          )}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -825,40 +941,44 @@ function FinishingScreen({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header>
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-          Finishing
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-fg">
-          Install complete. Waiting for the configured server to come back up.
+        <h1 className="text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]">
+          {timedOut ? "Install complete" : "Finishing up"}
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fg-3">
-          If this deployment is supervised, the process should restart automatically.
-          If not, this screen will switch to the manual next step shortly.
+        <p className="mt-3 max-w-[56ch] text-sm/6 text-fg-3 text-pretty">
+          {timedOut
+            ? "The server didn't come back automatically. Start it manually and return to the URL below."
+            : "Configuration written. Waiting for the server to restart into normal mode."}
         </p>
       </header>
-      <div className="rounded-xl border border-line bg-overlay/70 p-5">
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-fg-muted">
-          Development token
-        </p>
-        <pre className="mt-3 overflow-x-auto rounded-lg border border-line-strong bg-panel-alt px-4 py-3 font-mono text-sm text-fg-2">
-          <code>{finishState.dev_token}</code>
-        </pre>
-      </div>
       {timedOut ? (
-        <div className="rounded-xl border border-amber/40 bg-amber/10 px-5 py-4 text-sm text-fg-2">
-          <p className="font-medium text-fg">Install complete</p>
-          <p className="mt-2">
-            Run <code>fabro server start</code> to launch the configured server,
-            then return to <code>{finishState.restart_url}</code>.
-          </p>
+        <div className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-2 outline-1 -outline-offset-1 outline-amber/30">
+          Run <code className="font-mono text-fg">fabro server start</code>, then
+          visit{" "}
+          <code className="font-mono text-fg">{finishState.restart_url}</code>.
         </div>
       ) : (
-        <LoadingPanel title="Waiting for restart">
-          Polling <code>/health</code> until the server leaves install mode.
-        </LoadingPanel>
+        <div className="flex items-center gap-3 rounded-lg bg-overlay px-4 py-3 outline-1 -outline-offset-1 outline-white/10">
+          <Spinner className="text-teal-300" />
+          <p className="text-sm/6 text-fg-3">
+            Polling <code className="font-mono text-fg-2">/health</code>…
+          </p>
+        </div>
       )}
+      {finishState.dev_token ? (
+        <div className="rounded-lg bg-overlay p-4 outline-1 -outline-offset-1 outline-white/10">
+          <p className="text-xs font-semibold tracking-wide text-fg uppercase">
+            Development token
+          </p>
+          <p className="mt-1 text-sm/6 text-fg-3">
+            Use this to sign in after the server restarts.
+          </p>
+          <div className="mt-3">
+            <CopyableToken token={finishState.dev_token} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -871,29 +991,37 @@ function ProviderFields({
   onChange: (nextValue: ProviderSelection) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {INSTALL_PROVIDERS.map((provider) => {
         const current = value[provider.id] ?? { apiKey: "" };
         return (
-          <div
-            key={provider.id}
-            className="rounded-xl border border-line bg-overlay/70 p-4"
-          >
-            <Field label={provider.label} hint={provider.hint}>
-              <input
+          <div key={provider.id}>
+            <label
+              htmlFor={`${provider.id}_api_key`}
+              className="text-sm font-medium text-fg"
+            >
+              {provider.label}
+            </label>
+            <div className="mt-2">
+              <PasswordInput
+                id={`${provider.id}_api_key`}
+                name={`${provider.id}_api_key`}
                 value={current.apiKey}
-                onChange={(event) =>
+                onChange={(next) =>
                   onChange({
                     ...value,
-                    [provider.id]: {
-                      ...current,
-                      apiKey: event.target.value,
-                    },
-                  })}
-                className={INPUT_CLASS}
-                placeholder={`${provider.label} API key`}
+                    [provider.id]: { ...current, apiKey: next },
+                  })
+                }
+                placeholder={provider.envVar}
               />
-            </Field>
+            </div>
+            <HelpDisclosure summary="Where do I get this?">
+              <p>{provider.keyHelp.text}</p>
+              <ExternalLink href={provider.keyHelp.url}>
+                {provider.keyHelp.url.replace(/^https?:\/\//, "")}
+              </ExternalLink>
+            </HelpDisclosure>
           </div>
         );
       })}
@@ -908,35 +1036,33 @@ function GithubStrategyPicker({
   strategy: GithubStrategy;
   onChange: (value: GithubStrategy) => void;
 }) {
+  const options: Array<{ id: GithubStrategy; title: string; body: string }> = [
+    {
+      id: "token",
+      title: "Personal access token",
+      body: "Quickest path. Validates a PAT and stores it in the vault.",
+    },
+    {
+      id: "app",
+      title: "GitHub App",
+      body: "Recommended for teams. Enables OAuth.",
+    },
+  ];
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {[
-        {
-          id: "token",
-          title: "Personal access token",
-          body: "Validate a PAT, store it in the vault, and move straight to review.",
-        },
-        {
-          id: "app",
-          title: "GitHub App",
-          body: "Create an App on GitHub, return through the browser callback, then finish setup here.",
-        },
-      ].map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => onChange(option.id as GithubStrategy)}
-          className={`rounded-xl border px-4 py-4 text-left transition-colors ${
-            strategy === option.id
-              ? "border-teal-500/40 bg-teal-500/12"
-              : "border-line bg-overlay/60 hover:border-line-strong"
-          }`}
-        >
-          <p className="text-sm font-semibold text-fg">{option.title}</p>
-          <p className="mt-2 text-sm leading-relaxed text-fg-3">{option.body}</p>
-        </button>
-      ))}
-    </div>
+    <fieldset>
+      <legend className="text-sm font-medium text-fg">Authentication</legend>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {options.map((option) => (
+          <OptionCard
+            key={option.id}
+            selected={strategy === option.id}
+            onSelect={() => onChange(option.id)}
+            title={option.title}
+            body={option.body}
+          />
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -947,35 +1073,76 @@ function OwnerPicker({
   ownerKind: GithubOwnerKind;
   setOwnerKind: (value: GithubOwnerKind) => void;
 }) {
+  const options: Array<{ id: GithubOwnerKind; title: string; body: string }> = [
+    {
+      id: "personal",
+      title: "Personal account",
+      body: "GitHub's personal app creation flow.",
+    },
+    {
+      id: "org",
+      title: "Organization",
+      body: "GitHub's org flow — requires the org slug.",
+    },
+  ];
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {[
-        {
-          id: "personal",
-          title: "Personal account",
-          body: "Use GitHub’s personal app creation flow.",
-        },
-        {
-          id: "org",
-          title: "Organization",
-          body: "Use the organization app creation flow and specify the org slug.",
-        },
-      ].map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => setOwnerKind(option.id as GithubOwnerKind)}
-          className={`rounded-xl border px-4 py-4 text-left transition-colors ${
-            ownerKind === option.id
-              ? "border-teal-500/40 bg-teal-500/12"
-              : "border-line bg-overlay/60 hover:border-line-strong"
-          }`}
-        >
-          <p className="text-sm font-semibold text-fg">{option.title}</p>
-          <p className="mt-2 text-sm leading-relaxed text-fg-3">{option.body}</p>
-        </button>
-      ))}
-    </div>
+    <fieldset>
+      <legend className="text-sm font-medium text-fg">Owner</legend>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {options.map((option) => (
+          <OptionCard
+            key={option.id}
+            selected={ownerKind === option.id}
+            onSelect={() => setOwnerKind(option.id)}
+            title={option.title}
+            body={option.body}
+          />
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function OptionCard({
+  selected,
+  onSelect,
+  title,
+  body,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  body: string;
+}) {
+  const base =
+    "group relative flex items-start gap-3 rounded-lg px-4 py-3.5 text-left outline-1 -outline-offset-1 transition-colors";
+  const state = selected
+    ? "bg-teal-500/10 outline-teal-500/60"
+    : "bg-overlay outline-white/10 hover:bg-overlay-strong hover:outline-white/15";
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`${base} ${state}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full outline-1 -outline-offset-1 ${
+          selected
+            ? "bg-teal-500 outline-teal-500"
+            : "bg-transparent outline-white/20"
+        }`}
+      >
+        {selected ? (
+          <span className="size-1.5 rounded-full bg-navy-950" />
+        ) : null}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-fg">{title}</span>
+        <span className="mt-1 block text-xs/5 text-fg-3">{body}</span>
+      </span>
+    </button>
   );
 }
 
@@ -989,37 +1156,40 @@ function GithubAppDoneScreen({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header>
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-teal-300">
-          GitHub App Ready
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-fg">
-          GitHub returned the App credentials to this install session.
+        <h1 className="text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]">
+          GitHub App connected
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-fg-3">
-          The App is connected and ready to be written into the runtime env file
-          during the final install step.
+        <p className="mt-3 max-w-[56ch] text-sm/6 text-fg-3 text-pretty">
+          The app credentials are staged. They'll be written into the runtime
+          env file when the install finishes.
         </p>
       </header>
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard title="Owner" body={describeGithubAppOwner(github.owner)} />
-        <SummaryCard title="App" body={github.slug || github.app_name || "GitHub App"} />
-        <SummaryCard
-          title="Allowed user"
-          body={github.allowed_username || "Unknown"}
+      <dl className="divide-y divide-line border-y border-line">
+        <SummaryRow label="Owner" value={describeGithubAppOwner(github.owner)} />
+        <SummaryRow
+          label="App"
+          value={github.slug || github.app_name || "GitHub App"}
+          mono
         />
-      </div>
+        <SummaryRow
+          label="Allowed user"
+          value={github.allowed_username || "Unknown"}
+          mono
+        />
+      </dl>
       <div className="flex justify-end">
         <Link to="/install/review" className={PRIMARY_BUTTON_CLASS}>
           Continue to review
+          <ArrowRightIcon className="size-4 shrink-0" />
         </Link>
       </div>
     </div>
   );
 }
 
-function LoadingPanel({
+function StatusPanel({
   title,
   children,
 }: {
@@ -1027,21 +1197,37 @@ function LoadingPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-line bg-overlay/70 px-5 py-4">
-      <p className="text-sm font-semibold text-fg">{title}</p>
-      <p className="mt-2 text-sm text-fg-3">{children}</p>
+    <div className="flex items-start gap-3 rounded-lg bg-overlay px-4 py-3 outline-1 -outline-offset-1 outline-white/10">
+      <Spinner className="mt-0.5 text-teal-300" />
+      <div>
+        <p className="text-sm font-medium text-fg">{title}</p>
+        <p className="mt-1 text-sm/6 text-fg-3">{children}</p>
+      </div>
     </div>
   );
 }
 
-function SummaryCard({ title, body }: { title: string; body: string }) {
+function SummaryRow({
+  label,
+  value,
+  mono,
+  action,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  action?: ReactNode;
+}) {
   return (
-    <article className="rounded-xl border border-line bg-overlay/70 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.24em] text-fg-muted">
-        {title}
-      </p>
-      <p className="mt-3 text-sm leading-relaxed text-fg-2">{body}</p>
-    </article>
+    <div className="grid grid-cols-3 gap-4 py-4">
+      <dt className="text-sm text-fg-3">{label}</dt>
+      <dd className="col-span-2 flex items-start gap-2">
+        <span className={`min-w-0 flex-1 text-sm text-fg break-words ${mono ? "font-mono" : ""}`}>
+          {value}
+        </span>
+        {action}
+      </dd>
+    </div>
   );
 }
 
@@ -1055,24 +1241,195 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="block space-y-2">
-      <div className="flex items-center justify-between gap-4">
+    <label className="block">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
         <span className="text-sm font-medium text-fg">{label}</span>
         {hint ? <span className="text-xs text-fg-muted">{hint}</span> : null}
       </div>
-      {children}
+      <div className="mt-2">{children}</div>
     </label>
+  );
+}
+
+function PasswordInput({
+  id,
+  name,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id?: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        type={visible ? "text" : "password"}
+        id={id}
+        name={name}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${INPUT_CLASS} pr-11 font-mono`}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        autoCapitalize="off"
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-fg-muted outline-teal-500 hover:text-fg-2 focus-visible:outline-2 focus-visible:-outline-offset-2"
+        aria-label={visible ? "Hide value" : "Show value"}
+      >
+        {visible ? (
+          <EyeSlashIcon className="size-4" />
+        ) : (
+          <EyeIcon className="size-4" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+function CopyableToken({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-stretch gap-2">
+      <pre className="flex-1 overflow-x-auto rounded-md bg-panel-alt px-3 py-2 font-mono text-sm text-fg-2 outline-1 -outline-offset-1 outline-white/10">
+        <code>{token}</code>
+      </pre>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(token);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          } catch {
+            // Clipboard may be blocked; leave state unchanged.
+          }
+        }}
+        className="inline-flex items-center gap-1.5 rounded-md bg-overlay px-3 text-xs font-medium text-fg-2 outline-1 -outline-offset-1 outline-white/10 hover:bg-overlay-strong focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-teal-500"
+        aria-label={copied ? "Copied" : "Copy token"}
+      >
+        {copied ? (
+          <ClipboardDocumentCheckIcon className="size-4 text-mint" />
+        ) : (
+          <ClipboardIcon className="size-4" />
+        )}
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
+  );
+}
+
+function InlineCopyButton({
+  value,
+  label,
+}: {
+  value: string;
+  label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Clipboard may be blocked; leave state unchanged.
+        }
+      }}
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded text-fg-muted outline-teal-500 hover:bg-overlay hover:text-fg-2 focus-visible:outline-2 focus-visible:outline-offset-1"
+      aria-label={copied ? "Copied" : label}
+    >
+      {copied ? (
+        <ClipboardDocumentCheckIcon className="size-4 text-mint" />
+      ) : (
+        <ClipboardIcon className="size-4" />
+      )}
+    </button>
+  );
+}
+
+function HelpDisclosure({
+  summary,
+  children,
+}: {
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="group mt-2">
+      <summary className="inline-flex list-none items-center gap-1 rounded text-xs text-fg-3 outline-teal-500 select-none hover:text-fg-2 focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+        <ChevronDownIcon className="size-3.5 shrink-0 transition-transform group-open:-rotate-180" />
+        <span>{summary}</span>
+      </summary>
+      <div className="mt-2 space-y-1.5 text-xs/5 text-fg-3">{children}</div>
+    </details>
+  );
+}
+
+function ExternalLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 font-mono text-teal-300 hover:text-teal-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 rounded"
+    >
+      {children}
+      <ArrowTopRightOnSquareIcon className="size-3 shrink-0" />
+    </a>
+  );
+}
+
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`size-4 shrink-0 animate-spin ${className}`}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+      <path
+        d="M14 8a6 6 0 0 0-6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ErrorMessage({ message }: { message: string }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-md bg-coral/10 px-3 py-2 text-sm/6 text-fg-2 outline-1 -outline-offset-1 outline-coral/40"
+    >
+      {message}
+    </p>
   );
 }
 
 function defaultProviderSelection(): ProviderSelection {
   return Object.fromEntries(
-    INSTALL_PROVIDERS.map((provider) => [
-      provider.id,
-      {
-        apiKey: "",
-      },
-    ]),
+    INSTALL_PROVIDERS.map((provider) => [provider.id, { apiKey: "" }]),
   );
 }
 
@@ -1085,30 +1442,52 @@ function hydrateProviderSelection(
 
   const next = defaultProviderSelection();
   for (const provider of session.llm?.providers ?? []) {
-    next[provider.provider] = {
-      apiKey: "",
-    };
+    next[provider.provider] = { apiKey: "" };
   }
   return next;
 }
 
-function describeGithubSummary(github: InstallSessionResponse["github"]): string {
-  if (!github) return "Not configured";
-  if (github.strategy === "app") {
-    const appLabel = github.slug || github.app_name || "GitHub App";
-    const userLabel = github.allowed_username
-      ? `allowed ${github.allowed_username}`
-      : "allowed user unset";
-    return `${appLabel} · ${userLabel}`;
+function describeProvider(id: string): string {
+  const match = INSTALL_PROVIDERS.find((provider) => provider.id === id);
+  return match?.label ?? id;
+}
+
+function renderGithubSummaryRows(
+  github: InstallSessionResponse["github"],
+): ReactNode {
+  if (!github) {
+    return <SummaryRow label="GitHub" value="Not configured" />;
   }
-  return github.username ? `Token for ${github.username}` : "Token configured";
+  if (github.strategy === "app") {
+    return (
+      <>
+        <SummaryRow label="GitHub connection" value="GitHub App" />
+        <SummaryRow label="App owner" value={describeGithubAppOwner(github.owner)} />
+        <SummaryRow
+          label="Allowed user"
+          value={github.allowed_username ? `@${github.allowed_username}` : "Not set"}
+          mono={Boolean(github.allowed_username)}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      <SummaryRow label="GitHub connection" value="Personal access token" />
+      <SummaryRow
+        label="User"
+        value={github.username ? `@${github.username}` : "Not set"}
+        mono={Boolean(github.username)}
+      />
+    </>
+  );
 }
 
 function describeGithubAppOwner(
   owner: InstallGithubAppOwner | undefined,
 ): string {
-  if (!owner || owner.kind === "personal") return "personal";
-  return owner.slug ? `org:${owner.slug}` : "org";
+  if (!owner || owner.kind === "personal") return "Personal account";
+  return owner.slug ? `@${owner.slug} (organization)` : "Organization";
 }
 
 function submitGithubManifest(
@@ -1131,7 +1510,10 @@ function submitGithubManifest(
 }
 
 const INPUT_CLASS =
-  "w-full rounded-xl border border-line-strong bg-panel-alt px-4 py-3 text-sm text-fg outline-none transition focus:border-teal-300/70 focus:ring-4 focus:ring-teal-500/20";
+  "block w-full rounded-lg bg-panel-alt px-3.5 py-2.5 text-base text-fg outline-1 -outline-offset-1 outline-white/10 placeholder:text-fg-muted focus:outline-2 focus:-outline-offset-1 focus:outline-teal-500 sm:text-sm";
 
 const PRIMARY_BUTTON_CLASS =
-  "inline-flex items-center justify-center rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-70";
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-navy-950 transition-colors hover:bg-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-teal-500";
+
+const SECONDARY_BUTTON_CLASS =
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-transparent px-3.5 py-2 text-sm font-medium text-fg-2 outline-1 -outline-offset-1 outline-white/10 hover:bg-overlay hover:text-fg focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-teal-500";

@@ -2170,7 +2170,6 @@ components:
       required:
         - status
         - restart_url
-        - dev_token
       properties:
         status:
           type: string
@@ -2180,6 +2179,10 @@ components:
           format: uri
         dev_token:
           type: string
+          description: |
+            Dev token used to bootstrap login. Only included when the operator
+            chose the personal access token flow; GitHub App installs rely on
+            OAuth and do not receive a dev token.
 
     # ── Pagination ───────────────────────────────────────────────────────
 
