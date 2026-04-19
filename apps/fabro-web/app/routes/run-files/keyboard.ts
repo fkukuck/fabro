@@ -10,9 +10,14 @@ export function isEditableElement(el: Element | null): boolean {
 
 /**
  * Wire keyboard navigation across file rows. `j` / `k` move focus to the
- * next / previous row; `Enter` and `Space` trigger a `click` on the focused
- * row so diff wrappers that opt in can expand/collapse. Key presses while a
- * text-editable element is focused are left alone.
+ * next / previous row. Key presses while a text-editable element is focused
+ * are left alone so typing into filters / comment boxes isn't hijacked.
+ *
+ * Enter/Space are deliberately not bound — @pierre/diffs 1.1.x has no
+ * imperative expand/collapse API, and firing a click on the outer wrapper
+ * has no effect. Per-hunk expansion remains mouse-driven via pierre's own
+ * controls. Files targeted by a deep-link get `expandUnchanged: true` via
+ * per-file options instead.
  */
 export function useFileKeyboardNav(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -21,6 +26,7 @@ export function useFileKeyboardNav(
   useEffect(() => {
     if (!containerRef.current) return;
     const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "j" && event.key !== "k") return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isEditableElement(document.activeElement)) return;
       const container = containerRef.current;
@@ -33,28 +39,17 @@ export function useFileKeyboardNav(
       const active = document.activeElement as HTMLElement | null;
       const currentIdx = rows.findIndex((row) => row.contains(active));
 
-      if (event.key === "j" || event.key === "k") {
-        let nextIdx: number;
-        if (currentIdx < 0) {
-          nextIdx = 0;
-        } else {
-          nextIdx = event.key === "j" ? currentIdx + 1 : currentIdx - 1;
-        }
-        if (nextIdx < 0 || nextIdx >= rows.length) return;
-        event.preventDefault();
-        const target = rows[nextIdx];
-        target.focus({ preventScroll: false });
-        target.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        return;
+      let nextIdx: number;
+      if (currentIdx < 0) {
+        nextIdx = 0;
+      } else {
+        nextIdx = event.key === "j" ? currentIdx + 1 : currentIdx - 1;
       }
-
-      if (event.key === "Enter" || event.key === " ") {
-        if (currentIdx < 0) return;
-        event.preventDefault();
-        // Forward to the row element as a click so any @pierre/diffs
-        // expand-handler the consumer wires up fires naturally.
-        rows[currentIdx].click();
-      }
+      if (nextIdx < 0 || nextIdx >= rows.length) return;
+      event.preventDefault();
+      const target = rows[nextIdx];
+      target.focus({ preventScroll: false });
+      target.scrollIntoView({ block: "nearest", behavior: "smooth" });
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

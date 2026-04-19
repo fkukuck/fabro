@@ -103,20 +103,33 @@ pub fn is_sensitive(path: &str) -> bool {
 fn normalize_for_match(path: &str) -> String {
     // Replace backslashes with forward slashes so Windows-style paths (if
     // they ever leak through git output) match the same way; lowercase so
-    // the patterns are effectively case-insensitive.
+    // the patterns are effectively case-insensitive. `to_lowercase()` can
+    // expand certain Unicode codepoints to multiple chars — the strip loop
+    // below runs against the fully-lowercased string so prefix matching is
+    // consistent regardless of the input's case.
     let mut out = String::with_capacity(path.len());
     for ch in path.chars() {
         let c = if ch == '\\' { '/' } else { ch };
         out.extend(c.to_lowercase());
     }
-    // Drop leading `./` and consecutive `../` prefixes; keep inner `..` alone
-    // since git doesn't emit those in normal diffs.
-    while let Some(rest) = out
-        .strip_prefix("./")
-        .or_else(|| out.strip_prefix("../"))
-        .or_else(|| out.strip_prefix("/"))
-    {
-        out = rest.to_string();
+    // Drop leading `./`, `../`, and bare-leading `/` prefixes until the
+    // path has a meaningful first segment. Inner `..` components are left
+    // alone — git doesn't emit them in normal diffs, and stripping them
+    // mid-path would change the effective basename.
+    loop {
+        let next = if let Some(rest) = out.strip_prefix("./") {
+            rest.to_string()
+        } else if let Some(rest) = out.strip_prefix("../") {
+            rest.to_string()
+        } else if let Some(rest) = out.strip_prefix('/') {
+            rest.to_string()
+        } else {
+            break;
+        };
+        if next == out {
+            break;
+        }
+        out = next;
     }
     out
 }
@@ -223,6 +236,25 @@ mod tests {
         assert!(is_sensitive(".ENV"));
         assert!(is_sensitive(".Env.Production"));
         assert!(is_sensitive("keys/ID_RSA"));
+    }
+
+    #[test]
+    fn is_sensitive_normalizes_backslashes_as_separators() {
+        // If git ever surfaces a Windows-style path the denylist should
+        // still catch it: `keys\\id_rsa` canonicalizes to `keys/id_rsa`.
+        assert!(is_sensitive("keys\\id_rsa"));
+        assert!(is_sensitive("C:\\Users\\alice\\.ssh\\config"));
+    }
+
+    #[test]
+    fn is_sensitive_handles_unicode_uppercase_basename() {
+        // Some Unicode uppercase letters expand to multiple lowercase code
+        // points (e.g. the sharp-S `ẞ` -> `ss`). The basename glob check
+        // should still fire on the lowercased form without losing prefix
+        // stripping.
+        assert!(is_sensitive("keys/ID_RSA")); // ASCII baseline
+        // A non-sensitive unicode path must still not match any glob.
+        assert!(!is_sensitive("docs/Ähnlichkeit.md"));
     }
 
     #[test]

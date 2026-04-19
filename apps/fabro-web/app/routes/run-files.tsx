@@ -266,9 +266,11 @@ export default function RunFiles({ loaderData }: any) {
   const fileCount = data?.data.length ?? 0;
   useFileKeyboardNav(containerRef, fileCount);
 
-  // Deep-link handling: scroll + focus the matching row; optionally ask
-  // @pierre/diffs to expand the file via data-attribute the diff picks up
-  // on click.
+  // Deep-link handling: scroll + focus the matching row. Expansion is
+  // handled by passing `expandUnchanged: true` to the targeted MultiFileDiff
+  // via per-file options (see `renderFiles` below) — @pierre/diffs 1.1.x
+  // exposes no imperative expand API, so click-based "expand" is not
+  // available.
   const [hashFile, setHashFile] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return decodeDeepLinkFile(window.location.hash);
@@ -302,8 +304,6 @@ export default function RunFiles({ loaderData }: any) {
     if (el) {
       el.scrollIntoView({ block: "start", behavior: "smooth" });
       el.focus({ preventScroll: true });
-      // Fire a click so any @pierre/diffs expand-on-click wiring fires.
-      el.click();
     }
   }, [hashFile, data]);
 
@@ -327,6 +327,11 @@ export default function RunFiles({ loaderData }: any) {
             </div>
           );
         }
+        // When the deep-link targets this file, pass expandUnchanged:true so
+        // the full surrounding context renders without per-hunk clicking.
+        const isDeepLinkTarget =
+          !!hashFile &&
+          (file.new_file.name === hashFile || file.old_file.name === hashFile);
         return (
           <div
             key={`${file.new_file.name}-${idx}`}
@@ -343,12 +348,13 @@ export default function RunFiles({ loaderData }: any) {
               options={{
                 diffStyle,
                 theme: pierreTheme,
+                expandUnchanged: isDeepLinkTarget ? true : undefined,
               }}
             />
           </div>
         );
       }),
-    [diffStyle, pierreTheme],
+    [diffStyle, pierreTheme, hashFile],
   );
 
   if (isInitialLoading) {
