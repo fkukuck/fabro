@@ -71,7 +71,7 @@ pub(crate) async fn list_command(
         } else {
             fabro_util::printerr!(
                 printer,
-                "No running processes found. Use -a to show all runs."
+                "No running processes found. Use -a to show all runs (including archived)."
             );
         }
         return Ok(());
