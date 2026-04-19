@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+
 use fabro_graphviz::graph::Graph;
 use fabro_graphviz::parser;
 use fabro_model::{Catalog, Provider};
-use fabro_types::settings::run::{RunGoalLayer, RunLayer, RunModelLayer, RunPullRequestLayer};
+use fabro_types::settings::run::{
+    RunGoalLayer, RunLayer, RunModelLayer, RunPullRequestLayer, RunScmLayer, ScmGitHubLayer,
+};
 use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_workflow::run_materialization::materialize_run;
 
@@ -86,5 +90,56 @@ fn materialize_run_uses_configured_provider_defaults() {
             .map(InterpString::as_source)
             .as_deref(),
         Some("openai")
+    );
+}
+
+#[test]
+fn materialize_run_preserves_run_scm_github_permissions() {
+    let source = r#"digraph Test {
+        graph [goal="Build feature"]
+        start [shape=Mdiamond]
+        exit  [shape=Msquare]
+        start -> exit
+    }"#;
+
+    let settings = SettingsLayer {
+        run: Some(RunLayer {
+            scm: Some(RunScmLayer {
+                github: Some(ScmGitHubLayer {
+                    permissions: HashMap::from([
+                        ("contents".to_string(), InterpString::parse("write")),
+                        ("issues".to_string(), InterpString::parse("read")),
+                    ]),
+                }),
+                ..RunScmLayer::default()
+            }),
+            ..RunLayer::default()
+        }),
+        ..SettingsLayer::default()
+    };
+
+    let materialized = materialize_run(settings, &graph(source), Catalog::builtin(), &[]);
+
+    let permissions = &materialized
+        .run
+        .as_ref()
+        .and_then(|run| run.scm.as_ref())
+        .and_then(|scm| scm.github.as_ref())
+        .expect("github scm layer should be preserved")
+        .permissions;
+
+    assert_eq!(
+        permissions
+            .get("contents")
+            .map(InterpString::as_source)
+            .as_deref(),
+        Some("write")
+    );
+    assert_eq!(
+        permissions
+            .get("issues")
+            .map(InterpString::as_source)
+            .as_deref(),
+        Some("read")
     );
 }

@@ -392,22 +392,10 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let resolved_server = fabro_config::resolve_server_from_file(settings)
-            .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
-        let github_permissions: Option<HashMap<String, String>> =
-            (!resolved_server.integrations.github.permissions.is_empty()).then(|| {
-                resolved_server
-                    .integrations
-                    .github
-                    .permissions
-                    .iter()
-                    .map(|(k, v)| (k.clone(), resolve_interp(v)))
-                    .collect()
-            });
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,
-            github_permissions,
+            github_permissions: resolved_github_permissions_for_sandbox(&resolved),
             origin_url: origin_url.clone(),
         };
 
@@ -474,6 +462,23 @@ fn resolve_interp(value: &InterpString) -> String {
     value
         .resolve(|name| std::env::var(name).ok())
         .map_or_else(|_| value.as_source(), |resolved| resolved.value)
+}
+
+fn resolved_github_permissions_for_sandbox(
+    settings: &ResolvedRunSettings,
+) -> Option<HashMap<String, String>> {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .filter(|github| !github.permissions.is_empty())
+        .map(|github| {
+            github
+                .permissions
+                .iter()
+                .map(|(key, value)| (key.clone(), resolve_interp(value)))
+                .collect()
+        })
 }
 
 fn resolve_origin_url_and_base_branch(
@@ -1187,6 +1192,33 @@ mod tests {
             Some("https://github.com/fkukuck/agentic-factory-prisma.git")
         );
         assert_eq!(base_branch.as_deref(), Some(name.as_str()));
+    }
+
+    #[test]
+    fn resolved_github_permissions_for_sandbox_reads_run_scm_github_permissions() {
+        let settings = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[run.scm.github.permissions]
+contents = "write"
+pull_requests = "write"
+"#,
+        )
+        .unwrap();
+        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+
+        let permissions = resolved_github_permissions_for_sandbox(&resolved)
+            .expect("github permissions should be present");
+
+        assert_eq!(
+            permissions.get("contents").map(String::as_str),
+            Some("write")
+        );
+        assert_eq!(
+            permissions.get("pull_requests").map(String::as_str),
+            Some("write")
+        );
     }
 
     #[tokio::test]

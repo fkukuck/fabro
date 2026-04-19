@@ -771,7 +771,7 @@ mod tests {
             settings: {
                 use fabro_types::settings::run::{
                     RunExecutionLayer, RunGoalLayer, RunLayer, RunMode, RunModelLayer,
-                    RunPullRequestLayer,
+                    RunPullRequestLayer, RunScmLayer, ScmGitHubLayer,
                 };
                 let mut metadata = HashMap::new();
                 metadata.insert("env".to_string(), "test".to_string());
@@ -790,6 +790,15 @@ mod tests {
                         execution: Some(RunExecutionLayer {
                             mode: Some(RunMode::DryRun),
                             ..RunExecutionLayer::default()
+                        }),
+                        scm: Some(RunScmLayer {
+                            github: Some(ScmGitHubLayer {
+                                permissions: HashMap::from([(
+                                    "contents".to_string(),
+                                    InterpString::parse("write"),
+                                )]),
+                            }),
+                            ..RunScmLayer::default()
                         }),
                         ..RunLayer::default()
                     }),
@@ -851,6 +860,17 @@ mod tests {
                 .unwrap()
                 .pull_request
                 .is_none()
+        );
+        assert_eq!(
+            fabro_config::resolve_run_from_file(&created.persisted.run_record().settings)
+                .unwrap()
+                .scm
+                .github
+                .as_ref()
+                .and_then(|github| github.permissions.get("contents"))
+                .map(fabro_types::settings::InterpString::as_source)
+                .as_deref(),
+            Some("write")
         );
         assert_eq!(
             created.persisted.run_record().workflow_slug.as_deref(),
