@@ -416,7 +416,8 @@ async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
         InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
             .with_home(home.clone())
             .with_github_api_base_url(github_mock.url("")),
-    );
+    )
+    .await;
 
     let llm_response = app
         .clone()

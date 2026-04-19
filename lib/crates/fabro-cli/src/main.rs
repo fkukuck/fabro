@@ -493,6 +493,10 @@ fn server_config_log_level(settings: &SettingsLayer) -> Option<String> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "main.rs tests stage CLI settings fixtures with sync std::fs::write"
+)]
 mod tests {
     use args::{
         Commands, InstallGitHubStrategyArg, ModelsCommand, ProviderCommand, ProviderNamespace,
