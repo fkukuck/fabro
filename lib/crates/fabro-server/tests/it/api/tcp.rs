@@ -2,16 +2,13 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(unix)]
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use fabro_config::ServerState;
 use fabro_server::bind::Bind;
 use fabro_server::ip_allowlist::{IpAllowlist, IpAllowlistConfig};
 use fabro_server::jwt_auth::{AuthMode, ConfiguredAuth};
 use fabro_server::serve::{ServeArgs, serve_command};
-use fabro_server::server::{
-    RouterOptions, build_router, build_router_with_options, create_app_state,
-};
+use fabro_server::server::{RouterOptions, build_router_with_options, create_app_state};
 use fabro_types::settings::ServerAuthMethod;
 use fabro_util::terminal::Styles;
 use tempfile::TempDir;
@@ -24,28 +21,7 @@ use crate::helpers::api;
 const TEST_DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
 
-async fn start_tcp_server(auth_mode: AuthMode) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let state = create_app_state();
-    let router = build_router(state, auth_mode);
-
-    tokio::spawn(async move {
-        let _ = axum::serve(
-            listener,
-            router.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await;
-    });
-
-    addr
-}
-
-async fn start_tcp_server_with_allowlist(
-    auth_mode: AuthMode,
-    ip_allowlist: Arc<IpAllowlistConfig>,
-) -> SocketAddr {
+async fn start_tcp_server(auth_mode: AuthMode, ip_allowlist: Arc<IpAllowlistConfig>) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -64,10 +40,6 @@ async fn start_tcp_server_with_allowlist(
     addr
 }
 
-fn build_client() -> fabro_http::HttpClient {
-    fabro_http::test_http_client().unwrap()
-}
-
 #[cfg(unix)]
 fn build_unix_client(path: &Path) -> fabro_http::HttpClient {
     fabro_http::HttpClientBuilder::new()
@@ -81,7 +53,7 @@ fn write_test_config(tempdir: &TempDir, settings: &str) -> PathBuf {
     let config_path = tempdir.path().join("settings.toml");
     std::fs::write(&config_path, settings).unwrap();
     std::fs::write(
-        tempdir.path().join("server.env"),
+        ServerState::new(tempdir.path()).env_path(),
         format!("FABRO_DEV_TOKEN={TEST_DEV_TOKEN}\n"),
     )
     .unwrap();
@@ -127,12 +99,9 @@ async fn spawn_served_listener(
     (handle, bind, tempdir)
 }
 
-async fn wait_for_tcp_health(addr: SocketAddr) {
-    let client = build_client();
-    let url = format!("http://127.0.0.1:{}/health", addr.port());
-
+async fn wait_for_health(client: &fabro_http::HttpClient, url: &str) {
     for _ in 0..50 {
-        if let Ok(response) = client.get(&url).send().await {
+        if let Ok(response) = client.get(url).send().await {
             if response.status() == 200 {
                 return;
             }
@@ -140,26 +109,7 @@ async fn wait_for_tcp_health(addr: SocketAddr) {
         sleep(Duration::from_millis(10)).await;
     }
 
-    panic!("timed out waiting for TCP health endpoint at {url}");
-}
-
-#[cfg(unix)]
-async fn wait_for_unix_health(path: &Path) {
-    let client = build_unix_client(path);
-
-    for _ in 0..50 {
-        if let Ok(response) = client.get("http://fabro/health").send().await {
-            if response.status() == 200 {
-                return;
-            }
-        }
-        sleep(Duration::from_millis(10)).await;
-    }
-
-    panic!(
-        "timed out waiting for Unix socket health endpoint at {}",
-        path.display()
-    );
+    panic!("timed out waiting for health endpoint at {url}");
 }
 
 #[tokio::test]
@@ -181,9 +131,8 @@ methods = ["dev-token"]
         Bind::Tcp(addr) => addr,
         Bind::Unix(path) => panic!("expected TCP bind, got unix socket at {}", path.display()),
     };
-    wait_for_tcp_health(addr).await;
-
-    let client = build_client();
+    let client = fabro_http::test_http_client().unwrap();
+    wait_for_health(&client, &format!("http://127.0.0.1:{}/health", addr.port())).await;
 
     let response = client
         .get(format!("http://127.0.0.1:{}{}", addr.port(), api("/runs")))
@@ -202,8 +151,8 @@ async fn tcp_dev_token_auth_uses_bearer_auth() {
         methods:   vec![ServerAuthMethod::DevToken],
         dev_token: Some(TEST_DEV_TOKEN.to_string()),
     });
-    let addr = start_tcp_server(auth_mode).await;
-    let client = build_client();
+    let addr = start_tcp_server(auth_mode, Arc::new(IpAllowlistConfig::default())).await;
+    let client = fabro_http::test_http_client().unwrap();
     let url = format!("http://127.0.0.1:{}{}", addr.port(), api("/runs"));
 
     let unauthorized = client.get(&url).send().await.unwrap();
@@ -221,11 +170,8 @@ async fn tcp_dev_token_auth_uses_bearer_auth() {
 #[cfg(unix)]
 #[tokio::test]
 async fn unix_socket_accepts_plain_http_requests() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let socket_path = std::env::temp_dir().join(format!("fabro-server-it-{unique}.sock"));
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket_path = socket_dir.path().join("fabro.sock");
     let (handle, bind, _tempdir) = spawn_served_listener(format!(
         r#"
 _version = 1
@@ -244,9 +190,10 @@ methods = ["dev-token"]
         Bind::Unix(path) => path,
         Bind::Tcp(addr) => panic!("expected Unix bind, got TCP address {addr}"),
     };
-    wait_for_unix_health(&path).await;
+    let client = build_unix_client(&path);
+    wait_for_health(&client, "http://fabro/health").await;
 
-    let response = build_unix_client(&path)
+    let response = client
         .get(format!("http://fabro{}", api("/runs")))
         .bearer_auth(TEST_DEV_TOKEN)
         .send()
@@ -255,12 +202,11 @@ methods = ["dev-token"]
 
     assert_eq!(response.status(), 200);
     handle.abort();
-    std::fs::remove_file(&path).ok();
 }
 
 #[tokio::test]
 async fn tcp_ip_allowlist_uses_connect_info() {
-    let addr = start_tcp_server_with_allowlist(
+    let addr = start_tcp_server(
         AuthMode::Disabled,
         Arc::new(IpAllowlistConfig {
             allowlist:           IpAllowlist::new(vec!["10.0.0.0/8".parse().unwrap()]),
@@ -268,7 +214,7 @@ async fn tcp_ip_allowlist_uses_connect_info() {
         }),
     )
     .await;
-    let client = build_client();
+    let client = fabro_http::test_http_client().unwrap();
 
     let response = client
         .get(format!("http://127.0.0.1:{}{}", addr.port(), api("/runs")))
