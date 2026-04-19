@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::Request as HttpRequest;
 use axum::middleware::Next;
@@ -81,7 +81,15 @@ impl GitHubMetaResolver {
             request = request.header("If-None-Match", etag);
         }
 
-        let response = request.send().await.context("fetching GitHub /meta")?;
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                return self.cached_hooks_or_error(
+                    cached.as_ref(),
+                    anyhow!("fetching GitHub /meta: {error}"),
+                );
+            }
+        };
         if response.status() == fabro_http::StatusCode::NOT_MODIFIED {
             let cached = cached.ok_or_else(|| {
                 anyhow!("GitHub /meta returned 304 Not Modified but no usable cache was present")
@@ -90,7 +98,10 @@ impl GitHubMetaResolver {
         }
 
         if !response.status().is_success() {
-            bail!("GitHub /meta returned {}", response.status());
+            return self.cached_hooks_or_error(
+                cached.as_ref(),
+                anyhow!("GitHub /meta returned {}", response.status()),
+            );
         }
 
         let etag = response
@@ -98,11 +109,19 @@ impl GitHubMetaResolver {
             .get("etag")
             .and_then(|value| value.to_str().ok())
             .map(ToOwned::to_owned);
-        let payload: GitHubMetaResponse = response
-            .json()
-            .await
-            .context("parsing GitHub /meta response")?;
-        let hooks = parse_ip_nets(&payload.hooks)?;
+        let payload: GitHubMetaResponse = match response.json().await {
+            Ok(payload) => payload,
+            Err(error) => {
+                return self.cached_hooks_or_error(
+                    cached.as_ref(),
+                    anyhow!("parsing GitHub /meta response: {error}"),
+                );
+            }
+        };
+        let hooks = match parse_ip_nets(&payload.hooks) {
+            Ok(hooks) => hooks,
+            Err(error) => return self.cached_hooks_or_error(cached.as_ref(), error),
+        };
         self.store_cache(&GitHubMetaCache {
             etag,
             hooks: payload.hooks,
@@ -140,6 +159,23 @@ impl GitHubMetaResolver {
         std::fs::write(&self.cache_path, contents)
             .with_context(|| format!("writing {}", self.cache_path.display()))?;
         Ok(())
+    }
+
+    fn cached_hooks_or_error(
+        &self,
+        cached: Option<&GitHubMetaCache>,
+        error: anyhow::Error,
+    ) -> Result<Vec<IpNet>> {
+        let Some(cached) = cached else {
+            return Err(error);
+        };
+
+        warn!(
+            path = %self.cache_path.display(),
+            error = %error,
+            "Using cached GitHub meta hooks after refresh failed"
+        );
+        parse_ip_nets(&cached.hooks)
     }
 }
 
@@ -438,6 +474,40 @@ mod tests {
         let config = resolve_ip_allowlist_config(&global, None, &resolver)
             .await
             .unwrap();
+
+        assert!(config.allowlist.contains(&"192.30.252.42".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn resolve_ip_allowlist_config_uses_cached_github_meta_when_github_is_unavailable() {
+        let mock_server = MockServer::start_async().await;
+        mock_server
+            .mock_async(|when, then| {
+                when.method("GET").path("/meta");
+                then.status(503);
+            })
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            cache_dir.path().join("github-meta.json"),
+            r#"{"etag":"\"meta-v1\"","hooks":["192.30.252.0/22"]}"#,
+        )
+        .unwrap();
+
+        let resolver = GitHubMetaResolver::new(
+            fabro_http::test_http_client().unwrap(),
+            format!("{}/meta", mock_server.url("")),
+            cache_dir.path().join("github-meta.json"),
+        );
+        let global = ServerIpAllowlistSettings {
+            entries:             vec![IpAllowEntry::GitHubMetaHooks],
+            trusted_proxy_count: 0,
+        };
+
+        let config = resolve_ip_allowlist_config(&global, None, &resolver)
+            .await
+            .expect("cached GitHub meta hooks should be reused");
 
         assert!(config.allowlist.contains(&"192.30.252.42".parse().unwrap()));
     }

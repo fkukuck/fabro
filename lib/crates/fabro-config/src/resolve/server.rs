@@ -25,8 +25,9 @@ pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> Se
     let web = resolve_web(layer.api.as_ref(), layer.web.as_ref());
     let auth = resolve_auth(layer.auth.as_ref(), errors);
     let ip_allowlist = resolve_ip_allowlist(layer.ip_allowlist.as_ref(), errors);
-    validate_ip_allowlist_for_listen(&listen, &ip_allowlist, errors);
     let integrations = resolve_integrations(layer.integrations.as_ref(), errors);
+    validate_ip_allowlist_for_listen(&listen, &ip_allowlist, errors);
+    validate_github_webhook_ip_allowlist_for_listen(&listen, &ip_allowlist, &integrations, errors);
 
     ServerSettings {
         listen,
@@ -177,6 +178,25 @@ fn resolve_ip_allowlist(
     }
 }
 
+fn effective_ip_allowlist_settings(
+    global: &ServerIpAllowlistSettings,
+    overlay: Option<&ServerIpAllowlistOverrideSettings>,
+) -> ServerIpAllowlistSettings {
+    let Some(overlay) = overlay else {
+        return global.clone();
+    };
+
+    ServerIpAllowlistSettings {
+        entries:             overlay
+            .entries
+            .clone()
+            .unwrap_or_else(|| global.entries.clone()),
+        trusted_proxy_count: overlay
+            .trusted_proxy_count
+            .unwrap_or(global.trusted_proxy_count),
+    }
+}
+
 fn resolve_ip_allowlist_override(
     layer: Option<&ServerIpAllowlistOverrideLayer>,
     path: &str,
@@ -268,6 +288,40 @@ fn validate_ip_allowlist_for_listen(
         errors.push(ResolveError::Invalid {
             path: "server.ip_allowlist.trusted_proxy_count".to_string(),
             reason: "must be greater than 0 when using a Unix socket listener with a non-empty IP allowlist".to_string(),
+        });
+    }
+}
+
+fn validate_github_webhook_ip_allowlist_for_listen(
+    listen: &ServerListenSettings,
+    global_ip_allowlist: &ServerIpAllowlistSettings,
+    integrations: &ServerIntegrationsSettings,
+    errors: &mut Vec<ResolveError>,
+) {
+    let Some(overlay) = integrations
+        .github
+        .webhooks
+        .as_ref()
+        .and_then(|webhooks| webhooks.ip_allowlist.as_ref())
+    else {
+        return;
+    };
+
+    let effective = effective_ip_allowlist_settings(global_ip_allowlist, Some(overlay));
+    if effective == *global_ip_allowlist {
+        return;
+    }
+
+    if matches!(listen, ServerListenSettings::Unix { .. })
+        && !effective.entries.is_empty()
+        && effective.trusted_proxy_count == 0
+    {
+        errors.push(ResolveError::Invalid {
+            path: "server.integrations.github.webhooks.ip_allowlist.trusted_proxy_count"
+                .to_string(),
+            reason:
+                "must be greater than 0 when using a Unix socket listener with a non-empty GitHub webhook IP allowlist"
+                    .to_string(),
         });
     }
 }

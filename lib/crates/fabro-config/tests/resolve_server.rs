@@ -376,3 +376,31 @@ entries = ["10.0.0.0/8"]
 
     assert!(rendered.contains("server.ip_allowlist.trusted_proxy_count"));
 }
+
+#[test]
+fn rejects_unix_socket_github_webhook_allowlist_without_trusted_proxy() {
+    let file = parse(
+        r#"
+_version = 1
+
+[server.listen]
+type = "unix"
+path = "/tmp/fabro.sock"
+
+[server.integrations.github.webhooks.ip_allowlist]
+entries = ["github_meta_hooks"]
+"#,
+    );
+
+    let errors = fabro_config::resolve_server_from_file(&file)
+        .expect_err("unix github webhook allowlist without trusted proxies should fail");
+    let rendered = errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rendered.contains("server.integrations.github.webhooks.ip_allowlist.trusted_proxy_count")
+    );
+}
