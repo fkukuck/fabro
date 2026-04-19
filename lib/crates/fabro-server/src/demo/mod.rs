@@ -10,7 +10,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
-use fabro_api::types::{CreateSecretRequest, DeleteSecretRequest, RunArtifactListResponse};
+use fabro_api::types::{
+    CreateSecretRequest, DeleteSecretRequest, DiffFile, FileDiff, FileDiffChangeKind,
+    PaginatedRunFileList, RunArtifactListResponse, RunFilesMeta,
+};
 use serde_json::json;
 
 use crate::error::ApiError;
@@ -119,6 +122,84 @@ pub(crate) async fn list_run_artifacts_stub(
         Json(RunArtifactListResponse { data: vec![] }),
     )
         .into_response()
+}
+
+/// Demo-mode handler for `GET /runs/{id}/files`. Returns a small
+/// illustrative diff without touching run store state — the `_id` and
+/// `_state` parameters are intentionally ignored so demo responses cannot
+/// cross-contaminate with real run data (R34).
+pub(crate) async fn list_run_files_stub(
+    _auth: AuthenticatedService,
+    State(_state): State<Arc<AppState>>,
+    Path(_id): Path<String>,
+) -> Response {
+    (StatusCode::OK, Json(demo_run_files())).into_response()
+}
+
+fn demo_run_files() -> PaginatedRunFileList {
+    let old_main = "import { parseArgs } from \"node:util\";\n\nexport function run(argv: string[]) {\n  const { values } = parseArgs({ args: argv, options: { config: { type: \"string\" } } });\n  console.log(values.config);\n}\n";
+    let new_main = "import { parseArgs } from \"node:util\";\nimport { loadConfig } from \"./config.js\";\n\nexport async function run(argv: string[]) {\n  const { values } = parseArgs({ args: argv, options: { config: { type: \"string\" } } });\n  const config = await loadConfig(values.config ?? \".fabro/project.toml\");\n  console.log(JSON.stringify(config, null, 2));\n}\n";
+    let new_config = "import { readFile } from \"node:fs/promises\";\nimport { parse as parseToml } from \"@iarna/toml\";\n\nexport async function loadConfig(path: string) {\n  const contents = await readFile(path, \"utf8\");\n  return parseToml(contents);\n}\n";
+
+    PaginatedRunFileList {
+        data: vec![
+            FileDiff {
+                binary:            None,
+                change_kind:       Some(FileDiffChangeKind::Modified),
+                new_file:          DiffFile {
+                    name:     "src/commands/run.ts".to_string(),
+                    contents: new_main.to_string(),
+                },
+                old_file:          DiffFile {
+                    name:     "src/commands/run.ts".to_string(),
+                    contents: old_main.to_string(),
+                },
+                sensitive:         None,
+                truncated:         None,
+                truncation_reason: None,
+            },
+            FileDiff {
+                binary:            None,
+                change_kind:       Some(FileDiffChangeKind::Added),
+                new_file:          DiffFile {
+                    name:     "src/config.ts".to_string(),
+                    contents: new_config.to_string(),
+                },
+                old_file:          DiffFile {
+                    name:     String::new(),
+                    contents: String::new(),
+                },
+                sensitive:         None,
+                truncated:         None,
+                truncation_reason: None,
+            },
+            FileDiff {
+                binary:            None,
+                change_kind:       Some(FileDiffChangeKind::Renamed),
+                new_file:          DiffFile {
+                    name:     "src/legacy/old-runner.ts".to_string(),
+                    contents: "export const legacy = true;\n".to_string(),
+                },
+                old_file:          DiffFile {
+                    name:     "src/old-runner.ts".to_string(),
+                    contents: "export const legacy = true;\n".to_string(),
+                },
+                sensitive:         None,
+                truncated:         None,
+                truncation_reason: None,
+            },
+        ],
+        meta: RunFilesMeta {
+            truncated:               false,
+            files_omitted_by_budget: None,
+            total_changed:           3,
+            to_sha:                  None,
+            to_sha_committed_at:     None,
+            degraded:                Some(false),
+            degraded_reason:         None,
+            patch:                   None,
+        },
+    }
 }
 
 pub(crate) async fn get_run_billing(
