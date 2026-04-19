@@ -643,6 +643,7 @@ fn ts(s: &str) -> DateTime<Utc> {
 
 mod runs {
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use fabro_api::types::*;
 
@@ -695,20 +696,7 @@ mod runs {
     }
 
     fn parse_status_reason(reason: &str) -> Option<StatusReason> {
-        match reason {
-            "completed" => Some(StatusReason::Completed),
-            "partial_success" => Some(StatusReason::PartialSuccess),
-            "workflow_error" => Some(StatusReason::WorkflowError),
-            "cancelled" => Some(StatusReason::Cancelled),
-            "terminated" => Some(StatusReason::Terminated),
-            "transient_infra" => Some(StatusReason::TransientInfra),
-            "budget_exhausted" => Some(StatusReason::BudgetExhausted),
-            "launch_failed" => Some(StatusReason::LaunchFailed),
-            "bootstrap_failed" => Some(StatusReason::BootstrapFailed),
-            "sandbox_init_failed" => Some(StatusReason::SandboxInitFailed),
-            "sandbox_initializing" => Some(StatusReason::SandboxInitializing),
-            _ => None,
-        }
+        StatusReason::from_str(reason).ok()
     }
 
     fn take_summary(
