@@ -12,17 +12,14 @@ import {
   BeakerIcon,
   ChartBarIcon,
   Cog6ToothIcon,
-  MoonIcon,
   PlayIcon,
   RectangleStackIcon,
-  SunIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Link, Outlet, useLocation, useMatches, useRevalidator } from "react-router";
 import { getAuthMe } from "../api";
 import { ToastProvider } from "../components/toast";
 import { DemoModeProvider } from "../lib/demo-mode";
-import { useTheme } from "../lib/theme";
 
 export async function loader() {
   return getAuthMe();
@@ -48,7 +45,6 @@ export default function AppShell({ loaderData }: any) {
   const { pathname } = useLocation();
   const matches = useMatches();
   const revalidator = useRevalidator();
-  const { theme, toggle } = useTheme();
   const navigation = getVisibleNavigation(demoMode);
   const currentNav = navigation.find((item) => pathname.startsWith(item.href));
   const title = currentNav?.name ?? "";
@@ -58,8 +54,6 @@ export default function AppShell({ loaderData }: any) {
   const hideHeader = matches.some((m) => (m.handle as { hideHeader?: boolean } | undefined)?.hideHeader);
   const wide = matches.some((m) => (m.handle as { wide?: boolean } | undefined)?.wide);
   const maxWidth = wide ? "" : "max-w-5xl";
-
-  const ThemeIcon = theme === "dark" ? SunIcon : MoonIcon;
 
   async function toggleDemoMode() {
     await fetch("/api/v1/demo/toggle", {
@@ -81,7 +75,7 @@ export default function AppShell({ loaderData }: any) {
             <div className="flex items-center">
               <div className="shrink-0">
                 <Link to={demoMode ? "/start" : "/runs"}>
-                  <img alt="Fabro" src={theme === "dark" ? "/logotype.svg" : "/logotype-light.svg"} className="h-8 w-auto" />
+                  <img alt="Fabro" src="/logotype.svg" className="h-8 w-auto" />
                 </Link>
               </div>
               <div className="hidden md:block">
@@ -121,15 +115,6 @@ export default function AppShell({ loaderData }: any) {
                 >
                   <BeakerIcon className="size-5" aria-hidden="true" />
                   <span className="sr-only">Toggle demo mode</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={toggle}
-                  className="rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
-                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  <ThemeIcon className="size-5" aria-hidden="true" />
-                  <span className="sr-only">Toggle theme</span>
                 </button>
                 <Menu as="div" className="relative">
                   <MenuButton className="relative flex max-w-xs items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500">
@@ -229,15 +214,6 @@ export default function AppShell({ loaderData }: any) {
                 >
                   <BeakerIcon className="size-5" aria-hidden="true" />
                   <span className="sr-only">Toggle demo mode</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={toggle}
-                  className="rounded-full p-1.5 text-fg-muted transition-colors hover:bg-overlay hover:text-fg"
-                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  <ThemeIcon className="size-5" aria-hidden="true" />
-                  <span className="sr-only">Toggle theme</span>
                 </button>
               </div>
             </div>
