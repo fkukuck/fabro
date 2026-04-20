@@ -328,6 +328,14 @@ fn session_refs() -> &'static Mutex<HashMap<PathBuf, usize>> {
     SESSION_REFS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// Gate the stale-session reap so it fires at most once per process. The
+// reap scans /tmp/fx/{n-*,p-*} to clean up after a prior nextest run
+// that crashed; it's correctness-for-safety work that does not need to
+// happen on every TestContext::new. One gate per SessionMode preserves
+// the existing call structure without introducing cross-mode coupling.
+static NEXTEST_REAPED: OnceLock<()> = OnceLock::new();
+static PROCESS_REAPED: OnceLock<()> = OnceLock::new();
+
 #[expect(
     clippy::disallowed_methods,
     reason = "This synchronous test-support helper uses uuidgen when available to create stable unique case IDs."
@@ -995,9 +1003,9 @@ impl TestContext {
         let root_path = context_root.path().to_path_buf();
         let (_, test_run_id, session_paths) = session_paths();
         probe("session_paths");
-        reap_stale_session_roots(SessionMode::Nextest);
+        NEXTEST_REAPED.get_or_init(|| reap_stale_session_roots(SessionMode::Nextest));
         probe("reap_nextest");
-        reap_stale_session_roots(SessionMode::Process);
+        PROCESS_REAPED.get_or_init(|| reap_stale_session_roots(SessionMode::Process));
         probe("reap_process");
         with_session_lock(&session_paths.root, || {
             std::fs::create_dir_all(session_clients_dir(&session_paths.root)).unwrap_or_else(
