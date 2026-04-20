@@ -1,16 +1,17 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use axum::body::to_bytes;
 use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::Response;
 
 const BODY_PREVIEW_LIMIT: usize = 4096;
 const BINARY_HEX_PREVIEW_BYTES: usize = 64;
 
 pub async fn expect_axum_status(
-    response: axum::response::Response,
+    response: Response,
     expected: StatusCode,
     context: impl Display,
-) -> axum::response::Response {
+) -> Response {
     let context = context.to_string();
     let status = response.status();
     if status == expected {
@@ -34,19 +35,15 @@ pub async fn expect_axum_status(
     );
 }
 
-pub async fn assert_axum_status(
-    response: axum::response::Response,
-    expected: StatusCode,
-    context: impl Display,
-) {
+pub async fn assert_axum_status(response: Response, expected: StatusCode, context: impl Display) {
     let _ = expect_axum_status(response, expected, context).await;
 }
 
 pub async fn expect_axum_status_in(
-    response: axum::response::Response,
+    response: Response,
     expected: &[StatusCode],
     context: impl Display,
-) -> axum::response::Response {
+) -> Response {
     let context = context.to_string();
     let status = response.status();
     if expected.contains(&status) {
@@ -71,7 +68,7 @@ pub async fn expect_axum_status_in(
 }
 
 pub async fn assert_axum_status_in(
-    response: axum::response::Response,
+    response: Response,
     expected: &[StatusCode],
     context: impl Display,
 ) {
@@ -79,7 +76,7 @@ pub async fn assert_axum_status_in(
 }
 
 pub async fn expect_axum_json(
-    response: axum::response::Response,
+    response: Response,
     expected: StatusCode,
     context: impl Display,
 ) -> serde_json::Value {
@@ -94,7 +91,7 @@ pub async fn expect_axum_json(
 }
 
 pub async fn expect_axum_text(
-    response: axum::response::Response,
+    response: Response,
     expected: StatusCode,
     context: impl Display,
 ) -> String {
@@ -107,7 +104,7 @@ pub async fn expect_axum_text(
 }
 
 pub async fn expect_axum_bytes(
-    response: axum::response::Response,
+    response: Response,
     expected: StatusCode,
     context: impl Display,
 ) -> Vec<u8> {
@@ -347,7 +344,7 @@ fn format_body_preview(headers: &HeaderMap, bytes: &[u8]) -> String {
         .join(" ");
     let mut line = format!("binary body ({} bytes)", bytes.len());
     if bytes.len() > preview_len {
-        line.push_str(&format!(" [truncated to first {preview_len} bytes]"));
+        let _ = write!(line, " [truncated to first {preview_len} bytes]");
     }
     line.push('\n');
     line.push_str(&hex);
@@ -388,12 +385,14 @@ fn truncate_text(text: &str, byte_limit: usize) -> String {
 mod tests {
     use std::panic;
 
-    use axum::Json;
+    use axum::body::Body;
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
     use axum::routing::get;
+    use axum::{Json, Router, serve};
     use serde_json::json;
     use tokio::net::TcpListener;
+    use tokio::runtime::Runtime;
 
     use super::*;
 
@@ -408,7 +407,7 @@ mod tests {
     }
 
     fn catch_async_panic(future: impl std::future::Future<Output = ()>) -> String {
-        let runtime = tokio::runtime::Runtime::new().expect("test runtime should build");
+        let runtime = Runtime::new().expect("test runtime should build");
         let payload = panic::catch_unwind(panic::AssertUnwindSafe(|| runtime.block_on(future)))
             .expect_err("future should panic");
         panic_message(payload)
@@ -421,7 +420,7 @@ mod tests {
         panic_message(join_error.into_panic())
     }
 
-    async fn start_test_server(router: axum::Router) -> String {
+    async fn start_test_server(router: Router) -> String {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("test listener should bind");
@@ -429,7 +428,7 @@ mod tests {
             .local_addr()
             .expect("test listener should expose local addr");
         tokio::spawn(async move {
-            axum::serve(listener, router)
+            serve(listener, router)
                 .await
                 .expect("test server should stay alive");
         });
@@ -504,7 +503,7 @@ mod tests {
         )
             .into_response();
 
-        let runtime = tokio::runtime::Runtime::new().expect("test runtime should build");
+        let runtime = Runtime::new().expect("test runtime should build");
         runtime.block_on(async move {
             let response = expect_axum_status(response, StatusCode::OK, "GET /ok").await;
             let content_type = response
@@ -523,9 +522,9 @@ mod tests {
 
     #[test]
     fn axum_status_in_accepts_multiple_statuses() {
-        let response = (StatusCode::NO_CONTENT, axum::body::Body::empty()).into_response();
+        let response = (StatusCode::NO_CONTENT, Body::empty()).into_response();
 
-        let runtime = tokio::runtime::Runtime::new().expect("test runtime should build");
+        let runtime = Runtime::new().expect("test runtime should build");
         runtime.block_on(async move {
             let response = expect_axum_status_in(
                 response,
@@ -557,7 +556,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_mismatch_includes_url_and_json_body() {
-        let base_url = start_test_server(axum::Router::new().route(
+        let base_url = start_test_server(Router::new().route(
             "/fail",
             get(|| async {
                 (
@@ -588,8 +587,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_status_preserves_successful_response() {
-        let base_url =
-            start_test_server(axum::Router::new().route("/ok", get(|| async { "ok" }))).await;
+        let base_url = start_test_server(Router::new().route("/ok", get(|| async { "ok" }))).await;
         let client = fabro_http::test_http_client().expect("test client should build");
         let response = client
             .get(format!("{base_url}/ok"))
@@ -604,9 +602,9 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_status_in_accepts_multiple_statuses() {
-        let base_url = start_test_server(axum::Router::new().route(
+        let base_url = start_test_server(Router::new().route(
             "/delete",
-            get(|| async { (StatusCode::NO_CONTENT, axum::body::Body::empty()) }),
+            get(|| async { (StatusCode::NO_CONTENT, Body::empty()) }),
         ))
         .await;
         let client = fabro_http::test_http_client().expect("test client should build");
@@ -628,7 +626,7 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_json_parse_failure_includes_raw_body() {
-        let base_url = start_test_server(axum::Router::new().route(
+        let base_url = start_test_server(Router::new().route(
             "/text",
             get(|| async {
                 (
