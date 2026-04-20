@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, error, info, warn};
 
+use crate::auth::GithubEndpoints;
 use crate::jwt_auth::{AuthMode, auth_method_name, dev_token_matches};
 use crate::server::AppState;
 
@@ -38,11 +39,9 @@ pub struct SessionCookie {
 
 #[derive(Deserialize)]
 struct OAuthCallbackParams {
-    code:               Option<String>,
-    state:              Option<String>,
-    error:              Option<String>,
-    #[serde(rename = "error_description")]
-    _error_description: Option<String>,
+    code:  Option<String>,
+    state: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -164,7 +163,7 @@ fn read_private_oauth_state(headers: &HeaderMap, key: &Key) -> Option<OAuthState
         .filter(|state: &OAuthStateCookie| state.exp > chrono::Utc::now().timestamp())
 }
 
-fn add_oauth_state_cookie(jar: &mut CookieJar, key: &Key, state: OAuthStateCookie, secure: bool) {
+fn add_oauth_state_cookie(jar: &mut CookieJar, key: &Key, state: &OAuthStateCookie, secure: bool) {
     jar.private_mut(key).add(
         Cookie::build((
             OAUTH_STATE_COOKIE_NAME,
@@ -366,7 +365,7 @@ async fn auth_config(Extension(auth_mode): Extension<AuthMode>) -> Response {
 async fn login_github(
     State(state): State<Arc<AppState>>,
     Extension(auth_mode): Extension<AuthMode>,
-    Extension(github_endpoints): Extension<Arc<crate::auth::GithubEndpoints>>,
+    Extension(github_endpoints): Extension<Arc<GithubEndpoints>>,
     Query(params): Query<LoginGithubParams>,
 ) -> Response {
     if !auth_method_enabled(&auth_mode, ServerAuthMethod::Github) {
@@ -437,7 +436,7 @@ async fn login_github(
     add_oauth_state_cookie(
         &mut jar,
         &session_key,
-        OAuthStateCookie {
+        &OAuthStateCookie {
             state:     state_token,
             exp:       (chrono::Utc::now() + chrono::Duration::minutes(OAUTH_STATE_TTL_MINUTES))
                 .timestamp(),
@@ -453,7 +452,7 @@ async fn login_github(
 async fn callback_github(
     State(state): State<Arc<AppState>>,
     Extension(auth_mode): Extension<AuthMode>,
-    Extension(github_endpoints): Extension<Arc<crate::auth::GithubEndpoints>>,
+    Extension(github_endpoints): Extension<Arc<GithubEndpoints>>,
     Query(params): Query<OAuthCallbackParams>,
     headers: HeaderMap,
 ) -> Response {
@@ -868,6 +867,7 @@ mod tests {
     use super::{
         OAUTH_STATE_TTL_MINUTES, api_routes, read_private_oauth_state, read_private_session, routes,
     };
+    use crate::auth::{self, GithubEndpoints};
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
     use crate::server;
 
@@ -875,7 +875,7 @@ mod tests {
         "fabro_dev_abababababababababababababababababababababababababababababababab";
 
     fn test_cookie_key() -> Key {
-        crate::auth::derive_cookie_key(b"web-auth-test-key-material-0123456789")
+        auth::derive_cookie_key(b"web-auth-test-key-material-0123456789")
             .expect("test key should derive")
     }
 
@@ -937,9 +937,7 @@ mod tests {
             .nest("/auth", routes())
             .nest("/api/v1", api_routes())
             .layer(Extension(auth_mode))
-            .layer(Extension(Arc::new(
-                crate::auth::GithubEndpoints::production_defaults(),
-            )))
+            .layer(Extension(Arc::new(GithubEndpoints::production_defaults())))
             .layer(axum::middleware::from_fn_with_state(
                 middleware_state,
                 |State(state): State<Arc<crate::server::AppState>>,
@@ -1147,8 +1145,8 @@ mod tests {
             github_auth_mode(),
             Arc::new(crate::ip_allowlist::IpAllowlistConfig::default()),
             crate::server::RouterOptions {
-                web_enabled:                  true,
-                github_endpoints:             Some(Arc::new(crate::auth::GithubEndpoints::with_bases(
+                web_enabled:                 true,
+                github_endpoints:            Some(Arc::new(GithubEndpoints::with_bases(
                     "http://127.0.0.1:12345/"
                         .parse()
                         .expect("oauth base should parse"),
@@ -1216,7 +1214,7 @@ mod tests {
         super::add_oauth_state_cookie(
             &mut jar,
             &key,
-            super::OAuthStateCookie {
+            &super::OAuthStateCookie {
                 state:     "fabro-test-state".to_string(),
                 exp:       (chrono::Utc::now() - chrono::Duration::minutes(5)).timestamp(),
                 return_to: Some("/auth/cli/resume".to_string()),
@@ -1260,7 +1258,7 @@ mod tests {
         super::add_oauth_state_cookie(
             &mut jar,
             &key,
-            super::OAuthStateCookie {
+            &super::OAuthStateCookie {
                 state:     "fabro-test-state".to_string(),
                 exp:       (chrono::Utc::now() + chrono::Duration::minutes(30)).timestamp(),
                 return_to: Some("/auth/cli/resume".to_string()),

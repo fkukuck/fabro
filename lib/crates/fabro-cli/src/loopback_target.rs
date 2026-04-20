@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use thiserror::Error;
 
-use crate::user_config::ServerTarget;
+use crate::user_config::{self, ServerTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoopbackClassification {
@@ -32,12 +32,12 @@ pub(crate) fn is_loopback_or_unix_socket(
 }
 
 fn classify_http_target(api_url: &str) -> Result<LoopbackClassification, TargetSchemeError> {
-    let url = fabro_http::Url::parse(normalized_http_base_url(api_url)).map_err(|source| {
-        TargetSchemeError::InvalidUrl {
+    let url = fabro_http::Url::parse(user_config::normalized_http_base_url(api_url)).map_err(
+        |source| TargetSchemeError::InvalidUrl {
             value:  api_url.to_string(),
             reason: source.to_string(),
-        }
-    })?;
+        },
+    )?;
 
     match url.scheme() {
         "https" => Ok(LoopbackClassification::Https),
@@ -50,7 +50,7 @@ fn classify_http_target(api_url: &str) -> Result<LoopbackClassification, TargetS
             let classification = host
                 .parse::<IpAddr>()
                 .ok()
-                .filter(|ip| ip_is_loopback(ip))
+                .filter(ip_is_loopback)
                 .map_or(LoopbackClassification::Rejected, |_| {
                     LoopbackClassification::LoopbackHttp
                 });
@@ -60,13 +60,6 @@ fn classify_http_target(api_url: &str) -> Result<LoopbackClassification, TargetS
             scheme: scheme.to_string(),
         }),
     }
-}
-
-fn normalized_http_base_url(api_url: &str) -> &str {
-    api_url
-        .trim_end_matches('/')
-        .strip_suffix("/api/v1")
-        .unwrap_or(api_url.trim_end_matches('/'))
 }
 
 fn ip_is_loopback(ip: &IpAddr) -> bool {

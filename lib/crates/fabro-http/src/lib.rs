@@ -114,6 +114,18 @@ macro_rules! define_builder {
             }
 
             #[must_use]
+            pub fn redirect(mut self, policy: reqwest::redirect::Policy) -> Self {
+                self.inner = self.inner.redirect(policy);
+                self
+            }
+
+            #[must_use]
+            pub fn cookie_store(mut self, enabled: bool) -> Self {
+                self.inner = self.inner.cookie_store(enabled);
+                self
+            }
+
+            #[must_use]
             pub fn default_headers(mut self, headers: HeaderMap) -> Self {
                 self.inner = self.inner.default_headers(headers);
                 self

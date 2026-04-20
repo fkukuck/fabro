@@ -1,3 +1,12 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "This real CLI auth harness intentionally uses blocking child-process and filesystem APIs to drive the compiled fabro binary."
+)]
+#![expect(
+    clippy::disallowed_types,
+    reason = "This real CLI auth harness intentionally uses blocking std::io readers for child-process pipe capture."
+)]
+
 use std::io::Read;
 use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
@@ -86,11 +95,12 @@ impl RealAuthHarness {
             auth_mode,
             Arc::new(IpAllowlistConfig::default()),
             RouterOptions {
-                web_enabled:      true,
-                github_endpoints: Some(Arc::new(GithubEndpoints::with_bases(
+                web_enabled:                 true,
+                github_endpoints:            Some(Arc::new(GithubEndpoints::with_bases(
                     github_base.clone(),
                     github_base,
                 ))),
+                github_webhook_ip_allowlist: None,
             },
         );
 
@@ -146,7 +156,7 @@ pub(crate) async fn complete_login_via_browser(
         .take()
         .expect("auth login stderr should be piped");
     let (url_tx, url_rx) = mpsc::channel();
-    let stderr_reader = std::thread::spawn(move || read_stderr_and_capture_url(stderr, url_tx));
+    let stderr_reader = std::thread::spawn(move || read_stderr_and_capture_url(stderr, &url_tx));
 
     let browser_url = wait_for_login_url(&mut child, &mut stdout, &url_rx);
     drive_browser_flow(&browser_url).await;
@@ -181,7 +191,9 @@ pub(crate) fn run_detached(
             "--detach",
             "--dry-run",
             "--auto-approve",
-            workflow.to_str().unwrap(),
+            workflow
+                .to_str()
+                .expect("workflow path should be valid UTF-8"),
         ])
         .output()
         .expect("detached run should execute");
@@ -235,8 +247,8 @@ pub(crate) fn expire_saved_access_token(context: &TestContext, issuer: &str) {
     .unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
 }
 
-pub(crate) fn no_redirect_browser_client() -> reqwest::Client {
-    reqwest::Client::builder()
+pub(crate) fn no_redirect_browser_client() -> fabro_http::HttpClient {
+    fabro_http::HttpClientBuilder::new()
         .cookie_store(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
@@ -422,7 +434,7 @@ async fn drive_browser_flow(browser_url: &str) {
 }
 
 fn browser_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    fabro_http::HttpClientBuilder::new()
         .cookie_store(true)
         .no_proxy()
         .build()
@@ -510,7 +522,7 @@ fn derived_jwt_key() -> [u8; 32] {
 
 fn read_stderr_and_capture_url(
     stderr: impl std::io::Read,
-    url_tx: mpsc::Sender<String>,
+    url_tx: &mpsc::Sender<String>,
 ) -> Vec<u8> {
     use std::io::BufRead as _;
 
@@ -537,11 +549,10 @@ fn read_stderr_and_capture_url(
 }
 
 fn subject_value(subject: &serde_json::Map<String, Value>, key: &str) -> String {
-    subject
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| panic!("saved auth subject should include `{key}`"))
+    subject.get(key).and_then(Value::as_str).map_or_else(
+        || panic!("saved auth subject should include `{key}`"),
+        str::to_string,
+    )
 }
 
 fn wait_for_login_url(

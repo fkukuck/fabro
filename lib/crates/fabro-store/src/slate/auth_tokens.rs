@@ -29,7 +29,7 @@ pub struct RefreshToken {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsumeOutcome {
-    Rotated(RefreshToken, RefreshToken),
+    Rotated(RefreshToken, Box<RefreshToken>),
     Reused(RefreshToken),
     Expired,
     NotFound,
@@ -109,7 +109,7 @@ impl SlateAuthTokenStore {
                 );
                 self.db.write(batch).await?;
 
-                ConsumeOutcome::Rotated(old_token, new_token)
+                ConsumeOutcome::Rotated(old_token, Box::new(new_token))
             }
         };
 
@@ -246,14 +246,13 @@ mod tests {
             store.find_refresh_token(&old_hash).await.unwrap(),
             Some(old_used.clone())
         );
-        assert_eq!(
+        assert!(
             store
                 .find_refresh_token(&old_hash)
                 .await
                 .unwrap()
                 .expect("rotated old token should still exist")
-                .used,
-            true
+                .used
         );
 
         let replay = store

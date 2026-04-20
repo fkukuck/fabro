@@ -97,9 +97,10 @@ mod tests {
     use crate::server::TestServer;
     use crate::state::AppState;
 
-    fn no_redirect_client() -> reqwest::Client {
-        reqwest::Client::builder()
+    fn no_redirect_client() -> fabro_http::HttpClient {
+        fabro_http::HttpClientBuilder::new()
             .redirect(Policy::none())
+            .no_proxy()
             .build()
             .unwrap()
     }

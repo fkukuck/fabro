@@ -11,17 +11,15 @@ const MIN_MASTER_BYTES: usize = 32;
 pub(crate) struct JwtSigningKey([u8; 32]);
 
 impl JwtSigningKey {
-    #[allow(dead_code, reason = "JWT issuance wiring lands in later auth units.")]
+    #[cfg(test)]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    #[allow(dead_code, reason = "JWT issuance lands in a later auth unit.")]
     pub(crate) fn encoding_key(&self) -> EncodingKey {
         EncodingKey::from_secret(&self.0)
     }
 
-    #[allow(dead_code, reason = "JWT verification lands in a later auth unit.")]
     pub(crate) fn decoding_key(&self) -> DecodingKey {
         DecodingKey::from_secret(&self.0)
     }
@@ -69,7 +67,7 @@ fn validate_master(master: &[u8]) -> Result<(), KeyDeriveError> {
 
 #[cfg(test)]
 mod tests {
-    use cookie::CookieJar;
+    use cookie::{Cookie, CookieJar};
 
     use super::{KeyDeriveError, derive_cookie_key, derive_jwt_key};
 
@@ -132,7 +130,7 @@ mod tests {
                 .private(&key)
                 .get("session")
                 .as_ref()
-                .map(|cookie| cookie.value()),
+                .map(Cookie::value),
             Some("encrypted")
         );
     }

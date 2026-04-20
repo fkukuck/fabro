@@ -109,7 +109,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 use ulid::Ulid;
 
-use crate::auth::GithubEndpoints;
+use crate::auth::{self, GithubEndpoints};
 use crate::bind::Bind;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -696,7 +696,7 @@ impl AppState {
 
     pub(crate) fn session_key(&self) -> Option<Key> {
         self.server_secret("SESSION_SECRET")
-            .and_then(|value| crate::auth::derive_cookie_key(value.as_bytes()).ok())
+            .and_then(|value| auth::derive_cookie_key(value.as_bytes()).ok())
     }
 
     pub(crate) fn github_credentials(
@@ -928,16 +928,16 @@ pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
 
 #[derive(Clone, Debug)]
 pub struct RouterOptions {
-    pub web_enabled:      bool,
-    pub github_endpoints: Option<Arc<GithubEndpoints>>,
+    pub web_enabled:                 bool,
+    pub github_endpoints:            Option<Arc<GithubEndpoints>>,
     pub github_webhook_ip_allowlist: Option<Arc<IpAllowlistConfig>>,
 }
 
 impl Default for RouterOptions {
     fn default() -> Self {
         Self {
-            web_enabled:      true,
-            github_endpoints: None,
+            web_enabled:                 true,
+            github_endpoints:            None,
             github_webhook_ip_allowlist: None,
         }
     }
@@ -966,12 +966,12 @@ pub fn build_router_with_options(
     let api_common = if web_enabled {
         Router::new()
             .route("/openapi.json", get(openapi_spec))
-            .merge(crate::auth::api_routes())
+            .merge(auth::api_routes())
             .merge(web_auth::api_routes())
     } else {
         Router::new()
             .route("/openapi.json", get(openapi_spec))
-            .merge(crate::auth::api_routes())
+            .merge(auth::api_routes())
     };
 
     let demo_router = Router::new()
@@ -982,8 +982,7 @@ pub fn build_router_with_options(
 
     let mut real_router = Router::new().nest("/api/v1", api_common.merge(real_routes()));
     if web_enabled {
-        real_router =
-            real_router.nest("/auth", web_auth::routes().merge(crate::auth::web_routes()));
+        real_router = real_router.nest("/auth", web_auth::routes().merge(auth::web_routes()));
     }
     let real_router = real_router
         .layer(axum::Extension(auth_mode))

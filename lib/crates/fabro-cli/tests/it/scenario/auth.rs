@@ -2,6 +2,10 @@
     clippy::disallowed_methods,
     reason = "These blocking CLI scenario tests spawn the real fabro binary and stream child pipes."
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "These blocking CLI scenario tests intentionally use std::io readers around real child-process pipes."
+)]
 
 use std::io::{BufRead as _, BufReader, Read};
 use std::process::{Command, Output, Stdio};
@@ -547,7 +551,7 @@ fn complete_login(context: &fabro_test::TestContext, target: &str) -> Output {
         .take()
         .expect("auth login stderr should be piped");
     let (url_tx, url_rx) = mpsc::channel();
-    let stderr_reader = std::thread::spawn(move || read_stderr_and_capture_url(stderr, url_tx));
+    let stderr_reader = std::thread::spawn(move || read_stderr_and_capture_url(stderr, &url_tx));
 
     let browser_url = wait_for_login_url(&mut child, &mut stdout, &url_rx);
     deliver_callback(&browser_url);
@@ -568,7 +572,7 @@ fn complete_login(context: &fabro_test::TestContext, target: &str) -> Output {
 
 fn read_stderr_and_capture_url(
     stderr: impl std::io::Read,
-    url_tx: mpsc::Sender<String>,
+    url_tx: &mpsc::Sender<String>,
 ) -> Vec<u8> {
     let mut reader = BufReader::new(stderr);
     let mut stderr_bytes = Vec::new();

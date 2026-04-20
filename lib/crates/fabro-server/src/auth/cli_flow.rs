@@ -12,6 +12,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cookie::time::Duration;
 use cookie::{Cookie, CookieJar, Key, SameSite};
 use fabro_types::RunAuthMethod;
+use fabro_types::settings::ServerAuthMethod;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
@@ -20,7 +21,7 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use url::{Host, Url};
 
-use crate::auth::{AuthCode, JwtSubject, RefreshToken};
+use crate::auth::{self, AuthCode, ConsumeOutcome, JwtSubject, RefreshToken};
 use crate::jwt_auth::{AuthMode, ConfiguredAuth, auth_method_name};
 use crate::server::AppState;
 use crate::web_auth::{SessionCookie, read_private_session};
@@ -36,8 +37,6 @@ const INVALID_OR_MISSING_STATE: &str = "The login state is missing or invalid.";
 const MISSING_FLOW_COOKIE: &str = "Your login session has expired. Please start again.";
 const INVALID_CONFIRMATION_REQUEST: &str =
     "This CLI login confirmation is invalid. Return to the Fabro login page and try again.";
-#[allow(dead_code, reason = "Reserved for future browser-only success pages.")]
-const LOGIN_SUCCESSFUL: &str = "Login successful. You can return to the CLI.";
 
 #[derive(Serialize)]
 struct OAuthErrorResponse<'a> {
@@ -192,7 +191,7 @@ async fn start(
     add_cli_flow_cookie(
         &mut jar,
         &session_key,
-        CliFlowCookie {
+        &CliFlowCookie {
             redirect_uri,
             state: state_token.to_string(),
             code_challenge: code_challenge.to_string(),
@@ -338,15 +337,12 @@ async fn token(
     let Some(config) = github_config(&auth_mode) else {
         return github_auth_not_configured();
     };
-    let body = match body {
-        Ok(Json(body)) => body,
-        Err(_) => {
-            return oauth_error(
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                "Invalid request",
-            );
-        }
+    let Ok(Json(body)) = body else {
+        return oauth_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "Invalid request",
+        );
     };
     let Some(code) = body.code.as_deref() else {
         return oauth_error(
@@ -483,7 +479,7 @@ async fn token(
         );
     }
 
-    let access_token = crate::auth::issue(
+    let access_token = auth::issue(
         jwt_key,
         jwt_issuer,
         &JwtSubject {
@@ -589,7 +585,7 @@ async fn refresh(
     };
 
     let (old, new_row) = match outcome {
-        crate::auth::ConsumeOutcome::NotFound | crate::auth::ConsumeOutcome::Expired => {
+        ConsumeOutcome::NotFound | ConsumeOutcome::Expired => {
             if auth_tokens.was_recently_replay_revoked(&secret_hash, now) {
                 return oauth_error(
                     StatusCode::UNAUTHORIZED,
@@ -603,7 +599,7 @@ async fn refresh(
                 "Refresh token expired",
             );
         }
-        crate::auth::ConsumeOutcome::Reused(old) => {
+        ConsumeOutcome::Reused(old) => {
             auth_tokens.mark_refresh_token_replay(secret_hash, now);
             if let Err(err) = auth_tokens.delete_chain(old.chain_id).await {
                 warn!(error = %err, chain_id = %old.chain_id, "Failed to revoke replayed refresh token chain");
@@ -615,7 +611,7 @@ async fn refresh(
                 "Refresh token revoked",
             );
         }
-        crate::auth::ConsumeOutcome::Rotated(old, new_row) => (old, new_row),
+        ConsumeOutcome::Rotated(old, new_row) => (old, *new_row),
     };
 
     if !login_allowed(state.as_ref(), &old.login) {
@@ -626,7 +622,7 @@ async fn refresh(
     }
 
     let access_expires_at = now + chrono::Duration::minutes(ACCESS_TOKEN_TTL_MINUTES);
-    let access_token = crate::auth::issue(
+    let access_token = auth::issue(
         jwt_key,
         jwt_issuer,
         &JwtSubject {
@@ -717,21 +713,13 @@ fn configured_methods(auth_mode: &AuthMode) -> Vec<String> {
 fn github_enabled(auth_mode: &AuthMode) -> bool {
     matches!(
         auth_mode,
-        AuthMode::Enabled(config) if config
-            .methods
-            .iter()
-            .any(|method| *method == fabro_types::settings::ServerAuthMethod::Github)
+        AuthMode::Enabled(config) if config.methods.contains(&ServerAuthMethod::Github)
     )
 }
 
 fn github_config(auth_mode: &AuthMode) -> Option<&ConfiguredAuth> {
     match auth_mode {
-        AuthMode::Enabled(config)
-            if config
-                .methods
-                .iter()
-                .any(|method| *method == fabro_types::settings::ServerAuthMethod::Github) =>
-        {
+        AuthMode::Enabled(config) if config.methods.contains(&ServerAuthMethod::Github) => {
             Some(config)
         }
         _ => None,
@@ -1168,7 +1156,7 @@ fn append_jar_delta(headers: &mut HeaderMap, jar: &CookieJar) {
     }
 }
 
-fn add_cli_flow_cookie(jar: &mut CookieJar, key: &Key, flow: CliFlowCookie, secure: bool) {
+fn add_cli_flow_cookie(jar: &mut CookieJar, key: &Key, flow: &CliFlowCookie, secure: bool) {
     jar.private_mut(key).add(
         Cookie::build((
             CLI_FLOW_COOKIE_NAME,
@@ -1304,20 +1292,20 @@ mod tests {
         CliFlowCookie, add_cli_flow_cookie, api_routes, read_private_cli_flow,
         user_agent_fingerprint, web_routes,
     };
-    use crate::auth::{AuthCode, RefreshToken};
+    use crate::auth::{self, AuthCode, RefreshToken};
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
     use crate::server;
     use crate::web_auth::SessionCookie;
 
     fn test_cookie_key() -> Key {
-        crate::auth::derive_cookie_key(b"cli-flow-test-key-material-0123456789")
+        auth::derive_cookie_key(b"cli-flow-test-key-material-0123456789")
             .expect("test key should derive")
     }
 
     fn github_auth_mode() -> AuthMode {
         let mut config = ConfiguredAuth::new(vec![ServerAuthMethod::Github], None);
         config.jwt_key = Some(
-            crate::auth::derive_jwt_key(b"cli-flow-test-key-material-0123456789")
+            auth::derive_jwt_key(b"cli-flow-test-key-material-0123456789")
                 .expect("test key should derive"),
         );
         config.jwt_issuer = Some("https://fabro.example".to_string());
@@ -1584,7 +1572,7 @@ mod tests {
         add_cli_flow_cookie(
             &mut jar,
             &key,
-            CliFlowCookie {
+            &CliFlowCookie {
                 redirect_uri:   "http://127.0.0.1:4444/callback".to_string(),
                 state:          "abcdefghijklmnop".to_string(),
                 code_challenge: "challenge".to_string(),
@@ -1627,7 +1615,7 @@ mod tests {
         add_cli_flow_cookie(
             &mut jar,
             &key,
-            CliFlowCookie {
+            &CliFlowCookie {
                 redirect_uri:   "http://127.0.0.1:4444/callback".to_string(),
                 state:          "abcdefghijklmnop".to_string(),
                 code_challenge: "challenge".to_string(),
@@ -1688,7 +1676,7 @@ mod tests {
         add_cli_flow_cookie(
             &mut jar,
             &key,
-            CliFlowCookie {
+            &CliFlowCookie {
                 redirect_uri:   "http://127.0.0.1:4444/callback".to_string(),
                 state:          "abcdefghijklmnop".to_string(),
                 code_challenge: "challenge".to_string(),
@@ -1730,7 +1718,7 @@ mod tests {
         add_cli_flow_cookie(
             &mut jar,
             &key,
-            CliFlowCookie {
+            &CliFlowCookie {
                 redirect_uri:   "http://127.0.0.1:4444/callback".to_string(),
                 state:          "abcdefghijklmnop".to_string(),
                 code_challenge: "challenge".to_string(),
@@ -1777,7 +1765,7 @@ mod tests {
         add_cli_flow_cookie(
             &mut jar,
             &key,
-            CliFlowCookie {
+            &CliFlowCookie {
                 redirect_uri:   "http://127.0.0.1:4444/callback".to_string(),
                 state:          "abcdefghijklmnop".to_string(),
                 code_challenge: "challenge".to_string(),

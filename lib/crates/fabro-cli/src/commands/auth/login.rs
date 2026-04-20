@@ -3,13 +3,15 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use fabro_api::types;
+use fabro_http::header::CONTENT_TYPE;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 use serde::Deserialize;
+use tokio::time::timeout;
 
 use crate::args::{AuthLoginArgs, require_no_json_override};
-use crate::auth_store::{AuthEntry, AuthStore, ServerTargetKey, Subject};
+use crate::auth_store::{AuthEntry, AuthStore, ServerTargetKey, StoredSubject};
 use crate::command_context::CommandContext;
 use crate::loopback_target::{LoopbackClassification, is_loopback_or_unix_socket};
 use crate::user_config;
@@ -75,15 +77,14 @@ pub(super) async fn login_command(
         let redirect_uri = callback_handle.redirect_uri(callback_path);
         let browser_url = build_browser_url(web_url, &redirect_uri, &state, &pkce.challenge)?;
 
-        open_browser_or_print(&browser_url, args.no_browser, printer)?;
+        open_browser_or_print(&browser_url, args.no_browser, printer);
 
         let callback =
-            match tokio::time::timeout(Duration::from_secs(args.timeout), callback_rx).await {
-                Ok(result) => result.context("login callback channel closed before completion")?,
-                Err(_) => {
-                    callback_handle.shutdown();
-                    bail!("login did not complete within {}s", args.timeout);
-                }
+            if let Ok(result) = timeout(Duration::from_secs(args.timeout), callback_rx).await {
+                result.context("login callback channel closed before completion")?
+            } else {
+                callback_handle.shutdown();
+                bail!("login did not complete within {}s", args.timeout);
             };
         callback_handle.shutdown();
 
@@ -112,7 +113,7 @@ pub(super) async fn login_command(
             access_token_expires_at:  tokens.access_token_expires_at,
             refresh_token:            tokens.refresh_token,
             refresh_token_expires_at: tokens.refresh_token_expires_at,
-            subject:                  Subject {
+            subject:                  StoredSubject {
                 idp_issuer:  tokens.subject.idp_issuer,
                 idp_subject: tokens.subject.idp_subject,
                 login:       tokens.subject.login,
@@ -130,7 +131,7 @@ pub(super) async fn login_command(
 
 #[cfg(unix)]
 async fn fetch_cli_auth_config(target: &ServerTarget) -> Result<types::CliAuthConfig> {
-    let (http_client, base_url) = build_public_http_client(target)?;
+    let (http_client, base_url) = user_config::build_public_http_client(target)?;
     let client = fabro_api::Client::new_with_client(&base_url, http_client);
     client
         .get_cli_auth_config()
@@ -147,10 +148,10 @@ async fn exchange_cli_token(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> Result<CliTokenResponse> {
-    let (http_client, base_url) = build_public_http_client(target)?;
+    let (http_client, base_url) = user_config::build_public_http_client(target)?;
     let response = http_client
         .post(format!("{base_url}/auth/cli/token"))
-        .header(fabro_http::header::CONTENT_TYPE, "application/json")
+        .header(CONTENT_TYPE, "application/json")
         .json(&serde_json::json!({
             "grant_type": "authorization_code",
             "code": code,
@@ -163,11 +164,10 @@ async fn exchange_cli_token(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         if let Ok(error) = serde_json::from_str::<OAuthErrorBody>(&body) {
-            let message = error
-                .error_description
-                .as_deref()
-                .map(str::to_string)
-                .unwrap_or_else(|| "Could not complete authentication".to_string());
+            let message = error.error_description.as_deref().map_or_else(
+                || "Could not complete authentication".to_string(),
+                str::to_string,
+            );
             bail!("{message}");
         }
         if body.is_empty() {
@@ -180,25 +180,6 @@ async fn exchange_cli_token(
         .json::<CliTokenResponse>()
         .await
         .context("failed to parse CLI auth token response")
-}
-
-#[cfg(unix)]
-fn build_public_http_client(target: &ServerTarget) -> Result<(fabro_http::HttpClient, String)> {
-    match target {
-        ServerTarget::HttpUrl { api_url, tls } => {
-            let http_client = user_config::build_server_client_builder(tls.as_ref())?
-                .no_proxy()
-                .build()?;
-            Ok((http_client, normalized_http_base_url(api_url)))
-        }
-        ServerTarget::UnixSocket(path) => {
-            let http_client = user_config::cli_http_client_builder()
-                .unix_socket(path)
-                .no_proxy()
-                .build()?;
-            Ok((http_client, "http://fabro".to_string()))
-        }
-    }
 }
 
 fn build_browser_url(
@@ -221,11 +202,11 @@ fn build_browser_url(
     Ok(url.to_string())
 }
 
-fn open_browser_or_print(browser_url: &str, no_browser: bool, printer: Printer) -> Result<()> {
+fn open_browser_or_print(browser_url: &str, no_browser: bool, printer: Printer) {
     if no_browser {
         fabro_util::printerr!(printer, "Open this URL to continue login:");
         fabro_util::printerr!(printer, "{browser_url}");
-        return Ok(());
+        return;
     }
 
     if let Err(error) = open::that(browser_url) {
@@ -233,7 +214,6 @@ fn open_browser_or_print(browser_url: &str, no_browser: bool, printer: Printer) 
         fabro_util::printerr!(printer, "Open this URL to continue login:");
         fabro_util::printerr!(printer, "{browser_url}");
     }
-    Ok(())
 }
 
 fn cli_auth_unavailable_message(reason: Option<&str>) -> &'static str {
@@ -265,27 +245,11 @@ fn login_failure_message(error_code: &str, error_description: Option<&str>) -> S
 
 fn token_transport_error(target: &ServerTarget) -> String {
     format!(
-        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({}). Use HTTPS, or bind the server to 127.0.0.1 / ::1.",
-        target_display(target)
+        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({target}). Use HTTPS, or bind the server to 127.0.0.1 / ::1."
     )
 }
 
-fn target_display(target: &ServerTarget) -> String {
-    match target {
-        ServerTarget::HttpUrl { api_url, .. } => api_url.clone(),
-        ServerTarget::UnixSocket(path) => format!("unix://{}", path.display()),
-    }
-}
-
-fn normalized_http_base_url(api_url: &str) -> String {
-    api_url
-        .trim_end_matches('/')
-        .strip_suffix("/api/v1")
-        .unwrap_or(api_url.trim_end_matches('/'))
-        .to_string()
-}
-
-fn identity_summary(subject: &Subject) -> String {
+fn identity_summary(subject: &StoredSubject) -> String {
     if !subject.name.is_empty() && !subject.email.is_empty() {
         format!("{} ({} <{}>)", subject.login, subject.name, subject.email)
     } else if !subject.name.is_empty() {
@@ -305,6 +269,7 @@ struct OAuthErrorBody {
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use insta::assert_snapshot;
     use sha2::{Digest, Sha256};
 
@@ -315,8 +280,7 @@ mod tests {
     #[test]
     fn pkce_verifier_matches_s256_challenge() {
         let pkce = fabro_oauth::generate_pkce();
-        let expected = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(Sha256::digest(pkce.verifier.as_bytes()));
+        let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(pkce.verifier.as_bytes()));
         assert_eq!(pkce.challenge, expected);
     }
 

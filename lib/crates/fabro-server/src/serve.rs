@@ -830,7 +830,7 @@ fn spawn_refresh_token_reaper(
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     tokio::spawn(async move {
-        let mut interval = interval(Duration::from_secs(6 * 60 * 60));
+        let mut interval = interval(Duration::from_hours(6));
         interval.tick().await;
 
         loop {

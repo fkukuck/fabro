@@ -27,7 +27,7 @@ use tokio::time::sleep;
 use tokio_util::io::ReaderStream;
 
 use crate::args::ServerTargetArgs;
-use crate::auth_store::{AuthEntry, AuthStore, ServerTargetKey, Subject};
+use crate::auth_store::{AuthEntry, AuthStore, ServerTargetKey, StoredSubject};
 use crate::commands::server::{record, start};
 use crate::loopback_target::{LoopbackClassification, is_loopback_or_unix_socket};
 use crate::user_config::cli_http_client_builder;
@@ -170,7 +170,7 @@ fn client_bundle(
 
 fn refreshable_oauth(
     target: &user_config::ServerTarget,
-    bearer: &Option<ResolvedBearer>,
+    bearer: Option<&ResolvedBearer>,
 ) -> Result<Option<RefreshableOAuth>> {
     if matches!(bearer, Some(ResolvedBearer::OAuth(_))) {
         return Ok(Some(RefreshableOAuth {
@@ -194,7 +194,7 @@ pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerS
             tls:     None,
         };
         let bearer = resolve_target_bearer(&parsed_target, None)?;
-        let refreshable_oauth = refreshable_oauth(&parsed_target, &bearer)?;
+        let refreshable_oauth = refreshable_oauth(&parsed_target, bearer.as_ref())?;
         let bundle = connect_remote_api_client_bundle(
             target,
             None,
@@ -202,7 +202,7 @@ pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerS
         )?;
         Ok(ServerStoreClient::from_bundle(
             bundle,
-            normalize_remote_server_target(target),
+            user_config::normalized_http_base_url(target).to_string(),
             refreshable_oauth,
         ))
     } else {
@@ -212,7 +212,7 @@ pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerS
         }
         let parsed_target = user_config::ServerTarget::UnixSocket(path.to_path_buf());
         let bearer = resolve_target_bearer(&parsed_target, None)?;
-        let refreshable_oauth = refreshable_oauth(&parsed_target, &bearer)?;
+        let refreshable_oauth = refreshable_oauth(&parsed_target, bearer.as_ref())?;
         let bundle = connect_unix_socket_api_client_bundle(
             path,
             None,
@@ -282,7 +282,7 @@ async fn connect_target_api_client_bundle(
     match target {
         user_config::ServerTarget::HttpUrl { api_url, tls } => {
             let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
-            let refreshable_oauth = refreshable_oauth(target, &bearer)?;
+            let refreshable_oauth = refreshable_oauth(target, bearer.as_ref())?;
             let bundle = connect_remote_api_client_bundle(
                 api_url,
                 tls.as_ref(),
@@ -290,13 +290,13 @@ async fn connect_target_api_client_bundle(
             )?;
             Ok(ServerStoreClient::from_bundle(
                 bundle,
-                normalize_remote_server_target(api_url),
+                user_config::normalized_http_base_url(api_url).to_string(),
                 refreshable_oauth,
             ))
         }
         user_config::ServerTarget::UnixSocket(path) => {
             let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
-            let refreshable_oauth = refreshable_oauth(target, &bearer)?;
+            let refreshable_oauth = refreshable_oauth(target, bearer.as_ref())?;
             if let Ok(client) = try_connect_unix_socket_api_client_bundle(
                 path,
                 Some(&runtime.storage_dir),
@@ -338,9 +338,9 @@ fn connect_remote_api_client_bundle(
     tls: Option<&user_config::ClientTlsSettings>,
     bearer_token: Option<&str>,
 ) -> Result<ClientBundle> {
-    let normalized = normalize_remote_server_target(api_url);
+    let normalized = user_config::normalized_http_base_url(api_url);
     let mut builder = user_config::build_server_client_builder(tls)?;
-    if remote_url_targets_local_host(&normalized) {
+    if remote_url_targets_local_host(normalized) {
         builder = builder.no_proxy();
     }
     builder = match bearer_token {
@@ -349,26 +349,15 @@ fn connect_remote_api_client_bundle(
     };
     let http_client = builder.build()?;
     Ok(client_bundle(
-        &normalized,
+        normalized,
         http_client,
         bearer_token.map(ToOwned::to_owned),
     ))
 }
 
-fn normalize_remote_server_target(api_url: &str) -> String {
-    api_url
-        .trim_end_matches('/')
-        .strip_suffix("/api/v1")
-        .unwrap_or(api_url.trim_end_matches('/'))
-        .to_string()
-}
-
-#[allow(
-    dead_code,
-    reason = "This matcher is retained for existing unit coverage."
-)]
+#[cfg(test)]
 fn remote_url_matches_tcp_bind(api_url: &str, bind_addr: std::net::SocketAddr) -> bool {
-    let Ok(url) = fabro_http::Url::parse(&normalize_remote_server_target(api_url)) else {
+    let Ok(url) = fabro_http::Url::parse(user_config::normalized_http_base_url(api_url)) else {
         return false;
     };
     if url.scheme() != "http" && url.scheme() != "https" {
@@ -387,7 +376,7 @@ fn remote_url_matches_tcp_bind(api_url: &str, bind_addr: std::net::SocketAddr) -
 }
 
 fn remote_url_targets_local_host(api_url: &str) -> bool {
-    let Ok(url) = fabro_http::Url::parse(&normalize_remote_server_target(api_url)) else {
+    let Ok(url) = fabro_http::Url::parse(user_config::normalized_http_base_url(api_url)) else {
         return false;
     };
     let Some(host) = url.host_str() else {
@@ -396,10 +385,7 @@ fn remote_url_targets_local_host(api_url: &str) -> bool {
     host_is_local(host)
 }
 
-#[allow(
-    dead_code,
-    reason = "This matcher is retained for existing unit coverage."
-)]
+#[cfg(test)]
 fn host_matches_bind(host: &str, bind_ip: IpAddr) -> bool {
     host.parse::<IpAddr>()
         .ok()
@@ -502,7 +488,7 @@ async fn build_authed_unix_socket_client(
     let http_client = if let Some(token) = bearer_token {
         apply_bearer_token_auth(
             cli_http_client_builder().unix_socket(path).no_proxy(),
-            &token,
+            token,
         )?
         .build()
         .context("Failed to build Unix-socket HTTP client for fabro server")?
@@ -725,13 +711,10 @@ impl ServerStoreClient {
         }
         ensure_refresh_target_transport(&refreshable.target)?;
 
-        let (http_client, base_url) = build_public_http_client(&refreshable.target)?;
+        let (http_client, base_url) = user_config::build_public_http_client(&refreshable.target)?;
         let response = http_client
             .post(format!("{base_url}/auth/cli/refresh"))
-            .header(
-                fabro_http::header::AUTHORIZATION,
-                format!("Bearer {}", entry.refresh_token),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", entry.refresh_token))
             .send()
             .await?;
 
@@ -745,7 +728,7 @@ impl ServerStoreClient {
                 access_token_expires_at:  tokens.access_token_expires_at,
                 refresh_token:            tokens.refresh_token.clone(),
                 refresh_token_expires_at: tokens.refresh_token_expires_at,
-                subject:                  Subject {
+                subject:                  StoredSubject {
                     idp_issuer:  tokens.subject.idp_issuer,
                     idp_subject: tokens.subject.idp_subject,
                     login:       tokens.subject.login,
@@ -1492,16 +1475,8 @@ fn ensure_refresh_target_transport(target: &user_config::ServerTarget) -> Result
 
 fn refresh_transport_error(target: &user_config::ServerTarget) -> String {
     format!(
-        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({}). Use HTTPS, or bind the server to 127.0.0.1 / ::1.",
-        target_display(target)
+        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({target}). Use HTTPS, or bind the server to 127.0.0.1 / ::1."
     )
-}
-
-fn target_display(target: &user_config::ServerTarget) -> String {
-    match target {
-        user_config::ServerTarget::HttpUrl { api_url, .. } => api_url.clone(),
-        user_config::ServerTarget::UnixSocket(path) => format!("unix://{}", path.display()),
-    }
 }
 
 fn parse_error_response_value(value: &serde_json::Value) -> (Option<String>, Option<String>) {
@@ -1631,26 +1606,6 @@ async fn classify_raw_response(
         error:   anyhow!("request failed with status {status}: {body}"),
         failure: ApiFailure { status, code: None },
     }))
-}
-
-fn build_public_http_client(
-    target: &user_config::ServerTarget,
-) -> Result<(fabro_http::HttpClient, String)> {
-    match target {
-        user_config::ServerTarget::HttpUrl { api_url, tls } => {
-            let http_client = user_config::build_server_client_builder(tls.as_ref())?
-                .no_proxy()
-                .build()?;
-            Ok((http_client, normalize_remote_server_target(api_url)))
-        }
-        user_config::ServerTarget::UnixSocket(path) => {
-            let http_client = cli_http_client_builder()
-                .unix_socket(path)
-                .no_proxy()
-                .build()?;
-            Ok((http_client, "http://fabro".to_string()))
-        }
-    }
 }
 
 fn is_not_found_error<E>(err: &progenitor_client::Error<E>) -> bool
@@ -1808,7 +1763,7 @@ mod tests {
             access_token_expires_at:  now + ChronoDuration::minutes(10),
             refresh_token:            format!("refresh-{login}"),
             refresh_token_expires_at: now + ChronoDuration::days(30),
-            subject:                  Subject {
+            subject:                  StoredSubject {
                 idp_issuer:  "https://github.com".to_string(),
                 idp_subject: "12345".to_string(),
                 login:       login.to_string(),

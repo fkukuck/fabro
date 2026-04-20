@@ -24,7 +24,7 @@ pub(crate) async fn dispatch(
             logout::logout_command(args, cli, cli_layer, process_local_json, printer).await
         }
         AuthCommand::Status(args) => {
-            status::status_command(args, cli, cli_layer, process_local_json, printer).await
+            status::status_command(&args, cli, cli_layer, process_local_json, printer)
         }
     }
 }

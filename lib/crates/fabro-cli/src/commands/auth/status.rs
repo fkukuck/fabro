@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
+use fabro_util::dev_token::{read_dev_token_file, validate_dev_token_format};
 use fabro_util::printer::Printer;
 use serde::Serialize;
 
@@ -40,8 +41,8 @@ struct StatusOutput {
     dev_token: &'static str,
 }
 
-pub(super) async fn status_command(
-    args: AuthStatusArgs,
+pub(super) fn status_command(
+    args: &AuthStatusArgs,
     cli: &CliSettings,
     cli_layer: &CliLayer,
     process_local_json: bool,
@@ -125,7 +126,7 @@ fn all_rows(store: &AuthStore, now: DateTime<Utc>) -> Result<Vec<StatusRow>> {
     Ok(store
         .list()?
         .into_iter()
-        .map(|(key, entry)| status_row(key, entry, now))
+        .map(|(key, entry)| status_row(&key, entry, now))
         .collect())
 }
 
@@ -138,11 +139,11 @@ fn filter_rows(
     Ok(store
         .get(&key)?
         .into_iter()
-        .map(|entry| status_row(key.clone(), entry, now))
+        .map(|entry| status_row(&key, entry, now))
         .collect())
 }
 
-fn status_row(key: ServerTargetKey, entry: AuthEntry, now: DateTime<Utc>) -> StatusRow {
+fn status_row(key: &ServerTargetKey, entry: AuthEntry, now: DateTime<Utc>) -> StatusRow {
     StatusRow {
         server:                   key.to_string(),
         oauth_state:              oauth_state(&entry, now),
@@ -178,12 +179,9 @@ fn human_state(state: OAuthState) -> &'static str {
 fn load_dev_token_if_available() -> bool {
     let env_token = std::env::var("FABRO_DEV_TOKEN")
         .ok()
-        .filter(|token| fabro_util::dev_token::validate_dev_token_format(token));
+        .filter(|token| validate_dev_token_format(token));
     env_token.is_some()
-        || fabro_util::dev_token::read_dev_token_file(
-            &fabro_util::Home::from_env().dev_token_path(),
-        )
-        .is_some()
+        || read_dev_token_file(&fabro_util::Home::from_env().dev_token_path()).is_some()
 }
 
 #[cfg(test)]
@@ -191,7 +189,7 @@ mod tests {
     use chrono::Duration;
 
     use super::{OAuthState, human_state, oauth_state};
-    use crate::auth_store::{AuthEntry, Subject};
+    use crate::auth_store::{AuthEntry, StoredSubject};
 
     fn entry(access_offset_secs: i64, refresh_offset_secs: i64) -> AuthEntry {
         let now = chrono::Utc::now();
@@ -200,7 +198,7 @@ mod tests {
             access_token_expires_at:  now + Duration::seconds(access_offset_secs),
             refresh_token:            "refresh".to_string(),
             refresh_token_expires_at: now + Duration::seconds(refresh_offset_secs),
-            subject:                  Subject {
+            subject:                  StoredSubject {
                 idp_issuer:  "https://github.com".to_string(),
                 idp_subject: "12345".to_string(),
                 login:       "octocat".to_string(),

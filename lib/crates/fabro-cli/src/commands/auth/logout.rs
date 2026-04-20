@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use fabro_http::header::AUTHORIZATION;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
@@ -60,13 +61,10 @@ pub(super) async fn logout_command(
 }
 
 async fn revoke_remote_session(target: &ServerTarget, entry: &AuthEntry) -> Result<()> {
-    let (http_client, base_url) = build_public_http_client(target)?;
+    let (http_client, base_url) = user_config::build_public_http_client(target)?;
     let response = http_client
         .post(format!("{base_url}/auth/cli/logout"))
-        .header(
-            fabro_http::header::AUTHORIZATION,
-            format!("Bearer {}", entry.refresh_token),
-        )
+        .header(AUTHORIZATION, format!("Bearer {}", entry.refresh_token))
         .send()
         .await?;
     if response.status().is_success() {
@@ -79,40 +77,6 @@ async fn revoke_remote_session(target: &ServerTarget, entry: &AuthEntry) -> Resu
         bail!("request failed with status {status}");
     }
     bail!("request failed with status {status}: {body}")
-}
-
-fn build_public_http_client(target: &ServerTarget) -> Result<(fabro_http::HttpClient, String)> {
-    match target {
-        ServerTarget::HttpUrl { api_url, tls } => {
-            let http_client = user_config::build_server_client_builder(tls.as_ref())?
-                .no_proxy()
-                .build()?;
-            Ok((http_client, normalized_http_base_url(api_url)))
-        }
-        ServerTarget::UnixSocket(path) => {
-            #[cfg(unix)]
-            {
-                let http_client = user_config::cli_http_client_builder()
-                    .unix_socket(path)
-                    .no_proxy()
-                    .build()?;
-                Ok((http_client, "http://fabro".to_string()))
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = path;
-                bail!("Unix-socket logout is not supported on this platform")
-            }
-        }
-    }
-}
-
-fn normalized_http_base_url(api_url: &str) -> String {
-    api_url
-        .trim_end_matches('/')
-        .strip_suffix("/api/v1")
-        .unwrap_or(api_url.trim_end_matches('/'))
-        .to_string()
 }
 
 fn server_target_from_key(key: &ServerTargetKey) -> Result<ServerTarget> {
@@ -131,8 +95,7 @@ fn server_target_from_key(key: &ServerTargetKey) -> Result<ServerTarget> {
 
 fn format_warning(key: &ServerTargetKey, error: &str) -> String {
     format!(
-        "Warning: removed local session for {}, but remote revocation failed: {}. The refresh token may remain valid until it expires.",
-        key, error
+        "Warning: removed local session for {key}, but remote revocation failed: {error}. The refresh token may remain valid until it expires."
     )
 }
 
@@ -140,7 +103,7 @@ fn format_warning(key: &ServerTargetKey, error: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{format_warning, normalized_http_base_url, server_target_from_key};
+    use super::{format_warning, server_target_from_key};
     use crate::auth_store::ServerTargetKey;
     use crate::user_config::ServerTarget;
 
@@ -182,13 +145,5 @@ mod tests {
         let warning = format_warning(&key, "request failed with status 500");
         assert!(warning.contains("removed local session"));
         assert!(warning.contains("remote revocation failed"));
-    }
-
-    #[test]
-    fn strips_api_prefix_from_remote_base_url() {
-        assert_eq!(
-            normalized_http_base_url("https://fabro.example.com/api/v1"),
-            "https://fabro.example.com"
-        );
     }
 }

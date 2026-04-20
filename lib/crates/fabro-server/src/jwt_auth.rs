@@ -8,7 +8,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tracing::info;
 
-use crate::auth::{JwtError, JwtSigningKey, KeyDeriveError, derive_cookie_key, derive_jwt_key};
+use crate::auth::{self, JwtError, JwtSigningKey, KeyDeriveError};
 use crate::error::ApiError;
 use crate::web_auth::SessionCookie;
 
@@ -82,7 +82,7 @@ where
                 "Fabro server refuses to start: web UI is enabled but SESSION_SECRET is not set."
             )
         })?;
-        derive_cookie_key(secret.as_bytes()).map_err(cookie_key_error)?;
+        auth::derive_cookie_key(secret.as_bytes()).map_err(|err| cookie_key_error(&err))?;
     }
 
     let dev_token = if methods.contains(&ServerAuthMethod::DevToken) {
@@ -121,7 +121,7 @@ where
             .as_deref()
             .expect("web-enabled github auth should already require SESSION_SECRET");
         (
-            Some(derive_jwt_key(secret.as_bytes()).map_err(jwt_key_error)?),
+            Some(auth::derive_jwt_key(secret.as_bytes()).map_err(|err| jwt_key_error(&err))?),
             resolve_jwt_issuer(settings, &lookup),
         )
     } else {
@@ -149,7 +149,7 @@ where
         .filter(|value| !value.is_empty())
 }
 
-fn cookie_key_error(err: KeyDeriveError) -> anyhow::Error {
+fn cookie_key_error(err: &KeyDeriveError) -> anyhow::Error {
     match err {
         KeyDeriveError::Empty => {
             anyhow!(
@@ -165,7 +165,7 @@ fn cookie_key_error(err: KeyDeriveError) -> anyhow::Error {
     }
 }
 
-fn jwt_key_error(err: KeyDeriveError) -> anyhow::Error {
+fn jwt_key_error(err: &KeyDeriveError) -> anyhow::Error {
     match err {
         KeyDeriveError::Empty => {
             anyhow!(
@@ -244,7 +244,7 @@ fn authenticate_jwt_bearer(token: &str, config: &ConfiguredAuth) -> Result<Verif
         return Err(ApiError::unauthorized());
     }
 
-    let claims = match crate::auth::verify(jwt_key, jwt_issuer, token) {
+    let claims = match auth::verify(jwt_key, jwt_issuer, token) {
         Ok(claims) => claims,
         Err(JwtError::AccessTokenExpired) => {
             return Err(ApiError::unauthorized_with_code(
@@ -517,15 +517,17 @@ mod tests {
     }
 
     fn signing_key() -> JwtSigningKey {
-        derive_jwt_key(b"0123456789abcdef0123456789abcdef").expect("jwt signing key should derive")
+        auth::derive_jwt_key(b"0123456789abcdef0123456789abcdef")
+            .expect("jwt signing key should derive")
     }
 
     fn other_signing_key() -> JwtSigningKey {
-        derive_jwt_key(b"fedcba9876543210fedcba9876543210").expect("jwt signing key should derive")
+        auth::derive_jwt_key(b"fedcba9876543210fedcba9876543210")
+            .expect("jwt signing key should derive")
     }
 
-    fn jwt_subject() -> crate::auth::JwtSubject {
-        crate::auth::JwtSubject {
+    fn jwt_subject() -> auth::JwtSubject {
+        auth::JwtSubject {
             identity:    IdpIdentity::new("https://github.com", "12345").unwrap(),
             login:       "octocat".to_string(),
             name:        "The Octocat".to_string(),
@@ -535,7 +537,7 @@ mod tests {
     }
 
     fn issue_github_token(ttl: chrono::Duration) -> String {
-        crate::auth::issue(&signing_key(), "https://fabro.example", &jwt_subject(), ttl)
+        auth::issue(&signing_key(), "https://fabro.example", &jwt_subject(), ttl)
     }
 
     fn request_parts(mode: AuthMode, request: Request<Body>) -> Parts {
@@ -897,7 +899,7 @@ client_id = "Iv1.test"
 
     #[tokio::test]
     async fn jwt_with_bad_signature_returns_invalid_code() {
-        let token = crate::auth::issue(
+        let token = auth::issue(
             &other_signing_key(),
             "https://fabro.example",
             &jwt_subject(),

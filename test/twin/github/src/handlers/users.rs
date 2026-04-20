@@ -45,8 +45,9 @@ mod tests {
     use crate::test_support::test_http_client;
 
     async fn authorize_and_exchange(server: &TestServer) -> String {
-        let client = reqwest::Client::builder()
+        let client = fabro_http::HttpClientBuilder::new()
             .redirect(Policy::none())
+            .no_proxy()
             .build()
             .unwrap();
         let authorize = client

@@ -23,7 +23,7 @@ use crate::user_config::ServerTarget;
 const AUTH_FILE_ENV: &str = "FABRO_AUTH_FILE";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Subject {
+pub(crate) struct StoredSubject {
     pub(crate) idp_issuer:  String,
     pub(crate) idp_subject: String,
     pub(crate) login:       String,
@@ -37,7 +37,7 @@ pub(crate) struct AuthEntry {
     pub(crate) access_token_expires_at:  DateTime<Utc>,
     pub(crate) refresh_token:            String,
     pub(crate) refresh_token_expires_at: DateTime<Utc>,
-    pub(crate) subject:                  Subject,
+    pub(crate) subject:                  StoredSubject,
     pub(crate) logged_in_at:             DateTime<Utc>,
 }
 
@@ -143,9 +143,10 @@ struct AuthFile {
 
 impl Default for AuthStore {
     fn default() -> Self {
-        let path = std::env::var_os(AUTH_FILE_ENV)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| fabro_util::Home::from_env().root().join("auth.json"));
+        let path = std::env::var_os(AUTH_FILE_ENV).map_or_else(
+            || fabro_util::Home::from_env().root().join("auth.json"),
+            PathBuf::from,
+        );
         Self::new(path)
     }
 }
@@ -166,7 +167,6 @@ impl AuthStore {
         })
     }
 
-    #[allow(dead_code, reason = "Login wiring lands in a later CLI auth unit.")]
     pub(crate) fn put(
         &self,
         key: &ServerTargetKey,
@@ -189,7 +189,6 @@ impl AuthStore {
         }
     }
 
-    #[allow(dead_code, reason = "Logout wiring lands in a later CLI auth unit.")]
     pub(crate) fn remove(&self, key: &ServerTargetKey) -> Result<bool, AuthStoreError> {
         #[cfg(not(unix))]
         {
@@ -349,14 +348,10 @@ impl AuthStore {
 }
 
 fn canonical_http_target(api_url: &str) -> Result<String, AuthStoreError> {
-    let normalized = api_url
-        .trim()
-        .trim_end_matches('/')
-        .strip_suffix("/api/v1")
-        .unwrap_or(api_url.trim().trim_end_matches('/'))
-        .to_string();
+    let trimmed = api_url.trim();
+    let normalized = crate::user_config::normalized_http_base_url(trimmed);
     let url =
-        fabro_http::Url::parse(&normalized).map_err(|_| AuthStoreError::InvalidServerTarget {
+        fabro_http::Url::parse(normalized).map_err(|_| AuthStoreError::InvalidServerTarget {
             value: api_url.to_string(),
         })?;
     let scheme = url.scheme().to_ascii_lowercase();
@@ -443,7 +438,7 @@ mod tests {
 
     #[cfg(unix)]
     use super::{AUTH_FILE_ENV, LockError, classify_lock_error};
-    use super::{AuthEntry, AuthStore, ServerTargetKey, Subject};
+    use super::{AuthEntry, AuthStore, ServerTargetKey, StoredSubject};
     use crate::user_config::ServerTarget;
 
     fn entry(login: &str) -> AuthEntry {
@@ -453,7 +448,7 @@ mod tests {
             access_token_expires_at:  now + Duration::minutes(10),
             refresh_token:            format!("refresh-{login}"),
             refresh_token_expires_at: now + Duration::days(30),
-            subject:                  Subject {
+            subject:                  StoredSubject {
                 idp_issuer:  "https://github.com".to_string(),
                 idp_subject: "12345".to_string(),
                 login:       login.to_string(),

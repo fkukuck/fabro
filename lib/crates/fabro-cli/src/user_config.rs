@@ -3,6 +3,7 @@
     reason = "CLI user config: sync file I/O loading user config"
 )]
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -80,6 +81,48 @@ pub(crate) enum ServerTarget {
         tls:     Option<ClientTlsSettings>,
     },
     UnixSocket(PathBuf),
+}
+
+impl fmt::Display for ServerTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ServerTarget::HttpUrl { api_url, .. } => f.write_str(api_url),
+            ServerTarget::UnixSocket(path) => write!(f, "unix://{}", path.display()),
+        }
+    }
+}
+
+pub(crate) fn normalized_http_base_url(api_url: &str) -> &str {
+    let trimmed = api_url.trim_end_matches('/');
+    trimmed.strip_suffix("/api/v1").unwrap_or(trimmed)
+}
+
+pub(crate) fn build_public_http_client(
+    target: &ServerTarget,
+) -> Result<(fabro_http::HttpClient, String)> {
+    match target {
+        ServerTarget::HttpUrl { api_url, tls } => {
+            let http_client = build_server_client_builder(tls.as_ref())?
+                .no_proxy()
+                .build()?;
+            Ok((http_client, normalized_http_base_url(api_url).to_string()))
+        }
+        ServerTarget::UnixSocket(path) => {
+            #[cfg(unix)]
+            {
+                let http_client = cli_http_client_builder()
+                    .unix_socket(path)
+                    .no_proxy()
+                    .build()?;
+                Ok((http_client, "http://fabro".to_string()))
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = path;
+                bail!("Unix-socket HTTP client is not supported on this platform")
+            }
+        }
+    }
 }
 
 /// Pull the resolved CLI target configuration out of `[cli.target]`.

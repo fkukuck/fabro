@@ -1,5 +1,6 @@
 use chrono::{Duration, Utc};
 use fabro_types::{IdpIdentity, RunAuthMethod};
+use jsonwebtoken::errors::{Error as JwtDecodeError, ErrorKind};
 use jsonwebtoken::{Algorithm, Header, Validation, decode, decode_header, encode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,7 +10,6 @@ use crate::auth::JwtSigningKey;
 const ACCESS_TOKEN_AUDIENCE: &str = "fabro-cli";
 const CLOCK_SKEW_SECS: u64 = 5;
 
-#[allow(dead_code, reason = "JWT issuance wiring lands in later auth units.")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct JwtSubject {
     pub identity:    IdpIdentity,
@@ -43,7 +43,6 @@ pub(crate) enum JwtError {
     AccessTokenInvalid,
 }
 
-#[allow(dead_code, reason = "JWT issuance wiring lands in later auth units.")]
 pub(crate) fn issue(
     key: &JwtSigningKey,
     issuer: &str,
@@ -94,8 +93,8 @@ pub(crate) fn verify(
     validation.set_audience(&[ACCESS_TOKEN_AUDIENCE]);
     validation.set_issuer(&[expected_iss]);
 
-    let token_data =
-        decode::<Claims>(token, &key.decoding_key(), &validation).map_err(map_decode_error)?;
+    let token_data = decode::<Claims>(token, &key.decoding_key(), &validation)
+        .map_err(|err| map_decode_error(&err))?;
 
     let now: u64 = Utc::now()
         .timestamp()
@@ -108,9 +107,9 @@ pub(crate) fn verify(
     Ok(token_data.claims)
 }
 
-fn map_decode_error(err: jsonwebtoken::errors::Error) -> JwtError {
+fn map_decode_error(err: &JwtDecodeError) -> JwtError {
     match err.kind() {
-        jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::AccessTokenExpired,
+        ErrorKind::ExpiredSignature => JwtError::AccessTokenExpired,
         _ => JwtError::AccessTokenInvalid,
     }
 }
@@ -125,10 +124,11 @@ mod tests {
     use uuid::Uuid;
 
     use super::{Claims, JwtError, JwtSubject, issue, verify};
-    use crate::auth::derive_jwt_key;
+    use crate::auth::{self, JwtSigningKey};
 
-    fn signing_key() -> crate::auth::JwtSigningKey {
-        derive_jwt_key(b"0123456789abcdef0123456789abcdef").expect("jwt signing key should derive")
+    fn signing_key() -> JwtSigningKey {
+        auth::derive_jwt_key(b"0123456789abcdef0123456789abcdef")
+            .expect("jwt signing key should derive")
     }
 
     fn subject() -> JwtSubject {
@@ -158,12 +158,12 @@ mod tests {
         }
     }
 
-    fn encode_claims(header: Header, claims: &Claims) -> String {
-        encode(&header, claims, &signing_key().encoding_key()).expect("test token should encode")
+    fn encode_claims(header: &Header, claims: &Claims) -> String {
+        encode(header, claims, &signing_key().encoding_key()).expect("test token should encode")
     }
 
-    fn forge_token(header: serde_json::Value, claims: &Claims) -> String {
-        let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+    fn forge_token(header: &serde_json::Value, claims: &Claims) -> String {
+        let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(header).unwrap());
         let claims = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap());
         format!("{header}.{claims}.signature")
     }
@@ -191,7 +191,7 @@ mod tests {
     fn rejects_alg_none_header() {
         let now = Utc::now().timestamp();
         let token = forge_token(
-            serde_json::json!({ "alg": "none", "typ": "JWT" }),
+            &serde_json::json!({ "alg": "none", "typ": "JWT" }),
             &claims_with_times(now - 1, now + 600),
         );
 
@@ -205,7 +205,7 @@ mod tests {
     fn rejects_rs256_header() {
         let now = Utc::now().timestamp();
         let token = forge_token(
-            serde_json::json!({ "alg": "RS256", "typ": "JWT" }),
+            &serde_json::json!({ "alg": "RS256", "typ": "JWT" }),
             &claims_with_times(now - 1, now + 600),
         );
 
@@ -219,7 +219,7 @@ mod tests {
     fn rejects_expired_tokens() {
         let now = Utc::now().timestamp();
         let token = encode_claims(
-            Header::new(Algorithm::HS256),
+            &Header::new(Algorithm::HS256),
             &claims_with_times(now - 20, now - 10),
         );
 
@@ -233,7 +233,7 @@ mod tests {
     fn allows_small_future_iat_skew() {
         let now = Utc::now().timestamp();
         let token = encode_claims(
-            Header::new(Algorithm::HS256),
+            &Header::new(Algorithm::HS256),
             &claims_with_times(now + 3, now + 600),
         );
 
@@ -244,7 +244,7 @@ mod tests {
     fn rejects_large_future_iat_skew() {
         let now = Utc::now().timestamp();
         let token = encode_claims(
-            Header::new(Algorithm::HS256),
+            &Header::new(Algorithm::HS256),
             &claims_with_times(now + 10, now + 600),
         );
 
@@ -259,7 +259,7 @@ mod tests {
         let now = Utc::now().timestamp();
         let mut header = Header::new(Algorithm::HS256);
         header.kid = Some("kid-1".to_string());
-        let token = encode_claims(header, &claims_with_times(now - 1, now + 600));
+        let token = encode_claims(&header, &claims_with_times(now - 1, now + 600));
 
         assert_eq!(
             verify(&signing_key(), "https://fabro.example", &token),
@@ -287,7 +287,7 @@ mod tests {
         let now = Utc::now().timestamp();
         let mut claims = claims_with_times(now - 1, now + 600);
         claims.aud = "not-fabro-cli".to_string();
-        let token = encode_claims(Header::new(Algorithm::HS256), &claims);
+        let token = encode_claims(&Header::new(Algorithm::HS256), &claims);
 
         assert_eq!(
             verify(&signing_key(), "https://fabro.example", &token),
@@ -321,7 +321,7 @@ mod tests {
             &subject(),
             Duration::minutes(10),
         );
-        let other_key = derive_jwt_key(b"abcdef0123456789abcdef0123456789")
+        let other_key = auth::derive_jwt_key(b"abcdef0123456789abcdef0123456789")
             .expect("alternate key should derive");
 
         assert_eq!(
