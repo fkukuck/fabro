@@ -25,6 +25,7 @@ use tokio::time::sleep;
 use tokio_util::io::ReaderStream;
 
 use crate::args::ServerTargetArgs;
+use crate::auth_store::{AuthStore, ServerTargetKey};
 use crate::commands::server::{record, start};
 use crate::user_config::cli_http_client_builder;
 use crate::{sse, user_config};
@@ -92,13 +93,20 @@ pub(crate) async fn connect_server(storage_dir: &Path) -> Result<ServerStoreClie
 
 pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerStoreClient> {
     if target.starts_with("http://") || target.starts_with("https://") {
-        connect_remote_api_client_bundle(target, None, RemoteDevTokenAuth::Ambient)
+        let parsed_target = user_config::ServerTarget::HttpUrl {
+            api_url: target.to_string(),
+            tls:     None,
+        };
+        let bearer = resolve_target_bearer(&parsed_target, None)?;
+        connect_remote_api_client_bundle(target, None, bearer.as_deref())
     } else {
         let path = Path::new(target);
         if !path.is_absolute() {
             bail!("server target must be an http(s) URL or absolute Unix socket path");
         }
-        connect_unix_socket_api_client_bundle(path, None).await
+        let parsed_target = user_config::ServerTarget::UnixSocket(path.to_path_buf());
+        let bearer = resolve_target_bearer(&parsed_target, None)?;
+        connect_unix_socket_api_client_bundle(path, None, bearer.as_deref()).await
     }
 }
 
@@ -121,7 +129,9 @@ async fn connect_api_client_bundle(storage_dir: &Path) -> Result<ServerStoreClie
         .await
         .with_context(|| format!("Failed to start fabro server for {}", storage_dir.display()))?;
     match bind {
-        Bind::Unix(path) => connect_unix_socket_api_client_bundle(&path, Some(storage_dir)).await,
+        Bind::Unix(path) => {
+            connect_unix_socket_api_client_bundle(&path, Some(storage_dir), None).await
+        }
         Bind::Tcp(addr) => {
             let token = wait_for_local_dev_token(storage_dir).await?;
             let builder = cli_http_client_builder().no_proxy();
@@ -148,14 +158,18 @@ async fn connect_target_api_client_bundle(
     runtime: &LocalServerRuntime,
 ) -> Result<ServerStoreClient> {
     match target {
-        user_config::ServerTarget::HttpUrl { api_url, tls } => connect_remote_api_client_bundle(
-            api_url,
-            tls.as_ref(),
-            remote_dev_token_auth_for_target(api_url, &runtime.storage_dir),
-        ),
+        user_config::ServerTarget::HttpUrl { api_url, tls } => {
+            let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
+            connect_remote_api_client_bundle(api_url, tls.as_ref(), bearer.as_deref())
+        }
         user_config::ServerTarget::UnixSocket(path) => {
-            if let Ok(client) =
-                try_connect_unix_socket_api_client_bundle(path, Some(&runtime.storage_dir)).await
+            let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
+            if let Ok(client) = try_connect_unix_socket_api_client_bundle(
+                path,
+                Some(&runtime.storage_dir),
+                bearer.as_deref(),
+            )
+            .await
             {
                 Ok(client)
             } else {
@@ -166,40 +180,30 @@ async fn connect_target_api_client_bundle(
                 )
                 .await
                 .with_context(|| format!("Failed to start fabro server for {}", path.display()))?;
-                connect_unix_socket_api_client_bundle(path, Some(&runtime.storage_dir)).await
+                connect_unix_socket_api_client_bundle(
+                    path,
+                    Some(&runtime.storage_dir),
+                    bearer.as_deref(),
+                )
+                .await
             }
         }
     }
 }
 
-#[derive(Clone, Copy)]
-enum RemoteDevTokenAuth<'a> {
-    None,
-    Storage(&'a Path),
-    AmbientLocalTarget,
-    Ambient,
-}
-
 fn connect_remote_api_client_bundle(
     api_url: &str,
     tls: Option<&user_config::ClientTlsSettings>,
-    dev_token_auth: RemoteDevTokenAuth<'_>,
+    bearer_token: Option<&str>,
 ) -> Result<ServerStoreClient> {
     let normalized = normalize_remote_server_target(api_url);
     let mut builder = user_config::build_server_client_builder(tls)?;
-    builder = match dev_token_auth {
-        RemoteDevTokenAuth::None => builder,
-        RemoteDevTokenAuth::Storage(storage_dir) => {
-            apply_dev_token_auth(builder.no_proxy(), Some(storage_dir))?
-        }
-        RemoteDevTokenAuth::AmbientLocalTarget => {
-            if remote_url_targets_local_host(&normalized) {
-                apply_dev_token_auth(builder.no_proxy(), None)?
-            } else {
-                builder
-            }
-        }
-        RemoteDevTokenAuth::Ambient => apply_dev_token_auth(builder, None)?,
+    if remote_url_targets_local_host(&normalized) {
+        builder = builder.no_proxy();
+    }
+    builder = match bearer_token {
+        Some(token) => apply_bearer_token_auth(builder, token)?,
+        None => builder,
     };
     let http_client = builder.build()?;
     let client = fabro_api::Client::new_with_client(&normalized, http_client.clone());
@@ -218,29 +222,10 @@ fn normalize_remote_server_target(api_url: &str) -> String {
         .to_string()
 }
 
-fn remote_dev_token_auth_for_target<'a>(
-    api_url: &str,
-    storage_dir: &'a Path,
-) -> RemoteDevTokenAuth<'a> {
-    if remote_url_matches_active_local_tcp_server(api_url, storage_dir) {
-        RemoteDevTokenAuth::Storage(storage_dir)
-    } else if remote_url_targets_local_host(api_url) {
-        RemoteDevTokenAuth::AmbientLocalTarget
-    } else {
-        RemoteDevTokenAuth::None
-    }
-}
-
-fn remote_url_matches_active_local_tcp_server(api_url: &str, storage_dir: &Path) -> bool {
-    let Ok(Some(record)) = record::active_server_record(storage_dir) else {
-        return false;
-    };
-    let Bind::Tcp(bind_addr) = record.bind else {
-        return false;
-    };
-    remote_url_matches_tcp_bind(api_url, bind_addr)
-}
-
+#[allow(
+    dead_code,
+    reason = "This matcher is retained for existing unit coverage."
+)]
 fn remote_url_matches_tcp_bind(api_url: &str, bind_addr: std::net::SocketAddr) -> bool {
     let Ok(url) = fabro_http::Url::parse(&normalize_remote_server_target(api_url)) else {
         return false;
@@ -270,6 +255,10 @@ fn remote_url_targets_local_host(api_url: &str) -> bool {
     host_is_local(host)
 }
 
+#[allow(
+    dead_code,
+    reason = "This matcher is retained for existing unit coverage."
+)]
 fn host_matches_bind(host: &str, bind_ip: IpAddr) -> bool {
     host.parse::<IpAddr>()
         .ok()
@@ -370,8 +359,16 @@ fn unix_socket_api_client_bundle(http_client: fabro_http::HttpClient) -> ServerS
 async fn build_authed_unix_socket_client(
     path: &Path,
     storage_dir: Option<&Path>,
+    bearer_token: Option<&str>,
 ) -> Result<ServerStoreClient> {
-    let http_client = if let Some(storage_dir) = storage_dir {
+    let http_client = if let Some(token) = bearer_token {
+        apply_bearer_token_auth(
+            cli_http_client_builder().unix_socket(path).no_proxy(),
+            &token,
+        )?
+        .build()
+        .context("Failed to build Unix-socket HTTP client for fabro server")?
+    } else if let Some(storage_dir) = storage_dir {
         let token = wait_for_local_dev_token(storage_dir).await?;
         apply_bearer_token_auth(
             cli_http_client_builder().unix_socket(path).no_proxy(),
@@ -398,17 +395,41 @@ fn build_unix_socket_probe_client(path: &Path) -> Result<fabro_http::HttpClient>
 async fn try_connect_unix_socket_api_client_bundle(
     path: &Path,
     storage_dir: Option<&Path>,
+    bearer_token: Option<&str>,
 ) -> Result<ServerStoreClient> {
     check_server_ready(&build_unix_socket_probe_client(path)?).await?;
-    build_authed_unix_socket_client(path, storage_dir).await
+    build_authed_unix_socket_client(path, storage_dir, bearer_token).await
 }
 
 async fn connect_unix_socket_api_client_bundle(
     path: &Path,
     storage_dir: Option<&Path>,
+    bearer_token: Option<&str>,
 ) -> Result<ServerStoreClient> {
     wait_for_server_ready(&build_unix_socket_probe_client(path)?).await?;
-    build_authed_unix_socket_client(path, storage_dir).await
+    build_authed_unix_socket_client(path, storage_dir, bearer_token).await
+}
+
+fn resolve_target_bearer(
+    target: &user_config::ServerTarget,
+    storage_dir: Option<&Path>,
+) -> Result<Option<String>> {
+    if let Some(token) = std::env::var("FABRO_DEV_TOKEN")
+        .ok()
+        .filter(|token| validate_dev_token_format(token))
+    {
+        return Ok(Some(token));
+    }
+
+    let store = AuthStore::default();
+    let key = ServerTargetKey::new(target)?;
+    if let Some(entry) = store.get(&key)? {
+        if entry.access_token_expires_at > chrono::Utc::now() {
+            return Ok(Some(entry.access_token));
+        }
+    }
+
+    Ok(load_dev_token_if_available(storage_dir))
 }
 
 async fn check_server_ready(http_client: &fabro_http::HttpClient) -> Result<()> {

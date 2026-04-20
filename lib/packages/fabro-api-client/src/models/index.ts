@@ -18,6 +18,7 @@ export * from './board-column';
 export * from './board-column-definition';
 export * from './check-run';
 export * from './check-run-status';
+export * from './cli-auth-config';
 export * from './code-location';
 export * from './completion-content-part';
 export * from './completion-message';

@@ -22,6 +22,8 @@ import { DUMMY_BASE_URL, assertParamExists, setApiKeyToObject, setBasicAuthToObj
 // @ts-ignore
 import { BASE_PATH, COLLECTION_FORMATS, type RequestArgs, BaseAPI, RequiredError, operationServerMap } from '../base';
 // @ts-ignore
+import type { CliAuthConfig } from '../models';
+// @ts-ignore
 import type { DiagnosticsReport } from '../models';
 // @ts-ignore
 import type { ErrorResponse } from '../models';
@@ -36,6 +38,36 @@ import type { UserResponse } from '../models';
  */
 export const DiscoveryApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
+        /**
+         * Returns whether CLI OAuth login is available for this server and which web origin should handle the browser flow.
+         * @summary CLI Auth Configuration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getCliAuthConfig: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/v1/auth/cli/config`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
         /**
          * Returns service health status. Used by load balancers and monitoring.
          * @summary Health Check
@@ -208,6 +240,18 @@ export const DiscoveryApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = DiscoveryApiAxiosParamCreator(configuration)
     return {
         /**
+         * Returns whether CLI OAuth login is available for this server and which web origin should handle the browser flow.
+         * @summary CLI Auth Configuration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getCliAuthConfig(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CliAuthConfig>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getCliAuthConfig(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DiscoveryApi.getCliAuthConfig']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Returns service health status. Used by load balancers and monitoring.
          * @summary Health Check
          * @param {*} [options] Override http request option.
@@ -277,6 +321,15 @@ export const DiscoveryApiFactory = function (configuration?: Configuration, base
     const localVarFp = DiscoveryApiFp(configuration)
     return {
         /**
+         * Returns whether CLI OAuth login is available for this server and which web origin should handle the browser flow.
+         * @summary CLI Auth Configuration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getCliAuthConfig(options?: RawAxiosRequestConfig): AxiosPromise<CliAuthConfig> {
+            return localVarFp.getCliAuthConfig(options).then((request) => request(axios, basePath));
+        },
+        /**
          * Returns service health status. Used by load balancers and monitoring.
          * @summary Health Check
          * @param {*} [options] Override http request option.
@@ -328,6 +381,16 @@ export const DiscoveryApiFactory = function (configuration?: Configuration, base
  * DiscoveryApi - object-oriented interface
  */
 export class DiscoveryApi extends BaseAPI {
+    /**
+     * Returns whether CLI OAuth login is available for this server and which web origin should handle the browser flow.
+     * @summary CLI Auth Configuration
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getCliAuthConfig(options?: RawAxiosRequestConfig) {
+        return DiscoveryApiFp(this.configuration).getCliAuthConfig(options).then((request) => request(this.axios, this.basePath));
+    }
+
     /**
      * Returns service health status. Used by load balancers and monitoring.
      * @summary Health Check

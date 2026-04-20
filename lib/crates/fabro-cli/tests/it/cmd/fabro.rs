@@ -36,6 +36,7 @@ fn help() {
       version     Show client and server version information
       install     Set up the Fabro environment (LLMs, certs, GitHub)
       uninstall   Uninstall Fabro from this machine
+      auth        Manage CLI authentication state
       pr          Pull request operations
       secret      Manage server-owned secrets
       settings    Inspect effective settings

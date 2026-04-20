@@ -4,11 +4,13 @@
 )]
 
 mod args;
+mod auth_store;
 mod command_context;
 mod commands;
 mod gh;
 mod landing;
 mod logging;
+mod loopback_target;
 mod manifest_builder;
 mod server_client;
 mod server_runs;
@@ -303,6 +305,16 @@ async fn main_inner() -> (String, Result<()>) {
             Commands::Uninstall(args) => {
                 commands::uninstall::run_uninstall(&args, &cli_settings, printer).await?;
             }
+            Commands::Auth(ns) => {
+                commands::auth::dispatch(
+                    ns,
+                    &cli_settings,
+                    &cli_layer,
+                    process_local_json,
+                    printer,
+                )
+                .await?;
+            }
             Commands::Pr(ns) => {
                 Box::pin(commands::pr::dispatch(
                     ns,
@@ -502,8 +514,8 @@ fn server_config_log_level(settings: &SettingsLayer) -> Option<String> {
 )]
 mod tests {
     use args::{
-        Commands, InstallGitHubStrategyArg, ModelsCommand, ProviderCommand, ProviderNamespace,
-        StoreCommand, StoreNamespace,
+        AuthCommand, AuthNamespace, Commands, InstallGitHubStrategyArg, ModelsCommand,
+        ProviderCommand, ProviderNamespace, StoreCommand, StoreNamespace,
     };
     use tokio::runtime::Runtime;
 
@@ -585,6 +597,20 @@ level = "warn"
             }) => {
                 assert_eq!(args.provider, fabro_model::Provider::Anthropic);
                 assert!(args.api_key_stdin);
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
+
+    #[test]
+    fn parse_auth_logout_all() {
+        let cli = Cli::try_parse_from(["fabro", "auth", "logout", "--all"]).expect("should parse");
+        match *cli.command.unwrap() {
+            Commands::Auth(AuthNamespace {
+                command: AuthCommand::Logout(args),
+            }) => {
+                assert!(args.all);
+                assert!(args.server.server.is_none());
             }
             _ => panic!("unexpected command variant"),
         }

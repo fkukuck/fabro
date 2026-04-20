@@ -124,6 +124,33 @@ pub struct Release {
     pub tag_name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OauthUser {
+    pub id:         u64,
+    pub login:      String,
+    pub name:       Option<String>,
+    pub avatar_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OauthEmail {
+    pub email:    String,
+    pub primary:  bool,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OauthSubject {
+    pub user:   OauthUser,
+    pub emails: Vec<OauthEmail>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OauthCode {
+    pub client_id: String,
+    pub subject:   OauthSubject,
+}
+
 /// An app manifest conversion record.
 #[derive(Debug, Clone)]
 pub struct ManifestConversion {
@@ -238,6 +265,13 @@ pub struct AppState {
     pub projects:             Vec<Project>,
     pub releases:             HashMap<(String, String), Release>,
     pub manifest_conversions: HashMap<String, ManifestConversion>,
+    pub oauth_codes:          HashMap<String, OauthCode>,
+    pub oauth_tokens:         HashMap<String, OauthSubject>,
+    pub oauth_client_id:      String,
+    pub oauth_client_secret:  String,
+    pub seeded_user:          OauthUser,
+    pub seeded_emails:        Vec<OauthEmail>,
+    pub allow_authorize:      bool,
     pub comments:             Vec<Comment>,
     pub webhook_config:       WebhookOptions,
     pub next_installation_id: u64,
@@ -297,6 +331,22 @@ impl AppState {
             projects:             Vec::new(),
             releases:             HashMap::new(),
             manifest_conversions: HashMap::new(),
+            oauth_codes:          HashMap::new(),
+            oauth_tokens:         HashMap::new(),
+            oauth_client_id:      "github-client-id".to_string(),
+            oauth_client_secret:  "github-client-secret".to_string(),
+            seeded_user:          OauthUser {
+                id:         12345,
+                login:      "octocat".to_string(),
+                name:       Some("The Octocat".to_string()),
+                avatar_url: "https://avatars.githubusercontent.com/u/12345?v=4".to_string(),
+            },
+            seeded_emails:        vec![OauthEmail {
+                email:    "octocat@example.com".to_string(),
+                primary:  true,
+                verified: true,
+            }],
+            allow_authorize:      true,
             comments:             Vec::new(),
             webhook_config:       WebhookOptions::default(),
             next_installation_id: 1,
@@ -379,6 +429,13 @@ impl AppState {
 
     pub fn validate_token(&self, token: &str) -> Option<&TokenInfo> {
         self.active_tokens.get(token)
+    }
+
+    pub fn oauth_subject(&self) -> OauthSubject {
+        OauthSubject {
+            user:   self.seeded_user.clone(),
+            emails: self.seeded_emails.clone(),
+        }
     }
 }
 

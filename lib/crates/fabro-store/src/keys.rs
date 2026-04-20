@@ -82,6 +82,26 @@ pub(crate) fn blob_key(id: &RunBlobId) -> SlateKey {
     SlateKey::new("blobs").with("sha256").with(id)
 }
 
+pub(crate) fn auth_code_prefix() -> SlateKey {
+    SlateKey::new("auth").with("code").into_prefix()
+}
+
+pub(crate) fn auth_code_key(code: &str) -> SlateKey {
+    SlateKey::new("auth").with("code").with(code)
+}
+
+pub(crate) fn auth_refresh_prefix() -> SlateKey {
+    SlateKey::new("auth").with("refresh").into_prefix()
+}
+
+pub(crate) fn auth_refresh_key(token_hash: &[u8; 32]) -> SlateKey {
+    let mut encoded = String::with_capacity(token_hash.len() * 2);
+    for byte in token_hash {
+        write!(&mut encoded, "{byte:02x}").expect("write to String cannot fail");
+    }
+    SlateKey::new("auth").with("refresh").with(encoded)
+}
+
 // --- Parsing ---
 
 pub(crate) fn parse_event_seq(key: &str) -> Option<u32> {

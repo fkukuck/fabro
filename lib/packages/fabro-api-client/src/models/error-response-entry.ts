@@ -30,5 +30,9 @@ export interface ErrorResponseEntry {
      * Human-readable error description.
      */
     'detail': string;
+    /**
+     * Optional machine-readable error code for structured client handling.
+     */
+    'code'?: string;
 }
 

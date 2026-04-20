@@ -37,6 +37,7 @@ models/board-column-definition.ts
 models/board-column.ts
 models/check-run-status.ts
 models/check-run.ts
+models/cli-auth-config.ts
 models/code-location.ts
 models/completion-content-part.ts
 models/completion-message.ts

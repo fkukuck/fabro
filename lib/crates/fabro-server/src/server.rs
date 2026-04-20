@@ -109,6 +109,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 use ulid::Ulid;
 
+use crate::auth::GithubEndpoints;
 use crate::bind::Bind;
 use crate::error::ApiError;
 use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
@@ -692,7 +693,7 @@ impl AppState {
 
     pub(crate) fn session_key(&self) -> Option<Key> {
         self.server_secret("SESSION_SECRET")
-            .map(|value| Key::derive_from(value.as_bytes()))
+            .and_then(|value| crate::auth::derive_cookie_key(value.as_bytes()).ok())
     }
 
     pub(crate) fn github_credentials(
@@ -922,14 +923,18 @@ pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
     )
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RouterOptions {
-    pub web_enabled: bool,
+    pub web_enabled:      bool,
+    pub github_endpoints: Option<Arc<GithubEndpoints>>,
 }
 
 impl Default for RouterOptions {
     fn default() -> Self {
-        Self { web_enabled: true }
+        Self {
+            web_enabled:      true,
+            github_endpoints: None,
+        }
     }
 }
 
@@ -946,32 +951,43 @@ pub fn build_router_with_options(
 ) -> Router {
     start_optional_slack_service(&state);
     let middleware_state = Arc::clone(&state);
-    let api_common = if options.web_enabled {
+    let web_enabled = options.web_enabled;
+    let github_endpoints = options
+        .github_endpoints
+        .clone()
+        .unwrap_or_else(|| Arc::new(GithubEndpoints::production_defaults()));
+    let api_common = if web_enabled {
         Router::new()
             .route("/openapi.json", get(openapi_spec))
+            .merge(crate::auth::api_routes())
             .merge(web_auth::api_routes())
     } else {
-        Router::new().route("/openapi.json", get(openapi_spec))
+        Router::new()
+            .route("/openapi.json", get(openapi_spec))
+            .merge(crate::auth::api_routes())
     };
 
     let demo_router = Router::new()
         .nest("/api/v1", api_common.clone().merge(demo_routes()))
         .layer(axum::Extension(AuthMode::Disabled))
+        .layer(axum::Extension(Arc::clone(&github_endpoints)))
         .with_state(state.clone());
 
     let mut real_router = Router::new().nest("/api/v1", api_common.merge(real_routes()));
-    if options.web_enabled {
-        real_router = real_router.nest("/auth", web_auth::routes());
+    if web_enabled {
+        real_router =
+            real_router.nest("/auth", web_auth::routes().merge(crate::auth::web_routes()));
     }
     let real_router = real_router
         .layer(axum::Extension(auth_mode))
+        .layer(axum::Extension(github_endpoints))
         .with_state(state);
 
     let dispatch = service_fn(move |req: axum_extract::Request| {
         let demo = demo_router.clone();
         let real = real_router.clone();
         async move {
-            if options.web_enabled && req.headers().get("x-fabro-demo").is_some_and(|v| v == "1") {
+            if web_enabled && req.headers().get("x-fabro-demo").is_some_and(|v| v == "1") {
                 demo.oneshot(req).await
             } else {
                 real.oneshot(req).await
@@ -1008,14 +1024,12 @@ pub fn build_router_with_options(
                 let path = req.uri().path().to_string();
                 let dispatch_path = path.starts_with("/api/")
                     || path == "/health"
-                    || (options.web_enabled && path.starts_with("/auth/"));
+                    || (web_enabled && path.starts_with("/auth/"));
                 if dispatch_path {
                     dispatch.oneshot(req).await
-                } else if options.web_enabled && removed_web_route(&path) {
+                } else if web_enabled && removed_web_route(&path) {
                     Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
-                } else if options.web_enabled
-                    && matches!(req.method(), &Method::GET | &Method::HEAD)
-                {
+                } else if web_enabled && matches!(req.method(), &Method::GET | &Method::HEAD) {
                     let headers = req.headers().clone();
                     Ok::<_, std::convert::Infallible>(static_files::serve(&path, &headers).await)
                 } else {
@@ -1024,7 +1038,7 @@ pub fn build_router_with_options(
             }
         }));
 
-    if options.web_enabled {
+    if web_enabled {
         router = router.layer(middleware::from_fn_with_state(
             middleware_state,
             cookie_and_demo_middleware,
@@ -7953,8 +7967,10 @@ slug = "fabro"
                 false,
             ),
             AuthMode::Enabled(ConfiguredAuth {
-                methods:   vec![ServerAuthMethod::Github],
-                dev_token: None,
+                methods:    vec![ServerAuthMethod::Github],
+                dev_token:  None,
+                jwt_key:    None,
+                jwt_issuer: None,
             }),
         );
 
@@ -8478,8 +8494,10 @@ slug = "fabro"
         let app = build_router(
             Arc::clone(&state),
             AuthMode::Enabled(ConfiguredAuth {
-                methods:   vec![ServerAuthMethod::DevToken],
-                dev_token: Some(DEV_TOKEN.to_string()),
+                methods:    vec![ServerAuthMethod::DevToken],
+                dev_token:  Some(DEV_TOKEN.to_string()),
+                jwt_key:    None,
+                jwt_issuer: None,
             }),
         );
 

@@ -1032,6 +1032,8 @@ pub(crate) enum Commands {
     },
     /// Uninstall Fabro from this machine
     Uninstall(UninstallArgs),
+    /// Manage CLI authentication state
+    Auth(AuthNamespace),
     /// Pull request operations
     Pr(PrNamespace),
     /// Manage server-owned secrets
@@ -1123,6 +1125,11 @@ impl Commands {
                 Some(InstallCommand::Github(_)) => "install github",
             },
             Self::Uninstall(_) => "uninstall",
+            Self::Auth(ns) => match &ns.command {
+                AuthCommand::Login(_) => "auth login",
+                AuthCommand::Logout(_) => "auth logout",
+                AuthCommand::Status(_) => "auth status",
+            },
             Self::Pr(ns) => match &ns.command {
                 PrCommand::Create(_) => "pr create",
                 PrCommand::List(_) => "pr list",
@@ -1464,6 +1471,52 @@ pub(crate) struct UninstallArgs {
 pub(crate) struct ProviderNamespace {
     #[command(subcommand)]
     pub(crate) command: ProviderCommand,
+}
+
+#[derive(Args)]
+pub(crate) struct AuthNamespace {
+    #[command(subcommand)]
+    pub(crate) command: AuthCommand,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum AuthCommand {
+    /// Log in to a Fabro server
+    Login(AuthLoginArgs),
+    /// Log out from a Fabro server
+    Logout(AuthLogoutArgs),
+    /// Show offline CLI auth status
+    Status(AuthStatusArgs),
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub(crate) struct AuthLoginArgs {
+    #[command(flatten)]
+    pub(crate) server: ServerTargetArgs,
+
+    /// Print the browser URL instead of opening it automatically
+    #[arg(long)]
+    pub(crate) no_browser: bool,
+
+    /// Timeout in seconds waiting for the browser flow to complete
+    #[arg(long, default_value_t = 300)]
+    pub(crate) timeout: u64,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub(crate) struct AuthLogoutArgs {
+    #[command(flatten)]
+    pub(crate) server: ServerTargetArgs,
+
+    /// Log out from every stored server
+    #[arg(long)]
+    pub(crate) all: bool,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub(crate) struct AuthStatusArgs {
+    #[command(flatten)]
+    pub(crate) server: ServerTargetArgs,
 }
 
 #[derive(Subcommand)]

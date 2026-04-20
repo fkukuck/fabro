@@ -1,3 +1,5 @@
+mod auth_codes;
+mod auth_tokens;
 mod catalog;
 mod run_store;
 
@@ -6,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub use auth_codes::{AuthCode, SlateAuthCodeStore};
+pub use auth_tokens::{ConsumeOutcome, RefreshToken, SlateAuthTokenStore};
 use fabro_types::RunId;
 use object_store::ObjectStore;
 pub use run_store::RunDatabase;
@@ -23,6 +27,8 @@ pub struct Database {
     cache_path:     Option<PathBuf>,
     db:             Arc<OnceCell<slatedb::Db>>,
     active_runs:    Arc<Mutex<HashMap<RunId, Arc<RunDatabaseInner>>>>,
+    auth_codes:     Arc<OnceCell<Arc<SlateAuthCodeStore>>>,
+    auth_tokens:    Arc<OnceCell<Arc<SlateAuthTokenStore>>>,
 }
 
 impl std::fmt::Debug for Database {
@@ -49,6 +55,8 @@ impl Database {
             cache_path,
             db: Arc::new(OnceCell::new()),
             active_runs: Arc::new(Mutex::new(HashMap::new())),
+            auth_codes: Arc::new(OnceCell::new()),
+            auth_tokens: Arc::new(OnceCell::new()),
         }
     }
 
@@ -195,6 +203,28 @@ impl Database {
         }
         catalog::delete_index(&db, run_id).await?;
         Ok(())
+    }
+
+    pub async fn auth_codes(&self) -> Result<Arc<SlateAuthCodeStore>> {
+        let store = self
+            .auth_codes
+            .get_or_try_init(|| async {
+                let db = Arc::new(self.open_db().await?);
+                Ok::<_, Error>(Arc::new(SlateAuthCodeStore::new(db)))
+            })
+            .await?;
+        Ok(Arc::clone(store))
+    }
+
+    pub async fn auth_tokens(&self) -> Result<Arc<SlateAuthTokenStore>> {
+        let store = self
+            .auth_tokens
+            .get_or_try_init(|| async {
+                let db = Arc::new(self.open_db().await?);
+                Ok::<_, Error>(Arc::new(SlateAuthTokenStore::new(db)))
+            })
+            .await?;
+        Ok(Arc::clone(store))
     }
 
     #[must_use]

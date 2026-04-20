@@ -394,6 +394,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/auth/cli/config:
+    get:
+      operationId: getCliAuthConfig
+      tags: [Discovery]
+      summary: CLI Auth Configuration
+      description: Returns whether CLI OAuth login is available for this server and which web origin should handle the browser flow.
+      security: []
+      responses:
+        "200":
+          description: CLI authentication configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliAuthConfig"
+
   # ── Runs ──────────────────────────────────────────────────────────────
 
   /api/v1/runs:
@@ -3300,6 +3315,10 @@ components:
           type: string
           description: Human-readable error description.
           example: Run not found.
+        code:
+          type: string
+          description: Optional machine-readable error code for structured client handling.
+          example: access_token_expired
 
     ErrorResponse:
       description: Standard error response containing one or more error entries.
@@ -5140,6 +5159,33 @@ components:
           type: string
           description: Health status indicator.
           example: ok
+
+    CliAuthConfig:
+      description: Capability and routing information for CLI OAuth login.
+      type: object
+      required:
+        - enabled
+        - web_url
+        - methods
+      properties:
+        enabled:
+          type: boolean
+          description: Whether CLI OAuth login is currently available.
+        web_url:
+          type: ["string", "null"]
+          description: Canonical browser origin for the OAuth flow when enabled.
+          example: https://fabro.example.com
+        methods:
+          type: array
+          description: Authentication methods configured on the server.
+          items:
+            type: string
+          example: ["github", "dev-token"]
+        reason:
+          type: ["string", "null"]
+          description: >
+            Optional machine-readable reason when CLI OAuth login is unavailable.
+            Known values currently include `github_not_enabled` and `web_not_enabled`.
 
     SecretType:
       description: The way a secret is consumed by the sandbox.

@@ -2,6 +2,7 @@ mod archive;
 mod artifact_cp;
 mod artifact_list;
 mod attach;
+mod auth;
 mod config;
 mod create;
 mod diff;

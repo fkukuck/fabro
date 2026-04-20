@@ -156,10 +156,10 @@ methods = ["dev-token"]
 
 #[tokio::test]
 async fn tcp_dev_token_auth_uses_bearer_auth() {
-    let auth_mode = AuthMode::Enabled(ConfiguredAuth {
-        methods:   vec![ServerAuthMethod::DevToken],
-        dev_token: Some(TEST_DEV_TOKEN.to_string()),
-    });
+    let auth_mode = AuthMode::Enabled(ConfiguredAuth::new(
+        vec![ServerAuthMethod::DevToken],
+        Some(TEST_DEV_TOKEN.to_string()),
+    ));
     let addr = start_tcp_server(auth_mode, Arc::new(IpAllowlistConfig::default())).await;
     let client = fabro_http::test_http_client().unwrap();
     let url = format!("http://127.0.0.1:{}{}", addr.port(), api("/runs"));

@@ -1,5 +1,6 @@
 extern crate self as fabro_types;
 
+pub mod auth;
 pub mod billing;
 pub mod blob_ref;
 pub mod checkpoint;
@@ -21,6 +22,7 @@ pub mod stage_id;
 pub mod start;
 pub mod status;
 
+pub use auth::{IdpIdentity, IdpIdentityError};
 pub use billing::{
     AnthropicBillingFacts, AnthropicModelPricing, BilledModelUsage, BilledTokenCounts,
     GeminiBillingFacts, GeminiModelPricing, GeminiStoragePricing, GeminiStorageSegment,

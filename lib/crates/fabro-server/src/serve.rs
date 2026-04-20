@@ -367,6 +367,8 @@ where
         flush_interval,
         cache_path,
     ));
+    let auth_code_store = store.auth_codes().await?;
+    let auth_token_store = store.auth_tokens().await?;
     let (artifact_object_store, artifact_prefix) =
         build_artifact_object_store(&resolved_server_settings)?;
     let artifact_store = fabro_store::ArtifactStore::new(artifact_object_store, artifact_prefix);
@@ -404,7 +406,10 @@ where
         Arc::clone(&state),
         auth_mode,
         Arc::clone(&default_ip_allowlist),
-        RouterOptions { web_enabled },
+        RouterOptions {
+            web_enabled,
+            ..RouterOptions::default()
+        },
     );
 
     // Optionally start webhook listener
@@ -475,6 +480,12 @@ where
         }
         let _ = shutdown_tx.send(true);
     });
+
+    spawn_auth_store_reapers(
+        Arc::clone(&auth_code_store),
+        Arc::clone(&auth_token_store),
+        shutdown_rx.clone(),
+    );
 
     // Spawn config polling task
     let state_for_poll = Arc::clone(&state);
@@ -689,6 +700,58 @@ async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
         return;
     }
     let _ = shutdown_rx.changed().await;
+}
+
+fn spawn_auth_store_reapers(
+    auth_codes: Arc<fabro_store::SlateAuthCodeStore>,
+    auth_tokens: Arc<fabro_store::SlateAuthTokenStore>,
+    shutdown_rx: watch::Receiver<bool>,
+) {
+    spawn_auth_code_reaper(auth_codes, shutdown_rx.clone());
+    spawn_refresh_token_reaper(auth_tokens, shutdown_rx);
+}
+
+fn spawn_auth_code_reaper(
+    auth_codes: Arc<fabro_store::SlateAuthCodeStore>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(30));
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => break,
+                _ = interval.tick() => {
+                    if let Err(err) = auth_codes.gc_expired(chrono::Utc::now()).await {
+                        warn!(error = %err, "Failed to garbage collect expired auth codes");
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn spawn_refresh_token_reaper(
+    auth_tokens: Arc<fabro_store::SlateAuthTokenStore>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(6 * 60 * 60));
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => break,
+                _ = interval.tick() => {
+                    let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+                    if let Err(err) = auth_tokens.gc_expired(cutoff).await {
+                        warn!(error = %err, "Failed to garbage collect expired refresh tokens");
+                    }
+                }
+            }
+        }
+    });
 }
 
 #[allow(

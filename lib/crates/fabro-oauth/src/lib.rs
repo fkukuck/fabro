@@ -107,6 +107,40 @@ pub struct TokenResponse {
     pub expires_in:    Option<u64>,
 }
 
+pub struct CallbackHandle {
+    port:        u16,
+    shutdown_tx: std::sync::Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
+}
+
+impl CallbackHandle {
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn redirect_uri(&self, path: &str) -> String {
+        build_redirect_uri(self.port, path)
+    }
+
+    pub fn shutdown(&self) {
+        if let Some(tx) = self.shutdown_tx.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallbackSuccess {
+    pub code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallbackFailure {
+    pub error_code:        String,
+    pub error_description: String,
+}
+
+pub type CallbackResult = Result<CallbackSuccess, CallbackFailure>;
+
 // ---------------------------------------------------------------------------
 // Token exchange
 // ---------------------------------------------------------------------------
@@ -368,6 +402,131 @@ pub async fn start_callback_server(
     });
 
     Ok((actual_port, code_rx))
+}
+
+pub async fn start_callback_server_with_errors(
+    expected_state: String,
+    port: u16,
+    path: &str,
+) -> Result<(CallbackHandle, oneshot::Receiver<CallbackResult>), String> {
+    validate_callback_path(path)?;
+
+    let listener = TcpListener::bind(("127.0.0.1", port))
+        .await
+        .map_err(|e| format!("Failed to bind callback server: {e}"))?;
+    let actual_port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get local address: {e}"))?
+        .port();
+
+    let (callback_tx, callback_rx) = oneshot::channel::<CallbackResult>();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let callback_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(callback_tx)));
+    let shutdown_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(shutdown_tx)));
+    let route_shutdown_tx = shutdown_tx.clone();
+    let expected_state = std::sync::Arc::new(expected_state);
+    let callback_path = path.to_string();
+
+    let app = axum::Router::new().route(
+        callback_path.as_str(),
+        get(move |Query(params): Query<CallbackParams>| async move {
+            if params.state != *expected_state {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Html(
+                        r#"<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Authorization Failed</title></head>
+<body><p>State mismatch</p></body>
+</html>"#
+                            .to_string(),
+                    ),
+                );
+            }
+
+            if let Some(error_code) = params.error {
+                let error_description = params
+                    .error_description
+                    .unwrap_or_else(|| error_code.clone());
+                if let Some(tx) = callback_tx.lock().unwrap().take() {
+                    let _ = tx.send(Err(CallbackFailure {
+                        error_code:        error_code.clone(),
+                        error_description: error_description.clone(),
+                    }));
+                }
+                if let Some(tx) = route_shutdown_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Html(format!(
+                        r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Authorization Failed</title>
+</head>
+<body>
+<p>Login failed: {error_description}</p>
+</body>
+</html>"#
+                    )),
+                );
+            }
+
+            let Some(code) = params.code else {
+                if let Some(tx) = callback_tx.lock().unwrap().take() {
+                    let _ = tx.send(Err(CallbackFailure {
+                        error_code:        "invalid_request".to_string(),
+                        error_description: "No authorization code received".to_string(),
+                    }));
+                }
+                if let Some(tx) = route_shutdown_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Html("No authorization code received".to_string()),
+                );
+            };
+
+            if let Some(tx) = callback_tx.lock().unwrap().take() {
+                let _ = tx.send(Ok(CallbackSuccess { code }));
+            }
+            if let Some(tx) = route_shutdown_tx.lock().unwrap().take() {
+                let _ = tx.send(());
+            }
+            (
+                StatusCode::OK,
+                Html(
+                    r#"<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Authorization</title></head>
+<body><p>Logged in. You can close this tab.</p></body>
+</html>"#
+                        .to_string(),
+                ),
+            )
+        }),
+    );
+
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+
+    Ok((
+        CallbackHandle {
+            port: actual_port,
+            shutdown_tx,
+        },
+        callback_rx,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -900,5 +1059,62 @@ mod tests {
                 .unwrap_err();
             assert!(!err.is_empty(), "expected error for path {path}");
         }
+    }
+
+    #[tokio::test]
+    async fn callback_server_with_errors_forwards_oauth_error() {
+        let callback_path = "/oauth/done";
+        let (handle, callback_rx) =
+            start_callback_server_with_errors("test-state".to_string(), 0, callback_path)
+                .await
+                .unwrap();
+
+        let client = test_http_client();
+        let response = client
+            .get(format!(
+                "http://127.0.0.1:{}{callback_path}?error=access_denied&error_description=Authorization%20denied&state=test-state",
+                handle.port()
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let callback = callback_rx.await.unwrap().unwrap_err();
+        assert_eq!(callback.error_code, "access_denied");
+        assert_eq!(callback.error_description, "Authorization denied");
+    }
+
+    #[tokio::test]
+    async fn callback_server_with_errors_ignores_state_mismatch_until_real_callback_arrives() {
+        let callback_path = "/oauth/done";
+        let (handle, callback_rx) =
+            start_callback_server_with_errors("correct-state".to_string(), 0, callback_path)
+                .await
+                .unwrap();
+
+        let client = test_http_client();
+        let mismatch = client
+            .get(format!(
+                "http://127.0.0.1:{}{callback_path}?error=access_denied&error_description=boom&state=wrong-state",
+                handle.port()
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(mismatch.status(), StatusCode::BAD_REQUEST);
+
+        let success = client
+            .get(format!(
+                "http://127.0.0.1:{}{callback_path}?code=auth-code&state=correct-state",
+                handle.port()
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(success.status(), StatusCode::OK);
+
+        let callback = callback_rx.await.unwrap().unwrap();
+        assert_eq!(callback.code, "auth-code");
     }
 }

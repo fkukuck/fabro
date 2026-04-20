@@ -4,8 +4,10 @@ pub mod git;
 pub mod graphql;
 pub mod installations;
 pub mod manifests;
+pub mod oauth;
 pub mod pulls;
 pub mod releases;
+pub mod users;
 
 use axum::Router;
 use axum::routing::{get, patch, post, put};
@@ -54,6 +56,11 @@ pub fn build_router(state: SharedState) -> Router {
             "/app-manifests/{code}/conversions",
             post(manifests::convert_manifest),
         )
+        // OAuth endpoints
+        .route("/login/oauth/authorize", get(oauth::authorize))
+        .route("/login/oauth/access_token", post(oauth::access_token))
+        .route("/user", get(users::get_user))
+        .route("/user/emails", get(users::get_emails))
         // Releases
         .route(
             "/repos/{owner}/{repo}/releases/latest",

@@ -48,6 +48,7 @@ tower-http = { version = "0.6", features = ["trace"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 base64.workspace = true
 jsonwebtoken.workspace = true
+hkdf.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -73,6 +74,7 @@ walkdir.workspace = true
 multer = "3"
 thiserror.workspace = true
 ipnet = "2.11.0"
+percent-encoding.workspace = true
 
 [build-dependencies]
 chrono = { workspace = true }
