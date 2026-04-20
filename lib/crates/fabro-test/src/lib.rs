@@ -44,6 +44,28 @@ macro_rules! preserve_coverage_env {
     }};
 }
 
+/// Emit a single timing probe line to `$FABRO_TEST_PROBE_LOG` using an
+/// O_APPEND open — POSIX guarantees that a single `write` up to
+/// `PIPE_BUF` bytes is atomic, so concurrent test processes writing short
+/// lines to the same file do not interleave.
+fn probe_emit(test: &str, phase: &str, elapsed: std::time::Duration) {
+    let Ok(path) = std::env::var("FABRO_TEST_PROBE_LOG") else {
+        return;
+    };
+    use std::io::Write;
+    // Format the entire line first, then issue exactly one `write` so lines
+    // from concurrent writers do not interleave (O_APPEND + single syscall
+    // ≤ PIPE_BUF is atomic per POSIX).
+    let line = format!("{phase}\t{:.3}\t{test}\n", elapsed.as_secs_f64() * 1000.0);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+    {
+        let _ = file.write(line.as_bytes());
+    }
+}
+
 /// Walk up from `start` to find the repo-level `test/` fixtures directory.
 pub fn find_test_fixtures_dir(start: &Path) -> Option<PathBuf> {
     let mut dir = start;
@@ -954,6 +976,13 @@ impl TestContext {
             .next()
             .unwrap_or("unknown")
             .to_string();
+        let probe_start = std::time::Instant::now();
+        let mut last = probe_start;
+        let mut probe = |phase: &str| {
+            let now = std::time::Instant::now();
+            probe_emit(&test_name, phase, now.duration_since(last));
+            last = now;
+        };
         // Truncate to keep total temp path under Unix socket limit (104 bytes).
         // Budget: TMPDIR (~49) + prefix + suffix (~6) + /home/fabro-data/fabro.sock
         // (27) < 104
@@ -962,10 +991,14 @@ impl TestContext {
             .prefix(&format!(".ft-{label}-"))
             .tempdir()
             .expect("failed to create temp dir");
+        probe("tempdir");
         let root_path = context_root.path().to_path_buf();
         let (_, test_run_id, session_paths) = session_paths();
+        probe("session_paths");
         reap_stale_session_roots(SessionMode::Nextest);
+        probe("reap_nextest");
         reap_stale_session_roots(SessionMode::Process);
+        probe("reap_process");
         with_session_lock(&session_paths.root, || {
             std::fs::create_dir_all(session_clients_dir(&session_paths.root)).unwrap_or_else(
                 |err| {
@@ -995,6 +1028,7 @@ impl TestContext {
             }
             write_marker(&session_paths.root);
         });
+        probe("with_session_lock");
 
         let temp_dir = root_path.join("temp");
         let home_dir = root_path.join("home");
@@ -1009,6 +1043,8 @@ impl TestContext {
             &session_paths.server.socket_path,
             false,
         );
+        probe("sync_home_settings");
+        probe_emit(&test_name, "total", probe_start.elapsed());
         let temp_dir_str = temp_dir
             .to_str()
             .expect("temp_dir should be valid UTF-8 for snapshot filtering");
