@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowPathIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link, Outlet, useFetcher, useLocation } from "react-router";
 import type {
@@ -95,6 +95,14 @@ type LifecycleActionResult =
 
 export type RunDetailActionResult = PreviewActionResult | LifecycleActionResult;
 
+interface ArchiveToastState {
+  activeArchiveToastId: string | null;
+  lastArchiveResultKey: string | null;
+  lastUnarchiveResultKey: string | null;
+}
+
+type ToastApi = Pick<ReturnType<typeof useToast>, "push" | "dismiss">;
+
 export function lifecycleActionVisibility(status: string | null | undefined) {
   return {
     showPrimaryCancel: canCancel(status),
@@ -175,9 +183,14 @@ export default function RunDetail({ loaderData, params }: { loaderData: RunDetai
   const cancelFetcher = useFetcher<RunDetailActionResult>();
   const archiveFetcher = useFetcher<RunDetailActionResult>();
   const unarchiveFetcher = useFetcher<RunDetailActionResult>();
-  const { push } = useToast();
+  const { push, dismiss } = useToast();
   const demoMode = useDemoMode();
   const tabs = allTabs.filter((t) => !t.demoOnly || demoMode);
+  const archiveToastStateRef = useRef<ArchiveToastState>({
+    activeArchiveToastId: null,
+    lastArchiveResultKey: null,
+    lastUnarchiveResultKey: null,
+  });
 
   useRunEventSource(run?.id ?? undefined, {
     allowlist: RUN_DETAIL_EVENTS,
@@ -205,30 +218,21 @@ export default function RunDetail({ loaderData, params }: { loaderData: RunDetai
   }, [cancelFetcher.data, push]);
 
   useEffect(() => {
-    const result = archiveFetcher.data;
-    if (!result || result.intent !== "archive") return;
-    if (isLifecycleActionFailure(result)) {
-      push({ message: mapError(result.error, "archive"), tone: "error" });
-      return;
-    }
-    push({
-      message: "Run archived.",
-      action: {
-        label: "Unarchive",
-        onClick: () => submitIntent(unarchiveFetcher, "unarchive"),
-      },
-    });
-  }, [archiveFetcher, archiveFetcher.data, push, unarchiveFetcher]);
+    archiveToastStateRef.current = handleArchiveToastResult(
+      archiveFetcher.data,
+      archiveToastStateRef.current,
+      { push, dismiss },
+      () => submitIntent(unarchiveFetcher, "unarchive"),
+    );
+  }, [archiveFetcher.data, dismiss, push, unarchiveFetcher]);
 
   useEffect(() => {
-    const result = unarchiveFetcher.data;
-    if (!result || result.intent !== "unarchive") return;
-    if (isLifecycleActionFailure(result)) {
-      push({ message: mapError(result.error, "unarchive"), tone: "error" });
-      return;
-    }
-    push({ message: "Run restored." });
-  }, [push, unarchiveFetcher.data]);
+    archiveToastStateRef.current = handleUnarchiveToastResult(
+      unarchiveFetcher.data,
+      archiveToastStateRef.current,
+      { push, dismiss },
+    );
+  }, [dismiss, push, unarchiveFetcher.data]);
 
   if (!run) {
     return (
@@ -456,6 +460,96 @@ function isLifecycleActionFailure(
   value: LifecycleActionResult,
 ): value is Extract<LifecycleActionResult, { ok: false }> {
   return value.ok === false;
+}
+
+function lifecycleResultKey(result: RunDetailActionResult | undefined): string | null {
+  if (!result || result.intent === "preview") return null;
+
+  if (isLifecycleActionFailure(result)) {
+    return [
+      result.intent,
+      "error",
+      String(result.error?.status ?? ""),
+      result.error?.errors[0]?.detail ?? "",
+    ].join(":");
+  }
+
+  return [
+    result.intent,
+    "ok",
+    result.run.id,
+    result.run.status,
+    result.run.status_reason ?? "",
+    result.run.created_at ?? "",
+  ].join(":");
+}
+
+export function handleArchiveToastResult(
+  result: RunDetailActionResult | undefined,
+  state: ArchiveToastState,
+  toastApi: ToastApi,
+  onUnarchive: () => void,
+): ArchiveToastState {
+  if (!result || result.intent !== "archive") return state;
+
+  const resultKey = lifecycleResultKey(result);
+  if (state.lastArchiveResultKey === resultKey) return state;
+
+  const nextState = {
+    ...state,
+    lastArchiveResultKey: resultKey,
+  };
+
+  if (isLifecycleActionFailure(result)) {
+    toastApi.push({ message: mapError(result.error, "archive"), tone: "error" });
+    return nextState;
+  }
+
+  if (state.activeArchiveToastId) {
+    toastApi.dismiss(state.activeArchiveToastId);
+  }
+
+  return {
+    ...nextState,
+    activeArchiveToastId: toastApi.push({
+      message: "Run archived.",
+      action: {
+        label: "Unarchive",
+        onClick: onUnarchive,
+      },
+    }),
+  };
+}
+
+export function handleUnarchiveToastResult(
+  result: RunDetailActionResult | undefined,
+  state: ArchiveToastState,
+  toastApi: ToastApi,
+): ArchiveToastState {
+  if (!result || result.intent !== "unarchive") return state;
+
+  const resultKey = lifecycleResultKey(result);
+  if (state.lastUnarchiveResultKey === resultKey) return state;
+
+  const nextState = {
+    ...state,
+    lastUnarchiveResultKey: resultKey,
+  };
+
+  if (isLifecycleActionFailure(result)) {
+    toastApi.push({ message: mapError(result.error, "unarchive"), tone: "error" });
+    return nextState;
+  }
+
+  if (state.activeArchiveToastId) {
+    toastApi.dismiss(state.activeArchiveToastId);
+  }
+  toastApi.push({ message: "Run restored." });
+
+  return {
+    ...nextState,
+    activeArchiveToastId: null,
+  };
 }
 
 function submitIntent(
