@@ -166,13 +166,14 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
-         * Deletes durable store state for a run. This does not remove any local run directory.
+         * Deletes durable store state for a run. This does not remove any local run directory. Active runs require `force=true`.
          * @summary Delete Run
          * @param {string} id Unique run identifier (ULID).
+         * @param {boolean} [force] Whether to force deletion of an active run. Defaults to &#x60;false&#x60;.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteRun: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        deleteRun: async (id: string, force?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'id' is not null or undefined
             assertParamExists('deleteRun', 'id', id)
             const localVarPath = `/api/v1/runs/{id}`
@@ -193,6 +194,10 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             // authentication BearerAuth required
             // http bearer authentication required
             await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            if (force !== undefined) {
+                localVarQueryParameter['force'] = force;
+            }
 
             localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -719,14 +724,15 @@ export const RunsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Deletes durable store state for a run. This does not remove any local run directory.
+         * Deletes durable store state for a run. This does not remove any local run directory. Active runs require `force=true`.
          * @summary Delete Run
          * @param {string} id Unique run identifier (ULID).
+         * @param {boolean} [force] Whether to force deletion of an active run. Defaults to &#x60;false&#x60;.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteRun(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteRun(id, options);
+        async deleteRun(id: string, force?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteRun(id, force, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunsApi.deleteRun']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -918,14 +924,15 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.createRun(runManifest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Deletes durable store state for a run. This does not remove any local run directory.
+         * Deletes durable store state for a run. This does not remove any local run directory. Active runs require `force=true`.
          * @summary Delete Run
          * @param {string} id Unique run identifier (ULID).
+         * @param {boolean} [force] Whether to force deletion of an active run. Defaults to &#x60;false&#x60;.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteRun(id: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.deleteRun(id, options).then((request) => request(axios, basePath));
+        deleteRun(id: string, force?: boolean, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.deleteRun(id, force, options).then((request) => request(axios, basePath));
         },
         /**
          * Temporary board-view list of managed runs. This endpoint is UI-oriented and may change as the app evolves.
@@ -1082,14 +1089,15 @@ export class RunsApi extends BaseAPI {
     }
 
     /**
-     * Deletes durable store state for a run. This does not remove any local run directory.
+     * Deletes durable store state for a run. This does not remove any local run directory. Active runs require `force=true`.
      * @summary Delete Run
      * @param {string} id Unique run identifier (ULID).
+     * @param {boolean} [force] Whether to force deletion of an active run. Defaults to &#x60;false&#x60;.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public deleteRun(id: string, options?: RawAxiosRequestConfig) {
-        return RunsApiFp(this.configuration).deleteRun(id, options).then((request) => request(this.axios, this.basePath));
+    public deleteRun(id: string, force?: boolean, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).deleteRun(id, force, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

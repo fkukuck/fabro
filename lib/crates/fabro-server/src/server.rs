@@ -115,8 +115,8 @@ use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
 use crate::jwt_auth::{
     AuthMode, AuthenticatedService, AuthenticatedSubject, authenticate_service_parts,
 };
-use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
+use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::server_secrets::{
     LlmClientResult, ProviderCredentials, ServerSecrets, auth_issue_message,
 };
@@ -1410,7 +1410,7 @@ async fn prune_runs(
     }
 
     for run_id in &prune_plan.run_ids {
-        if let Err(response) = delete_run_internal(&state, *run_id).await {
+        if let Err(response) = delete_run_internal(&state, *run_id, true).await {
             return response;
         }
     }
@@ -2858,6 +2858,12 @@ struct ResolveRunQuery {
     selector: String,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct DeleteRunQuery {
+    #[serde(default)]
+    force: bool,
+}
+
 async fn resolve_run(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
@@ -2900,6 +2906,7 @@ async fn resolve_run(
 async fn delete_run(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<DeleteRunQuery>,
     Path(id): Path<String>,
 ) -> Response {
     let id = match parse_run_id_path(&id) {
@@ -2907,13 +2914,21 @@ async fn delete_run(
         Err(response) => return response,
     };
 
-    match delete_run_internal(&state, id).await {
+    match delete_run_internal(&state, id, query.force).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(response) => response,
     }
 }
 
-async fn delete_run_internal(state: &Arc<AppState>, id: RunId) -> Result<(), Response> {
+async fn delete_run_internal(
+    state: &Arc<AppState>,
+    id: RunId,
+    force: bool,
+) -> Result<(), Response> {
+    if !force {
+        reject_active_delete_without_force(state.as_ref(), &id).await?;
+    }
+
     let managed_run = if let Ok(mut runs) = state.runs.lock() {
         runs.remove(&id)
     } else {
@@ -2975,6 +2990,55 @@ async fn delete_run_internal(state: &Arc<AppState>, id: RunId) -> Result<(), Res
             ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         })?;
     Ok(())
+}
+
+async fn reject_active_delete_without_force(
+    state: &AppState,
+    run_id: &RunId,
+) -> Result<(), Response> {
+    let managed_status = state
+        .runs
+        .lock()
+        .ok()
+        .and_then(|runs| runs.get(run_id).map(|managed_run| managed_run.status));
+    if let Some(status) = managed_status {
+        if matches!(
+            status,
+            RunStatus::Submitted
+                | RunStatus::Queued
+                | RunStatus::Starting
+                | RunStatus::Running
+                | RunStatus::Blocked
+                | RunStatus::Paused
+        ) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                active_run_delete_message(*run_id, status),
+            )
+            .into_response());
+        }
+        return Ok(());
+    }
+
+    match state.store.runs().find(run_id).await {
+        Ok(Some(summary)) if summary.status.is_active() => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            active_run_delete_message(*run_id, summary.status),
+        )
+        .into_response()),
+        Ok(_) => Ok(()),
+        Err(err) => {
+            Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
+        }
+    }
+}
+
+fn active_run_delete_message(run_id: RunId, status: impl std::fmt::Display) -> String {
+    let run_id = run_id.to_string();
+    let short_run_id = &run_id[..12.min(run_id.len())];
+    format!(
+        "cannot remove active run {short_run_id} (status: {status}, use force=true or --force to force)"
+    )
 }
 
 async fn terminate_worker_for_deletion(
@@ -9378,7 +9442,82 @@ slug = "fabro"
 
         let req = Request::builder()
             .method("DELETE")
+            .uri(api(&format!("/runs/{run_id}?force=true")))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let req = Request::builder()
+            .method("GET")
             .uri(api(&format!("/runs/{run_id}")))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_active_run_requires_force() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(api("/runs"))
+            .header("content-type", "application/json")
+            .body(manifest_body(MINIMAL_DOT))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body = body_json(response.into_body()).await;
+        let run_id = body["id"].as_str().unwrap();
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(api(&format!("/runs/{run_id}")))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = body_json(response.into_body()).await;
+        let short_run_id = &run_id[..12.min(run_id.len())];
+        let expected = format!(
+            "cannot remove active run {short_run_id} (status: submitted, use force=true or --force to force)"
+        );
+        assert_eq!(
+            body["errors"][0]["detail"].as_str(),
+            Some(expected.as_str())
+        );
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api(&format!("/runs/{run_id}")))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn delete_active_run_force_succeeds() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(api("/runs"))
+            .header("content-type", "application/json")
+            .body(manifest_body(MINIMAL_DOT))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body = body_json(response.into_body()).await;
+        let run_id = body["id"].as_str().unwrap();
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(api(&format!("/runs/{run_id}?force=true")))
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();

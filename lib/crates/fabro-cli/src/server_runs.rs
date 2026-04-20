@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use fabro_store::RunSummary;
 use fabro_types::{RunId, RunStatus, StatusReason};
@@ -103,13 +103,6 @@ impl ServerSummaryLookup {
     }
 }
 
-pub(crate) fn resolve_server_run_from_summaries(
-    runs: &[ServerRunSummaryInfo],
-    selector: &str,
-) -> Result<ServerRunSummaryInfo> {
-    resolve_server_run_from_infos(runs, selector)
-}
-
 pub(crate) fn filter_server_runs(
     runs: &[ServerRunSummaryInfo],
     before: Option<&str>,
@@ -135,60 +128,4 @@ pub(crate) fn filter_server_runs(
         })
         .cloned()
         .collect()
-}
-
-fn resolve_server_run_from_infos(
-    runs: &[ServerRunSummaryInfo],
-    identifier: &str,
-) -> Result<ServerRunSummaryInfo> {
-    let id_matches: Vec<_> = runs
-        .iter()
-        .filter(|run| run_id_matches(run.run_id(), identifier))
-        .collect();
-
-    match id_matches.len() {
-        1 => return Ok(id_matches[0].clone()),
-        count if count > 1 => {
-            let ids: Vec<String> = id_matches
-                .iter()
-                .map(|run| run.run_id().to_string())
-                .collect();
-            bail!(
-                "Ambiguous prefix '{identifier}': {count} runs match: {}",
-                ids.join(", ")
-            );
-        }
-        _ => {}
-    }
-
-    let id_lower = identifier.to_lowercase();
-    let id_collapsed = collapse_separators(&id_lower);
-    let workflow_match = runs
-        .iter()
-        .filter(|run| {
-            if let Some(slug) = run.workflow_slug() {
-                if slug.to_lowercase() == id_lower {
-                    return true;
-                }
-            }
-            let name_lower = run.workflow_name().to_lowercase();
-            name_lower.contains(&id_lower)
-                || collapse_separators(&name_lower).contains(&id_collapsed)
-        })
-        .max_by_key(|run| run.run_id().created_at());
-
-    match workflow_match {
-        Some(run) => Ok(run.clone()),
-        None => {
-            bail!("No run found matching '{identifier}' (tried run ID prefix and workflow name)")
-        }
-    }
-}
-
-fn collapse_separators(s: &str) -> String {
-    s.chars().filter(|c| *c != '-' && *c != '_').collect()
-}
-
-fn run_id_matches(run_id: RunId, prefix: &str) -> bool {
-    run_id.to_string().starts_with(prefix)
 }
