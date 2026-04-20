@@ -2,7 +2,7 @@ use fabro_test::{fabro_snapshot, test_context};
 use httpmock::MockServer;
 use serde_json::Value;
 
-use super::support::{setup_completed_fast_dry_run, setup_created_fast_dry_run};
+use super::support::{local_dev_token, setup_completed_fast_dry_run, setup_created_fast_dry_run};
 use crate::support::unique_run_id;
 
 #[test]
@@ -36,7 +36,7 @@ fn help() {
 }
 
 #[test]
-fn ps_accepts_local_tcp_server_target() {
+fn ps_explicit_local_tcp_server_target_requires_explicit_auth() {
     let context = test_context!();
     let storage_root = tempfile::tempdir_in("/tmp").unwrap();
     let storage_dir = storage_root.path().join("storage");
@@ -78,8 +78,65 @@ fn ps_accepts_local_tcp_server_target() {
         .success();
 
     assert!(
+        !output.status.success(),
+        "ps against an explicit local TCP target should require explicit auth:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Authentication required."),
+        "explicit local TCP target should fail with an auth error:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn ps_explicit_local_tcp_server_target_accepts_explicit_dev_token() {
+    let context = test_context!();
+    let storage_root = tempfile::tempdir_in("/tmp").unwrap();
+    let storage_dir = storage_root.path().join("storage");
+    std::fs::create_dir_all(&storage_dir).unwrap();
+
+    context
+        .command()
+        .env("FABRO_STORAGE_DIR", &storage_dir)
+        .args(["server", "start", "--bind", "127.0.0.1"])
+        .assert()
+        .success();
+
+    let status_output = context
+        .command()
+        .env("FABRO_STORAGE_DIR", &storage_dir)
+        .args(["server", "status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status_json: Value = serde_json::from_slice(&status_output).unwrap();
+    let bind = status_json["bind"]
+        .as_str()
+        .expect("bind should be present");
+    let token = local_dev_token(&storage_dir).expect("local dev token should exist");
+
+    let output = context
+        .command()
+        .env("FABRO_DEV_TOKEN", &token)
+        .args(["ps", "-a", "--json", "--server", &format!("http://{bind}")])
+        .output()
+        .expect("ps should run");
+
+    context
+        .command()
+        .env("FABRO_STORAGE_DIR", &storage_dir)
+        .args(["server", "stop"])
+        .assert()
+        .success();
+
+    assert!(
         output.status.success(),
-        "ps against local TCP target failed:\nstdout:\n{}\nstderr:\n{}",
+        "ps against local TCP target with explicit auth failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

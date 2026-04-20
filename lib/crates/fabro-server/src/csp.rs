@@ -1,7 +1,7 @@
 //! Content Security Policy generation.
 //!
 //! The policy is built once at server startup from the embedded SPA
-//! `index.html` so inline `<script>` hashes don't drift from the
+//! `index.html` so any inline `<script>` hashes don't drift from the
 //! template. Third-party sources are enumerated explicitly — the only
 //! outside origins the UI depends on today are Google Fonts.
 
@@ -160,13 +160,14 @@ mod tests {
     }
 
     #[test]
-    fn embedded_spa_index_yields_at_least_one_hash() {
-        // Guards against the template silently losing its inline
-        // theme-bootstrap script, which would silently break CSP.
-        let hashes = inline_script_hashes_from_embedded_index();
+    fn embedded_spa_index_builds_a_policy() {
+        // Guards against the embedded asset going missing or becoming
+        // unreadable in a way that would leave the CSP header blank.
+        let policy = build_policy();
         assert!(
-            !hashes.is_empty(),
-            "expected the embedded SPA index.html to contain at least one inline <script>"
+            policy.contains("script-src 'self'"),
+            "embedded SPA policy should contain a script-src directive"
         );
+        assert!(policy.contains("'wasm-unsafe-eval'"));
     }
 }

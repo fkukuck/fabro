@@ -13,7 +13,7 @@ doctest = false
 workspace = true
 
 [dependencies]
-reqwest = { workspace = true, features = ["blocking"] }
+reqwest = { workspace = true, features = ["blocking", "cookies"] }
 thiserror.workspace = true
 
 [dev-dependencies]

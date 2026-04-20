@@ -309,6 +309,8 @@ async fn security_headers_are_applied_to_all_responses() {
     // CSP is shipped in Report-Only mode and must cover the sources the
     // embedded SPA actually loads: same-origin scripts, Google Fonts,
     // WASM instantiation (viz-js), data: and blob: images, blob: workers.
+    // Inline hashes are optional because the current SPA ships only
+    // external module scripts.
     let csp = spa_response
         .headers()
         .get("content-security-policy-report-only")
@@ -316,11 +318,8 @@ async fn security_headers_are_applied_to_all_responses() {
         .to_str()
         .expect("CSP should be ASCII");
     assert!(csp.contains("default-src 'self'"), "got: {csp}");
+    assert!(csp.contains("script-src 'self'"), "got: {csp}");
     assert!(csp.contains("'wasm-unsafe-eval'"), "got: {csp}");
-    assert!(
-        csp.contains("'sha256-"),
-        "inline-script hash missing: {csp}"
-    );
     assert!(
         csp.contains("style-src 'self' https://fonts.googleapis.com 'unsafe-inline'"),
         "got: {csp}"
