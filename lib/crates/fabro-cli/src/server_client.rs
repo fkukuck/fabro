@@ -34,14 +34,12 @@ use crate::user_config::cli_http_client_builder;
 use crate::{sse, user_config};
 
 #[derive(Clone)]
-pub(crate) struct ServerStoreClient {
+pub(crate) struct Client {
     state:             Arc<RwLock<ClientBundle>>,
     base_url:          String,
     refreshable_oauth: Option<RefreshableOAuth>,
     refresh_lock:      Arc<Mutex<()>>,
 }
-
-pub(crate) type Client = ServerStoreClient;
 
 #[derive(Clone)]
 struct ClientBundle {
@@ -178,17 +176,15 @@ fn refreshable_oauth(
     Ok(None)
 }
 
-pub(crate) async fn connect_server(storage_dir: &Path) -> Result<ServerStoreClient> {
+pub(crate) async fn connect_server(storage_dir: &Path) -> Result<Client> {
     connect_api_client_bundle(storage_dir).await
 }
 
-pub(crate) async fn connect_server_target(
-    target: &user_config::ServerTarget,
-) -> Result<ServerStoreClient> {
+pub(crate) async fn connect_server_target(target: &user_config::ServerTarget) -> Result<Client> {
     connect_target_api_client_bundle(target).await
 }
 
-pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerStoreClient> {
+pub(crate) async fn connect_server_target_direct(target: &str) -> Result<Client> {
     if target.starts_with("http://") || target.starts_with("https://") {
         connect_server_target(&user_config::ServerTarget::HttpUrl {
             api_url: target.to_string(),
@@ -208,7 +204,7 @@ pub(crate) async fn connect_server_with_settings(
     args: &ServerTargetArgs,
     settings: &SettingsLayer,
     base_config_path: &Path,
-) -> Result<ServerStoreClient> {
+) -> Result<Client> {
     if let Some(target) = user_config::resolve_nondefault_server_target(args, settings)? {
         if let user_config::ServerTarget::UnixSocket(path) = &target {
             return connect_managed_unix_socket_api_client_bundle(
@@ -228,7 +224,7 @@ async fn connect_managed_unix_socket_api_client_bundle(
     path: &Path,
     storage_dir: &Path,
     active_config_path: &Path,
-) -> Result<ServerStoreClient> {
+) -> Result<Client> {
     let target = user_config::ServerTarget::UnixSocket(path.to_path_buf());
     let bearer = resolve_target_bearer(
         &target,
@@ -251,7 +247,7 @@ async fn connect_managed_unix_socket_api_client_bundle(
             .with_context(|| format!("Failed to connect to fabro server at {}", path.display()))?
     };
 
-    Ok(ServerStoreClient::from_bundle(
+    Ok(Client::from_bundle(
         bundle,
         "http://fabro".to_string(),
         refreshable_oauth,
@@ -261,7 +257,7 @@ async fn connect_managed_unix_socket_api_client_bundle(
 async fn connect_local_api_client_bundle(
     storage_dir: &Path,
     active_config_path: &Path,
-) -> Result<ServerStoreClient> {
+) -> Result<Client> {
     let bind = start::ensure_server_running_for_storage(storage_dir, active_config_path)
         .await
         .with_context(|| format!("Failed to start fabro server for {}", storage_dir.display()))?;
@@ -269,7 +265,7 @@ async fn connect_local_api_client_bundle(
         Bind::Unix(path) => {
             let bundle =
                 connect_unix_socket_api_client_bundle(&path, Some(storage_dir), None).await?;
-            Ok(ServerStoreClient::from_bundle(
+            Ok(Client::from_bundle(
                 bundle,
                 "http://fabro".to_string(),
                 None,
@@ -280,7 +276,7 @@ async fn connect_local_api_client_bundle(
             let builder = cli_http_client_builder().no_proxy();
             let http_client = apply_bearer_token_auth(builder, &token)?.build()?;
             let base_url = format!("http://{addr}");
-            Ok(ServerStoreClient::from_bundle(
+            Ok(Client::from_bundle(
                 client_bundle(&base_url, http_client, Some(token)),
                 base_url,
                 None,
@@ -289,7 +285,7 @@ async fn connect_local_api_client_bundle(
     }
 }
 
-async fn connect_api_client_bundle(storage_dir: &Path) -> Result<ServerStoreClient> {
+async fn connect_api_client_bundle(storage_dir: &Path) -> Result<Client> {
     connect_local_api_client_bundle(storage_dir, &user_config::active_settings_path(None)).await
 }
 
@@ -303,9 +299,7 @@ pub(crate) async fn connect_api_client(storage_dir: &Path) -> Result<fabro_api::
         .map(|client| client.client_bundle().client)
 }
 
-async fn connect_target_api_client_bundle(
-    target: &user_config::ServerTarget,
-) -> Result<ServerStoreClient> {
+async fn connect_target_api_client_bundle(target: &user_config::ServerTarget) -> Result<Client> {
     match target {
         user_config::ServerTarget::HttpUrl { api_url, tls } => {
             let bearer = resolve_target_bearer(target, None, local_dev_token_fallback(target))?;
@@ -315,7 +309,7 @@ async fn connect_target_api_client_bundle(
                 tls.as_ref(),
                 bearer.as_ref().map(ResolvedBearer::bearer_token),
             )?;
-            Ok(ServerStoreClient::from_bundle(
+            Ok(Client::from_bundle(
                 bundle,
                 user_config::normalized_http_base_url(api_url).to_string(),
                 refreshable_oauth,
@@ -331,7 +325,7 @@ async fn connect_target_api_client_bundle(
             )
             .await
             .with_context(|| format!("Failed to connect to fabro server at {}", path.display()))?;
-            Ok(ServerStoreClient::from_bundle(
+            Ok(Client::from_bundle(
                 bundle,
                 "http://fabro".to_string(),
                 refreshable_oauth,
@@ -569,7 +563,7 @@ struct ArtifactBatchUploadEntry {
     content_type:   Option<String>,
 }
 
-impl ServerStoreClient {
+impl Client {
     fn from_bundle(
         bundle: ClientBundle,
         base_url: String,
@@ -1930,7 +1924,7 @@ mod tests {
         auth_store.put(&key, oauth_entry("octocat")).unwrap();
 
         let http_client = cli_http_client_builder().no_proxy().build().unwrap();
-        let client = ServerStoreClient {
+        let client = Client {
             state:             Arc::new(RwLock::new(client_bundle(
                 "http://fabro.example.com",
                 http_client,

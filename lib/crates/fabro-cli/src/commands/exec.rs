@@ -108,13 +108,13 @@ fn runtime_mcp_server(name: &str, entry: &McpEntryLayer) -> McpServerSettings {
 }
 
 struct AuthenticatedFabroServerAdapter {
-    client:        server_client::ServerStoreClient,
+    client:        server_client::Client,
     base_url:      String,
     provider_name: String,
 }
 
 impl AuthenticatedFabroServerAdapter {
-    fn new(client: server_client::ServerStoreClient, provider_name: impl Into<String>) -> Self {
+    fn new(client: server_client::Client, provider_name: impl Into<String>) -> Self {
         let base_url = client.base_url().to_string();
         Self {
             client,
