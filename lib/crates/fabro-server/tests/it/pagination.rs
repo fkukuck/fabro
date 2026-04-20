@@ -19,13 +19,13 @@ async fn get_json(app: axum::Router, uri: &str) -> serde_json::Value {
         .uri(uri)
         .header("x-fabro-demo", "1")
         .body(Body::empty())
-        .unwrap();
+        .expect("pagination request should build");
     let response = app.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "GET {uri} failed");
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    serde_json::from_slice(&body).unwrap()
+        .expect("pagination response body should fit in memory");
+    serde_json::from_slice(&body).expect("pagination response should be valid JSON")
 }
 
 /// Assert that a value has the paginated shape: `{ data: [...], meta: {

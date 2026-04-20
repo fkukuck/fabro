@@ -35,10 +35,12 @@ async fn wait_for_question_id(app: &axum::Router, run_id: &str) -> String {
             .method("GET")
             .uri(api(&format!("/runs/{run_id}/questions")))
             .body(Body::empty())
-            .unwrap();
+            .expect("questions request should build");
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let arr = body["data"].as_array().unwrap();
+        let arr = body["data"]
+            .as_array()
+            .expect("questions response should include a data array");
         if let Some(question_id) = arr
             .first()
             .and_then(|item| item["id"].as_str())
@@ -57,10 +59,12 @@ async fn wait_for_question(app: &axum::Router, run_id: &str) -> serde_json::Valu
             .method("GET")
             .uri(api(&format!("/runs/{run_id}/questions")))
             .body(Body::empty())
-            .unwrap();
+            .expect("questions request should build");
         let response = app.clone().oneshot(req).await.unwrap();
         let body = body_json(response.into_body()).await;
-        let arr = body["data"].as_array().unwrap();
+        let arr = body["data"]
+            .as_array()
+            .expect("questions response should include a data array");
         if let Some(question) = arr.first() {
             return question.clone();
         }

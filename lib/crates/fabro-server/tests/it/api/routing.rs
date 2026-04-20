@@ -435,7 +435,7 @@ fn request_with_connect_info(path: &str, ip: IpAddr) -> Request<Body> {
         .method("GET")
         .uri(path)
         .body(Body::empty())
-        .unwrap();
+        .expect("routing test request should build");
     let mut request = request;
     request
         .extensions_mut()

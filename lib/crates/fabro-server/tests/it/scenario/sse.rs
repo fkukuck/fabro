@@ -26,7 +26,7 @@ async fn wait_for_checkpoint(app: &axum::Router, run_id: &str) -> serde_json::Va
             .method("GET")
             .uri(api(&format!("/runs/{run_id}/checkpoint")))
             .body(Body::empty())
-            .unwrap();
+            .expect("checkpoint request should build");
         let response = app.clone().oneshot(req).await.unwrap();
         if response.status() == StatusCode::OK {
             return body_json(response.into_body()).await;

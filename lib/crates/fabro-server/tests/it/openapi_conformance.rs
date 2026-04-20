@@ -23,14 +23,11 @@ use tower::ServiceExt;
 use super::helpers::test_app_state;
 
 fn load_spec() -> Value {
-    let spec_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("docs/api-reference/fabro-api.yaml");
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("fabro-server crate should be nested under lib/crates/fabro-server");
+    let spec_path = repo_root.join("docs/api-reference/fabro-api.yaml");
     let text = std::fs::read_to_string(&spec_path).expect("failed to read spec");
     serde_yaml::from_str(&text).expect("failed to parse spec")
 }
@@ -81,7 +78,9 @@ fn request_for(method: &Method, uri: &str) -> Request<Body> {
     } else {
         Body::empty()
     };
-    builder.body(body).unwrap()
+    builder
+        .body(body)
+        .expect("OpenAPI conformance request should build")
 }
 
 #[tokio::test]

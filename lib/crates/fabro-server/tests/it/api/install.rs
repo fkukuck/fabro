@@ -32,7 +32,7 @@ async fn configure_token_install(app: &axum::Router, token: &str) {
                 .body(Body::from(
                     r#"{"providers":[{"provider":"anthropic","api_key":"anthropic-test-key"}]}"#,
                 ))
-                .unwrap(),
+                .expect("LLM install request should build"),
         )
         .await
         .unwrap();
@@ -49,7 +49,7 @@ async fn configure_token_install(app: &axum::Router, token: &str) {
                 .body(Body::from(
                     r#"{"canonical_url":"https://fabro.example.com"}"#,
                 ))
-                .unwrap(),
+                .expect("server install request should build"),
         )
         .await
         .unwrap();
@@ -66,7 +66,7 @@ async fn configure_token_install(app: &axum::Router, token: &str) {
                 .body(Body::from(
                     r#"{"token":"ghp_test_token","username":"brynary"}"#,
                 ))
-                .unwrap(),
+                .expect("GitHub token install request should build"),
         )
         .await
         .unwrap();

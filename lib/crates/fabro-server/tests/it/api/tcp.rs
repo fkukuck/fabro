@@ -27,8 +27,12 @@ const TEST_DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
 
 async fn start_tcp_server(auth_mode: AuthMode, ip_allowlist: Arc<IpAllowlistConfig>) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("test TCP listener should bind");
+    let addr = listener
+        .local_addr()
+        .expect("test TCP listener should have a local address");
 
     let state = create_app_state();
     let router =
@@ -51,24 +55,24 @@ fn build_unix_client(path: &Path) -> fabro_http::HttpClient {
         .unix_socket(path)
         .no_proxy()
         .build()
-        .unwrap()
+        .expect("Unix test client should build")
 }
 
 fn write_test_config(tempdir: &TempDir, settings: &str) -> PathBuf {
     let config_path = tempdir.path().join("settings.toml");
-    std::fs::write(&config_path, settings).unwrap();
+    std::fs::write(&config_path, settings).expect("test settings should write");
     std::fs::write(
         ServerState::new(tempdir.path()).env_path(),
         format!("FABRO_DEV_TOKEN={TEST_DEV_TOKEN}\n"),
     )
-    .unwrap();
+    .expect("test env file should write");
     config_path
 }
 
 async fn spawn_served_listener(
     settings: impl AsRef<str>,
 ) -> (JoinHandle<anyhow::Result<()>>, Bind, TempDir) {
-    let tempdir = tempfile::tempdir().unwrap();
+    let tempdir = tempfile::tempdir().expect("temporary server directory should create");
     let config_path = write_test_config(&tempdir, settings.as_ref());
     let styles: &'static Styles = Box::leak(Box::new(Styles::new(false)));
     let (tx, rx) = tokio::sync::oneshot::channel();

@@ -56,11 +56,16 @@ async fn create_run(app: &axum::Router, manifest: serde_json::Value) -> String {
         .method("POST")
         .uri(api("/runs"))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&manifest).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&manifest).expect("manifest fixture should serialize"),
+        ))
+        .expect("create-run request should build");
     let response = app.clone().oneshot(request).await.unwrap();
     let body = body_json(response.into_body()).await;
-    body["id"].as_str().unwrap().to_string()
+    body["id"]
+        .as_str()
+        .expect("create-run response should include an id")
+        .to_string()
 }
 
 async fn start_run(app: &axum::Router, run_id: &str) {
@@ -68,7 +73,7 @@ async fn start_run(app: &axum::Router, run_id: &str) {
         .method("POST")
         .uri(api(&format!("/runs/{run_id}/start")))
         .body(Body::empty())
-        .unwrap();
+        .expect("start-run request should build");
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -79,7 +84,7 @@ async fn wait_for_question(app: &axum::Router, run_id: &str) -> serde_json::Valu
             .method("GET")
             .uri(api(&format!("/runs/{run_id}/questions")))
             .body(Body::empty())
-            .unwrap();
+            .expect("questions request should build");
         let response = app.clone().oneshot(request).await.unwrap();
         let body = body_json(response.into_body()).await;
         if let Some(question) = body["data"].as_array().and_then(|items| items.first()) {
@@ -95,7 +100,7 @@ async fn load_questions(app: &axum::Router, run_id: &str) -> serde_json::Value {
         .method("GET")
         .uri(api(&format!("/runs/{run_id}/questions")))
         .body(Body::empty())
-        .unwrap();
+        .expect("questions request should build");
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     body_json(response.into_body()).await

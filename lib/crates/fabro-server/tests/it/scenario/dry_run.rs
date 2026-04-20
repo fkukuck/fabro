@@ -19,9 +19,9 @@ fn completion_request(stream: bool) -> Request<Body> {
                 "messages": [{"role": "user", "content": [{"kind": "text", "data": "Hello"}]}],
                 "stream": stream
             }))
-            .unwrap(),
+            .expect("completion fixture should serialize"),
         ))
-        .unwrap()
+        .expect("completion request should build")
 }
 
 fn completion_request_with_model(stream: bool, model: &str) -> Request<Body> {
@@ -35,9 +35,9 @@ fn completion_request_with_model(stream: bool, model: &str) -> Request<Body> {
                 "messages": [{"role": "user", "content": [{"kind": "text", "data": "Hi"}]}],
                 "stream": stream
             }))
-            .unwrap(),
+            .expect("model completion fixture should serialize"),
         ))
-        .unwrap()
+        .expect("completion request should build")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -78,8 +78,10 @@ pub(crate) fn api(path: &str) -> String {
 }
 
 pub(crate) async fn body_json(body: Body) -> serde_json::Value {
-    let bytes = to_bytes(body, usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+    let bytes = to_bytes(body, usize::MAX)
+        .await
+        .expect("response body should fit in memory");
+    serde_json::from_slice(&bytes).expect("response body should be valid JSON")
 }
 
 pub(crate) async fn create_and_start_run_from_manifest(
@@ -90,17 +92,22 @@ pub(crate) async fn create_and_start_run_from_manifest(
         .method("POST")
         .uri(api("/runs"))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&manifest).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_string(&manifest).expect("manifest fixture should serialize"),
+        ))
+        .expect("create-run request should build");
     let response = app.clone().oneshot(req).await.unwrap();
     let body = body_json(response.into_body()).await;
-    let run_id = body["id"].as_str().unwrap().to_string();
+    let run_id = body["id"]
+        .as_str()
+        .expect("create-run response should include an id")
+        .to_string();
 
     let req = Request::builder()
         .method("POST")
         .uri(api(&format!("/runs/{run_id}/start")))
         .body(Body::empty())
-        .unwrap();
+        .expect("start-run request should build");
     app.clone().oneshot(req).await.unwrap();
 
     run_id
@@ -134,7 +141,7 @@ pub(crate) async fn run_json(app: &axum::Router, run_id: &str) -> serde_json::Va
         .method("GET")
         .uri(api(&format!("/runs/{run_id}")))
         .body(Body::empty())
-        .unwrap();
+        .expect("run lookup request should build");
     let response = app.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     body_json(response.into_body()).await
@@ -147,7 +154,10 @@ pub(crate) async fn wait_for_run_status(
 ) -> String {
     for _ in 0..POLL_ATTEMPTS {
         let body = run_json(app, run_id).await;
-        let status = body["status"].as_str().unwrap().to_string();
+        let status = body["status"]
+            .as_str()
+            .expect("run response should include a string status")
+            .to_string();
         if expected.iter().any(|candidate| *candidate == status) {
             return status;
         }
@@ -163,7 +173,10 @@ pub(crate) async fn wait_for_run_status_not_in(
 ) -> String {
     for _ in 0..POLL_ATTEMPTS {
         let body = run_json(app, run_id).await;
-        let status = body["status"].as_str().unwrap().to_string();
+        let status = body["status"]
+            .as_str()
+            .expect("run response should include a string status")
+            .to_string();
         if unexpected.iter().all(|candidate| *candidate != status) {
             return status;
         }
