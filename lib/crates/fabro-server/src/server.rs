@@ -3148,15 +3148,15 @@ async fn terminate_worker_for_deletion(
         fabro_proc::sigterm(worker_pid);
 
         let deadline = Instant::now() + grace;
-        while Instant::now() < deadline && fabro_proc::process_alive(worker_pid) {
+        while Instant::now() < deadline && fabro_proc::process_running(worker_pid) {
             sleep(Duration::from_millis(50)).await;
         }
 
-        if fabro_proc::process_alive(worker_pid) {
+        if fabro_proc::process_running(worker_pid) {
             fabro_proc::sigkill(worker_pid);
 
             let kill_deadline = Instant::now() + Duration::from_secs(1);
-            while Instant::now() < kill_deadline && fabro_proc::process_alive(worker_pid) {
+            while Instant::now() < kill_deadline && fabro_proc::process_running(worker_pid) {
                 sleep(Duration::from_millis(50)).await;
             }
         }
