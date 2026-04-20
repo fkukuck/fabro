@@ -388,8 +388,8 @@ paths:
         content:
           application/json:
             schema:
-              type: string
-              format: binary
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: Webhook accepted

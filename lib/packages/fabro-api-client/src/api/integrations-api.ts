@@ -29,13 +29,13 @@ export const IntegrationsApiAxiosParamCreator = function (configuration?: Config
         /**
          * Receives GitHub App webhook deliveries. Requests are authenticated by `X-Hub-Signature-256`, not API bearer auth.
          * @summary Receive GitHub Webhook
-         * @param {File} body 
+         * @param {{ [key: string]: any; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        receiveGithubWebhook: async (body: File, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'body' is not null or undefined
-            assertParamExists('receiveGithubWebhook', 'body', body)
+        receiveGithubWebhook: async (requestBody: { [key: string]: any; }, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'requestBody' is not null or undefined
+            assertParamExists('receiveGithubWebhook', 'requestBody', requestBody)
             const localVarPath = `/api/v1/webhooks/github`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -53,7 +53,7 @@ export const IntegrationsApiAxiosParamCreator = function (configuration?: Config
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
+            localVarRequestOptions.data = serializeDataIfNeeded(requestBody, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -72,12 +72,12 @@ export const IntegrationsApiFp = function(configuration?: Configuration) {
         /**
          * Receives GitHub App webhook deliveries. Requests are authenticated by `X-Hub-Signature-256`, not API bearer auth.
          * @summary Receive GitHub Webhook
-         * @param {File} body 
+         * @param {{ [key: string]: any; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async receiveGithubWebhook(body: File, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.receiveGithubWebhook(body, options);
+        async receiveGithubWebhook(requestBody: { [key: string]: any; }, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.receiveGithubWebhook(requestBody, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['IntegrationsApi.receiveGithubWebhook']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -94,12 +94,12 @@ export const IntegrationsApiFactory = function (configuration?: Configuration, b
         /**
          * Receives GitHub App webhook deliveries. Requests are authenticated by `X-Hub-Signature-256`, not API bearer auth.
          * @summary Receive GitHub Webhook
-         * @param {File} body 
+         * @param {{ [key: string]: any; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        receiveGithubWebhook(body: File, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.receiveGithubWebhook(body, options).then((request) => request(axios, basePath));
+        receiveGithubWebhook(requestBody: { [key: string]: any; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.receiveGithubWebhook(requestBody, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -111,12 +111,12 @@ export class IntegrationsApi extends BaseAPI {
     /**
      * Receives GitHub App webhook deliveries. Requests are authenticated by `X-Hub-Signature-256`, not API bearer auth.
      * @summary Receive GitHub Webhook
-     * @param {File} body 
+     * @param {{ [key: string]: any; }} requestBody 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public receiveGithubWebhook(body: File, options?: RawAxiosRequestConfig) {
-        return IntegrationsApiFp(this.configuration).receiveGithubWebhook(body, options).then((request) => request(this.axios, this.basePath));
+    public receiveGithubWebhook(requestBody: { [key: string]: any; }, options?: RawAxiosRequestConfig) {
+        return IntegrationsApiFp(this.configuration).receiveGithubWebhook(requestBody, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
