@@ -21,6 +21,15 @@ use serde_json::{Map, Value, json};
 use toml::Value as TomlValue;
 use toml::map::Map as TomlMap;
 
+mod http_assert;
+
+pub use http_assert::{
+    assert_axum_status, assert_axum_status_in, assert_reqwest_status, assert_reqwest_status_in,
+    expect_axum_bytes, expect_axum_json, expect_axum_status, expect_axum_status_in,
+    expect_axum_text, expect_reqwest_bytes, expect_reqwest_json, expect_reqwest_status,
+    expect_reqwest_status_in, expect_reqwest_text,
+};
+
 /// Re-export `LLVM_PROFILE_FILE` into a `Command` whose env was just cleared,
 /// so subprocess coverage data lands in the profile path that
 /// `cargo-llvm-cov` configured for the parent test process. Accepts both
@@ -1620,11 +1629,7 @@ impl TwinOpenAi {
             .send()
             .await
             .expect("reset twin-openai namespace");
-        assert!(
-            response.status().is_success(),
-            "reset twin-openai namespace failed: {}",
-            response.status()
-        );
+        assert_reqwest_status(response, fabro_http::StatusCode::OK, "POST /__admin/reset").await;
     }
 }
 
@@ -1661,11 +1666,12 @@ impl TwinScenarios {
             .send()
             .await
             .expect("load twin-openai scenarios");
-        assert!(
-            response.status().is_success(),
-            "load twin-openai scenarios failed: {}",
-            response.status()
-        );
+        assert_reqwest_status(
+            response,
+            fabro_http::StatusCode::OK,
+            "POST /__admin/scenarios",
+        )
+        .await;
     }
 }
 
@@ -1880,7 +1886,8 @@ pub async fn twin_openai() -> &'static TwinOpenAi {
             let healthz_url = format!("http://127.0.0.1:{}/healthz", addr.port());
             for _ in 0..50 {
                 if let Ok(resp) = client.get(&healthz_url).send().await {
-                    if resp.status().is_success() {
+                    let status = resp.status();
+                    if status == fabro_http::StatusCode::OK {
                         return TwinOpenAi { base_url };
                     }
                 }
