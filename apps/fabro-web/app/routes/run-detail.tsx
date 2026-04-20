@@ -97,10 +97,15 @@ export type RunDetailActionResult = PreviewActionResult | LifecycleActionResult;
 
 export interface LifecycleToastState {
   activeArchiveToastId: string | null;
-  lastProcessed: RunDetailActionResult | null;
+  lastProcessed: Record<LifecycleAction, RunDetailActionResult | null>;
 }
 
 type ToastApi = Pick<ReturnType<typeof useToast>, "push" | "dismiss">;
+
+const INITIAL_LIFECYCLE_TOAST_STATE: LifecycleToastState = {
+  activeArchiveToastId: null,
+  lastProcessed: { cancel: null, archive: null, unarchive: null },
+};
 
 export function lifecycleActionVisibility(status: string | null | undefined) {
   return {
@@ -185,10 +190,7 @@ export default function RunDetail({ loaderData, params }: { loaderData: RunDetai
   const { push, dismiss } = useToast();
   const demoMode = useDemoMode();
   const tabs = allTabs.filter((t) => !t.demoOnly || demoMode);
-  const lifecycleToastStateRef = useRef<LifecycleToastState>({
-    activeArchiveToastId: null,
-    lastProcessed: null,
-  });
+  const lifecycleToastStateRef = useRef<LifecycleToastState>(INITIAL_LIFECYCLE_TOAST_STATE);
 
   useRunEventSource(run?.id ?? undefined, {
     allowlist: RUN_DETAIL_EVENTS,
@@ -202,18 +204,13 @@ export default function RunDetail({ loaderData, params }: { loaderData: RunDetai
   }, [previewFetcher.data]);
 
   useEffect(() => {
-    const result = cancelFetcher.data;
-    if (!result || result.intent !== "cancel") return;
-    if (isLifecycleActionFailure(result)) {
-      push({ message: mapError(result.error, "cancel"), tone: "error" });
-      return;
-    }
-    push({
-      message: isTerminalCancelledRun(result.run)
-        ? "Run cancelled."
-        : "Cancellation requested.",
-    });
-  }, [cancelFetcher.data, push]);
+    lifecycleToastStateRef.current = handleLifecycleToastResult(
+      "cancel",
+      cancelFetcher.data,
+      lifecycleToastStateRef.current,
+      { push, dismiss },
+    );
+  }, [cancelFetcher.data, dismiss, push]);
 
   useEffect(() => {
     lifecycleToastStateRef.current = handleLifecycleToastResult(
@@ -463,19 +460,29 @@ function isLifecycleActionFailure(
 }
 
 export function handleLifecycleToastResult(
-  intent: "archive" | "unarchive",
+  intent: LifecycleAction,
   result: RunDetailActionResult | undefined,
   state: LifecycleToastState,
   toastApi: ToastApi,
   onUnarchive?: () => void,
 ): LifecycleToastState {
   if (!result || result.intent !== intent) return state;
-  if (state.lastProcessed === result) return state;
+  if (state.lastProcessed[intent] === result) return state;
 
-  const nextState: LifecycleToastState = { ...state, lastProcessed: result };
+  const nextState: LifecycleToastState = {
+    ...state,
+    lastProcessed: { ...state.lastProcessed, [intent]: result },
+  };
 
   if (isLifecycleActionFailure(result)) {
     toastApi.push({ message: mapError(result.error, intent), tone: "error" });
+    return nextState;
+  }
+
+  if (intent === "cancel") {
+    toastApi.push({
+      message: isTerminalCancelledRun(result.run) ? "Run cancelled." : "Cancellation requested.",
+    });
     return nextState;
   }
 

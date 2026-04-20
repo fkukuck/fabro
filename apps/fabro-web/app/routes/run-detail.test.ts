@@ -227,8 +227,41 @@ describe("handleLifecycleToastResult", () => {
 
   const initialState: LifecycleToastState = {
     activeArchiveToastId: null,
-    lastProcessed: null,
+    lastProcessed: { cancel: null, archive: null, unarchive: null },
   };
+
+  test("replaying the same cancel success result does not enqueue a duplicate toast", () => {
+    const { pushed, dismissed, api } = makeToastApi();
+    const result: RunDetailActionResult = {
+      intent: "cancel",
+      ok: true,
+      run: { id: "run-1", status: "failed", status_reason: "cancelled", created_at: "2026-04-20T12:00:00Z" },
+    };
+
+    const firstState = handleLifecycleToastResult("cancel", result, initialState, api);
+
+    expect(pushed).toEqual([{ message: "Run cancelled." }]);
+    expect(firstState.lastProcessed.cancel).toBe(result);
+
+    const replayedState = handleLifecycleToastResult("cancel", result, firstState, api);
+
+    expect(pushed).toHaveLength(1);
+    expect(dismissed).toEqual([]);
+    expect(replayedState).toBe(firstState);
+  });
+
+  test("cancel for non-terminal state reports cancellation as requested", () => {
+    const { pushed, api } = makeToastApi();
+    const result: RunDetailActionResult = {
+      intent: "cancel",
+      ok: true,
+      run: { id: "run-1", status: "running", created_at: "2026-04-20T12:00:00Z" },
+    };
+
+    handleLifecycleToastResult("cancel", result, initialState, api);
+
+    expect(pushed).toEqual([{ message: "Cancellation requested." }]);
+  });
 
   test("replaying the same archive success result does not enqueue a duplicate toast", () => {
     const { pushed, dismissed, api } = makeToastApi();
@@ -268,7 +301,7 @@ describe("handleLifecycleToastResult", () => {
     };
     const stateWithActiveToast: LifecycleToastState = {
       activeArchiveToastId: "toast-9",
-      lastProcessed: null,
+      lastProcessed: { cancel: null, archive: null, unarchive: null },
     };
 
     const nextState = handleLifecycleToastResult("unarchive", result, stateWithActiveToast, api);
