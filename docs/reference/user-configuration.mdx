@@ -5,7 +5,7 @@ description: "Configure CLI and shared machine defaults with settings.toml"
 
 Fabro loads machine defaults from `~/.fabro/settings.toml`. The file is optional. If it does not exist, Fabro falls back to built-in defaults.
 
-On a same-machine setup, the CLI and server both read this file. On a remote setup, each machine has its own `settings.toml` and reads the sections relevant to that process.
+The CLI and server each read the sections relevant to their own process. On a remote deployment, the CLI machine and the server machine each have their own `settings.toml`.
 
 <Note>
 Fabro only reads `settings.toml`. Older `cli.toml`, `user.toml`, and `server.toml` filenames are no longer part of the supported config surface.
@@ -115,7 +115,7 @@ url = "https://mcp.sentry.dev/mcp"
 Authorization = "Bearer sk-xxx"
 ```
 
-All fields are optional. Include only the sections and keys you want to override. On a same-machine install, this same file can also include server sections such as `[server.web]` and `[server.api]`.
+All fields are optional. Include only the sections and keys you want to override. A single file can still include both CLI and server sections when you run both processes on one machine, but explicit remote targets do not read remote server state from the local machine.
 
 ## `[cli.updates]`
 
@@ -259,6 +259,8 @@ url = "https://fabro.example.com/api/v1"
 ```bash
 fabro model list --server https://fabro.example.com/api/v1
 ```
+
+An explicit `http(s)://...` target is always remote-by-contract. Fabro does not derive auth for that target from a local storage dir, an active local daemon record, or `~/.fabro/dev-token`. Use CLI OAuth (`fabro auth login --server ...`) or an explicit `FABRO_DEV_TOKEN` when you need remote auth.
 
 `fabro exec` does not automatically use `[cli.target]`. It only routes model traffic through a Fabro server when you pass `--server` for that invocation.
 

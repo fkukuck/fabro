@@ -86,8 +86,8 @@ pub(crate) enum ServerTarget {
 impl fmt::Display for ServerTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ServerTarget::HttpUrl { api_url, .. } => f.write_str(api_url),
-            ServerTarget::UnixSocket(path) => write!(f, "unix://{}", path.display()),
+            Self::HttpUrl { api_url, .. } => f.write_str(api_url),
+            Self::UnixSocket(path) => write!(f, "unix://{}", path.display()),
         }
     }
 }
@@ -102,9 +102,7 @@ pub(crate) fn build_public_http_client(
 ) -> Result<(fabro_http::HttpClient, String)> {
     match target {
         ServerTarget::HttpUrl { api_url, tls } => {
-            let http_client = build_server_client_builder(tls.as_ref())?
-                .no_proxy()
-                .build()?;
+            let http_client = build_server_client_builder(tls.as_ref())?.build()?;
             Ok((http_client, normalized_http_base_url(api_url).to_string()))
         }
         ServerTarget::UnixSocket(path) => {
@@ -210,13 +208,18 @@ fn explicit_server_target(
         .transpose()
 }
 
+pub(crate) fn resolve_nondefault_server_target(
+    args: &ServerTargetArgs,
+    settings: &SettingsLayer,
+) -> Result<Option<ServerTarget>> {
+    Ok(explicit_server_target(args, settings)?.or(configured_server_target(settings)?))
+}
+
 pub(crate) fn resolve_server_target(
     args: &ServerTargetArgs,
     settings: &SettingsLayer,
 ) -> Result<ServerTarget> {
-    explicit_server_target(args, settings)?
-        .or(configured_server_target(settings)?)
-        .map_or_else(|| Ok(default_server_target()), Ok)
+    Ok(resolve_nondefault_server_target(args, settings)?.unwrap_or_else(default_server_target))
 }
 
 pub(crate) fn exec_server_target(
@@ -261,12 +264,6 @@ pub(crate) fn build_server_client_builder(
         .use_rustls_tls()
         .identity(identity)
         .add_root_certificate(ca_cert))
-}
-
-pub(crate) fn build_server_client(
-    tls: Option<&ClientTlsSettings>,
-) -> anyhow::Result<fabro_http::HttpClient> {
-    Ok(build_server_client_builder(tls)?.build()?)
 }
 
 #[cfg(test)]

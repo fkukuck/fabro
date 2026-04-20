@@ -99,20 +99,6 @@ pub(crate) async fn ensure_server_running_for_storage(
     ensure_server_running_with_bind(None, config_path, storage_dir).await
 }
 
-pub(crate) async fn ensure_server_running_on_socket(
-    socket_path: &Path,
-    config_path: &Path,
-    storage_dir: &Path,
-) -> Result<()> {
-    let _ = ensure_server_running_with_bind(
-        Some(BindRequest::Unix(socket_path.to_path_buf())),
-        config_path,
-        storage_dir,
-    )
-    .await?;
-    Ok(())
-}
-
 async fn ensure_server_running_with_bind(
     bind_request: Option<BindRequest>,
     config_path: &Path,

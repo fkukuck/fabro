@@ -18,7 +18,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::user_config::ServerTarget;
+use crate::user_config::{ServerTarget, normalized_http_base_url};
 
 const AUTH_FILE_ENV: &str = "FABRO_AUTH_FILE";
 
@@ -349,7 +349,7 @@ impl AuthStore {
 
 fn canonical_http_target(api_url: &str) -> Result<String, AuthStoreError> {
     let trimmed = api_url.trim();
-    let normalized = crate::user_config::normalized_http_base_url(trimmed);
+    let normalized = normalized_http_base_url(trimmed);
     let url =
         fabro_http::Url::parse(normalized).map_err(|_| AuthStoreError::InvalidServerTarget {
             value: api_url.to_string(),

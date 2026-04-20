@@ -9,8 +9,10 @@
 
 use std::process::Output;
 
+use chrono::{Duration as ChronoDuration, Utc};
 use fabro_test::{fabro_snapshot, preserve_coverage_env, test_context};
 use httpmock::MockServer;
+use serde_json::json;
 
 async fn run_success_output(mut cmd: assert_cmd::Command) -> Output {
     tokio::task::spawn_blocking(move || cmd.assert().success().get_output().clone())
@@ -258,6 +260,86 @@ fn exec_cli_server_target_overrides_configured_server_target() {
     assert!(
         !stderr.contains("config-should-not-be-used"),
         "configured server.target should not be used when --server is passed: {stderr}"
+    );
+}
+
+#[test]
+fn exec_server_target_uses_saved_cli_auth_without_local_api_key_resolution() {
+    let context = test_context!();
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method("POST")
+            .path("/api/v1/completions")
+            .header("authorization", "Bearer access-oauth");
+        then.status(400).body("oauth-routed-marker");
+    });
+    write_auth_entry(
+        &context,
+        &format!("{}/api/v1", server.base_url()),
+        "access-oauth",
+        "refresh-oauth",
+    );
+
+    let mut cmd = context.exec_cmd();
+    cmd.env_clear();
+    preserve_coverage_env!(cmd);
+    cmd.env("HOME", &context.home_dir);
+    cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
+        .env("FABRO_HTTP_PROXY_POLICY", "disabled");
+    cmd.args([
+        "--server",
+        &format!("{}/api/v1", server.base_url()),
+        "--provider",
+        "openai",
+        "--model",
+        "gpt-5.4-mini",
+        "test prompt",
+    ]);
+
+    let output = cmd.assert().failure().get_output().clone();
+    let stderr = String::from_utf8(output.stderr).expect("valid utf8");
+    assert!(
+        stderr.contains("oauth-routed-marker"),
+        "expected exec to use stored CLI auth for remote transport, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("API key not set"),
+        "exec should not fall back to local provider auth when stored CLI auth exists: {stderr}"
+    );
+}
+
+fn write_auth_entry(
+    context: &fabro_test::TestContext,
+    target: &str,
+    access_token: &str,
+    refresh_token: &str,
+) {
+    let now = Utc::now();
+    let canonical = target
+        .trim_end_matches('/')
+        .trim_end_matches("/api/v1")
+        .to_ascii_lowercase();
+    context.write_home(
+        ".fabro/auth.json",
+        serde_json::to_string_pretty(&json!({
+            "servers": {
+                canonical: {
+                    "access_token": access_token,
+                    "access_token_expires_at": (now + ChronoDuration::minutes(10)).to_rfc3339(),
+                    "refresh_token": refresh_token,
+                    "refresh_token_expires_at": (now + ChronoDuration::days(30)).to_rfc3339(),
+                    "subject": {
+                        "idp_issuer": "https://github.com",
+                        "idp_subject": "12345",
+                        "login": "octocat",
+                        "name": "The Octocat",
+                        "email": "octocat@example.com"
+                    },
+                    "logged_in_at": now.to_rfc3339(),
+                }
+            }
+        }))
+        .expect("auth file should serialize"),
     );
 }
 

@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
-use std::net::IpAddr;
 use std::num::NonZeroU64;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -39,12 +38,6 @@ pub(crate) struct ServerStoreClient {
     base_url:          String,
     refreshable_oauth: Option<RefreshableOAuth>,
     refresh_lock:      Arc<Mutex<()>>,
-}
-
-#[derive(Debug, Clone)]
-struct LocalServerRuntime {
-    active_config_path: PathBuf,
-    storage_dir:        PathBuf,
 }
 
 #[derive(Clone)]
@@ -187,43 +180,25 @@ pub(crate) async fn connect_server(storage_dir: &Path) -> Result<ServerStoreClie
     connect_api_client_bundle(storage_dir).await
 }
 
+pub(crate) async fn connect_server_target(
+    target: &user_config::ServerTarget,
+) -> Result<ServerStoreClient> {
+    connect_target_api_client_bundle(target).await
+}
+
 pub(crate) async fn connect_server_target_direct(target: &str) -> Result<ServerStoreClient> {
     if target.starts_with("http://") || target.starts_with("https://") {
-        let parsed_target = user_config::ServerTarget::HttpUrl {
+        connect_server_target(&user_config::ServerTarget::HttpUrl {
             api_url: target.to_string(),
             tls:     None,
-        };
-        let bearer = resolve_target_bearer(&parsed_target, None)?;
-        let refreshable_oauth = refreshable_oauth(&parsed_target, bearer.as_ref())?;
-        let bundle = connect_remote_api_client_bundle(
-            target,
-            None,
-            bearer.as_ref().map(ResolvedBearer::bearer_token),
-        )?;
-        Ok(ServerStoreClient::from_bundle(
-            bundle,
-            user_config::normalized_http_base_url(target).to_string(),
-            refreshable_oauth,
-        ))
+        })
+        .await
     } else {
         let path = Path::new(target);
         if !path.is_absolute() {
             bail!("server target must be an http(s) URL or absolute Unix socket path");
         }
-        let parsed_target = user_config::ServerTarget::UnixSocket(path.to_path_buf());
-        let bearer = resolve_target_bearer(&parsed_target, None)?;
-        let refreshable_oauth = refreshable_oauth(&parsed_target, bearer.as_ref())?;
-        let bundle = connect_unix_socket_api_client_bundle(
-            path,
-            None,
-            bearer.as_ref().map(ResolvedBearer::bearer_token),
-        )
-        .await?;
-        Ok(ServerStoreClient::from_bundle(
-            bundle,
-            "http://fabro".to_string(),
-            refreshable_oauth,
-        ))
+        connect_server_target(&user_config::ServerTarget::UnixSocket(path.to_path_buf())).await
     }
 }
 
@@ -232,17 +207,25 @@ pub(crate) async fn connect_server_with_settings(
     settings: &SettingsLayer,
     base_config_path: &Path,
 ) -> Result<ServerStoreClient> {
-    let target = user_config::resolve_server_target(args, settings)?;
-    let runtime = LocalServerRuntime {
-        active_config_path: base_config_path.to_path_buf(),
-        storage_dir:        user_config::storage_dir(settings)?,
-    };
-    connect_target_api_client_bundle(&target, &runtime).await
+    if let Some(target) = user_config::resolve_nondefault_server_target(args, settings)? {
+        if args.server.is_none() && matches!(target, user_config::ServerTarget::UnixSocket(_)) {
+            return connect_local_api_client_bundle(
+                &user_config::storage_dir(settings)?,
+                base_config_path,
+            )
+            .await;
+        }
+        return connect_target_api_client_bundle(&target).await;
+    }
+
+    connect_local_api_client_bundle(&user_config::storage_dir(settings)?, base_config_path).await
 }
 
-async fn connect_api_client_bundle(storage_dir: &Path) -> Result<ServerStoreClient> {
-    let config_path = user_config::active_settings_path(None);
-    let bind = start::ensure_server_running_for_storage(storage_dir, &config_path)
+async fn connect_local_api_client_bundle(
+    storage_dir: &Path,
+    active_config_path: &Path,
+) -> Result<ServerStoreClient> {
+    let bind = start::ensure_server_running_for_storage(storage_dir, active_config_path)
         .await
         .with_context(|| format!("Failed to start fabro server for {}", storage_dir.display()))?;
     match bind {
@@ -269,6 +252,10 @@ async fn connect_api_client_bundle(storage_dir: &Path) -> Result<ServerStoreClie
     }
 }
 
+async fn connect_api_client_bundle(storage_dir: &Path) -> Result<ServerStoreClient> {
+    connect_local_api_client_bundle(storage_dir, &user_config::active_settings_path(None)).await
+}
+
 pub(crate) async fn connect_api_client(storage_dir: &Path) -> Result<fabro_api::Client> {
     connect_api_client_bundle(storage_dir)
         .await
@@ -277,11 +264,10 @@ pub(crate) async fn connect_api_client(storage_dir: &Path) -> Result<fabro_api::
 
 async fn connect_target_api_client_bundle(
     target: &user_config::ServerTarget,
-    runtime: &LocalServerRuntime,
 ) -> Result<ServerStoreClient> {
     match target {
         user_config::ServerTarget::HttpUrl { api_url, tls } => {
-            let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
+            let bearer = resolve_target_bearer(target, None, local_dev_token_fallback(target))?;
             let refreshable_oauth = refreshable_oauth(target, bearer.as_ref())?;
             let bundle = connect_remote_api_client_bundle(
                 api_url,
@@ -295,40 +281,20 @@ async fn connect_target_api_client_bundle(
             ))
         }
         user_config::ServerTarget::UnixSocket(path) => {
-            let bearer = resolve_target_bearer(target, Some(&runtime.storage_dir))?;
+            let bearer = resolve_target_bearer(target, None, local_dev_token_fallback(target))?;
             let refreshable_oauth = refreshable_oauth(target, bearer.as_ref())?;
-            if let Ok(client) = try_connect_unix_socket_api_client_bundle(
+            let bundle = try_connect_unix_socket_api_client_bundle(
                 path,
-                Some(&runtime.storage_dir),
+                None,
                 bearer.as_ref().map(ResolvedBearer::bearer_token),
             )
             .await
-            {
-                Ok(ServerStoreClient::from_bundle(
-                    client,
-                    "http://fabro".to_string(),
-                    refreshable_oauth,
-                ))
-            } else {
-                start::ensure_server_running_on_socket(
-                    path,
-                    &runtime.active_config_path,
-                    &runtime.storage_dir,
-                )
-                .await
-                .with_context(|| format!("Failed to start fabro server for {}", path.display()))?;
-                let bundle = connect_unix_socket_api_client_bundle(
-                    path,
-                    Some(&runtime.storage_dir),
-                    bearer.as_ref().map(ResolvedBearer::bearer_token),
-                )
-                .await?;
-                Ok(ServerStoreClient::from_bundle(
-                    bundle,
-                    "http://fabro".to_string(),
-                    refreshable_oauth,
-                ))
-            }
+            .with_context(|| format!("Failed to connect to fabro server at {}", path.display()))?;
+            Ok(ServerStoreClient::from_bundle(
+                bundle,
+                "http://fabro".to_string(),
+                refreshable_oauth,
+            ))
         }
     }
 }
@@ -340,9 +306,6 @@ fn connect_remote_api_client_bundle(
 ) -> Result<ClientBundle> {
     let normalized = user_config::normalized_http_base_url(api_url);
     let mut builder = user_config::build_server_client_builder(tls)?;
-    if remote_url_targets_local_host(normalized) {
-        builder = builder.no_proxy();
-    }
     builder = match bearer_token {
         Some(token) => apply_bearer_token_auth(builder, token)?,
         None => builder,
@@ -355,50 +318,8 @@ fn connect_remote_api_client_bundle(
     ))
 }
 
-#[cfg(test)]
-fn remote_url_matches_tcp_bind(api_url: &str, bind_addr: std::net::SocketAddr) -> bool {
-    let Ok(url) = fabro_http::Url::parse(user_config::normalized_http_base_url(api_url)) else {
-        return false;
-    };
-    if url.scheme() != "http" && url.scheme() != "https" {
-        return false;
-    }
-    let Some(port) = url.port_or_known_default() else {
-        return false;
-    };
-    if port != bind_addr.port() {
-        return false;
-    }
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    host_matches_bind(host, bind_addr.ip())
-}
-
-fn remote_url_targets_local_host(api_url: &str) -> bool {
-    let Ok(url) = fabro_http::Url::parse(user_config::normalized_http_base_url(api_url)) else {
-        return false;
-    };
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    host_is_local(host)
-}
-
-#[cfg(test)]
-fn host_matches_bind(host: &str, bind_ip: IpAddr) -> bool {
-    host.parse::<IpAddr>()
-        .ok()
-        .is_some_and(|host_ip| host_ip == bind_ip)
-        || (host_is_local(host) && (bind_ip.is_loopback() || bind_ip.is_unspecified()))
-}
-
-fn host_is_local(host: &str) -> bool {
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<IpAddr>()
-            .ok()
-            .is_some_and(|ip| ip.is_loopback() || ip.is_unspecified())
+fn local_dev_token_fallback(target: &user_config::ServerTarget) -> bool {
+    matches!(target, user_config::ServerTarget::UnixSocket(_))
 }
 
 fn load_dev_token_if_available(storage_dir: Option<&Path>) -> Option<String> {
@@ -540,6 +461,7 @@ async fn connect_unix_socket_api_client_bundle(
 fn resolve_target_bearer(
     target: &user_config::ServerTarget,
     storage_dir: Option<&Path>,
+    allow_local_dev_token_fallback: bool,
 ) -> Result<Option<ResolvedBearer>> {
     if let Some(token) = std::env::var("FABRO_DEV_TOKEN")
         .ok()
@@ -557,7 +479,11 @@ fn resolve_target_bearer(
         }
     }
 
-    Ok(load_dev_token_if_available(storage_dir).map(ResolvedBearer::DevToken))
+    if allow_local_dev_token_fallback {
+        return Ok(load_dev_token_if_available(storage_dir).map(ResolvedBearer::DevToken));
+    }
+
+    Ok(None)
 }
 
 async fn check_server_ready(http_client: &fabro_http::HttpClient) -> Result<()> {
@@ -695,13 +621,25 @@ impl ServerStoreClient {
         }
 
         let Some(entry) = refreshable.auth_store.get(&refreshable.key)? else {
-            self.rebuild_client_for_target(&refreshable.target, None)
-                .await?;
+            let fallback = resolve_target_bearer(
+                &refreshable.target,
+                None,
+                local_dev_token_fallback(&refreshable.target),
+            )?;
+            self.rebuild_client_for_target(
+                &refreshable.target,
+                fallback.as_ref().map(ResolvedBearer::bearer_token),
+            )
+            .await?;
             bail!("CLI session has expired. Run `fabro auth login` again.");
         };
         if entry.refresh_token_expires_at <= chrono::Utc::now() {
             refreshable.auth_store.remove(&refreshable.key)?;
-            let fallback = resolve_target_bearer(&refreshable.target, None)?;
+            let fallback = resolve_target_bearer(
+                &refreshable.target,
+                None,
+                local_dev_token_fallback(&refreshable.target),
+            )?;
             self.rebuild_client_for_target(
                 &refreshable.target,
                 fallback.as_ref().map(ResolvedBearer::bearer_token),
@@ -756,7 +694,11 @@ impl ServerStoreClient {
             )
         }) {
             refreshable.auth_store.remove(&refreshable.key)?;
-            let fallback = resolve_target_bearer(&refreshable.target, None)?;
+            let fallback = resolve_target_bearer(
+                &refreshable.target,
+                None,
+                local_dev_token_fallback(&refreshable.target),
+            )?;
             self.rebuild_client_for_target(
                 &refreshable.target,
                 fallback.as_ref().map(ResolvedBearer::bearer_token),
@@ -794,7 +736,10 @@ impl ServerStoreClient {
         Ok(())
     }
 
-    async fn send_http<T, F, Fut>(&self, request: F) -> Result<fabro_http::Response>
+    pub(crate) async fn send_http_response<T, F, Fut>(
+        &self,
+        request: F,
+    ) -> Result<std::result::Result<fabro_http::Response, HttpResponseFailure>>
     where
         F: FnOnce(fabro_http::HttpClient) -> Fut + Clone,
         Fut: std::future::Future<Output = std::result::Result<fabro_http::Response, T>>,
@@ -804,8 +749,8 @@ impl ServerStoreClient {
         let response = request.clone()(bundle.http_client.clone())
             .await
             .map_err(Into::into)?;
-        match classify_raw_response(response).await? {
-            Ok(response) => Ok(response),
+        match classify_http_response(response).await? {
+            Ok(response) => Ok(Ok(response)),
             Err(failure) => {
                 if self.should_refresh(Some(&failure.failure)) {
                     if let Some(failed_token) = bundle.bearer_token.as_deref() {
@@ -814,13 +759,23 @@ impl ServerStoreClient {
                         let response = request(bundle.http_client.clone())
                             .await
                             .map_err(Into::into)?;
-                        return classify_raw_response(response)
-                            .await?
-                            .map_err(|failure| failure.error);
+                        return classify_http_response(response).await;
                     }
                 }
-                Err(failure.error)
+                Ok(Err(failure))
             }
+        }
+    }
+
+    async fn send_http<T, F, Fut>(&self, request: F) -> Result<fabro_http::Response>
+    where
+        F: FnOnce(fabro_http::HttpClient) -> Fut + Clone,
+        Fut: std::future::Future<Output = std::result::Result<fabro_http::Response, T>>,
+        T: Into<anyhow::Error>,
+    {
+        match self.send_http_response(request).await? {
+            Ok(response) => Ok(response),
+            Err(failure) => Err(raw_response_failure_error(&failure)),
         }
     }
 
@@ -1286,10 +1241,10 @@ impl ServerStoreClient {
             .send()
             .await
             .with_context(|| format!("failed to upload artifact {}", path.display()))?;
-        classify_raw_response(response)
+        classify_http_response(response)
             .await?
             .map(|_| ())
-            .map_err(|failure| failure.error)
+            .map_err(|failure| raw_response_failure_error(&failure))
     }
 
     pub(crate) async fn upload_stage_artifact_batch(
@@ -1353,10 +1308,10 @@ impl ServerStoreClient {
             .send()
             .await
             .context("failed to upload artifact batch")?;
-        classify_raw_response(response)
+        classify_http_response(response)
             .await?
             .map(|_| ())
-            .map_err(|failure| failure.error)
+            .map_err(|failure| raw_response_failure_error(&failure))
     }
 
     pub(crate) async fn generate_preview_url(
@@ -1572,39 +1527,52 @@ where
     map_api_error_structured(err).error
 }
 
-struct RawResponseFailure {
-    error:   anyhow::Error,
-    failure: ApiFailure,
+pub(crate) struct HttpResponseFailure {
+    pub(crate) status:  fabro_http::StatusCode,
+    pub(crate) headers: fabro_http::HeaderMap,
+    pub(crate) body:    String,
+    failure:            ApiFailure,
 }
 
-async fn classify_raw_response(
+fn raw_response_failure_error(failure: &HttpResponseFailure) -> anyhow::Error {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&failure.body) {
+        let (detail, _) = parse_error_response_value(&value);
+        if let Some(detail) = detail {
+            return anyhow!("{detail}");
+        }
+    }
+
+    if failure.body.is_empty() {
+        return anyhow!("request failed with status {}", failure.status);
+    }
+
+    anyhow!(
+        "request failed with status {}: {}",
+        failure.status,
+        failure.body
+    )
+}
+
+async fn classify_http_response(
     response: fabro_http::Response,
-) -> Result<std::result::Result<fabro_http::Response, RawResponseFailure>> {
+) -> Result<std::result::Result<fabro_http::Response, HttpResponseFailure>> {
     if response.status().is_success() {
         return Ok(Ok(response));
     }
     let status = response.status();
+    let headers = response.headers().clone();
     let body = response.text().await.unwrap_or_default();
+    let mut code = None;
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
-        let (detail, code) = parse_error_response_value(&value);
-        if let Some(detail) = detail {
-            return Ok(Err(RawResponseFailure {
-                error:   anyhow!("{detail}"),
-                failure: ApiFailure { status, code },
-            }));
-        }
+        let (_, parsed_code) = parse_error_response_value(&value);
+        code = parsed_code;
     }
 
-    if body.is_empty() {
-        return Ok(Err(RawResponseFailure {
-            error:   anyhow!("request failed with status {status}"),
-            failure: ApiFailure { status, code: None },
-        }));
-    }
-
-    Ok(Err(RawResponseFailure {
-        error:   anyhow!("request failed with status {status}: {body}"),
-        failure: ApiFailure { status, code: None },
+    Ok(Err(HttpResponseFailure {
+        status,
+        headers,
+        body,
+        failure: ApiFailure { status, code },
     }))
 }
 
@@ -1644,6 +1612,8 @@ fn non_zero_u64_from_usize(value: usize) -> Option<NonZeroU64> {
     reason = "server-client tests stage local dev-token fixtures with sync std::fs::write"
 )]
 mod tests {
+    use std::path::PathBuf;
+
     use chrono::Duration as ChronoDuration;
 
     use super::*;
@@ -1715,45 +1685,18 @@ mod tests {
     }
 
     #[test]
-    fn remote_url_matches_tcp_bind_accepts_loopback_aliases() {
-        let bind_addr = "127.0.0.1:32276".parse().unwrap();
-
-        assert!(remote_url_matches_tcp_bind(
-            "http://127.0.0.1:32276/api/v1",
-            bind_addr
-        ));
-        assert!(remote_url_matches_tcp_bind(
-            "http://localhost:32276",
-            bind_addr
-        ));
-        assert!(!remote_url_matches_tcp_bind(
-            "http://127.0.0.1:32277",
-            bind_addr
-        ));
+    fn explicit_http_targets_do_not_allow_local_dev_token_fallback() {
+        let target = user_config::ServerTarget::HttpUrl {
+            api_url: "https://fabro.example.com/api/v1".to_string(),
+            tls:     None,
+        };
+        assert!(!local_dev_token_fallback(&target));
     }
 
     #[test]
-    fn remote_url_matches_tcp_bind_accepts_loopback_target_for_unspecified_bind() {
-        let bind_addr = "0.0.0.0:32276".parse().unwrap();
-
-        assert!(remote_url_matches_tcp_bind(
-            "http://127.0.0.1:32276",
-            bind_addr
-        ));
-        assert!(remote_url_matches_tcp_bind(
-            "http://localhost:32276/api/v1",
-            bind_addr
-        ));
-    }
-
-    #[test]
-    fn remote_url_targets_local_host_detects_local_http_urls() {
-        assert!(remote_url_targets_local_host("http://127.0.0.1:32276"));
-        assert!(remote_url_targets_local_host(
-            "http://localhost:32276/api/v1"
-        ));
-        assert!(remote_url_targets_local_host("http://0.0.0.0:32276"));
-        assert!(!remote_url_targets_local_host("https://example.com"));
+    fn unix_socket_targets_keep_local_dev_token_fallback() {
+        let target = user_config::ServerTarget::UnixSocket(PathBuf::from("/tmp/fabro.sock"));
+        assert!(local_dev_token_fallback(&target));
     }
 
     fn oauth_entry(login: &str) -> AuthEntry {

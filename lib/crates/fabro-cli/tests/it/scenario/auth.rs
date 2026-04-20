@@ -162,6 +162,10 @@ fn auth_refresh_failure_clears_local_session() {
     let context = test_context!();
     let server = MockServer::start();
     let target = server_target(&server);
+    context.write_home(
+        ".fabro/dev-token",
+        "fabro_dev_abababababababababababababababababababababababababababababababab\n",
+    );
 
     server.mock(|when, then| {
         when.method(GET).path("/api/v1/auth/cli/config");
@@ -241,6 +245,48 @@ fn auth_refresh_failure_clears_local_session() {
 
     let status = auth_status(&context, &target);
     assert_eq!(status["servers"].as_array().map(Vec::len), Some(0));
+
+    let local_token_mock = server.mock(|when, then| {
+        when.method(GET).path("/api/v1/system/info").header(
+            "authorization",
+            "Bearer fabro_dev_abababababababababababababababababababababababababababababababab",
+        );
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(json!({
+                "version": "dev-token-should-not-be-used"
+            }));
+    });
+    let auth_required_mock = server.mock(|when, then| {
+        when.method(GET).path("/api/v1/system/info");
+        then.status(401)
+            .header("Content-Type", "application/json")
+            .json_body(json!({
+                "errors": [{
+                    "status": "401",
+                    "title": "Unauthorized",
+                    "detail": "Authentication required.",
+                    "code": "authentication_required"
+                }]
+            }));
+    });
+
+    let second_system_info = context
+        .command()
+        .args(["--json", "system", "info", "--server", &target])
+        .output()
+        .expect("follow-up system info should run");
+    assert!(
+        !second_system_info.status.success(),
+        "explicit remote target should not downgrade to a local dev token after refresh failure"
+    );
+    assert!(
+        String::from_utf8_lossy(&second_system_info.stderr).contains("Authentication required."),
+        "follow-up request should fail with auth required, got:\n{}",
+        String::from_utf8_lossy(&second_system_info.stderr)
+    );
+    local_token_mock.assert_calls(0);
+    auth_required_mock.assert();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -275,6 +321,33 @@ async fn auth_login_refresh_logout_flow_against_real_server_and_twin_github() {
     assert!(!harness.web_requests.contains("POST /auth/cli/token"));
 
     harness.api_requests.clear();
+    let exec_output = context
+        .exec_cmd()
+        .args([
+            "--server",
+            &target,
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-haiku-4-5",
+            "say hello",
+        ])
+        .output()
+        .expect("exec should run");
+    assert!(
+        !exec_output.status.success(),
+        "real-server exec should fail on missing provider credentials, not auth\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&exec_output.stdout),
+        String::from_utf8_lossy(&exec_output.stderr)
+    );
+    assert!(harness.api_requests.contains("POST /api/v1/completions"));
+    assert!(
+        !String::from_utf8_lossy(&exec_output.stderr).contains("API key not set"),
+        "exec --server should use server auth instead of local provider auth:\n{}",
+        String::from_utf8_lossy(&exec_output.stderr)
+    );
+
+    harness.api_requests.clear();
     let workflow = context.install_fixture("simple.fabro");
     let first_run_id = run_detached(&context, &target, &workflow);
     assert!(harness.api_requests.contains("POST /api/v1/runs"));
@@ -286,13 +359,39 @@ async fn auth_login_refresh_logout_flow_against_real_server_and_twin_github() {
 
     harness.api_requests.clear();
     expire_saved_access_token(&context, &harness.web_base_url);
+    let expired_exec_output = context
+        .exec_cmd()
+        .args([
+            "--server",
+            &target,
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-haiku-4-5",
+            "say hello again",
+        ])
+        .output()
+        .expect("expired exec should run");
+    assert!(
+        !expired_exec_output.status.success(),
+        "expired exec should still reach the server after refresh\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&expired_exec_output.stdout),
+        String::from_utf8_lossy(&expired_exec_output.stderr)
+    );
+    assert!(harness.api_requests.contains("POST /auth/cli/refresh"));
+    assert!(harness.api_requests.contains("POST /api/v1/completions"));
+
+    harness.api_requests.clear();
     let second_run_id = run_detached(&context, &target, &workflow);
     assert!(harness.api_requests.contains("POST /api/v1/runs"));
-    assert!(harness.api_requests.contains("POST /auth/cli/refresh"));
     assert!(
         harness
             .api_requests
             .contains(&format!("POST /api/v1/runs/{second_run_id}/start"))
+    );
+    assert!(
+        !harness.api_requests.contains("POST /auth/cli/refresh"),
+        "subsequent commands should use the freshly persisted access token without another refresh"
     );
 
     let refreshed_entry = saved_auth_entry(&context);

@@ -365,3 +365,65 @@ fn ps_uses_configured_server_target_without_server_flag() {
     assert_eq!(runs[0]["workflow_name"], "Remote Workflow");
     assert_eq!(runs[0]["host_repo_path"], "/srv/repo");
 }
+
+#[test]
+fn ps_explicit_remote_target_ignores_broken_local_storage_settings() {
+    let context = test_context!();
+    let server = MockServer::start();
+    let run_id = unique_run_id();
+    let mock = server.mock(|when, then| {
+        when.method("GET").path("/api/v1/runs");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .body(
+                serde_json::json!({
+                    "data": [{
+                        "run_id": run_id,
+                        "workflow_name": "Explicit Remote",
+                        "workflow_slug": "explicit-remote",
+                        "goal": "Remote goal",
+                        "title": "Remote goal",
+                        "labels": {},
+                        "host_repo_path": "/srv/repo",
+                        "repository": { "name": "repo" },
+                        "start_time": "2026-04-20T12:00:00Z",
+                        "created_at": "2026-04-20T12:00:00Z",
+                        "status": "succeeded",
+                        "status_reason": null,
+                        "duration_ms": 123,
+                        "total_usd_micros": null
+                    }],
+                    "meta": { "has_more": false }
+                })
+                .to_string(),
+            );
+    });
+    context.write_home(
+        ".fabro/settings.toml",
+        "_version = 1\n\n[server.storage]\nroot = \"${FABRO_MISSING_STORAGE_ROOT}\"\n",
+    );
+
+    let output = context
+        .command()
+        .env_remove("FABRO_STORAGE_DIR")
+        .args([
+            "ps",
+            "-a",
+            "--json",
+            "--server",
+            &format!("{}/api/v1", server.base_url()),
+        ])
+        .output()
+        .expect("ps should execute");
+
+    assert!(
+        output.status.success(),
+        "explicit remote ps should ignore broken local storage settings\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    mock.assert();
+    let runs: Vec<Value> = serde_json::from_slice(&output.stdout).expect("ps JSON should parse");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["workflow_name"], "Explicit Remote");
+}
