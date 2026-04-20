@@ -1650,6 +1650,7 @@ dependencies = [
  "indicatif",
  "insta",
  "jsonwebtoken",
+ "libc",
  "object_store",
  "open",
  "openssl",

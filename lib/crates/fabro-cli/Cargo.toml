@@ -91,6 +91,7 @@ walkdir.workspace = true
 object_store.workspace = true
 bytes.workspace = true
 tokio-util.workspace = true
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { version = "0.9", optional = true }

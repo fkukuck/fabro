@@ -28,6 +28,12 @@ const QUERY_VALUE_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC.remove(b'_').remove(
 const ACCESS_TOKEN_TTL_MINUTES: i64 = 10;
 const REFRESH_TOKEN_TTL_DAYS: i64 = 30;
 const REFRESH_TOKEN_PREFIX: &str = "fabro_refresh_";
+const GITHUB_NOT_CONFIGURED: &str = "GitHub login is not configured for this server.";
+const INVALID_REDIRECT_URI: &str = "The provided redirect URI is not valid for CLI login.";
+const INVALID_OR_MISSING_STATE: &str = "The login state is missing or invalid.";
+const MISSING_FLOW_COOKIE: &str = "Your login session has expired. Please start again.";
+#[allow(dead_code, reason = "Reserved for future browser-only success pages.")]
+const LOGIN_SUCCESSFUL: &str = "Login successful. You can return to the CLI.";
 
 #[derive(Serialize)]
 struct OAuthErrorResponse<'a> {
@@ -137,21 +143,21 @@ async fn start(
     headers: HeaderMap,
 ) -> Response {
     if !github_enabled(&auth_mode) {
-        return static_error_page("GitHub login is not configured for this server.");
+        return static_error_page(GITHUB_NOT_CONFIGURED);
     }
 
     let Some(redirect_uri) = params.redirect_uri.as_deref() else {
-        return static_error_page("The provided redirect URI is not valid for CLI login.");
+        return static_error_page(INVALID_REDIRECT_URI);
     };
     if !valid_loopback_redirect_uri(redirect_uri) {
-        return static_error_page("The provided redirect URI is not valid for CLI login.");
+        return static_error_page(INVALID_REDIRECT_URI);
     }
 
     let Some(state_token) = params.state.as_deref() else {
-        return static_error_page("The login state is missing or invalid.");
+        return static_error_page(INVALID_OR_MISSING_STATE);
     };
     if !valid_state_token(state_token) {
-        return static_error_page("The login state is missing or invalid.");
+        return static_error_page(INVALID_OR_MISSING_STATE);
     }
 
     let Some(code_challenge) = params.code_challenge.as_deref() else {
@@ -172,7 +178,7 @@ async fn start(
     }
 
     let Some(session_key) = state.session_key() else {
-        return static_error_page("GitHub login is not configured for this server.");
+        return static_error_page(GITHUB_NOT_CONFIGURED);
     };
     let session = read_private_session(&headers, &session_key);
 
@@ -212,14 +218,14 @@ async fn resume(
     headers: HeaderMap,
 ) -> Response {
     if !github_enabled(&auth_mode) {
-        return static_error_page("GitHub login is not configured for this server.");
+        return static_error_page(GITHUB_NOT_CONFIGURED);
     }
 
     let Some(session_key) = state.session_key() else {
-        return static_error_page("GitHub login is not configured for this server.");
+        return static_error_page(GITHUB_NOT_CONFIGURED);
     };
     let Some(flow) = read_private_cli_flow(&headers, &session_key) else {
-        return static_error_page("Your login session has expired. Please start again.");
+        return static_error_page(MISSING_FLOW_COOKIE);
     };
     let secure = session_cookie_secure(state.as_ref());
 
@@ -426,11 +432,7 @@ async fn token(
         chrono::Duration::minutes(ACCESS_TOKEN_TTL_MINUTES),
     );
 
-    info!(
-        login = %entry.login,
-        email = %entry.email,
-        "Issued CLI auth tokens"
-    );
+    log_cli_auth_tokens_issued(&entry.login, &entry.email);
 
     Json(CliTokenResponse {
         access_token,
@@ -489,10 +491,8 @@ async fn refresh(
     };
 
     let now = chrono::Utc::now();
-    let existing = match auth_tokens
-        .find_refresh_token(&hash_refresh_secret(&secret))
-        .await
-    {
+    let secret_hash = hash_refresh_secret(&secret);
+    let existing = match auth_tokens.find_refresh_token(&secret_hash).await {
         Ok(existing) => existing,
         Err(err) => {
             warn!(error = %err, "Failed to load refresh token before rotation");
@@ -507,7 +507,7 @@ async fn refresh(
     let next_user_agent = sanitize_user_agent(request_user_agent(&headers));
     let outcome = match auth_tokens
         .consume_and_rotate(
-            hash_refresh_secret(&secret),
+            secret_hash,
             next_refresh_row(existing.as_ref(), &next_secret, &next_user_agent, now),
             now,
         )
@@ -526,6 +526,13 @@ async fn refresh(
 
     let (old, new_row) = match outcome {
         crate::auth::ConsumeOutcome::NotFound | crate::auth::ConsumeOutcome::Expired => {
+            if auth_tokens.was_recently_replay_revoked(&secret_hash, now) {
+                return oauth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "refresh_token_revoked",
+                    "Refresh token revoked",
+                );
+            }
             return oauth_error(
                 StatusCode::UNAUTHORIZED,
                 "refresh_token_expired",
@@ -533,15 +540,11 @@ async fn refresh(
             );
         }
         crate::auth::ConsumeOutcome::Reused(old) => {
+            auth_tokens.mark_refresh_token_replay(secret_hash, now);
             if let Err(err) = auth_tokens.delete_chain(old.chain_id).await {
                 warn!(error = %err, chain_id = %old.chain_id, "Failed to revoke replayed refresh token chain");
             }
-            warn!(
-                chain_id = %old.chain_id,
-                idp_subject = %old.identity.subject(),
-                user_agent_fingerprint = %user_agent_fingerprint(&next_user_agent),
-                "Refresh token replay detected"
-            );
+            log_refresh_token_replay(old.chain_id, old.identity.subject(), &next_user_agent);
             return oauth_error(
                 StatusCode::UNAUTHORIZED,
                 "refresh_token_revoked",
@@ -630,11 +633,7 @@ async fn logout(
                 "Could not complete logout",
             );
         }
-        info!(
-            login = %refresh_token.login,
-            email = %refresh_token.email,
-            "Logged out CLI refresh token chain"
-        );
+        log_cli_refresh_chain_logged_out(&refresh_token.login, &refresh_token.email);
     }
 
     StatusCode::NO_CONTENT.into_response()
@@ -792,6 +791,23 @@ fn next_refresh_row(
 fn user_agent_fingerprint(user_agent: &str) -> String {
     let digest = Sha256::digest(user_agent.as_bytes());
     hex::encode(&digest[..8])
+}
+
+fn log_cli_auth_tokens_issued(login: &str, email: &str) {
+    info!(login = %login, email = %email, "Issued CLI auth tokens");
+}
+
+fn log_refresh_token_replay(chain_id: uuid::Uuid, idp_subject: &str, user_agent: &str) {
+    warn!(
+        chain_id = %chain_id,
+        idp_subject = %idp_subject,
+        user_agent_fingerprint = %user_agent_fingerprint(user_agent),
+        "Refresh token replay detected"
+    );
+}
+
+fn log_cli_refresh_chain_logged_out(login: &str, email: &str) {
+    info!(login = %login, email = %email, "Logged out CLI refresh token chain");
 }
 
 fn oauth_error(
@@ -990,7 +1006,8 @@ async fn issue_auth_code_response(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::fmt::Write as _;
+    use std::sync::{Arc, Mutex as StdMutex};
 
     use axum::Extension;
     use axum::body::{Body, to_bytes};
@@ -1006,11 +1023,19 @@ mod tests {
     };
     use serde_json::json;
     use sha2::{Digest, Sha256};
+    use tokio::sync::Barrier;
+    use tokio::task::JoinSet;
     use tower::ServiceExt;
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::layer::Context;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{Layer, Registry};
     use uuid::Uuid;
 
     use super::{
-        CliFlowCookie, add_cli_flow_cookie, api_routes, read_private_cli_flow, web_routes,
+        CliFlowCookie, add_cli_flow_cookie, api_routes, read_private_cli_flow,
+        user_agent_fingerprint, web_routes,
     };
     use crate::auth::{AuthCode, RefreshToken};
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
@@ -1141,6 +1166,64 @@ mod tests {
             used:         false,
             user_agent:   "fabro-test".to_string(),
         }
+    }
+
+    #[derive(Default)]
+    struct EventCapture {
+        fields: Vec<(String, String)>,
+    }
+
+    impl Visit for EventCapture {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.fields
+                .push((field.name().to_string(), format!("{value:?}")));
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
+        }
+
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
+        }
+    }
+
+    struct CaptureLayer {
+        lines: Arc<StdMutex<Vec<String>>>,
+    }
+
+    impl<S: Subscriber> Layer<S> for CaptureLayer {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut capture = EventCapture::default();
+            event.record(&mut capture);
+
+            let mut line = event.metadata().level().to_string();
+            for (field, value) in capture.fields {
+                let _ = write!(line, " {field}={value}");
+            }
+            self.lines.lock().unwrap().push(line);
+        }
+    }
+
+    fn capture_cli_flow_events(run: impl FnOnce()) -> Arc<StdMutex<Vec<String>>> {
+        let lines = Arc::new(StdMutex::new(Vec::new()));
+        let subscriber = Registry::default().with(CaptureLayer {
+            lines: Arc::clone(&lines),
+        });
+        tracing::subscriber::with_default(subscriber, run);
+        lines
     }
 
     #[tokio::test]
@@ -1285,6 +1368,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-content-type-options")
+                .and_then(|value| value.to_str().ok()),
+            Some("nosniff")
+        );
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("The provided redirect URI is not valid for CLI login."));
@@ -1438,6 +1528,88 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_refresh_has_one_winner_and_revokes_chain() {
+        let (app, state) = test_router(github_settings("https://fabro.example"));
+        let initial_secret = "refresh-secret-concurrent";
+        let auth_tokens = state.store_ref().auth_tokens().await.unwrap();
+        auth_tokens
+            .insert_refresh_token(refresh_row(initial_secret))
+            .await
+            .unwrap();
+
+        let barrier = Arc::new(Barrier::new(33));
+        let mut tasks = JoinSet::new();
+        for _ in 0..32 {
+            let app = app.clone();
+            let barrier = Arc::clone(&barrier);
+            tasks.spawn(async move {
+                barrier.wait().await;
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri("/auth/cli/refresh")
+                            .header(
+                                header::AUTHORIZATION,
+                                format!("Bearer fabro_refresh_{initial_secret}"),
+                            )
+                            .header(header::USER_AGENT, "fabro-cli/0.3")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+                )
+                .unwrap();
+                (status, body)
+            });
+        }
+        barrier.wait().await;
+
+        let mut success = 0;
+        let mut revoked = 0;
+        let mut rotated_secret = None;
+        while let Some(result) = tasks.join_next().await {
+            let (status, body) = result.unwrap();
+            match status {
+                StatusCode::OK => {
+                    success += 1;
+                    rotated_secret = body["refresh_token"]
+                        .as_str()
+                        .and_then(|token| token.strip_prefix("fabro_refresh_"))
+                        .map(str::to_string);
+                }
+                StatusCode::UNAUTHORIZED => {
+                    assert_eq!(body["error"], "refresh_token_revoked");
+                    revoked += 1;
+                }
+                other => panic!("unexpected refresh status {other}: {body}"),
+            }
+        }
+
+        assert_eq!(success, 1);
+        assert_eq!(revoked, 31);
+        let rotated_secret = rotated_secret.expect("one refresh should rotate the token");
+        assert!(
+            auth_tokens
+                .find_refresh_token(&hash_refresh_secret(initial_secret))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            auth_tokens
+                .find_refresh_token(&hash_refresh_secret(&rotated_secret))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn logout_deletes_refresh_token_chain_and_returns_no_content() {
         let (app, state) = test_router(github_settings("https://fabro.example"));
@@ -1484,5 +1656,44 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn cli_flow_logs_do_not_leak_secrets_or_terminal_control_bytes() {
+        let raw_refresh_token = "fabro_refresh_secret_forbidden";
+        let raw_jwt = "eyJsecret.forbidden";
+        let raw_code_verifier = "raw-code-verifier";
+        let user_agent = "fabro-cli/0.4\x1b[31m\nspoofed";
+
+        let captured = capture_cli_flow_events(|| {
+            super::log_cli_auth_tokens_issued("octocat", "octocat@example.com");
+            super::log_refresh_token_replay(uuid::Uuid::nil(), "12345", user_agent);
+            super::log_cli_refresh_chain_logged_out("octocat", "octocat@example.com");
+
+            let _ = (raw_refresh_token, raw_jwt, raw_code_verifier);
+        });
+
+        let lines = captured.lock().unwrap().clone();
+        let rendered = lines.join(" ");
+        assert!(
+            rendered.contains("Issued CLI auth tokens"),
+            "captured logs: {rendered}"
+        );
+        assert!(
+            rendered.contains("Refresh token replay detected"),
+            "captured logs: {rendered}"
+        );
+        assert!(
+            rendered.contains("Logged out CLI refresh token chain"),
+            "captured logs: {rendered}"
+        );
+        assert!(!rendered.contains("fabro_refresh_"));
+        assert!(!rendered.contains("eyJ"));
+        assert!(!rendered.contains("raw-code-verifier"));
+        let fingerprint = user_agent_fingerprint(user_agent);
+        assert!(!fingerprint.contains('\u{1b}'));
+        assert!(!fingerprint.contains('\n'));
+        assert!(lines.iter().all(|line| !line.contains('\u{1b}')));
+        assert!(lines.iter().all(|line| !line.contains('\n')));
     }
 }

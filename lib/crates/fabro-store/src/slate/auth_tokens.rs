@@ -10,6 +10,8 @@ use uuid::Uuid;
 
 use crate::{Result, keys};
 
+const REPLAY_REVOCATION_TTL_SECONDS: i64 = 60;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RefreshToken {
     pub token_hash:   [u8; 32],
@@ -34,8 +36,9 @@ pub enum ConsumeOutcome {
 }
 
 pub struct SlateAuthTokenStore {
-    db:            Arc<slatedb::Db>,
-    refresh_locks: DashMap<[u8; 32], Arc<Mutex<()>>>,
+    db:                 Arc<slatedb::Db>,
+    refresh_locks:      DashMap<[u8; 32], Arc<Mutex<()>>>,
+    replay_revocations: DashMap<[u8; 32], DateTime<Utc>>,
 }
 
 impl std::fmt::Debug for SlateAuthTokenStore {
@@ -50,6 +53,7 @@ impl SlateAuthTokenStore {
         Self {
             db,
             refresh_locks: DashMap::new(),
+            replay_revocations: DashMap::new(),
         }
     }
 
@@ -155,6 +159,23 @@ impl SlateAuthTokenStore {
 
         Ok(keys_to_delete.len() as u64)
     }
+
+    pub fn mark_refresh_token_replay(&self, token_hash: [u8; 32], now: DateTime<Utc>) {
+        self.replay_revocations.insert(
+            token_hash,
+            now + chrono::Duration::seconds(REPLAY_REVOCATION_TTL_SECONDS),
+        );
+        self.replay_revocations
+            .retain(|_, expires_at| *expires_at > now);
+    }
+
+    pub fn was_recently_replay_revoked(&self, token_hash: &[u8; 32], now: DateTime<Utc>) -> bool {
+        self.replay_revocations
+            .retain(|_, expires_at| *expires_at > now);
+        self.replay_revocations
+            .get(token_hash)
+            .is_some_and(|expires_at| *expires_at > now)
+    }
 }
 
 #[cfg(test)]
@@ -243,7 +264,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(matches!(replay, ConsumeOutcome::Reused(_)));
+        let ConsumeOutcome::Reused(reused) = replay else {
+            panic!("expected replay to return the original used row");
+        };
+        assert_eq!(reused.chain_id, chain_id);
     }
 
     #[tokio::test]

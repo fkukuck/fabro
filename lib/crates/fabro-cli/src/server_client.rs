@@ -29,6 +29,7 @@ use tokio_util::io::ReaderStream;
 use crate::args::ServerTargetArgs;
 use crate::auth_store::{AuthEntry, AuthStore, ServerTargetKey, Subject};
 use crate::commands::server::{record, start};
+use crate::loopback_target::{LoopbackClassification, is_loopback_or_unix_socket};
 use crate::user_config::cli_http_client_builder;
 use crate::{sse, user_config};
 
@@ -722,6 +723,7 @@ impl ServerStoreClient {
             .await?;
             bail!("CLI session has expired. Run `fabro auth login` again.");
         }
+        ensure_refresh_target_transport(&refreshable.target)?;
 
         let (http_client, base_url) = build_public_http_client(&refreshable.target)?;
         let response = http_client
@@ -1479,6 +1481,29 @@ impl ServerStoreClient {
     }
 }
 
+fn ensure_refresh_target_transport(target: &user_config::ServerTarget) -> Result<()> {
+    match is_loopback_or_unix_socket(target)? {
+        LoopbackClassification::Https
+        | LoopbackClassification::LoopbackHttp
+        | LoopbackClassification::UnixSocket => Ok(()),
+        LoopbackClassification::Rejected => bail!(refresh_transport_error(target)),
+    }
+}
+
+fn refresh_transport_error(target: &user_config::ServerTarget) -> String {
+    format!(
+        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({}). Use HTTPS, or bind the server to 127.0.0.1 / ::1.",
+        target_display(target)
+    )
+}
+
+fn target_display(target: &user_config::ServerTarget) -> String {
+    match target {
+        user_config::ServerTarget::HttpUrl { api_url, .. } => api_url.clone(),
+        user_config::ServerTarget::UnixSocket(path) => format!("unix://{}", path.display()),
+    }
+}
+
 fn parse_error_response_value(value: &serde_json::Value) -> (Option<String>, Option<String>) {
     let first = value
         .get("errors")
@@ -1664,6 +1689,8 @@ fn non_zero_u64_from_usize(value: usize) -> Option<NonZeroU64> {
     reason = "server-client tests stage local dev-token fixtures with sync std::fs::write"
 )]
 mod tests {
+    use chrono::Duration as ChronoDuration;
+
     use super::*;
 
     #[test]
@@ -1772,5 +1799,62 @@ mod tests {
         ));
         assert!(remote_url_targets_local_host("http://0.0.0.0:32276"));
         assert!(!remote_url_targets_local_host("https://example.com"));
+    }
+
+    fn oauth_entry(login: &str) -> AuthEntry {
+        let now = chrono::Utc::now();
+        AuthEntry {
+            access_token:             format!("access-{login}"),
+            access_token_expires_at:  now + ChronoDuration::minutes(10),
+            refresh_token:            format!("refresh-{login}"),
+            refresh_token_expires_at: now + ChronoDuration::days(30),
+            subject:                  Subject {
+                idp_issuer:  "https://github.com".to_string(),
+                idp_subject: "12345".to_string(),
+                login:       login.to_string(),
+                name:        format!("Name {login}"),
+                email:       format!("{login}@example.com"),
+            },
+            logged_in_at:             now,
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn refresh_access_token_rejects_plain_http_non_loopback_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth_store = AuthStore::new(temp.path().join("auth.json"));
+        let target = user_config::ServerTarget::HttpUrl {
+            api_url: "http://fabro.example.com".to_string(),
+            tls:     None,
+        };
+        let key = ServerTargetKey::new(&target).unwrap();
+        auth_store.put(&key, oauth_entry("octocat")).unwrap();
+
+        let http_client = cli_http_client_builder().no_proxy().build().unwrap();
+        let client = ServerStoreClient {
+            state:             Arc::new(RwLock::new(client_bundle(
+                "http://fabro.example.com",
+                http_client,
+                Some("access-octocat".to_string()),
+            ))),
+            base_url:          "http://fabro.example.com".to_string(),
+            refreshable_oauth: Some(RefreshableOAuth {
+                target:     target.clone(),
+                key:        key.clone(),
+                auth_store: auth_store.clone(),
+            }),
+            refresh_lock:      Arc::new(Mutex::new(())),
+        };
+
+        let err = client
+            .refresh_access_token("access-octocat")
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Refusing to send refresh-token credentials over plaintext HTTP")
+        );
+        assert!(auth_store.get(&key).unwrap().is_some());
     }
 }

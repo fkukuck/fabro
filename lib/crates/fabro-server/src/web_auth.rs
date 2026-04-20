@@ -20,6 +20,7 @@ use crate::server::AppState;
 
 pub const SESSION_COOKIE_NAME: &str = "__fabro_session";
 const OAUTH_STATE_COOKIE_NAME: &str = "fabro_oauth_state";
+const OAUTH_STATE_TTL_MINUTES: i64 = 30;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionCookie {
@@ -52,6 +53,7 @@ struct LoginGithubParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct OAuthStateCookie {
     state:     String,
+    exp:       i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     return_to: Option<String>,
 }
@@ -159,6 +161,7 @@ fn read_private_oauth_state(headers: &HeaderMap, key: &Key) -> Option<OAuthState
     jar.private(key)
         .get(OAUTH_STATE_COOKIE_NAME)
         .and_then(|cookie| serde_json::from_str(cookie.value()).ok())
+        .filter(|state: &OAuthStateCookie| state.exp > chrono::Utc::now().timestamp())
 }
 
 fn add_oauth_state_cookie(jar: &mut CookieJar, key: &Key, state: OAuthStateCookie, secure: bool) {
@@ -171,7 +174,7 @@ fn add_oauth_state_cookie(jar: &mut CookieJar, key: &Key, state: OAuthStateCooki
         .http_only(true)
         .same_site(SameSite::Lax)
         .secure(secure)
-        .max_age(Duration::minutes(30))
+        .max_age(Duration::minutes(OAUTH_STATE_TTL_MINUTES))
         .build(),
     );
 }
@@ -436,6 +439,8 @@ async fn login_github(
         &session_key,
         OAuthStateCookie {
             state:     state_token,
+            exp:       (chrono::Utc::now() + chrono::Duration::minutes(OAUTH_STATE_TTL_MINUTES))
+                .timestamp(),
             return_to: sanitize_return_to(params.return_to),
         },
         session_cookie_secure(state.as_ref()),
@@ -860,7 +865,9 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use super::{api_routes, read_private_oauth_state, read_private_session, routes};
+    use super::{
+        OAUTH_STATE_TTL_MINUTES, api_routes, read_private_oauth_state, read_private_session, routes,
+    };
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
     use crate::server;
 
@@ -1087,6 +1094,7 @@ mod tests {
             github_settings("https://fabro.example"),
             github_auth_mode(),
         );
+        let now = chrono::Utc::now().timestamp();
 
         let response = app
             .oneshot(
@@ -1112,6 +1120,8 @@ mod tests {
         let oauth_state =
             read_private_oauth_state(&headers, &key).expect("oauth state should decode");
         assert_eq!(oauth_state.return_to.as_deref(), Some("/auth/cli/resume"));
+        assert!(oauth_state.exp >= now + (29 * 60));
+        assert!(oauth_state.exp <= now + (OAUTH_STATE_TTL_MINUTES * 60) + 5);
     }
 
     #[tokio::test]
@@ -1184,6 +1194,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn callback_github_rejects_expired_oauth_state_cookie_after_35_minutes() {
+        let key = test_cookie_key();
+        let app = test_auth_router_with_settings(
+            github_settings("https://fabro.example"),
+            github_auth_mode(),
+        );
+        let mut jar = cookie::CookieJar::new();
+        super::add_oauth_state_cookie(
+            &mut jar,
+            &key,
+            super::OAuthStateCookie {
+                state:     "fabro-test-state".to_string(),
+                exp:       (chrono::Utc::now() - chrono::Duration::minutes(5)).timestamp(),
+                return_to: Some("/auth/cli/resume".to_string()),
+            },
+            true,
+        );
+        let cookie = jar
+            .delta()
+            .next()
+            .expect("private oauth cookie should exist")
+            .encoded()
+            .to_string();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/auth/callback/github?code=test-code&state=fabro-test-state")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains("Your login took too long or was tampered with. Please start again.")
+        );
+    }
+
+    #[tokio::test]
     async fn callback_github_forwards_sanitized_error_to_cli_return_to() {
         let key = test_cookie_key();
         let app = test_auth_router_with_settings(
@@ -1196,6 +1250,7 @@ mod tests {
             &key,
             super::OAuthStateCookie {
                 state:     "fabro-test-state".to_string(),
+                exp:       (chrono::Utc::now() + chrono::Duration::minutes(30)).timestamp(),
                 return_to: Some("/auth/cli/resume".to_string()),
             },
             true,

@@ -20,6 +20,8 @@ use thiserror::Error;
 
 use crate::user_config::ServerTarget;
 
+const AUTH_FILE_ENV: &str = "FABRO_AUTH_FILE";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Subject {
     pub(crate) idp_issuer:  String,
@@ -86,11 +88,8 @@ pub(crate) enum AuthStoreError {
     UnsupportedPlatform,
     #[error("invalid server target `{value}`")]
     InvalidServerTarget { value: String },
-    #[error("failed to lock auth store at {path}: {source}")]
-    Lock {
-        path:   PathBuf,
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Lock(#[from] LockError),
     #[error("failed to read auth store at {path}: {source}")]
     Read {
         path:   PathBuf,
@@ -118,6 +117,19 @@ pub(crate) enum AuthStoreError {
     },
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum LockError {
+    #[error(
+        "the filesystem backing {path} does not support file locking; move the auth store to a local filesystem or set {AUTH_FILE_ENV} to a local path"
+    )]
+    FilesystemDoesNotSupportLocking { path: PathBuf },
+    #[error("failed to lock auth store at {path}: {source}")]
+    Io {
+        path:   PathBuf,
+        source: std::io::Error,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AuthStore {
     path: PathBuf,
@@ -131,7 +143,10 @@ struct AuthFile {
 
 impl Default for AuthStore {
     fn default() -> Self {
-        Self::new(fabro_util::Home::from_env().root().join("auth.json"))
+        let path = std::env::var_os(AUTH_FILE_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| fabro_util::Home::from_env().root().join("auth.json"));
+        Self::new(path)
     }
 }
 
@@ -248,12 +263,15 @@ impl AuthStore {
         f: impl FnOnce() -> Result<T, AuthStoreError>,
     ) -> Result<T, AuthStoreError> {
         let lock_file = self.open_lock_file()?;
-        lock_file
-            .lock_shared()
-            .map_err(|source| AuthStoreError::Lock {
-                path: self.lock_path(),
-                source,
-            })?;
+        match FileExt::try_lock_shared(&lock_file) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::WouldBlock => {
+                lock_file
+                    .lock_shared()
+                    .map_err(|source| self.lock_error(source))?;
+            }
+            Err(source) => return Err(self.lock_error(source)),
+        }
         f()
     }
 
@@ -271,12 +289,15 @@ impl AuthStore {
         f: impl FnOnce() -> Result<T, AuthStoreError>,
     ) -> Result<T, AuthStoreError> {
         let lock_file = self.open_lock_file()?;
-        lock_file
-            .lock_exclusive()
-            .map_err(|source| AuthStoreError::Lock {
-                path: self.lock_path(),
-                source,
-            })?;
+        match FileExt::try_lock_exclusive(&lock_file) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::WouldBlock => {
+                lock_file
+                    .lock_exclusive()
+                    .map_err(|source| self.lock_error(source))?;
+            }
+            Err(source) => return Err(self.lock_error(source)),
+        }
         f()
     }
 
@@ -289,11 +310,16 @@ impl AuthStore {
             .write(true)
             .truncate(false)
             .open(&path)
-            .map_err(|source| AuthStoreError::Lock { path, source })
+            .map_err(|source| LockError::Io { path, source }.into())
     }
 
     fn lock_path(&self) -> PathBuf {
         self.path.with_extension("lock")
+    }
+
+    #[cfg(unix)]
+    fn lock_error(&self, source: std::io::Error) -> AuthStoreError {
+        classify_lock_error(self.lock_path(), source).into()
     }
 
     #[cfg(unix)]
@@ -397,6 +423,16 @@ fn write_private_file(path: &Path, contents: &str) -> Result<(), AuthStoreError>
     Ok(())
 }
 
+#[cfg(unix)]
+fn classify_lock_error(path: PathBuf, source: std::io::Error) -> LockError {
+    match source.raw_os_error() {
+        Some(code) if code == libc::EOPNOTSUPP || code == libc::ENOLCK => {
+            LockError::FilesystemDoesNotSupportLocking { path }
+        }
+        _ => LockError::Io { path, source },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -405,6 +441,8 @@ mod tests {
 
     use chrono::Duration;
 
+    #[cfg(unix)]
+    use super::{AUTH_FILE_ENV, LockError, classify_lock_error};
     use super::{AuthEntry, AuthStore, ServerTargetKey, Subject};
     use crate::user_config::ServerTarget;
 
@@ -582,5 +620,21 @@ mod tests {
 
         let err = store.put(&key, entry("octocat")).unwrap_err();
         assert!(err.to_string().contains("not supported on this platform"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsupported_locking_filesystem_returns_actionable_error() {
+        let path = PathBuf::from("/tmp/fabro-auth.lock");
+        let err = classify_lock_error(
+            path.clone(),
+            std::io::Error::from_raw_os_error(libc::ENOLCK),
+        );
+
+        assert!(matches!(
+            err,
+            LockError::FilesystemDoesNotSupportLocking { path: ref error_path } if error_path == &path
+        ));
+        assert!(err.to_string().contains(AUTH_FILE_ENV));
     }
 }
