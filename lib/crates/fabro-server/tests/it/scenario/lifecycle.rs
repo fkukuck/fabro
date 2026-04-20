@@ -249,7 +249,17 @@ async fn full_http_lifecycle_cancel() {
     )
     .await;
     assert_eq!(body["status"], "running");
-    assert_eq!(body["pending_control"], "cancel");
+    // `pending_control` is computed from the store projection after the cancel
+    // event is appended AND the worker is signaled. The worker is sitting at a
+    // human gate; once notified it can emit a clearing event before this
+    // handler re-reads the projection, so the response can legitimately
+    // observe either the still-pending "cancel" or a null where the worker
+    // already consumed it. Durable convergence is asserted below.
+    let pending_control = &body["pending_control"];
+    assert!(
+        pending_control == "cancel" || pending_control.is_null(),
+        "expected pending_control to be \"cancel\" or null, got {pending_control}"
+    );
 
     // Verify the durable store view converges to cancelled failure.
     let body = wait_for_run_state(&app, &run_id, "failed", "cancelled").await;

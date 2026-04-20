@@ -1,4 +1,13 @@
+#![allow(
+    clippy::absolute_paths,
+    reason = "This test module prefers explicit type paths over extra imports."
+)]
+
 use fabro_test::{fabro_snapshot, test_context};
+use fabro_types::run_event::PullRequestCreatedProps;
+use fabro_types::{EventBody, RunEvent, RunId};
+
+use super::support::{server_endpoint, setup_completed_fast_dry_run};
 
 #[test]
 fn help() {
@@ -26,17 +35,61 @@ fn help() {
     ");
 }
 
+// Seed a PR event against this test's own run so the store is guaranteed to
+// have at least one entry; `fabro pr list` then must load GitHub credentials
+// and fail, regardless of what peer tests have left in the shared store.
 #[test]
 fn pr_list_missing_github_credentials_errors() {
     let context = test_context!();
+    let run = setup_completed_fast_dry_run(&context);
+    let run_id: RunId = run.run_id.parse().unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let (client, base_url) =
+            server_endpoint(&context.storage_dir).expect("server endpoint should exist");
+        let event = RunEvent {
+            id: ulid::Ulid::new().to_string(),
+            ts: chrono::Utc::now(),
+            run_id,
+            node_id: None,
+            node_label: None,
+            stage_id: None,
+            parallel_group_id: None,
+            parallel_branch_id: None,
+            session_id: None,
+            parent_session_id: None,
+            tool_call_id: None,
+            actor: None,
+            body: EventBody::PullRequestCreated(PullRequestCreatedProps {
+                pr_url:      "https://github.com/fabro-sh/fabro/pull/123".to_string(),
+                pr_number:   123,
+                owner:       "fabro-sh".to_string(),
+                repo:        "fabro".to_string(),
+                base_branch: "main".to_string(),
+                head_branch: "fabro/run/demo".to_string(),
+                title:       "Map the constellations".to_string(),
+                draft:       false,
+            }),
+        };
+        client
+            .post(format!("{base_url}/api/v1/runs/{run_id}/events"))
+            .json(&event)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    });
+
     let mut cmd = context.command();
     cmd.args(["pr", "list"]);
 
     fabro_snapshot!(context.filters(), cmd, @"
-    success: true
-    exit_code: 0
+    success: false
+    exit_code: 1
     ----- stdout -----
-    No pull requests found.
     ----- stderr -----
+    error: GitHub credentials required — run `fabro install` or set GITHUB_TOKEN
     ");
 }
