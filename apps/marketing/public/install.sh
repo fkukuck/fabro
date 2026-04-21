@@ -158,14 +158,14 @@ else
 fi
 echo "" >&2
 
-# --- Prompt to run setup wizard ---
+# --- Prompt to start the server and open the install wizard ---
 if [ -t 2 ] && [ -e /dev/tty ]; then
-  printf "  ${BOLD}Run ${BOLD_CYAN}fabro install${RESET}${BOLD} now to complete setup? [Y/n]${RESET} " >&2
+  printf "  ${BOLD}Run ${BOLD_CYAN}fabro server start${RESET}${BOLD} now to finish setup in your browser? [Y/n]${RESET} " >&2
   read -r answer </dev/tty
   case "$answer" in
-    [nN]*) dim "Skipping. Run ${BOLD_CYAN}fabro install${RESET}${DIM} whenever you're ready." ;;
-    *)     echo "" >&2; exec "${INSTALL_DIR}/fabro" install ;;
+    [nN]*) dim "Skipping. Run ${BOLD_CYAN}fabro server start${RESET}${DIM} whenever you're ready." ;;
+    *)     echo "" >&2; exec "${INSTALL_DIR}/fabro" server start ;;
   esac
 else
-  info "Run ${BOLD_CYAN}fabro install${RESET} to complete setup."
+  info "Run ${BOLD_CYAN}fabro server start${RESET} to finish setup in your browser."
 fi

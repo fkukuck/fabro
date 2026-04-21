@@ -24,6 +24,8 @@ brew install fabro-sh/tap/fabro-nightly
 curl -fsSL https://fabro.sh/install.sh | bash
 ```
 
+Then run `fabro server start` to finish setup in your browser. The server opens a web wizard, exits when the wizard completes, and starts in configured mode the next time you run it.
+
 <img src="docs/images/runs-board.png" alt="Fabro Runs board showing workflows across Working, Pending, Verify, and Merge stages" />
 
 ---
@@ -127,14 +129,17 @@ curl -fsSL https://fabro.sh/install.sh | bash
 
 Release binaries and the multi-arch Docker image ship with SLSA Build Provenance attestations. See [Verifying Releases](https://docs.fabro.sh/reference/verifying-releases) to check an artifact was built by our GitHub Actions workflow.
 
-Then initialize Fabro in your project:
+Then finish setup in your browser and initialize Fabro in your project:
 
 ```bash
-fabro install          # one-time setup
+fabro server start     # opens a web install wizard in your browser
+                       # (server exits when the wizard finishes — start it again to run Fabro)
 
 cd my-project
 fabro repo init        # per project
 ```
+
+For headless or scripted environments, `fabro install` runs the same setup as a CLI-only wizard.
 
 ---
 

@@ -21,6 +21,10 @@ It checks:
 
 ## Common issues
 
+**Install wizard didn't open in my browser** — `fabro server start` prints the install URL to stderr before attempting to open it. Copy that URL into your browser manually. Auto-open fails on headless Linux hosts, inside most containers, and over SSH sessions without a display.
+
+**Server exited after I finished the install wizard** — Expected. The server writes `~/.fabro/settings.toml` and exits cleanly at the end of the wizard. Start it again with `fabro server start` to boot in configured mode, or run it under a supervisor with a restart policy (for example docker-compose `restart: unless-stopped`, systemd, or Railway's restart-on-exit) so the second start happens automatically.
+
 **"No API key configured"** — Set at least one provider key with `fabro provider login` or `fabro secret set`, or export it in the server process environment. Run `fabro doctor` to verify connectivity.
 
 **Stall watchdog timeouts** — If runs are cancelled unexpectedly, the agent may be stuck or the LLM provider may be slow. Check `FABRO_LOG=debug` output for `Agent.LlmRetry` events. Increase `stall_timeout` in the graph if needed, or add [fallback providers](/core-concepts/models) to handle outages.

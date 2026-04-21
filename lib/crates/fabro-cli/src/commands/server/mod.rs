@@ -226,6 +226,11 @@ fn announce_install_mode(bind: &Bind, token: &str, styles: &Styles, printer: Pri
         Some(url) => {
             fabro_util::printerr!(printer, "  Open this URL in your browser to finish setup:");
             fabro_util::printerr!(printer, "    {url}");
+            if let Err(e) = open::that(&url) {
+                fabro_util::printerr!(printer, "");
+                fabro_util::printerr!(printer, "  Could not open a browser automatically: {e}");
+                fabro_util::printerr!(printer, "  Open the URL above manually to continue.");
+            }
         }
         None => {
             fabro_util::printerr!(

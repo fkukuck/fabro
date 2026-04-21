@@ -376,6 +376,10 @@ Demo mode is per-request: send the `X-Fabro-Demo: 1` header to get static demo d
 
 When `--no-web` is set, the server still exposes the machine API under `/api/v1` and `/health`, but it returns `404` for `/`, `/auth/*`, SPA client routes, and the web-only helper endpoints under `/api/v1`.
 
+### Install mode
+
+If `~/.fabro/settings.toml` does not exist yet, `fabro server start` enters install mode: it prints an install URL, attempts to open it in your default browser, and serves a web wizard for configuring LLM providers, the server URL, and GitHub integration. The server exits cleanly when the wizard finishes; start it again (or let a supervisor restart it) to boot in configured mode. See [Running the Fabro Server](/administration/deploy-server) for the full flow, and `fabro install` for the headless CLI-only equivalent.
+
 ## `fabro server stop`
 
 Stop the running server daemon. Sends SIGTERM and waits for graceful shutdown, escalating to SIGKILL after the timeout.
@@ -855,7 +859,11 @@ For OpenAI, this offers a device code flow — you open a URL in your browser, e
 
 ## `fabro install`
 
-Interactive setup wizard that walks you through configuring API keys and validating your environment. Runs `fabro doctor` with live probes after setup to validate the configuration.
+Interactive CLI setup wizard that walks you through configuring API keys and validating your environment. Runs `fabro doctor` with live probes after setup to validate the configuration.
+
+<Note>
+For most users, the preferred way to set up server mode is to run `fabro server start`, which opens a web-based install wizard in the browser (see [Running the Fabro Server](/administration/deploy-server)). `fabro install` is the headless, CLI-only alternative — useful for remote hosts without a browser, scripted deployments, and CI.
+</Note>
 
 ```bash
 fabro install

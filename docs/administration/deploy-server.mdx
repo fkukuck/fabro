@@ -30,12 +30,21 @@ Both interfaces use the same workflow engine, the same Graphviz files, and the s
 fabro server start
 ```
 
-This starts the server on a Unix socket at `~/.fabro/fabro.sock` by default. Use `--bind 127.0.0.1` for TCP. To also run the web UI:
+This starts the server on a Unix socket at `~/.fabro/fabro.sock` by default. Use `--bind 127.0.0.1` for TCP.
+
+### First run: web install wizard
+
+If `~/.fabro/settings.toml` does not yet exist, `fabro server start` enters **install mode**: it prints an install URL, attempts to open the URL in your default browser, and serves a web wizard that walks you through configuring your LLM provider, server URL, and GitHub integration.
+
+When you finish the wizard, the server writes `~/.fabro/settings.toml` and exits cleanly. Start it again to boot in configured mode:
 
 ```bash
-fabro server start                 # API on port 3000
-cd apps/fabro-web && bun run dev   # rebuilds web assets on change; refresh the browser
+fabro server start
 ```
+
+Under a process supervisor with a restart policy (for example docker-compose `restart: unless-stopped`, systemd, or Railway's restart-on-exit) this second start happens automatically.
+
+For headless or scripted environments where no browser is available, run `fabro install` instead — it's the same wizard as a CLI prompt flow.
 
 Common flags:
 
