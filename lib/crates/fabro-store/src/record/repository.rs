@@ -1,3 +1,68 @@
+//! Thin typed storage wrapper for simple records that live directly in SlateDB.
+//!
+//! When adding a new persisted record type:
+//! 1. Define the data struct.
+//! 2. Implement [`Record`] for it with a stable `PREFIX`, `Id`, and `Codec`.
+//! 3. Wrap `Repository<RecordType>` in a small domain store that exposes the
+//!    operations callers should use.
+//!
+//! Example:
+//!
+//! ```rust,ignore
+//! use std::sync::Arc;
+//!
+//! use chrono::{DateTime, Utc};
+//! use serde::{Deserialize, Serialize};
+//!
+//! use crate::record::{JsonCodec, Record, Repository};
+//! use crate::Result;
+//!
+//! #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+//! struct Session {
+//!     id: String,
+//!     user_id: String,
+//!     expires_at: DateTime<Utc>,
+//! }
+//!
+//! impl Record for Session {
+//!     type Id = String;
+//!     type Codec = JsonCodec;
+//!     const PREFIX: &'static str = "auth/session";
+//!
+//!     fn id(&self) -> Self::Id {
+//!         self.id.clone()
+//!     }
+//! }
+//!
+//! struct SessionStore {
+//!     repo: Repository<Session>,
+//! }
+//!
+//! impl SessionStore {
+//!     fn new(db: Arc<slatedb::Db>) -> Self {
+//!         Self {
+//!             repo: Repository::new(db),
+//!         }
+//!     }
+//!
+//!     async fn insert(&self, session: Session) -> Result<()> {
+//!         self.repo.put(&session).await
+//!     }
+//!
+//!     async fn get(&self, id: &str) -> Result<Option<Session>> {
+//!         self.repo.get(&id.to_string()).await
+//!     }
+//!
+//!     async fn gc_expired(&self, now: DateTime<Utc>) -> Result<u64> {
+//!         self.repo.gc(|session| session.expires_at <= now).await
+//!     }
+//! }
+//! ```
+//!
+//! Keep `Repository<R>` internal. Domain-specific invariants such as consume
+//! locks, token rotation, or marker-only behavior belong in the named store
+//! that wraps it, not in this generic layer.
+
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,6 +74,12 @@ use slatedb::{Db, KeyValue, WriteBatch};
 use super::{Codec, Record, RecordId};
 use crate::{Error, Result, keys};
 
+/// Generic typed key/value operations shared by the simple record-backed
+/// stores.
+///
+/// This type is intentionally `pub(crate)`: callers should interact through a
+/// named store such as `AuthCodeStore` or `RefreshTokenStore`, which can add
+/// domain-specific behavior on top of the generic storage primitives here.
 pub(crate) struct Repository<R: Record> {
     db:              Arc<Db>,
     prefix_segments: Vec<&'static str>,
