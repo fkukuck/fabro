@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use axum::extract::FromRequestParts;
+use axum::http::header;
 use axum::http::request::Parts;
 use fabro_types::settings::{ServerAuthMethod, ServerSettings as ResolvedServerSettings};
 use fabro_types::{IdpIdentity, RunAuthMethod};
@@ -10,24 +11,19 @@ use tracing::info;
 
 use crate::auth::{self, JwtError, JwtSigningKey, KeyDeriveError};
 use crate::error::ApiError;
-use crate::web_auth::SessionCookie;
 
 type HmacSha256 = Hmac<Sha256>;
 const DEV_TOKEN_COMPARE_KEY: &[u8] = b"fabro-dev-token-compare-key";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CredentialSource {
-    AuthorizationHeader,
-    JwtAccessToken,
-    SessionCookie,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedAuth {
-    pub login:             String,
-    pub auth_method:       RunAuthMethod,
-    pub credential_source: CredentialSource,
-    pub identity:          Option<IdpIdentity>,
+    pub login:       String,
+    pub name:        String,
+    pub email:       String,
+    pub avatar_url:  String,
+    pub user_url:    String,
+    pub auth_method: RunAuthMethod,
+    pub identity:    Option<IdpIdentity>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,14 +71,28 @@ where
     }
 
     let web_enabled = settings.web.enabled;
+    if github_enabled && !web_enabled {
+        return Err(anyhow!(
+            "Fabro server refuses to start: github auth is enabled but server.web.enabled is false."
+        ));
+    }
+    if github_enabled && settings.integrations.github.client_id.is_none() {
+        return Err(anyhow!(
+            "Fabro server refuses to start: github auth is enabled but server.integrations.github.client_id is not configured."
+        ));
+    }
+    if github_enabled && lookup("GITHUB_APP_CLIENT_SECRET").is_none() {
+        return Err(anyhow!(
+            "Fabro server refuses to start: github auth is enabled but GITHUB_APP_CLIENT_SECRET is not set."
+        ));
+    }
+
     let session_secret = lookup("SESSION_SECRET");
+    let secret = session_secret.as_deref().ok_or_else(|| {
+        anyhow!("Fabro server refuses to start: auth is configured but SESSION_SECRET is not set.")
+    })?;
     if web_enabled {
-        let secret = session_secret.as_deref().ok_or_else(|| {
-            anyhow!(
-                "Fabro server refuses to start: web UI is enabled but SESSION_SECRET is not set."
-            )
-        })?;
-        auth::derive_cookie_key(secret.as_bytes()).map_err(|err| cookie_key_error(&err))?;
+        auth::derive_cookie_key(secret.as_bytes()).map_err(|err| session_secret_key_error(&err))?;
     }
 
     let dev_token = if methods.contains(&ServerAuthMethod::DevToken) {
@@ -101,32 +111,10 @@ where
         None
     };
 
-    let (jwt_key, jwt_issuer) = if github_enabled {
-        if !web_enabled {
-            return Err(anyhow!(
-                "Fabro server refuses to start: github auth is enabled but server.web.enabled is false."
-            ));
-        }
-        if settings.integrations.github.client_id.is_none() {
-            return Err(anyhow!(
-                "Fabro server refuses to start: github auth is enabled but server.integrations.github.client_id is not configured."
-            ));
-        }
-        if lookup("GITHUB_APP_CLIENT_SECRET").is_none() {
-            return Err(anyhow!(
-                "Fabro server refuses to start: github auth is enabled but GITHUB_APP_CLIENT_SECRET is not set."
-            ));
-        }
-        let secret = session_secret
-            .as_deref()
-            .expect("web-enabled github auth should already require SESSION_SECRET");
-        (
-            Some(auth::derive_jwt_key(secret.as_bytes()).map_err(|err| jwt_key_error(&err))?),
-            resolve_jwt_issuer(settings, &lookup),
-        )
-    } else {
-        (None, None)
-    };
+    let jwt_key = Some(
+        auth::derive_jwt_key(secret.as_bytes()).map_err(|err| session_secret_key_error(&err))?,
+    );
+    let jwt_issuer = Some(resolve_jwt_issuer(settings, &lookup));
 
     Ok(AuthMode::Enabled(ConfiguredAuth {
         methods,
@@ -136,7 +124,7 @@ where
     }))
 }
 
-fn resolve_jwt_issuer<F>(settings: &ResolvedServerSettings, lookup: &F) -> Option<String>
+fn resolve_jwt_issuer<F>(settings: &ResolvedServerSettings, lookup: &F) -> String
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -147,36 +135,30 @@ where
         .ok()
         .map(|resolved| resolved.value)
         .filter(|value| !value.is_empty())
+        .or_else(|| {
+            settings
+                .api
+                .url
+                .as_ref()
+                .and_then(|url| url.resolve(|name| lookup(name)).ok())
+                .map(|resolved| resolved.value)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "fabro-server".to_string())
 }
 
-fn cookie_key_error(err: &KeyDeriveError) -> anyhow::Error {
+fn session_secret_key_error(err: &KeyDeriveError) -> anyhow::Error {
     match err {
         KeyDeriveError::Empty => {
             anyhow!(
-                "Fabro server refuses to start: web UI is enabled but SESSION_SECRET is not set."
+                "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
             )
         }
         KeyDeriveError::TooShort {
             got_bytes,
             min_bytes,
         } => anyhow!(
-            "Fabro server refuses to start: SESSION_SECRET must be at least {min_bytes} bytes (64 hex characters) when web UI is enabled. Current length: {got_bytes} bytes."
-        ),
-    }
-}
-
-fn jwt_key_error(err: &KeyDeriveError) -> anyhow::Error {
-    match err {
-        KeyDeriveError::Empty => {
-            anyhow!(
-                "Fabro server refuses to start: github auth is enabled but SESSION_SECRET is not set."
-            )
-        }
-        KeyDeriveError::TooShort {
-            got_bytes,
-            min_bytes,
-        } => anyhow!(
-            "Fabro server refuses to start: SESSION_SECRET must be at least {min_bytes} bytes (64 hex characters) when github auth is enabled - it now signs JWTs as well as session cookies. Current length: {got_bytes} bytes."
+            "Fabro server refuses to start: SESSION_SECRET must be at least {min_bytes} bytes (64 hex characters) when auth is configured. Current length: {got_bytes} bytes."
         ),
     }
 }
@@ -204,33 +186,15 @@ fn config_allows_run_auth_method(config: &ConfiguredAuth, method: RunAuthMethod)
 }
 
 fn bearer_token(parts: &Parts) -> Option<Result<&str, ApiError>> {
-    let header = parts.headers.get("authorization")?;
-    let Ok(header) = header.to_str() else {
+    let value = parts.headers.get(header::AUTHORIZATION)?;
+    let Ok(value) = value.to_str() else {
         return Some(Err(ApiError::unauthorized()));
     };
     Some(
-        header
+        value
             .strip_prefix("Bearer ")
             .ok_or_else(ApiError::unauthorized),
     )
-}
-
-fn authenticate_dev_token_bearer(
-    token: &str,
-    config: &ConfiguredAuth,
-) -> Result<VerifiedAuth, ApiError> {
-    let Some(expected) = config.dev_token.as_deref() else {
-        return Err(ApiError::unauthorized());
-    };
-    if !validate_dev_token_format(token) || !dev_token_matches(token, expected) {
-        return Err(ApiError::unauthorized());
-    }
-    Ok(VerifiedAuth {
-        login:             "dev".to_string(),
-        auth_method:       RunAuthMethod::DevToken,
-        credential_source: CredentialSource::AuthorizationHeader,
-        identity:          None,
-    })
 }
 
 fn authenticate_jwt_bearer(token: &str, config: &ConfiguredAuth) -> Result<VerifiedAuth, ApiError> {
@@ -272,10 +236,13 @@ fn authenticate_jwt_bearer(token: &str, config: &ConfiguredAuth) -> Result<Verif
     })?;
 
     Ok(VerifiedAuth {
-        login:             claims.login,
-        auth_method:       claims.auth_method,
-        credential_source: CredentialSource::JwtAccessToken,
-        identity:          Some(identity),
+        login:       claims.login,
+        name:        claims.name,
+        email:       claims.email,
+        avatar_url:  claims.avatar_url,
+        user_url:    claims.user_url,
+        auth_method: claims.auth_method,
+        identity:    Some(identity),
     })
 }
 
@@ -284,9 +251,6 @@ fn authenticate_bearer(
     token: &str,
     config: &ConfiguredAuth,
 ) -> Result<VerifiedAuth, ApiError> {
-    if token.starts_with("fabro_dev_") {
-        return authenticate_dev_token_bearer(token, config);
-    }
     if token.starts_with("fabro_refresh_") {
         info!(
             path = %parts.uri.path(),
@@ -315,21 +279,6 @@ fn looks_like_jwt(token: &str) -> bool {
     )
 }
 
-fn authenticate_session(parts: &Parts, config: &ConfiguredAuth) -> Result<VerifiedAuth, ApiError> {
-    let Some(session) = parts.extensions.get::<SessionCookie>() else {
-        return Err(ApiError::unauthorized());
-    };
-    if !config_allows_run_auth_method(config, session.auth_method) {
-        return Err(ApiError::unauthorized());
-    }
-    Ok(VerifiedAuth {
-        login:             session.login.clone(),
-        auth_method:       session.auth_method,
-        credential_source: CredentialSource::SessionCookie,
-        identity:          session.identity.clone(),
-    })
-}
-
 fn authenticate_parts(parts: &Parts) -> Result<Option<VerifiedAuth>, ApiError> {
     let auth_mode = parts
         .extensions
@@ -340,14 +289,14 @@ fn authenticate_parts(parts: &Parts) -> Result<Option<VerifiedAuth>, ApiError> {
         return Ok(None);
     };
 
-    if let Some(token) = bearer_token(parts) {
-        return authenticate_bearer(parts, token?, config).map(Some);
-    }
-
-    authenticate_session(parts, config).map(Some)
+    authenticate_bearer(
+        parts,
+        bearer_token(parts).ok_or_else(ApiError::unauthorized)??,
+        config,
+    )
+    .map(Some)
 }
 
-/// Axum extractor that enforces authentication on a route.
 pub struct AuthenticatedService;
 
 pub fn authenticate_service_parts(parts: &Parts) -> Result<(), ApiError> {
@@ -363,9 +312,13 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
     }
 }
 
-/// Axum extractor that authenticates and extracts the request subject.
 pub struct AuthenticatedSubject {
     pub login:       Option<String>,
+    pub name:        String,
+    pub email:       String,
+    pub avatar_url:  String,
+    pub user_url:    String,
+    pub identity:    Option<IdpIdentity>,
     pub auth_method: RunAuthMethod,
 }
 
@@ -381,16 +334,26 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedSubject {
         match auth_mode {
             AuthMode::Disabled => Ok(Self {
                 login:       None,
+                name:        String::new(),
+                email:       String::new(),
+                avatar_url:  String::new(),
+                user_url:    String::new(),
+                identity:    None,
                 auth_method: RunAuthMethod::Disabled,
             }),
             AuthMode::Enabled(config) => {
-                let auth = if let Some(token) = bearer_token(parts) {
-                    authenticate_bearer(parts, token?, config)?
-                } else {
-                    authenticate_session(parts, config)?
-                };
+                let auth = authenticate_bearer(
+                    parts,
+                    bearer_token(parts).ok_or_else(ApiError::unauthorized)??,
+                    config,
+                )?;
                 Ok(Self {
                     login:       Some(auth.login),
+                    name:        auth.name,
+                    email:       auth.email,
+                    avatar_url:  auth.avatar_url,
+                    user_url:    auth.user_url,
+                    identity:    auth.identity,
                     auth_method: auth.auth_method,
                 })
             }
@@ -416,7 +379,6 @@ mod tests {
     use axum::{Json, Router};
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use cookie::Key;
     use fabro_config::{parse_settings_layer, resolve_server_from_file};
     use fabro_types::IdpIdentity;
     use fabro_types::settings::ServerAuthMethod;
@@ -427,8 +389,6 @@ mod tests {
     use tracing_subscriber::{Layer, Registry};
 
     use super::*;
-    use crate::web_auth::SessionCookie;
-
     fn settings(source: &str) -> ResolvedServerSettings {
         let file = parse_settings_layer(source).expect("fixture should parse");
         resolve_server_from_file(&file).expect("fixture should resolve")
@@ -438,22 +398,6 @@ mod tests {
         None
     }
 
-    fn make_session(auth_method: RunAuthMethod) -> SessionCookie {
-        SessionCookie {
-            v: 2,
-            login: "alice".to_string(),
-            auth_method,
-            identity: (auth_method == RunAuthMethod::Github)
-                .then(|| IdpIdentity::new("https://github.com", "123").unwrap()),
-            name: "Alice".to_string(),
-            email: "alice@example.com".to_string(),
-            avatar_url: "https://example.com/alice.png".to_string(),
-            user_url: "https://github.com/alice".to_string(),
-            iat: chrono::Utc::now().timestamp(),
-            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
-        }
-    }
-
     async fn protected_handler(_auth: AuthenticatedService) -> impl IntoResponse {
         "ok"
     }
@@ -461,6 +405,12 @@ mod tests {
     async fn subject_handler(subject: AuthenticatedSubject) -> impl IntoResponse {
         Json(serde_json::json!({
             "login": subject.login,
+            "name": subject.name,
+            "email": subject.email,
+            "avatar_url": subject.avatar_url,
+            "user_url": subject.user_url,
+            "idp_issuer": subject.identity.as_ref().map(|identity| identity.issuer().to_string()),
+            "idp_subject": subject.identity.as_ref().map(|identity| identity.subject().to_string()),
             "auth_method": subject.auth_method,
         }))
     }
@@ -502,8 +452,8 @@ mod tests {
                 "fabro_dev_abababababababababababababababababababababababababababababababab"
                     .to_string(),
             ),
-            jwt_key:    None,
-            jwt_issuer: None,
+            jwt_key:    Some(signing_key()),
+            jwt_issuer: Some("https://fabro.example".to_string()),
         })
     }
 
@@ -532,6 +482,8 @@ mod tests {
             login:       "octocat".to_string(),
             name:        "The Octocat".to_string(),
             email:       "octocat@example.com".to_string(),
+            avatar_url:  "https://example.com/octocat.png".to_string(),
+            user_url:    "https://github.com/octocat".to_string(),
             auth_method: RunAuthMethod::Github,
         }
     }
@@ -625,6 +577,30 @@ methods = []
     }
 
     #[test]
+    fn fails_when_dev_token_only_auth_lacks_session_secret() {
+        let file = settings(
+            r#"
+_version = 1
+
+[server.web]
+enabled = false
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+        );
+        let err = resolve_auth_mode_with_lookup(&file, |name| match name {
+            "FABRO_DEV_TOKEN" => Some(
+                "fabro_dev_abababababababababababababababababababababababababababababababab"
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .expect_err("dev-token auth should require session secret");
+        assert!(err.to_string().contains("SESSION_SECRET"));
+    }
+
+    #[test]
     fn resolves_dev_token_mode_when_secrets_present() {
         let file = settings("_version = 1\n");
         let mode = resolve_auth_mode_with_lookup(&file, |name| match name {
@@ -643,8 +619,74 @@ methods = []
         };
         assert_eq!(config.methods, vec![ServerAuthMethod::DevToken]);
         assert!(config.dev_token.is_some());
-        assert!(config.jwt_key.is_none());
-        assert!(config.jwt_issuer.is_none());
+        assert!(config.jwt_key.is_some());
+        assert_eq!(config.jwt_issuer.as_deref(), Some("http://localhost:3000"));
+    }
+
+    #[test]
+    fn uses_api_url_when_web_url_is_empty_for_jwt_issuer() {
+        let file = settings(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = ""
+
+[server.api]
+url = "http://localhost:4000"
+"#,
+        );
+        let mode = resolve_auth_mode_with_lookup(&file, |name| match name {
+            "SESSION_SECRET" => {
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string())
+            }
+            "FABRO_DEV_TOKEN" => Some(
+                "fabro_dev_abababababababababababababababababababababababababababababababab"
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .expect("dev-token auth should resolve");
+        let AuthMode::Enabled(config) = mode else {
+            panic!("expected enabled mode");
+        };
+        assert_eq!(config.jwt_issuer.as_deref(), Some("http://localhost:4000"));
+    }
+
+    #[test]
+    fn uses_literal_fallback_when_no_public_urls_are_configured() {
+        let file = settings(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = ""
+
+[server.api]
+url = ""
+"#,
+        );
+        let mode = resolve_auth_mode_with_lookup(&file, |name| match name {
+            "SESSION_SECRET" => {
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string())
+            }
+            "FABRO_DEV_TOKEN" => Some(
+                "fabro_dev_abababababababababababababababababababababababababababababababab"
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .expect("dev-token auth should resolve");
+        let AuthMode::Enabled(config) = mode else {
+            panic!("expected enabled mode");
+        };
+        assert_eq!(config.jwt_issuer.as_deref(), Some("fabro-server"));
     }
 
     #[test]
@@ -781,7 +823,7 @@ client_id = "Iv1.test"
     }
 
     #[tokio::test]
-    async fn accepts_valid_dev_token_bearer() {
+    async fn rejects_dev_token_bearer_without_translation() {
         let app = subject_router(dev_token_mode());
         let response = app
             .oneshot(
@@ -796,64 +838,31 @@ client_id = "Iv1.test"
             )
             .await
             .unwrap();
-        let json = response_json!(response).await;
-        assert_eq!(json["login"], "dev");
-        assert_eq!(json["auth_method"], "dev_token");
-    }
-
-    #[tokio::test]
-    async fn invalid_authorization_header_does_not_fall_back_to_cookie() {
-        let app = test_router(dev_token_mode());
-        let key =
-            Key::derive_from(b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-        let session = make_session(RunAuthMethod::DevToken);
-        let mut jar = cookie::CookieJar::new();
-        jar.private_mut(&key).add(cookie::Cookie::new(
-            crate::web_auth::SESSION_COOKIE_NAME,
-            serde_json::to_string(&session).unwrap(),
-        ));
-        let cookie = jar
-            .delta()
-            .next()
-            .expect("private cookie should exist")
-            .encoded()
-            .to_string();
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .header("authorization", "Basic nope")
-                    .header("cookie", cookie)
-                    .extension(session)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
         assert_status!(response, StatusCode::UNAUTHORIZED).await;
     }
 
     #[tokio::test]
-    async fn cookie_session_reports_github_provenance() {
-        let app = subject_router(AuthMode::Enabled(ConfiguredAuth {
-            methods:    vec![ServerAuthMethod::Github],
-            dev_token:  None,
-            jwt_key:    None,
-            jwt_issuer: None,
-        }));
+    async fn subject_reports_profile_fields_from_jwt() {
+        let app = subject_router(github_jwt_mode());
+        let token = issue_github_token(chrono::Duration::minutes(10));
         let response = app
             .oneshot(
                 Request::builder()
                     .uri("/subject")
-                    .extension(make_session(RunAuthMethod::Github))
+                    .header("authorization", format!("Bearer {token}"))
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         let json = response_json!(response).await;
-        assert_eq!(json["login"], "alice");
+        assert_eq!(json["login"], "octocat");
+        assert_eq!(json["name"], "The Octocat");
+        assert_eq!(json["email"], "octocat@example.com");
+        assert_eq!(json["avatar_url"], "https://example.com/octocat.png");
+        assert_eq!(json["user_url"], "https://github.com/octocat");
+        assert_eq!(json["idp_issuer"], "https://github.com");
+        assert_eq!(json["idp_subject"], "12345");
         assert_eq!(json["auth_method"], "github");
     }
 
@@ -872,7 +881,6 @@ client_id = "Iv1.test"
         let auth = authenticate_parts(&parts).unwrap().unwrap();
         assert_eq!(auth.login, "octocat");
         assert_eq!(auth.auth_method, RunAuthMethod::Github);
-        assert_eq!(auth.credential_source, CredentialSource::JwtAccessToken);
         assert_eq!(
             auth.identity,
             Some(IdpIdentity::new("https://github.com", "12345").unwrap())

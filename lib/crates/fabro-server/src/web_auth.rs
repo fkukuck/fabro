@@ -16,7 +16,7 @@ use serde_json::json;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::GithubEndpoints;
-use crate::jwt_auth::{AuthMode, auth_method_name, dev_token_matches};
+use crate::jwt_auth::{AuthMode, AuthenticatedSubject, auth_method_name, dev_token_matches};
 use crate::server::AppState;
 
 pub const SESSION_COOKIE_NAME: &str = "__fabro_session";
@@ -85,9 +85,9 @@ struct SessionUser {
     login:       String,
     name:        String,
     email:       String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "idpIssuer", skip_serializing_if = "Option::is_none")]
     idp_issuer:  Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "idpSubject", skip_serializing_if = "Option::is_none")]
     idp_subject: Option<String>,
     #[serde(rename = "avatarUrl")]
     avatar_url:  String,
@@ -327,7 +327,7 @@ async fn login_dev_token(
         v:           2,
         login:       "dev".to_string(),
         auth_method: RunAuthMethod::DevToken,
-        identity:    None,
+        identity:    Some(IdpIdentity::new("fabro:dev", "dev").expect("non-empty dev identity")),
         name:        "Development User".to_string(),
         email:       "dev@localhost".to_string(),
         avatar_url:  "/logo.svg".to_string(),
@@ -785,43 +785,35 @@ async fn logout(State(state): State<Arc<AppState>>) -> Response {
     response
 }
 
-async fn auth_me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    let has_cookie = headers.get(header::COOKIE).is_some();
-    let Some(session_key) = state.session_key() else {
+async fn auth_me(subject: AuthenticatedSubject, headers: HeaderMap) -> Response {
+    if subject.login.is_none() {
         warn!(
-            has_cookie,
-            "Auth check failed: SESSION_SECRET not available"
+            has_cookie = headers.get(header::COOKIE).is_some(),
+            "Auth check failed: authenticated subject missing"
         );
         return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
-    };
-    let Some(session) = read_private_session(&headers, &session_key) else {
-        warn!(
-            has_cookie,
-            "Auth check failed: session cookie missing or decryption failed"
-        );
-        return json_response(StatusCode::UNAUTHORIZED, json!({"error": "Unauthorized"}));
-    };
+    }
 
     let demo_mode = parse_cookie_header(&headers)
         .get("fabro-demo")
         .is_some_and(|cookie| cookie.value() == "1");
     Json(AuthMeResponse {
         user: SessionUser {
-            login:       session.login,
-            name:        session.name,
-            email:       session.email,
-            idp_issuer:  session
+            login:       subject.login.expect("checked above"),
+            name:        subject.name,
+            email:       subject.email,
+            idp_issuer:  subject
                 .identity
                 .as_ref()
                 .map(|identity| identity.issuer().to_string()),
-            idp_subject: session
+            idp_subject: subject
                 .identity
                 .as_ref()
                 .map(|identity| identity.subject().to_string()),
-            avatar_url:  session.avatar_url,
-            user_url:    session.user_url,
+            avatar_url:  subject.avatar_url,
+            user_url:    subject.user_url,
         },
-        provider: session_provider(session.auth_method).to_string(),
+        provider: session_provider(subject.auth_method).to_string(),
         demo_mode,
     })
     .into_response()
@@ -852,15 +844,14 @@ mod tests {
 
     use axum::Extension;
     use axum::body::{Body, to_bytes};
-    use axum::extract::State;
     use axum::http::{HeaderMap, Request, StatusCode, header};
     use axum_extra::extract::cookie::Key;
-    use fabro_types::RunAuthMethod;
     use fabro_types::settings::SettingsLayer;
     use fabro_types::settings::server::{
         GithubIntegrationLayer, ServerAuthGithubLayer, ServerAuthLayer, ServerAuthMethod,
         ServerIntegrationsLayer, ServerLayer, ServerWebLayer,
     };
+    use fabro_types::{IdpIdentity, RunAuthMethod};
     use serde_json::json;
     use tower::ServiceExt;
 
@@ -883,8 +874,8 @@ mod tests {
         AuthMode::Enabled(ConfiguredAuth {
             methods:    vec![ServerAuthMethod::DevToken],
             dev_token:  Some(DEV_TOKEN.to_string()),
-            jwt_key:    None,
-            jwt_issuer: None,
+            jwt_key:    Some(test_jwt_key()),
+            jwt_issuer: Some("https://fabro.example".to_string()),
         })
     }
 
@@ -892,9 +883,14 @@ mod tests {
         AuthMode::Enabled(ConfiguredAuth {
             methods:    vec![ServerAuthMethod::Github],
             dev_token:  None,
-            jwt_key:    None,
-            jwt_issuer: None,
+            jwt_key:    Some(test_jwt_key()),
+            jwt_issuer: Some("https://fabro.example".to_string()),
         })
+    }
+
+    fn test_jwt_key() -> auth::JwtSigningKey {
+        auth::derive_jwt_key(b"web-auth-test-key-material-0123456789")
+            .expect("test JWT key should derive")
     }
 
     fn github_settings(web_url: &str) -> SettingsLayer {
@@ -936,21 +932,12 @@ mod tests {
         axum::Router::new()
             .nest("/auth", routes())
             .nest("/api/v1", api_routes())
-            .layer(Extension(auth_mode))
-            .layer(Extension(Arc::new(GithubEndpoints::production_defaults())))
             .layer(axum::middleware::from_fn_with_state(
                 middleware_state,
-                |State(state): State<Arc<crate::server::AppState>>,
-                 mut req: axum::extract::Request,
-                 next: axum::middleware::Next| async move {
-                    if let Some(key) = state.session_key() {
-                        if let Some(session) = read_private_session(req.headers(), &key) {
-                            req.extensions_mut().insert(session);
-                        }
-                    }
-                    next.run(req).await
-                },
+                crate::auth::auth_translation_middleware,
             ))
+            .layer(Extension(Arc::new(GithubEndpoints::production_defaults())))
+            .layer(Extension(auth_mode))
             .with_state(state)
     }
 
@@ -1011,7 +998,10 @@ mod tests {
         let session = read_private_session(&cookie_headers, &key).expect("session should decode");
         assert_eq!(session.auth_method, RunAuthMethod::DevToken);
         assert_eq!(session.v, 2);
-        assert!(session.identity.is_none());
+        assert_eq!(
+            session.identity,
+            Some(IdpIdentity::new("fabro:dev", "dev").unwrap())
+        );
 
         let response = app
             .oneshot(
@@ -1026,6 +1016,65 @@ mod tests {
         let body = response_json!(response).await;
         assert_eq!(body["provider"], "dev-token");
         assert_eq!(body["user"]["login"], "dev");
+        assert_eq!(body["user"]["idpIssuer"], "fabro:dev");
+        assert_eq!(body["user"]["idpSubject"], "dev");
+    }
+
+    #[tokio::test]
+    async fn auth_me_accepts_cli_jwt_with_empty_profile_urls() {
+        let app = test_auth_router_with_settings(
+            github_settings("https://fabro.example"),
+            github_auth_mode(),
+        );
+        let token = auth::issue(
+            &test_jwt_key(),
+            "https://fabro.example",
+            &auth::JwtSubject {
+                identity:    IdpIdentity::new("https://github.com", "12345").unwrap(),
+                login:       "octocat".to_string(),
+                name:        "The Octocat".to_string(),
+                email:       "octocat@example.com".to_string(),
+                avatar_url:  String::new(),
+                user_url:    String::new(),
+                auth_method: RunAuthMethod::Github,
+            },
+            chrono::Duration::minutes(10),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response_json!(response).await;
+        assert_eq!(body["provider"], "github");
+        assert_eq!(body["user"]["login"], "octocat");
+        assert_eq!(body["user"]["avatarUrl"], "");
+        assert_eq!(body["user"]["userUrl"], "");
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_unauthorized_under_demo_mode_without_jwt() {
+        let app = test_auth_router_with_settings(SettingsLayer::default(), dev_token_auth_mode());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(header::COOKIE, "fabro-demo=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_status!(response, StatusCode::UNAUTHORIZED).await;
     }
 
     #[tokio::test]
@@ -1142,7 +1191,7 @@ mod tests {
         );
         let app = crate::server::build_router_with_options(
             state,
-            github_auth_mode(),
+            &github_auth_mode(),
             Arc::new(crate::ip_allowlist::IpAllowlistConfig::default()),
             crate::server::RouterOptions {
                 web_enabled:                 true,

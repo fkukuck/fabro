@@ -1544,6 +1544,7 @@ name = "fabro-api"
 version = "0.208.0-nightly.1"
 dependencies = [
  "chrono",
+ "fabro-types",
  "openapiv3",
  "prettyplease",
  "progenitor",
@@ -1583,6 +1584,7 @@ name = "fabro-checkpoint"
 version = "0.208.0-nightly.1"
 dependencies = [
  "chrono",
+ "fabro-store",
  "fabro-types",
  "git2",
  "serde",
@@ -2101,6 +2103,8 @@ dependencies = [
  "dashmap",
  "fabro-types",
  "futures",
+ "hex",
+ "insta",
  "object_store",
  "percent-encoding",
  "serde",

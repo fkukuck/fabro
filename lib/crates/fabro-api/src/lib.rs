@@ -13,4 +13,11 @@
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 }
-pub use generated::{Client as ApiClient, types};
+pub mod types {
+    pub use fabro_types::status::{
+        BlockedReason, RunControlAction, RunStatus, RunStatusRecord, StatusReason,
+    };
+
+    pub use crate::generated::types::*;
+}
+pub use generated::Client as ApiClient;

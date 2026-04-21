@@ -9,13 +9,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use fabro_config::ServerState;
+use fabro_config::{ServerState, parse_settings_layer, resolve_server_from_file};
 use fabro_server::bind::Bind;
 use fabro_server::ip_allowlist::{IpAllowlist, IpAllowlistConfig};
-use fabro_server::jwt_auth::{AuthMode, ConfiguredAuth};
+use fabro_server::jwt_auth::{AuthMode, resolve_auth_mode_with_lookup};
 use fabro_server::serve::{ServeArgs, serve_command};
 use fabro_server::server::{RouterOptions, build_router_with_options, create_app_state};
-use fabro_types::settings::ServerAuthMethod;
 use fabro_util::terminal::Styles;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -26,6 +25,8 @@ use crate::helpers::{api, reqwest_status};
 
 const TEST_DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
+const TEST_SESSION_SECRET: &str =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 async fn start_tcp_server(auth_mode: AuthMode, ip_allowlist: Arc<IpAllowlistConfig>) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -37,7 +38,7 @@ async fn start_tcp_server(auth_mode: AuthMode, ip_allowlist: Arc<IpAllowlistConf
 
     let state = create_app_state();
     let router =
-        build_router_with_options(state, auth_mode, ip_allowlist, RouterOptions::default());
+        build_router_with_options(state, &auth_mode, ip_allowlist, RouterOptions::default());
 
     tokio::spawn(async move {
         let _ = axum::serve(
@@ -64,7 +65,7 @@ fn write_test_config(tempdir: &TempDir, settings: &str) -> PathBuf {
     std::fs::write(&config_path, settings).expect("test settings should write");
     std::fs::write(
         ServerState::new(tempdir.path()).env_path(),
-        format!("FABRO_DEV_TOKEN={TEST_DEV_TOKEN}\n"),
+        format!("FABRO_DEV_TOKEN={TEST_DEV_TOKEN}\nSESSION_SECRET={TEST_SESSION_SECRET}\n"),
     )
     .expect("test env file should write");
     config_path
@@ -158,10 +159,22 @@ methods = ["dev-token"]
 
 #[tokio::test]
 async fn tcp_dev_token_auth_uses_bearer_auth() {
-    let auth_mode = AuthMode::Enabled(ConfiguredAuth::new(
-        vec![ServerAuthMethod::DevToken],
-        Some(TEST_DEV_TOKEN.to_string()),
-    ));
+    let settings = parse_settings_layer(
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+    )
+    .expect("test settings should parse");
+    let resolved = resolve_server_from_file(&settings).expect("test settings should resolve");
+    let auth_mode = resolve_auth_mode_with_lookup(&resolved, |name| match name {
+        "SESSION_SECRET" => Some(TEST_SESSION_SECRET.to_string()),
+        "FABRO_DEV_TOKEN" => Some(TEST_DEV_TOKEN.to_string()),
+        _ => None,
+    })
+    .expect("auth mode should resolve");
     let addr = start_tcp_server(auth_mode, Arc::new(IpAllowlistConfig::default())).await;
     let client = fabro_http::test_http_client().unwrap();
     let url = format!("http://127.0.0.1:{}{}", addr.port(), api("/runs"));

@@ -347,7 +347,7 @@ enabled = false
     .expect("settings fixture should parse");
     let app = build_router_with_options(
         create_app_state_with_options(settings, 5),
-        AuthMode::Disabled,
+        &AuthMode::Disabled,
         Arc::new(IpAllowlistConfig::default()),
         RouterOptions {
             web_enabled: false,
@@ -409,7 +409,7 @@ enabled = false
     .expect("settings fixture should parse");
     let app = build_router_with_options(
         create_app_state_with_options(settings, 5),
-        AuthMode::Disabled,
+        &AuthMode::Disabled,
         Arc::new(IpAllowlistConfig::default()),
         RouterOptions {
             web_enabled: false,
@@ -433,7 +433,7 @@ enabled = false
 async fn allowlist_blocks_non_allowlisted_api_requests() {
     let app = build_router_with_options(
         create_app_state(),
-        AuthMode::Disabled,
+        &AuthMode::Disabled,
         Arc::new(IpAllowlistConfig {
             allowlist:           IpAllowlist::new(vec!["10.0.0.0/8".parse().unwrap()]),
             trusted_proxy_count: 0,
@@ -456,7 +456,7 @@ async fn allowlist_blocks_non_allowlisted_api_requests() {
 async fn allowlist_exempts_health_checks() {
     let app = build_router_with_options(
         create_app_state(),
-        AuthMode::Disabled,
+        &AuthMode::Disabled,
         Arc::new(IpAllowlistConfig {
             allowlist:           IpAllowlist::new(vec!["10.0.0.0/8".parse().unwrap()]),
             trusted_proxy_count: 0,

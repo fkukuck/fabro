@@ -13,7 +13,7 @@ use axum::body::to_bytes;
 use axum::extract::{self as axum_extract, DefaultBodyLimit, Path, Query, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
-use axum::middleware::{self, Next};
+use axum::middleware::{self};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -25,18 +25,17 @@ use bytes::Bytes;
 pub use fabro_api::types::{
     AggregateBilling, AggregateBillingTotals, ApiQuestion, ApiQuestionOption, AppendEventResponse,
     ArtifactEntry, ArtifactListResponse, BilledTokenCounts as ApiBilledTokenCounts, BillingByModel,
-    BillingStageRef, BlockedReason as ApiBlockedReason, CompletionContentPart, CompletionMessage,
-    CompletionMessageRole, CompletionResponse, CompletionToolChoiceMode, CompletionUsage,
-    CreateCompletionRequest, CreateSecretRequest, DeleteSecretRequest, DiskUsageResponse,
-    DiskUsageRunRow, DiskUsageSummaryRow, EventEnvelope as ApiEventEnvelope, ModelReference,
-    PaginatedEventList, PaginatedRunList, PaginationMeta, PreflightResponse, PreviewUrlRequest,
-    PreviewUrlResponse, PruneRunEntry, PruneRunsRequest, PruneRunsResponse,
-    QuestionType as ApiQuestionType, RenderWorkflowGraphDirection, RenderWorkflowGraphRequest,
-    RunArtifactEntry, RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals,
-    RunControlAction as ApiRunControlAction, RunError, RunManifest, RunStage, RunStatus,
-    RunStatusResponse, SandboxFileEntry, SandboxFileListResponse, SecretType as ApiSecretType,
-    ServerSettings, SshAccessRequest, SshAccessResponse, StageStatus as ApiStageStatus,
-    StartRunRequest, StatusReason as ApiStatusReason, SubmitAnswerRequest, SystemFeatures,
+    BillingStageRef, CompletionContentPart, CompletionMessage, CompletionMessageRole,
+    CompletionResponse, CompletionToolChoiceMode, CompletionUsage, CreateCompletionRequest,
+    CreateSecretRequest, DeleteSecretRequest, DiskUsageResponse, DiskUsageRunRow,
+    DiskUsageSummaryRow, EventEnvelope as ApiEventEnvelope, ModelReference, PaginatedEventList,
+    PaginatedRunList, PaginationMeta, PreflightResponse, PreviewUrlRequest, PreviewUrlResponse,
+    PruneRunEntry, PruneRunsRequest, PruneRunsResponse, QuestionType as ApiQuestionType,
+    RenderWorkflowGraphDirection, RenderWorkflowGraphRequest, RunArtifactEntry,
+    RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals, RunError, RunManifest,
+    RunStage, RunStatusResponse, SandboxFileEntry, SandboxFileListResponse,
+    SecretType as ApiSecretType, ServerSettings, SshAccessRequest, SshAccessResponse,
+    StageStatus as ApiStageStatus, StartRunRequest, SubmitAnswerRequest, SystemFeatures,
     SystemInfoResponse, SystemRunCounts, WriteBlobResponse,
 };
 use fabro_auth::parse_credential_secret;
@@ -86,9 +85,7 @@ use fabro_workflow::records::Checkpoint;
 use fabro_workflow::run_lookup::{
     RunInfo, StatusFilter, filter_runs, scan_runs_with_summaries, scratch_base,
 };
-use fabro_workflow::run_status::{
-    RunStatus as WorkflowRunStatus, StatusReason as WorkflowStatusReason,
-};
+use fabro_workflow::run_status::{RunStatus, StatusReason};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use object_store::memory::InMemory as MemoryObjectStore;
 use rand::TryRngCore;
@@ -109,7 +106,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 use ulid::Ulid;
 
-use crate::auth::{self, GithubEndpoints};
+use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
 use crate::bind::Bind;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -915,10 +912,14 @@ fn start_optional_slack_service(state: &Arc<AppState>) {
 }
 
 /// Build the axum Router with all run endpoints and embedded static assets.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Public router helper keeps the existing ergonomic API and forwards by reference."
+)]
 pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
     build_router_with_options(
         state,
-        auth_mode,
+        &auth_mode,
         Arc::new(IpAllowlistConfig::default()),
         RouterOptions::default(),
     )
@@ -948,14 +949,14 @@ fn removed_web_route(path: &str) -> bool {
 /// Build the axum Router with configurable web surface routing.
 pub fn build_router_with_options(
     state: Arc<AppState>,
-    auth_mode: AuthMode,
+    auth_mode: &AuthMode,
     ip_allowlist_config: Arc<IpAllowlistConfig>,
     options: RouterOptions,
 ) -> Router {
     start_optional_slack_service(&state);
     let web_enabled = options.web_enabled;
     let webhook_ip_allowlist = options.github_webhook_ip_allowlist;
-    let middleware_state = Arc::clone(&state);
+    let translation_state = Arc::clone(&state);
     let github_endpoints = options
         .github_endpoints
         .clone()
@@ -983,7 +984,6 @@ pub fn build_router_with_options(
         real_router = real_router.nest("/auth", web_auth::routes().merge(auth::web_routes()));
     }
     let real_router = real_router
-        .layer(axum::Extension(auth_mode))
         .layer(axum::Extension(github_endpoints))
         .with_state(state);
 
@@ -1042,17 +1042,16 @@ pub fn build_router_with_options(
             }
         }));
 
-    if web_enabled {
-        app_router = app_router.layer(middleware::from_fn_with_state(
-            middleware_state,
-            cookie_and_demo_middleware,
-        ));
-    }
-
     app_router = app_router.layer(middleware::from_fn_with_state(
         Arc::clone(&ip_allowlist_config),
         ip_allowlist_middleware,
     ));
+    app_router = app_router.layer(middleware::from_fn_with_state(
+        translation_state,
+        auth_translation_middleware,
+    ));
+    app_router = app_router.layer(middleware::from_fn(demo_routing_middleware));
+    app_router = app_router.layer(axum::Extension(auth_mode.clone()));
 
     let mut router = app_router;
     if let Some(secret) = webhook_secret {
@@ -2161,27 +2160,6 @@ async fn openapi_spec() -> Response {
     Json(value).into_response()
 }
 
-async fn cookie_and_demo_middleware(
-    State(state): State<Arc<AppState>>,
-    mut req: axum_extract::Request,
-    next: Next,
-) -> Response {
-    let cookies = web_auth::parse_cookie_header(req.headers());
-    if cookies
-        .get("fabro-demo")
-        .is_some_and(|cookie| cookie.value() == "1")
-    {
-        req.headers_mut()
-            .insert("x-fabro-demo", HeaderValue::from_static("1"));
-    }
-    if let Some(key) = state.session_key() {
-        if let Some(session) = web_auth::read_private_session(req.headers(), &key) {
-            req.extensions_mut().insert(session);
-        }
-    }
-    next.run(req).await
-}
-
 async fn get_aggregate_billing(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
@@ -2710,16 +2688,14 @@ fn test_secret_store_path() -> PathBuf {
     dir.join("secrets.json")
 }
 
-fn board_column(status: WorkflowRunStatus) -> Option<&'static str> {
+fn board_column(status: RunStatus) -> Option<&'static str> {
     match status {
-        WorkflowRunStatus::Submitted | WorkflowRunStatus::Queued | WorkflowRunStatus::Starting => {
-            Some("initializing")
-        }
-        WorkflowRunStatus::Running | WorkflowRunStatus::Paused => Some("running"),
-        WorkflowRunStatus::Blocked => Some("blocked"),
-        WorkflowRunStatus::Succeeded => Some("succeeded"),
-        WorkflowRunStatus::Failed | WorkflowRunStatus::Dead => Some("failed"),
-        WorkflowRunStatus::Removing | WorkflowRunStatus::Archived => None,
+        RunStatus::Submitted | RunStatus::Queued | RunStatus::Starting => Some("initializing"),
+        RunStatus::Running | RunStatus::Paused => Some("running"),
+        RunStatus::Blocked => Some("blocked"),
+        RunStatus::Succeeded => Some("succeeded"),
+        RunStatus::Failed | RunStatus::Dead => Some("failed"),
+        RunStatus::Removing | RunStatus::Archived => None,
     }
 }
 
@@ -2774,9 +2750,9 @@ fn summary_to_api_run_summary(summary: fabro_types::RunSummary) -> serde_json::V
         "repository": { "name": repository },
         "start_time": summary.start_time.map(|time| time.to_rfc3339()),
         "status": summary.status,
-        "status_reason": summary.status_reason.map(api_status_reason),
-        "blocked_reason": summary.blocked_reason.map(api_blocked_reason),
-        "pending_control": summary.pending_control.map(api_pending_control),
+        "status_reason": summary.status_reason,
+        "blocked_reason": summary.blocked_reason,
+        "pending_control": summary.pending_control,
         "duration_ms": summary.duration_ms,
         "elapsed_secs": elapsed_secs(summary.duration_ms),
         "total_usd_micros": summary.total_usd_micros,
@@ -2908,7 +2884,7 @@ async fn list_runs(
             let include_archived = params.include_archived;
             let items = runs
                 .into_iter()
-                .filter(|summary| include_archived || summary.status != WorkflowRunStatus::Archived)
+                .filter(|summary| include_archived || summary.status != RunStatus::Archived)
                 .map(summary_to_api_run_summary)
                 .collect::<Vec<_>>();
             let (data, has_more) = paginate_items(items, &params.pagination());
@@ -3370,29 +3346,26 @@ struct LiveWorkerProcess {
 fn failure_for_incomplete_run(
     pending_control: Option<RunControlAction>,
     terminated_message: String,
-) -> (WorkflowError, Option<WorkflowStatusReason>) {
+) -> (WorkflowError, Option<StatusReason>) {
     if pending_control == Some(RunControlAction::Cancel) {
-        (
-            WorkflowError::Cancelled,
-            Some(WorkflowStatusReason::Cancelled),
-        )
+        (WorkflowError::Cancelled, Some(StatusReason::Cancelled))
     } else {
         (
             WorkflowError::engine(terminated_message),
-            Some(WorkflowStatusReason::Terminated),
+            Some(StatusReason::Terminated),
         )
     }
 }
 
-fn should_reconcile_run_on_startup(status: WorkflowRunStatus) -> bool {
+fn should_reconcile_run_on_startup(status: RunStatus) -> bool {
     matches!(
         status,
-        WorkflowRunStatus::Queued
-            | WorkflowRunStatus::Starting
-            | WorkflowRunStatus::Running
-            | WorkflowRunStatus::Blocked
-            | WorkflowRunStatus::Paused
-            | WorkflowRunStatus::Removing
+        RunStatus::Queued
+            | RunStatus::Starting
+            | RunStatus::Running
+            | RunStatus::Blocked
+            | RunStatus::Paused
+            | RunStatus::Removing
     )
 }
 
@@ -3552,7 +3525,7 @@ async fn persist_cancelled_run_status(state: &AppState, run_id: RunId) -> anyhow
         &workflow_event::Event::WorkflowRunFailed {
             error:          WorkflowError::Cancelled,
             duration_ms:    0,
-            reason:         Some(WorkflowStatusReason::Cancelled),
+            reason:         Some(StatusReason::Cancelled),
             git_commit_sha: None,
             final_patch:    None,
         },
@@ -3606,28 +3579,6 @@ fn managed_run(
     }
 }
 
-fn api_status_from_workflow(status: WorkflowRunStatus) -> RunStatus {
-    match status {
-        WorkflowRunStatus::Submitted => RunStatus::Submitted,
-        WorkflowRunStatus::Queued => RunStatus::Queued,
-        WorkflowRunStatus::Starting => RunStatus::Starting,
-        WorkflowRunStatus::Running => RunStatus::Running,
-        WorkflowRunStatus::Blocked => RunStatus::Blocked,
-        WorkflowRunStatus::Paused => RunStatus::Paused,
-        WorkflowRunStatus::Removing => RunStatus::Removing,
-        WorkflowRunStatus::Succeeded => RunStatus::Succeeded,
-        WorkflowRunStatus::Failed => RunStatus::Failed,
-        WorkflowRunStatus::Dead => RunStatus::Dead,
-        WorkflowRunStatus::Archived => RunStatus::Archived,
-    }
-}
-
-fn api_blocked_reason(reason: BlockedReason) -> ApiBlockedReason {
-    match reason {
-        BlockedReason::HumanInputRequired => ApiBlockedReason::HumanInputRequired,
-    }
-}
-
 fn worker_mode_arg(mode: RunExecutionMode) -> &'static str {
     match mode {
         RunExecutionMode::Start => "start",
@@ -3635,43 +3586,19 @@ fn worker_mode_arg(mode: RunExecutionMode) -> &'static str {
     }
 }
 
-fn api_status_reason(reason: WorkflowStatusReason) -> ApiStatusReason {
-    match reason {
-        WorkflowStatusReason::Completed => ApiStatusReason::Completed,
-        WorkflowStatusReason::PartialSuccess => ApiStatusReason::PartialSuccess,
-        WorkflowStatusReason::WorkflowError => ApiStatusReason::WorkflowError,
-        WorkflowStatusReason::Cancelled => ApiStatusReason::Cancelled,
-        WorkflowStatusReason::Terminated => ApiStatusReason::Terminated,
-        WorkflowStatusReason::TransientInfra => ApiStatusReason::TransientInfra,
-        WorkflowStatusReason::BudgetExhausted => ApiStatusReason::BudgetExhausted,
-        WorkflowStatusReason::LaunchFailed => ApiStatusReason::LaunchFailed,
-        WorkflowStatusReason::BootstrapFailed => ApiStatusReason::BootstrapFailed,
-        WorkflowStatusReason::SandboxInitFailed => ApiStatusReason::SandboxInitFailed,
-        WorkflowStatusReason::SandboxInitializing => ApiStatusReason::SandboxInitializing,
-    }
-}
-
-fn api_pending_control(action: RunControlAction) -> ApiRunControlAction {
-    match action {
-        RunControlAction::Cancel => ApiRunControlAction::Cancel,
-        RunControlAction::Pause => ApiRunControlAction::Pause,
-        RunControlAction::Unpause => ApiRunControlAction::Unpause,
-    }
-}
-
 async fn load_run_status_metadata(
     state: &AppState,
     run_id: RunId,
 ) -> (
-    Option<ApiStatusReason>,
-    Option<ApiBlockedReason>,
-    Option<ApiRunControlAction>,
+    Option<StatusReason>,
+    Option<BlockedReason>,
+    Option<RunControlAction>,
 ) {
     match state.store.runs().find(&run_id).await {
         Ok(Some(summary)) => (
-            summary.status_reason.map(api_status_reason),
-            summary.blocked_reason.map(api_blocked_reason),
-            summary.pending_control.map(api_pending_control),
+            summary.status_reason,
+            summary.blocked_reason,
+            summary.pending_control,
         ),
         _ => (None, None, None),
     }
@@ -4353,7 +4280,7 @@ async fn start_run(
     } else if let Some(record) = run_state.status.as_ref() {
         if !matches!(
             record.status,
-            WorkflowRunStatus::Submitted | WorkflowRunStatus::Queued | WorkflowRunStatus::Starting
+            RunStatus::Submitted | RunStatus::Queued | RunStatus::Starting
         ) {
             return ApiError::new(
                 StatusCode::CONFLICT,
@@ -4366,14 +4293,14 @@ async fn start_run(
         }
     }
 
-    let Some(run_record) = run_state.run.as_ref() else {
+    let Some(run_spec) = run_state.spec.as_ref() else {
         return ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "run record missing from store",
+            "run spec missing from store",
         )
         .into_response();
     };
-    let run_dir = match resolved_storage_dir(&run_record.settings) {
+    let run_dir = match resolved_storage_dir(&run_spec.settings) {
         Ok(storage_dir) => Storage::new(storage_dir)
             .run_scratch(&id)
             .root()
@@ -4550,7 +4477,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             return;
         }
     };
-    let github_settings = match resolved_github_settings(&persisted.run_record().settings) {
+    let github_settings = match resolved_github_settings(&persisted.run_spec().settings) {
         Ok(settings) => settings,
         Err(err) => {
             tracing::error!(run_id = %run_id, error = %err, "Invalid GitHub integration config");
@@ -4565,7 +4492,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         }
     };
     let github_app_result = match fabro_config::resolve_run_from_file(
-        &persisted.run_record().settings,
+        &persisted.run_spec().settings,
     ) {
         Ok(settings) => {
             let required_github_credentials = (settings.execution.mode != RunMode::DryRun
@@ -4780,7 +4707,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 &workflow_event::Event::WorkflowRunFailed {
                     error:          WorkflowError::engine(err.to_string()),
                     duration_ms:    0,
-                    reason:         Some(WorkflowStatusReason::LaunchFailed),
+                    reason:         Some(StatusReason::LaunchFailed),
                     git_commit_sha: None,
                     final_patch:    None,
                 },
@@ -4802,7 +4729,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
             &workflow_event::Event::WorkflowRunFailed {
                 error:          WorkflowError::engine(message.clone()),
                 duration_ms:    0,
-                reason:         Some(WorkflowStatusReason::LaunchFailed),
+                reason:         Some(StatusReason::LaunchFailed),
                 git_commit_sha: None,
                 final_patch:    None,
             },
@@ -4832,7 +4759,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
             &workflow_event::Event::WorkflowRunFailed {
                 error:          WorkflowError::engine(message.clone()),
                 duration_ms:    0,
-                reason:         Some(WorkflowStatusReason::LaunchFailed),
+                reason:         Some(StatusReason::LaunchFailed),
                 git_commit_sha: None,
                 final_patch:    None,
             },
@@ -4853,7 +4780,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
             &workflow_event::Event::WorkflowRunFailed {
                 error:          WorkflowError::engine(message.clone()),
                 duration_ms:    0,
-                reason:         Some(WorkflowStatusReason::LaunchFailed),
+                reason:         Some(StatusReason::LaunchFailed),
                 git_commit_sha: None,
                 final_patch:    None,
             },
@@ -4886,7 +4813,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
                 &workflow_event::Event::WorkflowRunFailed {
                     error:          WorkflowError::engine(err.to_string()),
                     duration_ms:    0,
-                    reason:         Some(WorkflowStatusReason::Terminated),
+                    reason:         Some(StatusReason::Terminated),
                     git_commit_sha: None,
                     final_patch:    None,
                 },
@@ -4972,7 +4899,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
     let mut runs = state.runs.lock().expect("runs lock poisoned");
     if let Some(managed_run) = runs.get_mut(&run_id) {
         if let Some(status) = final_state.status.as_ref() {
-            managed_run.status = api_status_from_workflow(status.status);
+            managed_run.status = status.status;
         } else if !wait_status.success() {
             managed_run.status = RunStatus::Failed;
         }
@@ -5089,10 +5016,10 @@ async fn get_run_settings(
                 .into_response();
         }
     };
-    let Some(run_record) = run_state.run else {
+    let Some(run_spec) = run_state.spec else {
         return ApiError::not_found("Run not found.").into_response();
     };
-    let redacted = settings_view::redact_for_api(&run_record.settings);
+    let redacted = settings_view::redact_for_api(&run_spec.settings);
     let mut value = match serde_json::to_value(&redacted) {
         Ok(value) => value,
         Err(err) => {
@@ -5491,10 +5418,7 @@ async fn read_run_blob(
     }
 }
 
-async fn load_run_record(
-    state: &AppState,
-    run_id: &RunId,
-) -> Result<fabro_types::RunRecord, Response> {
+async fn load_run_spec(state: &AppState, run_id: &RunId) -> Result<fabro_types::RunSpec, Response> {
     let run_store = state
         .store
         .open_run_reader(run_id)
@@ -5503,10 +5427,10 @@ async fn load_run_record(
     let run_state = run_store.state().await.map_err(|err| {
         ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
     })?;
-    run_state.run.ok_or_else(|| {
+    run_state.spec.ok_or_else(|| {
         ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "run record missing from store",
+            "run spec missing from store",
         )
         .into_response()
     })
@@ -5521,7 +5445,7 @@ async fn list_run_artifacts(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(response) = load_run_record(state.as_ref(), &id).await {
+    if let Err(response) = load_run_spec(state.as_ref(), &id).await {
         return response;
     }
 
@@ -5558,7 +5482,7 @@ async fn list_stage_artifacts(
         Ok(stage_id) => stage_id,
         Err(response) => return response,
     };
-    if let Err(response) = load_run_record(state.as_ref(), &id).await {
+    if let Err(response) = load_run_spec(state.as_ref(), &id).await {
         return response;
     }
 
@@ -5950,7 +5874,7 @@ async fn put_stage_artifact(
     if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
         return response;
     }
-    if let Err(response) = load_run_record(state.as_ref(), &id).await.map(|_| ()) {
+    if let Err(response) = load_run_spec(state.as_ref(), &id).await.map(|_| ()) {
         return response;
     }
 
@@ -6008,7 +5932,7 @@ async fn get_stage_artifact(
         Ok(path) => path,
         Err(response) => return response,
     };
-    if let Err(response) = load_run_record(state.as_ref(), &id).await {
+    if let Err(response) = load_run_spec(state.as_ref(), &id).await {
         return response;
     }
 
@@ -6294,7 +6218,7 @@ async fn reject_if_archived(state: &AppState, run_id: &RunId) -> Option<Response
     let run_store = state.store.open_run_reader(run_id).await.ok()?;
     let projection = run_store.state().await.ok()?;
     let status = projection.status.as_ref()?.status;
-    (status == WorkflowRunStatus::Archived).then(|| {
+    (status == RunStatus::Archived).then(|| {
         ApiError::new(
             StatusCode::CONFLICT,
             operations::archived_rejection_message(run_id),
@@ -6742,9 +6666,9 @@ async fn archive_status_response(state: &AppState, id: RunId) -> Response {
         )
         .into_response();
     };
-    let status = api_status_from_workflow(record.status);
-    let status_reason = record.status_reason.map(api_status_reason);
-    let blocked_reason = record.blocked_reason.map(api_blocked_reason);
+    let status = record.status;
+    let status_reason = record.status_reason;
+    let blocked_reason = record.blocked_reason;
     (
         StatusCode::OK,
         Json(RunStatusResponse {
@@ -7442,6 +7366,10 @@ mod tests {
         format!("/api/v1{path}")
     }
 
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "Test helper mirrors the public build_router convenience API."
+    )]
     fn webhook_test_app(auth_mode: AuthMode) -> Router {
         let secret = TEST_WEBHOOK_SECRET.to_string();
         let state = create_app_state_with_env_lookup(SettingsLayer::default(), 5, move |name| {
@@ -7449,7 +7377,7 @@ mod tests {
         });
         build_router_with_options(
             state,
-            auth_mode,
+            &auth_mode,
             Arc::new(IpAllowlistConfig::default()),
             RouterOptions {
                 web_enabled: false,
@@ -8643,20 +8571,20 @@ slug = "fabro"
         let response = app.oneshot(req).await.unwrap();
         let body = response_json!(response, StatusCode::OK).await;
         assert_eq!(
-            body["run"]["provenance"]["server"]["version"],
+            body["spec"]["provenance"]["server"]["version"],
             FABRO_VERSION
         );
         assert_eq!(
-            body["run"]["provenance"]["client"]["user_agent"],
+            body["spec"]["provenance"]["client"]["user_agent"],
             "fabro-cli/1.2.3"
         );
-        assert_eq!(body["run"]["provenance"]["client"]["name"], "fabro-cli");
-        assert_eq!(body["run"]["provenance"]["client"]["version"], "1.2.3");
+        assert_eq!(body["spec"]["provenance"]["client"]["name"], "fabro-cli");
+        assert_eq!(body["spec"]["provenance"]["client"]["version"], "1.2.3");
         assert_eq!(
-            body["run"]["provenance"]["subject"]["auth_method"],
+            body["spec"]["provenance"]["subject"]["auth_method"],
             "disabled"
         );
-        assert!(body["run"]["provenance"]["subject"]["login"].is_null());
+        assert!(body["spec"]["provenance"]["subject"]["login"].is_null());
     }
 
     #[tokio::test]
@@ -8674,8 +8602,11 @@ slug = "fabro"
             AuthMode::Enabled(ConfiguredAuth {
                 methods:    vec![ServerAuthMethod::DevToken],
                 dev_token:  Some(DEV_TOKEN.to_string()),
-                jwt_key:    None,
-                jwt_issuer: None,
+                jwt_key:    Some(
+                    auth::derive_jwt_key(b"server-test-session-key-0123456789")
+                        .expect("test JWT key should derive"),
+                ),
+                jwt_issuer: Some("https://fabro.example".to_string()),
             }),
         );
 
@@ -8729,10 +8660,10 @@ slug = "fabro"
             .unwrap();
         let state_body = response_json!(state_response, StatusCode::OK).await;
         assert_eq!(
-            state_body["run"]["provenance"]["subject"]["auth_method"],
+            state_body["spec"]["provenance"]["subject"]["auth_method"],
             "dev_token"
         );
-        assert_eq!(state_body["run"]["provenance"]["subject"]["login"], "dev");
+        assert_eq!(state_body["spec"]["provenance"]["subject"]["login"], "dev");
     }
 
     #[tokio::test]
@@ -8997,7 +8928,7 @@ slug = "fabro"
     }
 
     #[tokio::test]
-    async fn create_run_persists_run_record() {
+    async fn create_run_persists_run_spec() {
         let state = create_app_state();
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
 
@@ -9014,7 +8945,7 @@ slug = "fabro"
             .await
             .unwrap();
 
-        assert!(run_state.run.is_some());
+        assert!(run_state.spec.is_some());
     }
 
     #[tokio::test]
@@ -9861,7 +9792,7 @@ level = "debug"
                 .and_then(|run| run.run_dir.clone())
                 .expect("run_dir should be recorded")
         };
-        let run_record = state
+        let run_spec = state
             .store
             .open_run_reader(&run_id)
             .await
@@ -9869,10 +9800,10 @@ level = "debug"
             .state()
             .await
             .unwrap()
-            .run
-            .expect("run record should exist");
-        let resolved_run = fabro_config::resolve_run_from_file(&run_record.settings).unwrap();
-        let resolved_server = fabro_config::resolve_server_from_file(&run_record.settings).unwrap();
+            .spec
+            .expect("run spec should exist");
+        let resolved_run = fabro_config::resolve_run_from_file(&run_spec.settings).unwrap();
+        let resolved_server = fabro_config::resolve_server_from_file(&run_spec.settings).unwrap();
 
         // Verify a sampling of the persisted v2 settings, including inherited
         // run execution mode from server settings.
@@ -9976,8 +9907,8 @@ level = "debug"
 
         let run_store = state.store.open_run_reader(&run_id).await.unwrap();
         let status = run_store.state().await.unwrap().status.unwrap();
-        assert_eq!(status.status, WorkflowRunStatus::Failed);
-        assert_eq!(status.status_reason, Some(WorkflowStatusReason::Cancelled));
+        assert_eq!(status.status, RunStatus::Failed);
+        assert_eq!(status.status_reason, Some(StatusReason::Cancelled));
     }
 
     #[tokio::test]
@@ -10133,7 +10064,7 @@ level = "debug"
         assert_eq!(body["pending_control"], serde_json::Value::Null);
 
         let summary = state.store.runs().find(&run_id).await.unwrap().unwrap();
-        assert_eq!(summary.status, WorkflowRunStatus::Paused);
+        assert_eq!(summary.status, RunStatus::Paused);
         assert_eq!(
             summary.blocked_reason,
             Some(BlockedReason::HumanInputRequired)
@@ -10219,7 +10150,7 @@ level = "debug"
         assert_eq!(body["pending_control"], serde_json::Value::Null);
 
         let summary = state.store.runs().find(&run_id).await.unwrap().unwrap();
-        assert_eq!(summary.status, WorkflowRunStatus::Blocked);
+        assert_eq!(summary.status, RunStatus::Blocked);
         assert_eq!(
             summary.blocked_reason,
             Some(BlockedReason::HumanInputRequired)
@@ -10270,7 +10201,7 @@ level = "debug"
             .state()
             .await
             .unwrap();
-        assert_eq!(run_1.status.unwrap().status, WorkflowRunStatus::Submitted);
+        assert_eq!(run_1.status.unwrap().status, RunStatus::Submitted);
 
         let run_2 = state
             .store
@@ -10281,11 +10212,8 @@ level = "debug"
             .await
             .unwrap();
         let run_2_status = run_2.status.unwrap();
-        assert_eq!(run_2_status.status, WorkflowRunStatus::Failed);
-        assert_eq!(
-            run_2_status.status_reason,
-            Some(WorkflowStatusReason::Terminated)
-        );
+        assert_eq!(run_2_status.status, RunStatus::Failed);
+        assert_eq!(run_2_status.status_reason, Some(StatusReason::Terminated));
 
         let run_3 = state
             .store
@@ -10296,11 +10224,8 @@ level = "debug"
             .await
             .unwrap();
         let run_3_status = run_3.status.unwrap();
-        assert_eq!(run_3_status.status, WorkflowRunStatus::Failed);
-        assert_eq!(
-            run_3_status.status_reason,
-            Some(WorkflowStatusReason::Cancelled)
-        );
+        assert_eq!(run_3_status.status, RunStatus::Failed);
+        assert_eq!(run_3_status.status_reason, Some(StatusReason::Cancelled));
         assert_eq!(run_3.pending_control, None);
     }
 
@@ -10371,11 +10296,8 @@ level = "debug"
             .await
             .unwrap();
         let run_status = run_state.status.unwrap();
-        assert_eq!(run_status.status, WorkflowRunStatus::Failed);
-        assert_eq!(
-            run_status.status_reason,
-            Some(WorkflowStatusReason::Terminated)
-        );
+        assert_eq!(run_status.status, RunStatus::Failed);
+        assert_eq!(run_status.status_reason, Some(StatusReason::Terminated));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -10461,8 +10383,8 @@ timeout = "30s"
         let mut status_record = None;
         for _ in 0..50 {
             if let Some(record) = run_store.state().await.unwrap().status {
-                if record.status == WorkflowRunStatus::Failed
-                    && record.status_reason == Some(WorkflowStatusReason::Cancelled)
+                if record.status == RunStatus::Failed
+                    && record.status_reason == Some(StatusReason::Cancelled)
                 {
                     status_record = Some(record);
                     break;
@@ -10472,11 +10394,8 @@ timeout = "30s"
         }
 
         let status_record = status_record.expect("status record should be persisted");
-        assert_eq!(status_record.status, WorkflowRunStatus::Failed);
-        assert_eq!(
-            status_record.status_reason,
-            Some(WorkflowStatusReason::Cancelled)
-        );
+        assert_eq!(status_record.status, RunStatus::Failed);
+        assert_eq!(status_record.status_reason, Some(StatusReason::Cancelled));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

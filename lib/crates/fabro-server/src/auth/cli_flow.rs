@@ -459,7 +459,7 @@ async fn token(
         used:         false,
         user_agent:   sanitize_user_agent(request_user_agent(&headers)),
     };
-    let auth_tokens = match state.store_ref().auth_tokens().await {
+    let auth_tokens = match state.store_ref().refresh_tokens().await {
         Ok(store) => store,
         Err(err) => {
             warn!(error = %err, "Failed to open refresh token store");
@@ -487,6 +487,8 @@ async fn token(
             login:       entry.login.clone(),
             name:        entry.name.clone(),
             email:       entry.email.clone(),
+            avatar_url:  String::new(),
+            user_url:    String::new(),
             auth_method: RunAuthMethod::Github,
         },
         chrono::Duration::minutes(ACCESS_TOKEN_TTL_MINUTES),
@@ -538,7 +540,7 @@ async fn refresh(
             "Could not refresh authentication",
         );
     };
-    let auth_tokens = match state.store_ref().auth_tokens().await {
+    let auth_tokens = match state.store_ref().refresh_tokens().await {
         Ok(store) => store,
         Err(err) => {
             warn!(error = %err, "Failed to open refresh token store");
@@ -630,6 +632,8 @@ async fn refresh(
             login:       old.login.clone(),
             name:        old.name.clone(),
             email:       old.email.clone(),
+            avatar_url:  String::new(),
+            user_url:    String::new(),
             auth_method: RunAuthMethod::Github,
         },
         chrono::Duration::minutes(ACCESS_TOKEN_TTL_MINUTES),
@@ -657,7 +661,7 @@ async fn logout(
     let Some(secret) = refresh_secret_from_headers(&headers) else {
         return StatusCode::NO_CONTENT.into_response();
     };
-    let auth_tokens = match state.store_ref().auth_tokens().await {
+    let auth_tokens = match state.store_ref().refresh_tokens().await {
         Ok(store) => store,
         Err(err) => {
             warn!(error = %err, "Failed to open refresh token store");
@@ -750,7 +754,9 @@ fn session_cookie_secure(state: &AppState) -> bool {
 }
 
 fn eligible_session(session: Option<&SessionCookie>) -> Option<&SessionCookie> {
-    session.filter(|session| session.identity.is_some())
+    session.filter(|session| {
+        session.identity.is_some() && session.auth_method == RunAuthMethod::Github
+    })
 }
 
 fn valid_state_token(state: &str) -> bool {
@@ -1224,6 +1230,7 @@ async fn issue_auth_code_response(
         return static_error_page(INVALID_REDIRECT_URI);
     };
     let entry = AuthCode {
+        code: code.clone(),
         identity,
         login: session.login.clone(),
         name: session.name.clone(),
@@ -1246,7 +1253,7 @@ async fn issue_auth_code_response(
         }
     };
 
-    if let Err(err) = store.insert(&code, entry).await {
+    if let Err(err) = store.insert(entry).await {
         warn!(error = %err, "Failed to persist auth code");
         return redirect_with_error(
             &redirect_uri,
@@ -1387,7 +1394,8 @@ mod tests {
     async fn insert_auth_code(state: &crate::server::AppState, code: &str, verifier: &str) {
         let auth_codes = state.store_ref().auth_codes().await.unwrap();
         auth_codes
-            .insert(code, AuthCode {
+            .insert(AuthCode {
+                code:           code.to_string(),
                 identity:       fabro_types::IdpIdentity::new("https://github.com", "12345")
                     .expect("identity should be valid"),
                 login:          "octocat".to_string(),
@@ -1895,7 +1903,7 @@ mod tests {
             .unwrap()
             .strip_prefix("fabro_refresh_")
             .unwrap();
-        let auth_tokens = state.store_ref().auth_tokens().await.unwrap();
+        let auth_tokens = state.store_ref().refresh_tokens().await.unwrap();
         let refresh = auth_tokens
             .find_refresh_token(&hash_refresh_secret(refresh_secret))
             .await
@@ -1984,7 +1992,7 @@ mod tests {
     async fn refresh_rotates_tokens_and_replay_revokes_chain() {
         let (app, state) = test_router(github_settings("https://fabro.example"));
         let initial_secret = "refresh-secret-1";
-        let auth_tokens = state.store_ref().auth_tokens().await.unwrap();
+        let auth_tokens = state.store_ref().refresh_tokens().await.unwrap();
         auth_tokens
             .insert_refresh_token(refresh_row(initial_secret))
             .await
@@ -2039,7 +2047,7 @@ mod tests {
     async fn concurrent_refresh_has_one_winner_and_revokes_chain() {
         let (app, state) = test_router(github_settings("https://fabro.example"));
         let initial_secret = "refresh-secret-concurrent";
-        let auth_tokens = state.store_ref().auth_tokens().await.unwrap();
+        let auth_tokens = state.store_ref().refresh_tokens().await.unwrap();
         auth_tokens
             .insert_refresh_token(refresh_row(initial_secret))
             .await
@@ -2123,7 +2131,7 @@ mod tests {
         let secret = "refresh-secret-logout";
         let token = refresh_row(secret);
         let chain_id = token.chain_id;
-        let auth_tokens = state.store_ref().auth_tokens().await.unwrap();
+        let auth_tokens = state.store_ref().refresh_tokens().await.unwrap();
         auth_tokens.insert_refresh_token(token).await.unwrap();
 
         let sibling = RefreshToken {

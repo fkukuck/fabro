@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-use progenitor::{GenerationSettings, Generator, InterfaceStyle};
+use progenitor::{GenerationSettings, Generator, InterfaceStyle, TypeImpl};
 
 /// Recursively convert OpenAPI 3.1 `type: "null"` patterns to 3.0 `nullable:
 /// true`.
@@ -160,6 +160,27 @@ fn main() {
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Builder);
+    let replacements: &[(&str, &str, &[TypeImpl])] = &[
+        ("RunStatus", "fabro_types::status::RunStatus", &[
+            TypeImpl::FromStr,
+            TypeImpl::Display,
+        ]),
+        ("StatusReason", "fabro_types::status::StatusReason", &[]),
+        ("BlockedReason", "fabro_types::status::BlockedReason", &[]),
+        (
+            "RunControlAction",
+            "fabro_types::status::RunControlAction",
+            &[],
+        ),
+        (
+            "RunStatusRecord",
+            "fabro_types::status::RunStatusRecord",
+            &[],
+        ),
+    ];
+    for (name, path, impls) in replacements {
+        settings.with_replacement(*name, *path, impls.iter().copied());
+    }
 
     let mut generator = Generator::new(&settings);
     let tokens = generator

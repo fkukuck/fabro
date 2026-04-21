@@ -16,6 +16,8 @@ pub(crate) struct JwtSubject {
     pub login:       String,
     pub name:        String,
     pub email:       String,
+    pub avatar_url:  String,
+    pub user_url:    String,
     pub auth_method: RunAuthMethod,
 }
 
@@ -32,6 +34,10 @@ pub(crate) struct Claims {
     pub login:       String,
     pub name:        String,
     pub email:       String,
+    #[serde(default)]
+    pub avatar_url:  String,
+    #[serde(default)]
+    pub user_url:    String,
     pub auth_method: RunAuthMethod,
 }
 
@@ -70,6 +76,8 @@ pub(crate) fn issue(
         login: subject.login.clone(),
         name: subject.name.clone(),
         email: subject.email.clone(),
+        avatar_url: subject.avatar_url.clone(),
+        user_url: subject.user_url.clone(),
         auth_method: subject.auth_method,
     };
 
@@ -121,6 +129,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use fabro_types::RunAuthMethod;
     use jsonwebtoken::{Algorithm, Header, encode};
+    use serde::Serialize;
     use uuid::Uuid;
 
     use super::{Claims, JwtError, JwtSubject, issue, verify};
@@ -137,6 +146,8 @@ mod tests {
             login:       "octocat".to_string(),
             name:        "The Octocat".to_string(),
             email:       "octocat@example.com".to_string(),
+            avatar_url:  "https://example.com/octocat.png".to_string(),
+            user_url:    "https://github.com/octocat".to_string(),
             auth_method: RunAuthMethod::Github,
         }
     }
@@ -154,6 +165,8 @@ mod tests {
             login:       "octocat".to_string(),
             name:        "The Octocat".to_string(),
             email:       "octocat@example.com".to_string(),
+            avatar_url:  "https://example.com/octocat.png".to_string(),
+            user_url:    "https://github.com/octocat".to_string(),
             auth_method: RunAuthMethod::Github,
         }
     }
@@ -163,6 +176,10 @@ mod tests {
     }
 
     fn forge_token(header: &serde_json::Value, claims: &Claims) -> String {
+        forge_token_value(header, &serde_json::to_value(claims).unwrap())
+    }
+
+    fn forge_token_value(header: &serde_json::Value, claims: &serde_json::Value) -> String {
         let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(header).unwrap());
         let claims = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap());
         format!("{header}.{claims}.signature")
@@ -183,8 +200,59 @@ mod tests {
         assert_eq!(claims.iss, "https://fabro.example");
         assert_eq!(claims.aud, "fabro-cli");
         assert_eq!(claims.idp_subject, "12345");
+        assert_eq!(claims.avatar_url, "https://example.com/octocat.png");
+        assert_eq!(claims.user_url, "https://github.com/octocat");
         assert_eq!(claims.auth_method, RunAuthMethod::Github);
         assert!(Uuid::parse_str(&claims.jti).is_ok());
+    }
+
+    #[test]
+    fn legacy_tokens_without_profile_fields_default_to_empty_strings() {
+        #[derive(Serialize)]
+        struct LegacyClaims {
+            iss:         String,
+            aud:         String,
+            sub:         String,
+            exp:         u64,
+            iat:         u64,
+            jti:         String,
+            idp_issuer:  String,
+            idp_subject: String,
+            login:       String,
+            name:        String,
+            email:       String,
+            auth_method: RunAuthMethod,
+        }
+
+        let now = Utc::now().timestamp();
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &LegacyClaims {
+                iss:         "https://fabro.example".to_string(),
+                aud:         "fabro-cli".to_string(),
+                sub:         "12345".to_string(),
+                exp:         (now + 600).try_into().unwrap(),
+                iat:         (now - 1).try_into().unwrap(),
+                jti:         Uuid::new_v4().to_string(),
+                idp_issuer:  "https://github.com".to_string(),
+                idp_subject: "12345".to_string(),
+                login:       "octocat".to_string(),
+                name:        "The Octocat".to_string(),
+                email:       "octocat@example.com".to_string(),
+                auth_method: RunAuthMethod::Github,
+            },
+            &signing_key().encoding_key(),
+        );
+
+        let claims = verify(
+            &signing_key(),
+            "https://fabro.example",
+            &token.expect("legacy token should encode"),
+        )
+        .unwrap();
+
+        assert_eq!(claims.avatar_url, "");
+        assert_eq!(claims.user_url, "");
     }
 
     #[test]

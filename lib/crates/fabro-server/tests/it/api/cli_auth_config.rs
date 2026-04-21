@@ -19,7 +19,7 @@ fn settings(source: &str) -> fabro_types::settings::SettingsLayer {
 
 fn build_app(
     settings: fabro_types::settings::SettingsLayer,
-    auth_mode: AuthMode,
+    auth_mode: &AuthMode,
     options: RouterOptions,
 ) -> axum::Router {
     build_router_with_options(
@@ -50,7 +50,7 @@ url = "https://fabro.example"
 client_id = "Iv1.test"
 "#,
         ),
-        AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::Github], None)),
+        &AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::Github], None)),
         RouterOptions::default(),
     );
 
@@ -87,7 +87,7 @@ _version = 1
 methods = ["dev-token"]
 "#,
         ),
-        AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::DevToken], None)),
+        &AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::DevToken], None)),
         RouterOptions::default(),
     );
 
@@ -128,7 +128,7 @@ methods = ["dev-token"]
 enabled = false
 "#,
         ),
-        AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::DevToken], None)),
+        &AuthMode::Enabled(ConfiguredAuth::new(vec![ServerAuthMethod::DevToken], None)),
         RouterOptions {
             web_enabled: false,
             ..RouterOptions::default()

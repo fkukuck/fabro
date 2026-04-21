@@ -172,6 +172,57 @@ pub enum StatusReason {
     SandboxInitializing,
 }
 
+impl fmt::Display for StatusReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Completed => "completed",
+            Self::PartialSuccess => "partial_success",
+            Self::WorkflowError => "workflow_error",
+            Self::Cancelled => "cancelled",
+            Self::Terminated => "terminated",
+            Self::TransientInfra => "transient_infra",
+            Self::BudgetExhausted => "budget_exhausted",
+            Self::LaunchFailed => "launch_failed",
+            Self::BootstrapFailed => "bootstrap_failed",
+            Self::SandboxInitFailed => "sandbox_init_failed",
+            Self::SandboxInitializing => "sandbox_initializing",
+        };
+        f.write_str(s)
+    }
+}
+
+impl FromStr for StatusReason {
+    type Err = ParseStatusReasonError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "completed" => Ok(Self::Completed),
+            "partial_success" => Ok(Self::PartialSuccess),
+            "workflow_error" => Ok(Self::WorkflowError),
+            "cancelled" => Ok(Self::Cancelled),
+            "terminated" => Ok(Self::Terminated),
+            "transient_infra" => Ok(Self::TransientInfra),
+            "budget_exhausted" => Ok(Self::BudgetExhausted),
+            "launch_failed" => Ok(Self::LaunchFailed),
+            "bootstrap_failed" => Ok(Self::BootstrapFailed),
+            "sandbox_init_failed" => Ok(Self::SandboxInitFailed),
+            "sandbox_initializing" => Ok(Self::SandboxInitializing),
+            _ => Err(ParseStatusReasonError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParseStatusReasonError(String);
+
+impl fmt::Display for ParseStatusReasonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid status reason: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for ParseStatusReasonError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockedReason {
@@ -211,7 +262,7 @@ impl RunStatusRecord {
 mod tests {
     use std::str::FromStr;
 
-    use super::{InvalidTransition, RunStatus};
+    use super::{InvalidTransition, RunStatus, StatusReason};
 
     #[test]
     fn queued_and_blocked_parse_and_format() {
@@ -247,6 +298,13 @@ mod tests {
         let parsed = RunStatus::from_str("archived").expect("archived should parse");
         assert_eq!(parsed, RunStatus::Archived);
         assert_eq!(parsed.to_string(), "archived");
+    }
+
+    #[test]
+    fn status_reason_parses_and_round_trips() {
+        let parsed = StatusReason::from_str("cancelled").expect("cancelled should parse");
+        assert_eq!(parsed, StatusReason::Cancelled);
+        assert_eq!(parsed.to_string(), "cancelled");
     }
 
     #[test]
