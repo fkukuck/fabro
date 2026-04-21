@@ -6,16 +6,18 @@ mod keyed_mutex;
 mod keys;
 mod record;
 mod run_state;
+mod serializable_projection;
 mod slate;
 mod types;
 
 pub use artifact_store::{ArtifactStore, NodeArtifact};
 pub use error::{Error, Result};
 pub use fabro_types::{
-    EventEnvelope, NodeState, PendingInterviewRecord, RunBlobId, RunProjection, StageId,
+    EventEnvelope, NodeState, PendingInterviewRecord, RunBlobId, RunProjection, RunSummary, StageId,
 };
 pub(crate) use keyed_mutex::KeyedMutex;
 pub use run_state::RunProjectionReducer;
+pub use serializable_projection::SerializableProjection;
 pub use slate::{
     AuthCode, AuthCodeStore, Blob, BlobStore, ConsumeOutcome, Database, RefreshToken,
     RefreshTokenStore, RunCatalogIndex, RunDatabase, Runs,

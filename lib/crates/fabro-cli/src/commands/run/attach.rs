@@ -57,14 +57,14 @@ pub(crate) async fn attach_run(
 
     if let (Some(storage_dir), Some(run_id)) = (storage_dir.as_deref(), run_id.as_ref()) {
         let client = server_client::connect_server(storage_dir).await?;
-        return attach_run_with_client(
+        return Box::pin(attach_run_with_client(
             &client,
             run_id,
             kill_on_detach,
             styles,
             json_output,
             Printer::Default,
-        )
+        ))
         .await;
     }
 
@@ -82,11 +82,11 @@ pub(crate) async fn attach_run_with_client(
     printer: Printer,
 ) -> Result<ExitCode> {
     let state = client.get_run_state(run_id).await?;
-    let auto_approve = state.run.as_ref().is_some_and(|record| {
+    let auto_approve = state.spec.as_ref().is_some_and(|record| {
         fabro_config::resolve_run_from_file(&record.settings)
             .is_ok_and(|settings| settings.execution.approval == ApprovalMode::Auto)
     });
-    let verbose = state.run.as_ref().is_some_and(|record| {
+    let verbose = state.spec.as_ref().is_some_and(|record| {
         fabro_config::resolve_cli_from_file(&record.settings)
             .is_ok_and(|settings| settings.output.verbosity == OutputVerbosity::Verbose)
     });
@@ -498,7 +498,7 @@ mod tests {
 
     fn terminal_run_state_response() -> serde_json::Value {
         serde_json::json!({
-            "run": null,
+            "spec": null,
             "graph_source": null,
             "start": null,
             "status": {
@@ -535,9 +535,16 @@ mod tests {
     async fn attach_errors_without_store_context() {
         let dir = tempfile::tempdir().unwrap();
 
-        let err = attach_run(dir.path(), None, None, false, no_color_styles(), false)
-            .await
-            .unwrap_err();
+        let err = Box::pin(attach_run(
+            dir.path(),
+            None,
+            None,
+            false,
+            no_color_styles(),
+            false,
+        ))
+        .await
+        .unwrap_err();
 
         assert!(
             err.to_string()

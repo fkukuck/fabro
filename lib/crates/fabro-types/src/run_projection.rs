@@ -4,13 +4,13 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     Checkpoint, Conclusion, InterviewQuestionRecord, NodeStatusRecord, PullRequestRecord, Retro,
-    RunControlAction, RunRecord, RunStatus, RunStatusRecord, SandboxRecord, StageId, StartRecord,
+    RunControlAction, RunSpec, RunStatus, RunStatusRecord, SandboxRecord, StageId, StartRecord,
 };
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RunProjection {
-    pub run:                Option<RunRecord>,
+    pub spec:               Option<RunSpec>,
     pub graph_source:       Option<String>,
     pub start:              Option<StartRecord>,
     pub status:             Option<RunStatusRecord>,
@@ -77,6 +77,26 @@ impl RunProjection {
         visits.sort_unstable();
         visits.dedup();
         visits
+    }
+
+    pub fn spec(&self) -> Option<&RunSpec> {
+        self.spec.as_ref()
+    }
+
+    pub fn status(&self) -> Option<RunStatus> {
+        self.status.as_ref().map(|status| status.status)
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.status().is_some_and(RunStatus::is_terminal)
+    }
+
+    pub fn current_checkpoint(&self) -> Option<&Checkpoint> {
+        self.checkpoint.as_ref()
+    }
+
+    pub fn pending_interviews(&self) -> &BTreeMap<String, PendingInterviewRecord> {
+        &self.pending_interviews
     }
 
     pub fn node_mut(&mut self, node_id: &str, visit: u32) -> &mut NodeState {
