@@ -501,15 +501,15 @@ async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
         "POST /install/github/app/manifest",
     )
     .await;
-    let redirect_url = manifest_body["manifest"]["redirect_url"]
+    let state = manifest_body["state"]
         .as_str()
-        .expect("redirect_url should be present");
-    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
-    let state = redirect_uri
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.into_owned())
-        .expect("state should be embedded in redirect_url");
+        .expect("state should be present on manifest response")
+        .to_owned();
+    assert_eq!(
+        manifest_body["manifest"]["redirect_url"],
+        "https://fabro.example.com/install/github/app/redirect",
+        "redirect_url must not carry a query string — GitHub rejects manifests whose redirect_url has one"
+    );
 
     let callback_response = app
         .clone()
@@ -769,15 +769,15 @@ async fn github_app_manifest_round_trip_updates_install_session() {
         "https://fabro.example.com/auth/callback/github"
     );
 
-    let redirect_url = manifest_body["manifest"]["redirect_url"]
+    let state = manifest_body["state"]
         .as_str()
-        .expect("redirect_url should be present");
-    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
-    let state = redirect_uri
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.into_owned())
-        .expect("state should be embedded in redirect_url");
+        .expect("state should be present on manifest response")
+        .to_owned();
+    assert_eq!(
+        manifest_body["manifest"]["redirect_url"],
+        "https://fabro.example.com/install/github/app/redirect",
+        "redirect_url must not carry a query string — GitHub rejects manifests whose redirect_url has one"
+    );
 
     let callback_response = checked_response(
         app.clone()
@@ -831,7 +831,7 @@ async fn github_app_manifest_round_trip_updates_install_session() {
 }
 
 #[tokio::test]
-async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_token_strategy() {
+async fn github_app_manifest_retry_replaces_pending_and_preserves_prior_token_strategy() {
     let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
 
     let server_response = app
@@ -878,7 +878,7 @@ async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_tok
     )
     .await;
 
-    let manifest_response = app
+    let first_response = app
         .clone()
         .oneshot(
             Request::builder()
@@ -893,15 +893,70 @@ async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_tok
         )
         .await
         .unwrap();
-    response_status(
-        manifest_response,
+    let first_body = response_json(
+        first_response,
         StatusCode::OK,
-        "POST /install/github/app/manifest",
+        "POST /install/github/app/manifest (initial)",
+    )
+    .await;
+    let first_state = first_body["state"]
+        .as_str()
+        .expect("state should be present on manifest response")
+        .to_owned();
+
+    let retry_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/github/app/manifest")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"owner":{"kind":"personal"},"app_name":"Fabro Retry","allowed_username":"octocat"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let retry_body = response_json(
+        retry_response,
+        StatusCode::OK,
+        "POST /install/github/app/manifest (retry)",
+    )
+    .await;
+    let retry_state = retry_body["state"]
+        .as_str()
+        .expect("state should be present on retry manifest response")
+        .to_owned();
+    assert_ne!(
+        first_state, retry_state,
+        "retry must mint a fresh state token so the old callback is invalidated"
+    );
+
+    // A late callback using the now-discarded first-attempt state must not
+    // complete the install.
+    let stale_callback = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/install/github/app/redirect?code=stub-code&state={first_state}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response_status(
+        stale_callback,
+        StatusCode::FOUND,
+        "GET /install/github/app/redirect with stale state",
     )
     .await;
 
     let session_response = app
-        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -922,31 +977,6 @@ async fn github_app_manifest_rejects_retry_while_pending_and_preserves_prior_tok
             .unwrap()
             .iter()
             .any(|value| value == "github")
-    );
-
-    let retry_response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/install/github/app/manifest")
-                .header("authorization", "Bearer test-install-token")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"owner":{"kind":"personal"},"app_name":"Fabro Retry","allowed_username":"octocat"}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let retry_body = response_json(
-        retry_response,
-        StatusCode::CONFLICT,
-        "POST /install/github/app/manifest",
-    )
-    .await;
-    assert_eq!(
-        retry_body["errors"][0]["detail"],
-        "GitHub App setup is already pending; finish it or wait for it to expire."
     );
 }
 
@@ -1020,15 +1050,15 @@ async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_s
         "POST /install/github/app/manifest",
     )
     .await;
-    let redirect_url = manifest_body["manifest"]["redirect_url"]
+    let state = manifest_body["state"]
         .as_str()
-        .expect("redirect_url should be present");
-    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
-    let state = redirect_uri
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.into_owned())
-        .expect("state should be embedded in redirect_url");
+        .expect("state should be present on manifest response")
+        .to_owned();
+    assert_eq!(
+        manifest_body["manifest"]["redirect_url"],
+        "https://fabro.example.com/install/github/app/redirect",
+        "redirect_url must not carry a query string — GitHub rejects manifests whose redirect_url has one"
+    );
 
     let wrong_state_response = checked_response(
         app.clone()
@@ -1181,15 +1211,15 @@ async fn github_app_redirect_exchange_failure_returns_to_wizard_and_keeps_pendin
         "POST /install/github/app/manifest",
     )
     .await;
-    let redirect_url = manifest_body["manifest"]["redirect_url"]
+    let state = manifest_body["state"]
         .as_str()
-        .expect("redirect_url should be present");
-    let redirect_uri = fabro_http::Url::parse(redirect_url).unwrap();
-    let state = redirect_uri
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.into_owned())
-        .expect("state should be embedded in redirect_url");
+        .expect("state should be present on manifest response")
+        .to_owned();
+    assert_eq!(
+        manifest_body["manifest"]["redirect_url"],
+        "https://fabro.example.com/install/github/app/redirect",
+        "redirect_url must not carry a query string — GitHub rejects manifests whose redirect_url has one"
+    );
 
     let callback_response = checked_response(
         app.clone()

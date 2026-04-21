@@ -427,7 +427,11 @@ export default function InstallApp() {
                 app_name:         appName.trim(),
                 allowed_username: allowedUsername.trim(),
               });
-              submitGithubManifest(manifest.github_form_action, manifest.manifest);
+              submitGithubManifest(
+                manifest.github_form_action,
+                manifest.manifest,
+                manifest.state,
+              );
             } catch (error) {
               setSaveError(
                 error instanceof Error ? error.message : "Failed to start GitHub setup.",
@@ -1438,18 +1442,25 @@ function describeGithubAppOwner(
 function submitGithubManifest(
   formAction: string,
   manifest: Record<string, unknown>,
+  state: string,
 ): void {
   const form = document.createElement("form");
   form.method = "post";
   form.action = formAction;
   form.style.display = "none";
 
-  const input = document.createElement("input");
-  input.type = "hidden";
-  input.name = "manifest";
-  input.value = JSON.stringify(manifest);
+  const manifestInput = document.createElement("input");
+  manifestInput.type = "hidden";
+  manifestInput.name = "manifest";
+  manifestInput.value = JSON.stringify(manifest);
+  form.appendChild(manifestInput);
 
-  form.appendChild(input);
+  const stateInput = document.createElement("input");
+  stateInput.type = "hidden";
+  stateInput.name = "state";
+  stateInput.value = state;
+  form.appendChild(stateInput);
+
   document.body.appendChild(form);
   form.submit();
 }

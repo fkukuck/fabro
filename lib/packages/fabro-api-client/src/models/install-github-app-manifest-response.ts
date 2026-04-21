@@ -20,5 +20,9 @@
 export interface InstallGithubAppManifestResponse {
     'manifest': { [key: string]: any; };
     'github_form_action': string;
+    /**
+     * CSRF token the browser must echo back to GitHub as a hidden `state` form field alongside `manifest`. GitHub preserves it on the redirect to `redirect_url` so the server can match the callback to this pending install. 
+     */
+    'state': string;
 }
 

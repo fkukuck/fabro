@@ -2356,6 +2356,7 @@ components:
       required:
         - manifest
         - github_form_action
+        - state
       properties:
         manifest:
           type: object
@@ -2363,6 +2364,13 @@ components:
         github_form_action:
           type: string
           format: uri
+        state:
+          description: |
+            CSRF token the browser must echo back to GitHub as a hidden
+            `state` form field alongside `manifest`. GitHub preserves it on
+            the redirect to `redirect_url` so the server can match the
+            callback to this pending install.
+          type: string
 
     InstallGithubSummary:
       description: Redacted summary of the GitHub install strategy selected during browser install.

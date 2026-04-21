@@ -646,40 +646,27 @@ async fn post_install_github_app_manifest(
     let Some(server) = pending_install.server.clone() else {
         return missing_step_response("server");
     };
-    let now = Instant::now();
-    if pending_install
-        .pending_github_app
-        .as_ref()
-        .is_some_and(|pending| pending.expires_at > now)
-    {
-        return install_error_response(
-            StatusCode::CONFLICT,
-            "GitHub App setup is already pending; finish it or wait for it to expire.",
-        );
-    }
 
     let state_token = generate_ephemeral_secret();
     let manifest = build_github_app_manifest(
         input.app_name.trim(),
-        &format!(
-            "{}/install/github/app/redirect?state={state_token}",
-            server.canonical_url
-        ),
+        &format!("{}/install/github/app/redirect", server.canonical_url),
         &format!("{}/auth/callback/github", server.canonical_url),
         &format!("{}/setup", server.canonical_url),
     );
 
     pending_install.pending_github_app = Some(PendingGithubApp {
-        state:            state_token,
+        state:            state_token.clone(),
         owner:            owner.clone(),
         app_name:         input.app_name.trim().to_string(),
         allowed_username: input.allowed_username.trim().to_string(),
-        expires_at:       now + Duration::from_mins(10),
+        expires_at:       Instant::now() + Duration::from_mins(10),
     });
 
     Json(serde_json::json!({
         "manifest": manifest,
         "github_form_action": owner.manifest_form_action(),
+        "state": state_token,
     }))
     .into_response()
 }
