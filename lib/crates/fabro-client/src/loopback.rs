@@ -176,7 +176,17 @@ mod tests {
 
     #[test]
     fn rejects_obfuscated_ipv4_literals_at_parse_time() {
-        for api_url in ["http://2130706433", "http://0x7f000001"] {
+        let cases = [
+            "http://2130706433",  // decimal integer
+            "http://0x7f000001",  // hex integer
+            "http://0177.0.0.1",  // octal dotted
+            "http://127.1",       // two-part short
+            "http://127.0.1",     // three-part short
+            "http://0x7f.0.0.1",  // mixed hex/decimal
+            "http://127.00.0.1",  // leading-zero octet
+            "http://127.0.0.001", // leading-zero octet
+        ];
+        for api_url in cases {
             assert!(
                 ServerTarget::http_url(api_url).is_err(),
                 "{api_url} should not parse as a server target"
