@@ -975,7 +975,7 @@ pub fn build_router_with_options(
 
     let demo_router = Router::new()
         .nest("/api/v1", api_common.clone().merge(demo_routes()))
-        .layer(axum::Extension(AuthMode::Disabled))
+        .layer(axum::Extension(auth_mode.clone()))
         .layer(axum::Extension(Arc::clone(&github_endpoints)))
         .with_state(state.clone());
 

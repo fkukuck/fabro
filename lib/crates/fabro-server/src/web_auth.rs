@@ -1118,6 +1118,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_config_returns_real_methods_when_demo_cookie_set() {
+        let state = server::create_test_app_state_with_session_key(
+            github_settings("https://fabro.example"),
+            Some("web-auth-test-key-material-0123456789"),
+            false,
+        );
+        let app = server::build_router_with_options(
+            state,
+            &github_auth_mode(),
+            Arc::new(crate::ip_allowlist::IpAllowlistConfig::default()),
+            server::RouterOptions::default(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/config")
+                    .header(header::COOKIE, "fabro-demo=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response_json!(response).await;
+        assert_eq!(body, json!({ "methods": ["github"] }));
+    }
+
+    #[tokio::test]
     async fn login_github_sets_secure_state_cookie_for_https_web_url() {
         let app = test_auth_router_with_settings(
             github_settings("https://fabro.example"),

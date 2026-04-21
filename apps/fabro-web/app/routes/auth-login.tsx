@@ -40,7 +40,9 @@ export default function AuthLogin({ loaderData }: any) {
       <p className="mt-3 text-center text-sm/6 text-fg-3 text-pretty">
         {hasGitHub
           ? "Authenticate with your GitHub account to continue."
-          : "Paste your dev token to continue."}
+          : hasDevToken
+            ? "Paste your dev token to continue."
+            : "No authentication method is configured on this server."}
       </p>
       <div className="mt-6 space-y-4">
         {hasGitHub ? (

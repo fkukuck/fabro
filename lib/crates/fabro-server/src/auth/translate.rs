@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_router_routes_demo_cookie_to_demo_handler_without_credentials() {
+    async fn full_router_rejects_demo_cookie_without_credentials() {
         let state = test_state();
         let app = server::build_router_with_options(
             state,
@@ -568,7 +568,37 @@ mod tests {
             .await
             .unwrap();
 
-        assert_status!(response, StatusCode::OK).await;
+        assert_status!(response, StatusCode::UNAUTHORIZED).await;
+    }
+
+    #[tokio::test]
+    async fn full_router_routes_demo_cookie_to_demo_handler_with_session() {
+        let state = test_state();
+        let cookie = session_cookie(&github_session(), state.as_ref());
+        let app = server::build_router_with_options(
+            Arc::clone(&state),
+            &auth_mode(),
+            Arc::new(crate::ip_allowlist::IpAllowlistConfig::default()),
+            RouterOptions::default(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/health/diagnostics")
+                    .header(header::COOKIE, format!("{cookie}; fabro-demo=1"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response_json!(response).await;
+        assert_eq!(
+            body["sections"][0]["checks"][0]["summary"], "demo configured",
+            "demo handler should have served /health/diagnostics",
+        );
     }
 
     #[tokio::test]
