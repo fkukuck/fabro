@@ -494,6 +494,10 @@ fn resolve_origin_url_and_base_branch(
     )
 }
 
+fn existing_host_repo_path(host_repo_path: Option<&str>) -> Option<PathBuf> {
+    host_repo_path.map(PathBuf::from).filter(|path| path.exists())
+}
+
 async fn load_accepted_run_definition(
     run_store: &RunStoreHandle,
     blob_id: fabro_types::RunBlobId,
@@ -719,7 +723,7 @@ impl RunSession {
             labels:           record.labels.clone(),
             workflow_slug:    record.workflow_slug.clone(),
             github_app:       self.github_app.clone(),
-            host_repo_path:   record.host_repo_path.as_deref().map(PathBuf::from),
+            host_repo_path:   existing_host_repo_path(record.host_repo_path.as_deref()),
             base_branch:      record.base_branch.clone(),
             display_base_sha: None,
             git:              self.git.clone(),
@@ -1192,6 +1196,22 @@ mod tests {
             Some("https://github.com/fkukuck/agentic-factory-prisma.git")
         );
         assert_eq!(base_branch.as_deref(), Some(name.as_str()));
+    }
+
+    #[test]
+    fn existing_host_repo_path_ignores_missing_paths() {
+        let path = existing_host_repo_path(Some("/definitely/missing/path"));
+
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn existing_host_repo_path_keeps_existing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let path = existing_host_repo_path(Some(dir.path().to_str().unwrap()));
+
+        assert_eq!(path.as_deref(), Some(dir.path()));
     }
 
     #[test]
