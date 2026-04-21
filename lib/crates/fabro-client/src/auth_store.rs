@@ -120,10 +120,6 @@ impl AuthStore {
     }
 
     pub fn get(&self, target: &ServerTarget) -> Result<Option<AuthEntry>, AuthStoreError> {
-        if !self.path.exists() {
-            return Ok(None);
-        }
-
         let key = key_for_target(target);
         self.with_shared_lock(|| {
             let file = self.read_auth_file()?;
@@ -143,7 +139,7 @@ impl AuthStore {
             let key = key_for_target(target);
             self.ensure_parent_dir()?;
             self.with_exclusive_lock(|| {
-                let mut file = self.read_auth_file_if_exists()?;
+                let mut file = self.read_auth_file()?;
                 file.servers.insert(key, entry);
                 self.write_auth_file(&file)
             })
@@ -159,26 +155,20 @@ impl AuthStore {
 
         #[cfg(unix)]
         {
-            if !self.path.exists() {
-                return Ok(false);
-            }
-
             let key = key_for_target(target);
             self.ensure_parent_dir()?;
             self.with_exclusive_lock(|| {
-                let mut file = self.read_auth_file_if_exists()?;
+                let mut file = self.read_auth_file()?;
                 let removed = file.servers.remove(&key).is_some();
-                self.write_auth_file(&file)?;
+                if removed {
+                    self.write_auth_file(&file)?;
+                }
                 Ok(removed)
             })
         }
     }
 
     pub fn list(&self) -> Result<Vec<(ServerTarget, AuthEntry)>, AuthStoreError> {
-        if !self.path.exists() {
-            return Ok(Vec::new());
-        }
-
         self.with_shared_lock(|| {
             let file = self.read_auth_file()?;
             file.servers
@@ -189,21 +179,19 @@ impl AuthStore {
     }
 
     fn read_auth_file(&self) -> Result<AuthFile, AuthStoreError> {
-        let contents = fs::read_to_string(&self.path).map_err(|source| AuthStoreError::Read {
-            path: self.path.clone(),
-            source,
-        })?;
-        serde_json::from_str(&contents).map_err(|source| AuthStoreError::Corrupt {
-            path: self.path.clone(),
-            source,
-        })
-    }
-
-    fn read_auth_file_if_exists(&self) -> Result<AuthFile, AuthStoreError> {
-        if !self.path.exists() {
-            return Ok(AuthFile::default());
+        match fs::read_to_string(&self.path) {
+            Ok(contents) => {
+                serde_json::from_str(&contents).map_err(|source| AuthStoreError::Corrupt {
+                    path: self.path.clone(),
+                    source,
+                })
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(AuthFile::default()),
+            Err(source) => Err(AuthStoreError::Read {
+                path: self.path.clone(),
+                source,
+            }),
         }
-        self.read_auth_file()
     }
 
     #[cfg(unix)]

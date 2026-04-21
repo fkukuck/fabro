@@ -122,8 +122,6 @@ fn ip_is_loopback(ip: &IpAddr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::LoopbackClassification;
     use crate::target::ServerTarget;
 

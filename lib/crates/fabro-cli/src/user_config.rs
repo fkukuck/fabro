@@ -61,12 +61,6 @@ pub(crate) fn apply_storage_dir_override(
     layer
 }
 
-pub(crate) fn build_public_http_client(
-    target: &ServerTarget,
-) -> Result<(fabro_http::HttpClient, String)> {
-    target.build_public_http_client()
-}
-
 /// Pull the resolved CLI target configuration out of `[cli.target]`.
 /// Returns either an http(s) URL or a unix socket path.
 fn cli_target_from_settings(settings: &CliSettings) -> Option<String> {

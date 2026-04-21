@@ -58,7 +58,7 @@ pub(super) async fn logout_command(
 }
 
 async fn revoke_remote_session(target: &ServerTarget, entry: &AuthEntry) -> Result<()> {
-    let (http_client, base_url) = user_config::build_public_http_client(target)?;
+    let (http_client, base_url) = target.build_public_http_client()?;
     let response = http_client
         .post(format!("{base_url}/auth/cli/logout"))
         .header(AUTHORIZATION, format!("Bearer {}", entry.refresh_token))

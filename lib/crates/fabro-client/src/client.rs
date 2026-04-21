@@ -1294,7 +1294,7 @@ fn connect_target_transport(
     Ok((http_client, "http://fabro".to_string()))
 }
 
-fn apply_bearer_token_auth(
+pub fn apply_bearer_token_auth(
     builder: fabro_http::HttpClientBuilder,
     token: &str,
 ) -> Result<fabro_http::HttpClientBuilder> {
@@ -1307,7 +1307,7 @@ fn apply_bearer_token_auth(
     Ok(builder.default_headers(headers))
 }
 
-fn ensure_refresh_target_transport(target: &ServerTarget) -> Result<()> {
+pub fn ensure_refresh_target_transport(target: &ServerTarget) -> Result<()> {
     match target.loopback_classification()? {
         LoopbackClassification::Https
         | LoopbackClassification::LoopbackHttp

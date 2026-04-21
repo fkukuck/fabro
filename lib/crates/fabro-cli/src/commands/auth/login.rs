@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use fabro_api::types;
-use fabro_client::{AuthEntry, AuthStore, StoredSubject};
+use fabro_client::{AuthEntry, AuthStore, StoredSubject, ensure_refresh_target_transport};
 use fabro_http::header::CONTENT_TYPE;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
@@ -96,14 +96,7 @@ pub(super) async fn login_command(
             }
         };
 
-        match target.loopback_classification()? {
-            fabro_client::LoopbackClassification::Https
-            | fabro_client::LoopbackClassification::LoopbackHttp
-            | fabro_client::LoopbackClassification::UnixSocket => {}
-            fabro_client::LoopbackClassification::Rejected => {
-                bail!("{}", token_transport_error(&target));
-            }
-        }
+        ensure_refresh_target_transport(&target)?;
 
         let tokens = exchange_cli_token(&target, &code, &pkce.verifier, &redirect_uri).await?;
         let entry = AuthEntry {
@@ -129,7 +122,7 @@ pub(super) async fn login_command(
 
 #[cfg(unix)]
 async fn fetch_cli_auth_config(target: &ServerTarget) -> Result<types::CliAuthConfig> {
-    let (http_client, base_url) = user_config::build_public_http_client(target)?;
+    let (http_client, base_url) = target.build_public_http_client()?;
     let client = fabro_api::ApiClient::new_with_client(&base_url, http_client);
     client
         .get_cli_auth_config()
@@ -146,7 +139,7 @@ async fn exchange_cli_token(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> Result<CliTokenResponse> {
-    let (http_client, base_url) = user_config::build_public_http_client(target)?;
+    let (http_client, base_url) = target.build_public_http_client()?;
     let response = http_client
         .post(format!("{base_url}/auth/cli/token"))
         .header(CONTENT_TYPE, "application/json")
@@ -239,12 +232,6 @@ fn login_failure_message(error_code: &str, error_description: Option<&str>) -> S
             .unwrap_or("Could not complete login.")
             .to_string(),
     }
-}
-
-fn token_transport_error(target: &ServerTarget) -> String {
-    format!(
-        "Refusing to send refresh-token credentials over plaintext HTTP to a non-loopback host ({target}). Use HTTPS, or bind the server to 127.0.0.1 / ::1."
-    )
 }
 
 fn identity_summary(subject: &StoredSubject) -> String {

@@ -5,10 +5,10 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, anyhow, bail};
 use fabro_client::{
     AuthStore, Credential, CredentialFallback, OAuthSession, ServerTarget, TransportConnector,
+    apply_bearer_token_auth,
 };
 pub(crate) use fabro_client::{Client, RunEventStream};
 use fabro_config::Storage;
-use fabro_http::header::AUTHORIZATION;
 use fabro_server::bind::Bind;
 pub(crate) use fabro_types::RunProjection;
 use fabro_types::settings::SettingsLayer;
@@ -262,19 +262,6 @@ async fn wait_for_local_dev_token(storage_dir: &Path) -> Result<String> {
         "local server dev token did not become available for {}",
         storage_dir.display()
     );
-}
-
-fn apply_bearer_token_auth(
-    builder: fabro_http::HttpClientBuilder,
-    token: &str,
-) -> Result<fabro_http::HttpClientBuilder> {
-    let mut headers = fabro_http::HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        fabro_http::HeaderValue::from_str(&format!("Bearer {token}"))
-            .context("invalid dev token header value")?,
-    );
-    Ok(builder.default_headers(headers))
 }
 
 async fn build_authed_unix_socket_http_client(
