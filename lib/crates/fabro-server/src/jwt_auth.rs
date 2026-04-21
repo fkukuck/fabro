@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use axum::extract::FromRequestParts;
+use axum::http::header;
 use axum::http::request::Parts;
 use fabro_types::settings::{ServerAuthMethod, ServerSettings as ResolvedServerSettings};
 use fabro_types::{IdpIdentity, RunAuthMethod};
@@ -15,20 +16,14 @@ type HmacSha256 = Hmac<Sha256>;
 const DEV_TOKEN_COMPARE_KEY: &[u8] = b"fabro-dev-token-compare-key";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CredentialSource {
-    JwtAccessToken,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedAuth {
-    pub login:             String,
-    pub name:              String,
-    pub email:             String,
-    pub avatar_url:        String,
-    pub user_url:          String,
-    pub auth_method:       RunAuthMethod,
-    pub credential_source: CredentialSource,
-    pub identity:          Option<IdpIdentity>,
+    pub login:       String,
+    pub name:        String,
+    pub email:       String,
+    pub avatar_url:  String,
+    pub user_url:    String,
+    pub auth_method: RunAuthMethod,
+    pub identity:    Option<IdpIdentity>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,7 +92,7 @@ where
         anyhow!("Fabro server refuses to start: auth is configured but SESSION_SECRET is not set.")
     })?;
     if web_enabled {
-        auth::derive_cookie_key(secret.as_bytes()).map_err(|err| cookie_key_error(&err))?;
+        auth::derive_cookie_key(secret.as_bytes()).map_err(|err| session_secret_key_error(&err))?;
     }
 
     let dev_token = if methods.contains(&ServerAuthMethod::DevToken) {
@@ -116,7 +111,9 @@ where
         None
     };
 
-    let jwt_key = Some(auth::derive_jwt_key(secret.as_bytes()).map_err(|err| jwt_key_error(&err))?);
+    let jwt_key = Some(
+        auth::derive_jwt_key(secret.as_bytes()).map_err(|err| session_secret_key_error(&err))?,
+    );
     let jwt_issuer = Some(resolve_jwt_issuer(settings, &lookup));
 
     Ok(AuthMode::Enabled(ConfiguredAuth {
@@ -150,23 +147,7 @@ where
         .unwrap_or_else(|| "fabro-server".to_string())
 }
 
-fn cookie_key_error(err: &KeyDeriveError) -> anyhow::Error {
-    match err {
-        KeyDeriveError::Empty => {
-            anyhow!(
-                "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
-            )
-        }
-        KeyDeriveError::TooShort {
-            got_bytes,
-            min_bytes,
-        } => anyhow!(
-            "Fabro server refuses to start: SESSION_SECRET must be at least {min_bytes} bytes (64 hex characters) when auth is configured. Current length: {got_bytes} bytes."
-        ),
-    }
-}
-
-fn jwt_key_error(err: &KeyDeriveError) -> anyhow::Error {
+fn session_secret_key_error(err: &KeyDeriveError) -> anyhow::Error {
     match err {
         KeyDeriveError::Empty => {
             anyhow!(
@@ -205,12 +186,12 @@ fn config_allows_run_auth_method(config: &ConfiguredAuth, method: RunAuthMethod)
 }
 
 fn bearer_token(parts: &Parts) -> Option<Result<&str, ApiError>> {
-    let header = parts.headers.get("authorization")?;
-    let Ok(header) = header.to_str() else {
+    let value = parts.headers.get(header::AUTHORIZATION)?;
+    let Ok(value) = value.to_str() else {
         return Some(Err(ApiError::unauthorized()));
     };
     Some(
-        header
+        value
             .strip_prefix("Bearer ")
             .ok_or_else(ApiError::unauthorized),
     )
@@ -255,14 +236,13 @@ fn authenticate_jwt_bearer(token: &str, config: &ConfiguredAuth) -> Result<Verif
     })?;
 
     Ok(VerifiedAuth {
-        login:             claims.login,
-        name:              claims.name,
-        email:             claims.email,
-        avatar_url:        claims.avatar_url,
-        user_url:          claims.user_url,
-        auth_method:       claims.auth_method,
-        credential_source: CredentialSource::JwtAccessToken,
-        identity:          Some(identity),
+        login:       claims.login,
+        name:        claims.name,
+        email:       claims.email,
+        avatar_url:  claims.avatar_url,
+        user_url:    claims.user_url,
+        auth_method: claims.auth_method,
+        identity:    Some(identity),
     })
 }
 
@@ -317,7 +297,6 @@ fn authenticate_parts(parts: &Parts) -> Result<Option<VerifiedAuth>, ApiError> {
     .map(Some)
 }
 
-/// Axum extractor that enforces authentication on a route.
 pub struct AuthenticatedService;
 
 pub fn authenticate_service_parts(parts: &Parts) -> Result<(), ApiError> {
@@ -333,7 +312,6 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedService {
     }
 }
 
-/// Axum extractor that authenticates and extracts the request subject.
 pub struct AuthenticatedSubject {
     pub login:       Option<String>,
     pub name:        String,
@@ -903,7 +881,6 @@ client_id = "Iv1.test"
         let auth = authenticate_parts(&parts).unwrap().unwrap();
         assert_eq!(auth.login, "octocat");
         assert_eq!(auth.auth_method, RunAuthMethod::Github);
-        assert_eq!(auth.credential_source, CredentialSource::JwtAccessToken);
         assert_eq!(
             auth.identity,
             Some(IdpIdentity::new("https://github.com", "12345").unwrap())

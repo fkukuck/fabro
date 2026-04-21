@@ -35,30 +35,26 @@ pub(crate) async fn auth_translation_middleware(
     mut req: Request,
     next: Next,
 ) -> Response {
-    let auth_mode = req
+    let translated = match req
         .extensions()
         .get::<AuthMode>()
         .expect("AuthMode extension must be added to the router")
-        .clone();
-
-    let AuthMode::Enabled(config) = auth_mode else {
-        return next.run(req).await;
+    {
+        AuthMode::Disabled => return next.run(req).await,
+        AuthMode::Enabled(config) => {
+            if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
+                auth_header
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.strip_prefix("Bearer "))
+                    .and_then(|token| translate_bearer_token(token, config))
+            } else {
+                translate_session_cookie(req.headers(), state.as_ref(), config)
+            }
+        }
     };
 
-    if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
-        if let Some(token) = auth_header
-            .to_str()
-            .ok()
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .and_then(|token| translate_bearer_token(token, &config))
-        {
-            req.headers_mut()
-                .insert(header::AUTHORIZATION, bearer_header_value(&token));
-        }
-        return next.run(req).await;
-    }
-
-    if let Some(token) = translate_session_cookie(req.headers(), state.as_ref(), &config) {
+    if let Some(token) = translated {
         req.headers_mut()
             .insert(header::AUTHORIZATION, bearer_header_value(&token));
     }
