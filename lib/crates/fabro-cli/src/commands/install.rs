@@ -131,6 +131,15 @@ fn format_config_toml() -> String {
     toml::to_string_pretty(&doc).expect("default server config should serialize")
 }
 
+fn settings_enable_dev_token_auth(settings_toml: &str) -> bool {
+    fabro_config::parse_settings_layer(settings_toml)
+        .ok()
+        .and_then(|layer| layer.server)
+        .and_then(|srv| srv.auth)
+        .and_then(|auth| auth.methods)
+        .is_some_and(|methods| methods.contains(&ServerAuthMethod::DevToken))
+}
+
 // ---------------------------------------------------------------------------
 // Binary detection
 // ---------------------------------------------------------------------------
@@ -1809,27 +1818,35 @@ async fn run_install_inner(
             s.green.apply_to("✔")
         );
 
-        let dev_token =
-            dev_token::load_or_create_dev_token(&fabro_util::Home::from_env().dev_token_path())?;
-        dev_token::write_dev_token(
-            &Storage::new(&storage_dir).server_state().dev_token_path(),
-            &dev_token,
-        )?;
-        fabro_util::printerr!(
-            printer,
-            "  {} Development token generated",
-            s.green.apply_to("✔")
-        );
+        let dev_token = if settings_enable_dev_token_auth(&settings_toml) {
+            let token = dev_token::load_or_create_dev_token(
+                &fabro_util::Home::from_env().dev_token_path(),
+            )?;
+            dev_token::write_dev_token(
+                &Storage::new(&storage_dir).server_state().dev_token_path(),
+                &token,
+            )?;
+            fabro_util::printerr!(
+                printer,
+                "  {} Development token generated",
+                s.green.apply_to("✔")
+            );
+            Some(token)
+        } else {
+            None
+        };
 
         let jwt_private_b64 = BASE64_STANDARD.encode(jwt_private_pem.as_bytes());
         let jwt_public_b64 = BASE64_STANDARD.encode(jwt_public_pem.as_bytes());
 
-        let generated_server_env_pairs = vec![
+        let mut generated_server_env_pairs = vec![
             ("FABRO_JWT_PRIVATE_KEY".to_string(), jwt_private_b64),
             ("FABRO_JWT_PUBLIC_KEY".to_string(), jwt_public_b64),
             ("SESSION_SECRET".to_string(), session_secret),
-            ("FABRO_DEV_TOKEN".to_string(), dev_token),
         ];
+        if let Some(token) = dev_token {
+            generated_server_env_pairs.push(("FABRO_DEV_TOKEN".to_string(), token));
+        }
         server_env_pairs.extend(generated_server_env_pairs);
     }
 
@@ -2158,6 +2175,49 @@ name = "custom"
                 .and_then(toml::Value::as_str),
             Some("dev-token")
         );
+    }
+
+    #[test]
+    fn settings_enable_dev_token_auth_when_methods_include_dev_token() {
+        let toml = r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+"#;
+        assert!(settings_enable_dev_token_auth(toml));
+    }
+
+    #[test]
+    fn settings_enable_dev_token_auth_when_mixed_with_github() {
+        let toml = r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token", "github"]
+"#;
+        assert!(settings_enable_dev_token_auth(toml));
+    }
+
+    #[test]
+    fn settings_enable_dev_token_auth_false_for_github_only() {
+        let toml = r#"
+_version = 1
+
+[server.auth]
+methods = ["github"]
+"#;
+        assert!(!settings_enable_dev_token_auth(toml));
+    }
+
+    #[test]
+    fn settings_enable_dev_token_auth_false_when_methods_absent() {
+        let toml = "
+_version = 1
+
+[server.auth]
+";
+        assert!(!settings_enable_dev_token_auth(toml));
     }
 
     #[test]
