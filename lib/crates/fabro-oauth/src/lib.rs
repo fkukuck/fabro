@@ -12,6 +12,174 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 // ---------------------------------------------------------------------------
+// Browser shell for CLI callback responses
+// ---------------------------------------------------------------------------
+
+const FABRO_LOGO_SVG: &str = r##"<svg viewBox="0 0 272 348" width="48" height="48" aria-label="Fabro" xmlns="http://www.w3.org/2000/svg"><path d="M1 237 L62 272 L61 348 L0 312 Z M98 257 L132 275 L132 312 L71 347 L70 272 Z M202 168 L201 230 L141 264 L142 202 Z M70 169 L132 203 L132 264 L70 230 Z M70 241 L90 251 L70 262 Z M3 129 L63 164 L61 262 L1 227 Z M137 125 L196 160 L137 195 L78 160 Z M271 44 L272 119 L211 154 L210 79 Z M132 43 L132 118 L71 153 L70 78 Z M142 43 L202 77 L201 152 L141 118 Z M1 44 L62 78 L62 152 L1 118 Z M206 0 L266 36 L206 72 L146 36 Z M66 1 L126 36 L66 71 L6 36 Z" fill="#67b2d7"/></svg>"##;
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Renders the Fabro-branded shell used for every response the CLI's
+/// ephemeral loopback server emits during `fabro auth login`. Fully
+/// self-contained: no external assets, no fonts, inline SVG logo.
+fn browser_shell(title: &str, body: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} · Fabro</title>
+    <style>
+      :root {{
+        color-scheme: dark;
+        --page:       #0F1729;
+        --overlay:    rgba(255, 255, 255, 0.04);
+        --overlay-2:  rgba(255, 255, 255, 0.08);
+        --line:       rgba(255, 255, 255, 0.08);
+        --fg:         #ffffff;
+        --fg-2:       #E8EDF3;
+        --fg-3:       #A8B5C5;
+        --teal-500:   #67B2D7;
+        --mint:       #5AC8A8;
+        --coral:      #E86B6B;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100dvh;
+        color: var(--fg-2);
+        background-color: var(--page);
+        background-image:
+          radial-gradient(ellipse 120% 60% at 15% 5%, rgba(53, 127, 158, 0.14) 0%, transparent 50%),
+          radial-gradient(ellipse 80% 50% at 85% 90%, rgba(90, 200, 168, 0.08) 0%, transparent 45%);
+        background-attachment: fixed;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+      }}
+      main {{ width: 100%; max-width: 24rem; }}
+      .brand {{
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1.75rem;
+      }}
+      .brand svg {{ width: 3rem; height: 3rem; }}
+      .panel {{
+        background: rgba(37, 44, 61, 0.82);
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        padding: 2rem;
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }}
+      .stack > * + * {{ margin-top: 1.5rem; }}
+      .eyebrow {{
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+        color: var(--mint);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }}
+      .eyebrow::before {{
+        content: "";
+        width: 0.375rem;
+        height: 0.375rem;
+        border-radius: 9999px;
+        background: var(--mint);
+        box-shadow: 0 0 0 3px rgba(90, 200, 168, 0.22);
+      }}
+      .eyebrow.error {{ color: var(--coral); }}
+      .eyebrow.error::before {{
+        background: var(--coral);
+        box-shadow: 0 0 0 3px rgba(232, 107, 107, 0.22);
+      }}
+      h1 {{
+        margin: 0.625rem 0 0;
+        color: var(--fg);
+        font-size: 1.5rem;
+        line-height: 1.2;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        text-wrap: balance;
+      }}
+      p {{
+        margin: 0;
+        color: var(--fg-3);
+        font-size: 0.875rem;
+        line-height: 1.6;
+        text-wrap: pretty;
+      }}
+      code {{
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 0.8125em;
+        padding: 0.1em 0.35em;
+        border-radius: 0.25rem;
+        background: var(--overlay-2);
+        color: var(--fg-2);
+        white-space: nowrap;
+      }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">{FABRO_LOGO_SVG}</div>
+      <div class="panel">
+        <div class="stack">
+          {body}
+        </div>
+      </div>
+    </main>
+  </body>
+</html>"#
+    )
+}
+
+fn callback_success_page() -> String {
+    browser_shell(
+        "Signed in",
+        r#"
+<div>
+  <p class="eyebrow">Signed in</p>
+  <h1>You're signed in to Fabro</h1>
+</div>
+<p>You can close this tab and return to your terminal.</p>
+"#,
+    )
+}
+
+fn callback_error_page(detail: &str) -> String {
+    let detail = html_escape(detail);
+    browser_shell(
+        "Sign-in failed",
+        &format!(
+            r#"
+<div>
+  <p class="eyebrow error">Sign-in failed</p>
+  <h1>CLI sign-in could not continue</h1>
+</div>
+<p>{detail}</p>
+<p>Return to your terminal and run <code>fabro auth login</code> again.</p>
+"#
+        ),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // PKCE
 // ---------------------------------------------------------------------------
 
@@ -300,7 +468,9 @@ pub async fn start_callback_server(
                 if params.state != *expected_state {
                     return (
                         StatusCode::BAD_REQUEST,
-                        Html("State mismatch".to_string()),
+                        Html(callback_error_page(
+                            "The sign-in state did not match. This usually means the browser session was reused across attempts.",
+                        )),
                     );
                 }
 
@@ -316,29 +486,7 @@ pub async fn start_callback_server(
                     }
                     return (
                         StatusCode::BAD_REQUEST,
-                        Html(format!(
-                            r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Authorization Failed</title>
-<style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f6f8fa; color: #1f2328; }}
-  .card {{ text-align: center; background: #fff; border: 1px solid #d1d9e0; border-radius: 12px; padding: 48px; max-width: 420px; }}
-  .icon {{ font-size: 48px; margin-bottom: 16px; }}
-  h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 8px; }}
-  p {{ font-size: 14px; color: #59636e; margin: 0; }}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="icon">&#10007;</div>
-  <h1>Authorization Failed</h1>
-  <p>{desc}</p>
-</div>
-</body>
-</html>"#
-                        )),
+                        Html(callback_error_page(&desc)),
                     );
                 }
 
@@ -351,7 +499,9 @@ pub async fn start_callback_server(
                     }
                     return (
                         StatusCode::BAD_REQUEST,
-                        Html("No authorization code received".to_string()),
+                        Html(callback_error_page(
+                            "The identity provider did not return an authorization code.",
+                        )),
                     );
                 };
 
@@ -361,33 +511,7 @@ pub async fn start_callback_server(
                 if let Some(tx) = shutdown_tx.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
-                (
-                    StatusCode::OK,
-                    Html(
-                        r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Authorization</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f6f8fa; color: #1f2328; }
-  .card { text-align: center; background: #fff; border: 1px solid #d1d9e0; border-radius: 12px; padding: 48px; max-width: 420px; }
-  .check { font-size: 48px; margin-bottom: 16px; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
-  p { font-size: 14px; color: #59636e; margin: 0; }
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="check">&#10003;</div>
-  <h1>Authorization Successful</h1>
-  <p>You can close this tab and return to your terminal.</p>
-</div>
-</body>
-</html>"#
-                            .to_string(),
-                    ),
-                )
+                (StatusCode::OK, Html(callback_success_page()))
             },
         ),
     );
@@ -434,14 +558,9 @@ pub async fn start_callback_server_with_errors(
             if params.state != *expected_state {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Html(
-                        r#"<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Authorization Failed</title></head>
-<body><p>State mismatch</p></body>
-</html>"#
-                            .to_string(),
-                    ),
+                    Html(callback_error_page(
+                        "The sign-in state did not match. This usually means the browser session was reused across attempts.",
+                    )),
                 );
             }
 
@@ -460,18 +579,7 @@ pub async fn start_callback_server_with_errors(
                 }
                 return (
                     StatusCode::BAD_REQUEST,
-                    Html(format!(
-                        r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Authorization Failed</title>
-</head>
-<body>
-<p>Login failed: {error_description}</p>
-</body>
-</html>"#
-                    )),
+                    Html(callback_error_page(&error_description)),
                 );
             }
 
@@ -487,7 +595,9 @@ pub async fn start_callback_server_with_errors(
                 }
                 return (
                     StatusCode::BAD_REQUEST,
-                    Html("No authorization code received".to_string()),
+                    Html(callback_error_page(
+                        "The identity provider did not return an authorization code.",
+                    )),
                 );
             };
 
@@ -497,17 +607,7 @@ pub async fn start_callback_server_with_errors(
             if let Some(tx) = route_shutdown_tx.lock().unwrap().take() {
                 let _ = tx.send(());
             }
-            (
-                StatusCode::OK,
-                Html(
-                    r#"<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Authorization</title></head>
-<body><p>Logged in. You can close this tab.</p></body>
-</html>"#
-                        .to_string(),
-                ),
-            )
+            (StatusCode::OK, Html(callback_success_page()))
         }),
     );
 
@@ -1044,12 +1144,12 @@ mod tests {
 
         let body = resp.text().await.unwrap();
         assert!(
-            body.contains("<title>Authorization</title>"),
-            "response should contain updated title: {body}"
+            body.contains("<title>Signed in · Fabro</title>"),
+            "response should contain the new title: {body}"
         );
         assert!(
-            body.contains("Authorization Successful"),
-            "response should contain success message: {body}"
+            body.contains("You're signed in to Fabro"),
+            "response should contain the success headline: {body}"
         );
     }
 

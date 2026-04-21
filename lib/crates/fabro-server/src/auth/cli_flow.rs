@@ -923,6 +923,7 @@ fn browser_shell(status: StatusCode, title: &str, body: &str) -> Response {
         border-radius: 0.25rem;
         background: var(--overlay-2);
         color: var(--fg-2);
+        white-space: nowrap;
       }}
       .identity {{
         display: flex;
