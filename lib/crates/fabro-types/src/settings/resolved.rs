@@ -5,7 +5,12 @@ use super::{
 };
 
 /// A fully resolved settings view across all namespaces.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+///
+/// `Default` is intentionally not derived: a default `Settings` value would
+/// contain empty `server.auth.methods`, which the resolver rejects. Construct
+/// real values via `fabro_config::resolve` (production), or
+/// `Settings::test_default()` behind the `test-support` feature (tests).
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Settings {
     pub project:  ProjectSettings,
     pub workflow: WorkflowSettings,
@@ -13,6 +18,24 @@ pub struct Settings {
     pub cli:      CliSettings,
     pub server:   ServerSettings,
     pub features: FeaturesSettings,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Settings {
+    /// A trivial `Settings` value suitable for serialization or destructuring
+    /// tests. Server auth methods are empty (would not pass `resolve`);
+    /// use this only when the resolver is not in play.
+    #[must_use]
+    pub fn test_default() -> Self {
+        Self {
+            project:  ProjectSettings::default(),
+            workflow: WorkflowSettings::default(),
+            run:      RunSettings::default(),
+            cli:      CliSettings::default(),
+            server:   ServerSettings::test_default(),
+            features: FeaturesSettings::default(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -34,7 +57,7 @@ mod tests {
 
     #[test]
     fn settings_serializes_successfully() {
-        serde_json::to_value(Settings::default()).expect("resolved settings should serialize");
+        serde_json::to_value(Settings::test_default()).expect("resolved settings should serialize");
     }
 
     #[test]
@@ -127,7 +150,7 @@ mod tests {
                     flush_interval: StdDuration::from_secs(30),
                     disk_cache:     false,
                 },
-                ..ServerSettings::default()
+                ..ServerSettings::test_default()
             },
             run: RunSettings {
                 agent: RunAgentSettings {
@@ -147,7 +170,7 @@ mod tests {
                 },
                 ..RunSettings::default()
             },
-            ..Settings::default()
+            ..Settings::test_default()
         };
 
         let value = serde_json::to_value(settings).unwrap();

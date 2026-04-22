@@ -16,7 +16,13 @@ use super::duration::Duration as DurationLayer;
 use super::interp::InterpString;
 
 /// A structurally resolved `[server]` view for consumers.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+///
+/// `Default` is intentionally not derived: any "default" `ServerSettings`
+/// would have empty `auth.methods`, which the resolver rejects. Construct
+/// real values via `fabro_config::resolve_server` (production), or
+/// `ServerSettings::test_default()` behind the `test-support` feature
+/// (tests).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerSettings {
     pub listen:       ServerListenSettings,
     pub api:          ServerApiSettings,
@@ -29,6 +35,29 @@ pub struct ServerSettings {
     pub scheduler:    ServerSchedulerSettings,
     pub logging:      ServerLoggingSettings,
     pub integrations: ServerIntegrationsSettings,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ServerSettings {
+    /// A trivial `ServerSettings` value suitable for serialization or
+    /// destructuring tests. Auth methods are empty (would not pass
+    /// `resolve_server`); use this only when the resolver is not in play.
+    #[must_use]
+    pub fn test_default() -> Self {
+        Self {
+            listen:       ServerListenSettings::default(),
+            api:          ServerApiSettings::default(),
+            web:          ServerWebSettings::default(),
+            auth:         ServerAuthSettings::default(),
+            ip_allowlist: ServerIpAllowlistSettings::default(),
+            storage:      ServerStorageSettings::default(),
+            artifacts:    ServerArtifactsSettings::default(),
+            slatedb:      ServerSlateDbSettings::default(),
+            scheduler:    ServerSchedulerSettings::default(),
+            logging:      ServerLoggingSettings::default(),
+            integrations: ServerIntegrationsSettings::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
