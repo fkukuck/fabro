@@ -3,8 +3,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-symbol_allowlist=(
+server_symbol_allowlist=(
   "lib/crates/fabro-cli/src/local_server.rs"
+  "lib/crates/fabro-cli/src/commands/run/runner.rs"
+  "lib/crates/fabro-cli/src/commands/pr/mod.rs"
+  "lib/crates/fabro-cli/src/commands/pr/create.rs"
+)
+
+storage_allowlist=(
   "lib/crates/fabro-cli/src/commands/install.rs"
   "lib/crates/fabro-cli/src/commands/uninstall.rs"
   "lib/crates/fabro-cli/src/commands/run/runner.rs"
@@ -50,11 +56,19 @@ fail=0
 
 while IFS= read -r path; do
   [[ -z "$path" ]] && continue
-  if ! in_array "$path" "${symbol_allowlist[@]}"; then
+  if ! in_array "$path" "${server_symbol_allowlist[@]}"; then
     echo "boundary check failed: gated server symbol used outside allowlist: $path" >&2
     fail=1
   fi
-done < <(find_matches 'fabro_config::resolve_server_from_file|fabro_config::resolve_server\b|fabro_config::ServerSettings::from_layer\b|fabro_config::ServerSettings::resolve\b|ServerSettings::from_layer\b|ServerSettings::resolve\b|Storage::new')
+done < <(find_matches 'fabro_config::resolve_server_from_file|fabro_config::resolve_server\b|fabro_config::ServerSettings::from_layer\b|fabro_config::ServerSettings::resolve\b|ServerSettings::from_layer\b|ServerSettings::resolve\b')
+
+while IFS= read -r path; do
+  [[ -z "$path" ]] && continue
+  if ! in_array "$path" "${storage_allowlist[@]}"; then
+    echo "boundary check failed: Storage::new used outside allowlist: $path" >&2
+    fail=1
+  fi
+done < <(find_matches 'Storage::new')
 
 while IFS= read -r path; do
   [[ -z "$path" ]] && continue

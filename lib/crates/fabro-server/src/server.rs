@@ -7397,6 +7397,65 @@ url = "{url}"
         }
     }
 
+    #[test]
+    fn replace_settings_updates_layer_and_typed_server_settings() {
+        let state = create_app_state_with_options(
+            fabro_config::parse_settings_layer(
+                r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = "http://old.example.com"
+
+[server.storage]
+root = "/srv/old"
+"#,
+            )
+            .expect("settings fixture should parse"),
+            5,
+        );
+
+        let updated = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = "http://new.example.com"
+
+[server.storage]
+root = "/srv/new"
+"#,
+        )
+        .expect("settings fixture should parse");
+
+        state
+            .replace_settings(updated)
+            .expect("valid settings should replace current state");
+
+        assert_eq!(state.canonical_origin().unwrap(), "http://new.example.com");
+        assert_eq!(
+            state.server_settings().server.storage.root.as_source(),
+            "/srv/new"
+        );
+
+        let layer_root = state
+            .settings
+            .read()
+            .expect("settings lock poisoned")
+            .server
+            .as_ref()
+            .and_then(|server| server.storage.as_ref())
+            .and_then(|storage| storage.root.as_ref())
+            .map(InterpString::as_source);
+        assert_eq!(layer_root.as_deref(), Some("/srv/new"));
+    }
+
     #[tokio::test]
     async fn create_secret_stores_file_secret_and_excludes_it_from_snapshot() {
         let state = create_app_state();

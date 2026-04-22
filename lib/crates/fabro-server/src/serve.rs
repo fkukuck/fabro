@@ -901,6 +901,7 @@ mod tests {
         resolve_server_settings, resolve_startup_github_webhook_ip_allowlist, router_web_enabled,
         server_bind_title, server_title,
     };
+    use crate::server::create_app_state_with_options;
 
     fn parse_settings(source: &str) -> SettingsLayer {
         let mut layer = parse_settings_layer(source).expect("v2 fixture should parse");
@@ -933,6 +934,42 @@ mod tests {
             .and_then(|storage| storage.root.as_ref())
             .map(fabro_types::settings::InterpString::as_source);
         assert_eq!(storage_root.as_deref(), Some("/srv/fabro-storage"));
+    }
+
+    #[test]
+    fn app_state_server_settings_use_effective_runtime_layer_storage_override() {
+        let base = parse_settings(
+            r#"
+_version = 1
+
+[server.storage]
+root = "/srv/from-disk"
+"#,
+        );
+        let args = ServeArgs {
+            bind: None,
+            model: None,
+            provider: None,
+            sandbox: None,
+            web: false,
+            no_web: false,
+            max_concurrent_runs: None,
+            config: None,
+            #[cfg(debug_assertions)]
+            watch_web: false,
+        };
+
+        let effective = apply_runtime_settings(&base, &args, &PathBuf::from("/srv/from-runtime"));
+        let state = create_app_state_with_options(effective, 5);
+
+        assert_eq!(
+            state.server_settings().server.storage.root.as_source(),
+            "/srv/from-runtime"
+        );
+        assert_eq!(
+            state.server_storage_dir(),
+            PathBuf::from("/srv/from-runtime")
+        );
     }
 
     #[test]

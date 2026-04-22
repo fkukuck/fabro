@@ -1277,8 +1277,7 @@ async fn write_artifact_store_metadata(
     settings: &SettingsLayer,
     fabro_version: &str,
 ) -> Result<()> {
-    let resolved =
-        fabro_config::ServerSettings::from_layer(settings).map_err(anyhow::Error::from)?;
+    let resolved = local_server::server_settings(settings)?;
     let (object_store, prefix) = serve::build_artifact_object_store(&resolved.server)?;
     let artifact_store = ArtifactStore::new(object_store, prefix);
     artifact_store.write_metadata(fabro_version).await?;
@@ -1797,7 +1796,7 @@ async fn run_install_inner(
             .context("failed to parse generated settings.toml")?,
         args.storage_dir.as_deref(),
     );
-    fabro_config::ServerSettings::from_layer(&install_settings).map_err(anyhow::Error::from)?;
+    local_server::server_settings(&install_settings)?;
 
     // Secrets and auth material
     {
