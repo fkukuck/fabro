@@ -2,6 +2,7 @@ use fabro_config::{parse_settings_layer, resolve_cli_from_file};
 use fabro_types::settings::cli::{CliTargetSettings, OutputFormat, OutputVerbosity};
 use fabro_types::settings::run::AgentPermissions;
 use fabro_types::settings::{InterpString, SettingsLayer};
+use temp_env::with_var;
 
 #[test]
 fn resolves_cli_defaults_from_empty_settings() {
@@ -15,6 +16,74 @@ fn resolves_cli_defaults_from_empty_settings() {
     assert!(!cli.exec.prevent_idle_sleep);
     assert!(cli.updates.check);
     assert!(cli.logging.level.is_none());
+}
+
+#[test]
+fn user_settings_from_layer_matches_namespace_resolvers() {
+    let settings: SettingsLayer = parse_settings_layer(
+        r#"
+_version = 1
+
+[cli.target]
+type = "http"
+url = "https://config.example.com"
+
+[features]
+session_sandboxes = true
+"#,
+    )
+    .expect("fixture should parse");
+
+    let user_settings =
+        fabro_config::UserSettings::from_layer(&settings).expect("user settings should resolve");
+
+    assert_eq!(
+        user_settings.cli,
+        resolve_cli_from_file(&settings).expect("cli namespace should resolve")
+    );
+    assert_eq!(
+        user_settings.features,
+        fabro_config::resolve_features_from_file(&settings)
+            .expect("features namespace should resolve")
+    );
+}
+
+#[test]
+fn user_settings_resolve_reads_default_settings_from_fabro_home() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join("settings.toml"),
+        r#"
+_version = 1
+
+[cli.output]
+verbosity = "verbose"
+
+[features]
+session_sandboxes = true
+"#,
+    )
+    .unwrap();
+
+    with_var("FABRO_HOME", Some(home.path()), || {
+        let user_settings =
+            fabro_config::UserSettings::resolve().expect("user settings should resolve");
+        assert_eq!(user_settings.cli.output.verbosity, OutputVerbosity::Verbose);
+        assert!(user_settings.features.session_sandboxes);
+    });
+}
+
+#[test]
+fn user_settings_resolve_returns_defaults_when_default_settings_file_is_missing() {
+    let home = tempfile::tempdir().unwrap();
+
+    with_var("FABRO_HOME", Some(home.path()), || {
+        let user_settings =
+            fabro_config::UserSettings::resolve().expect("user settings should resolve");
+        assert_eq!(user_settings.cli.output.format, OutputFormat::Text);
+        assert_eq!(user_settings.cli.output.verbosity, OutputVerbosity::Normal);
+        assert!(!user_settings.features.session_sandboxes);
+    });
 }
 
 #[test]

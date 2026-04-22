@@ -5,7 +5,7 @@ use fabro_auth::configured_providers_from_process_env;
 use fabro_config::Storage;
 use fabro_model::Catalog;
 use fabro_sandbox::daytona::detect_repo_info;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_vault::Vault;
@@ -27,7 +27,7 @@ use crate::user_config;
 )]
 pub(super) async fn create_command(
     args: PrCreateArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

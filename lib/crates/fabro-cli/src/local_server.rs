@@ -27,8 +27,8 @@ pub(crate) fn bind_request(
 }
 
 pub(crate) fn auth_methods(settings: &SettingsLayer) -> Vec<ServerAuthMethod> {
-    fabro_config::resolve_server_from_file(settings)
-        .map(|resolved| resolved.auth.methods)
+    fabro_config::ServerSettings::from_layer(settings)
+        .map(|resolved| resolved.server.auth.methods)
         .unwrap_or_default()
 }
 

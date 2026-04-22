@@ -225,7 +225,6 @@ mod tests {
         server::create_test_app_state_with_session_key(
             SettingsLayer::default(),
             Some(SESSION_SECRET),
-            false,
         )
     }
 

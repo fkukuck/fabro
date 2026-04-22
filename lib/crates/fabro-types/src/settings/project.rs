@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// A structurally resolved `[project]` view for consumers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct ProjectSettings {
+pub struct ProjectNamespace {
     pub name:        Option<String>,
     pub description: Option<String>,
     pub directory:   String,

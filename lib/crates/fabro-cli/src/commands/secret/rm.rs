@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 
@@ -10,7 +10,7 @@ use crate::shared::print_json_pretty;
 pub(super) async fn rm_command(
     client: &Client,
     args: &SecretRmArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     client.delete_secret_by_name(&args.key).await?;

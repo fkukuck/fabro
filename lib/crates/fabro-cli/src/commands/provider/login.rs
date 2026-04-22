@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fabro_api::types;
 use fabro_auth::credential_id_for;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -12,7 +12,7 @@ use crate::shared::provider_auth;
 
 pub(super) async fn login_command(
     args: ProviderLoginArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,

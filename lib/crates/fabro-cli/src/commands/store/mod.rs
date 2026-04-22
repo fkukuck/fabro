@@ -3,7 +3,7 @@ pub(crate) mod rebuild;
 mod run_export;
 
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 
@@ -11,7 +11,7 @@ use crate::args::{StoreCommand, StoreNamespace};
 
 pub(crate) async fn dispatch(
     ns: StoreNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

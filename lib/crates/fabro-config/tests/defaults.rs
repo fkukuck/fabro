@@ -1,4 +1,7 @@
-use fabro_config::{apply_builtin_defaults, defaults_layer, parse_settings_layer, resolve};
+use fabro_config::{
+    apply_builtin_defaults, defaults_layer, parse_settings_layer, resolve_run_from_file,
+    resolve_server_from_file, resolve_workflow_from_file,
+};
 use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_types::settings::run::{ApprovalMode, RunMode, WorktreeMode};
@@ -91,7 +94,8 @@ fn apply_builtin_defaults_materializes_expected_layer() {
 
 #[test]
 fn resolve_empty_settings_requires_explicit_server_auth_methods() {
-    let errors = resolve(&SettingsLayer::default()).expect_err("empty settings should fail");
+    let errors = resolve_server_from_file(&SettingsLayer::default())
+        .expect_err("empty server settings should fail");
 
     assert!(errors.iter().any(|error| {
         matches!(
@@ -115,9 +119,10 @@ mode = "dry_run"
 "#,
     );
 
-    let settings = resolve(&layer).expect("settings should resolve");
+    let workflow = resolve_workflow_from_file(&layer).expect("workflow settings should resolve");
+    let run = resolve_run_from_file(&layer).expect("run settings should resolve");
 
-    assert_eq!(settings.run.execution.mode, RunMode::DryRun);
-    assert_eq!(settings.run.execution.approval, ApprovalMode::Prompt);
-    assert_eq!(settings.workflow.graph, "workflow.fabro");
+    assert_eq!(run.execution.mode, RunMode::DryRun);
+    assert_eq!(run.execution.approval, ApprovalMode::Prompt);
+    assert_eq!(workflow.graph, "workflow.fabro");
 }

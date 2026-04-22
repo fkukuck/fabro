@@ -24,7 +24,7 @@ use fabro_types::settings::run::{
     HookEvent as ResolvedHookEvent, HookType as ResolvedHookType,
     McpServerSettings as ResolvedMcpServerSettings, McpTransport as ResolvedMcpTransport,
     PullRequestSettings, RunMode, RunModelSettings as ResolvedRunModelSettings,
-    RunSettings as ResolvedRunSettings, TlsMode as ResolvedTlsMode,
+    RunNamespace as ResolvedRunSettings, TlsMode as ResolvedTlsMode,
 };
 use fabro_vault::Vault;
 use tokio::runtime::Handle;
@@ -381,18 +381,24 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let resolved_server = fabro_config::resolve_server_from_file(settings)
-            .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
-        let github_permissions: Option<HashMap<String, String>> =
-            (!resolved_server.integrations.github.permissions.is_empty()).then(|| {
-                resolved_server
-                    .integrations
-                    .github
-                    .permissions
-                    .iter()
-                    .map(|(k, v)| (k.clone(), resolve_interp(v)))
-                    .collect()
-            });
+        let resolved_server = fabro_config::ServerSettings::from_layer(settings)
+            .map_err(|err| Error::Precondition(err.to_string()))?;
+        let github_permissions: Option<HashMap<String, String>> = (!resolved_server
+            .server
+            .integrations
+            .github
+            .permissions
+            .is_empty())
+        .then(|| {
+            resolved_server
+                .server
+                .integrations
+                .github
+                .permissions
+                .iter()
+                .map(|(k, v)| (k.clone(), resolve_interp(v)))
+                .collect()
+        });
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,

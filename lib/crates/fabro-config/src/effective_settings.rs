@@ -5,7 +5,7 @@
 //! across all three config files (settings.toml, .fabro/project.toml,
 //! workflow.toml).
 //! Owner-specific domains (`cli`, `server`) are consumed only from the local
-//! `~/.fabro/settings.toml` plus explicit process-local overrides — their
+//! `~/.fabro/settings.toml` plus explicit process-local overrides. Their
 //! stanzas in `.fabro/project.toml` and `workflow.toml` remain schema-valid but
 //! inert.
 
@@ -15,13 +15,6 @@ use fabro_types::settings::server::ServerLayer;
 
 use crate::merge::combine_files;
 use crate::{Error, Result, apply_builtin_defaults};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EffectiveSettingsMode {
-    LocalOnly,
-    RemoteServer,
-    LocalDaemon,
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct EffectiveSettingsLayers {
@@ -53,7 +46,6 @@ impl EffectiveSettingsLayers {
 pub fn materialize_settings_layer(
     layers: EffectiveSettingsLayers,
     server_settings: Option<&SettingsLayer>,
-    mode: EffectiveSettingsMode,
 ) -> Result<SettingsLayer> {
     let EffectiveSettingsLayers {
         args,
@@ -61,47 +53,28 @@ pub fn materialize_settings_layer(
         mut project,
         user,
     } = layers;
+    let server_settings = server_settings.ok_or(Error::MissingServerSettings)?;
 
-    let settings = match mode {
-        EffectiveSettingsMode::LocalOnly => {
-            combine_files(combine_files(combine_files(user, project), workflow), args)
-        }
-        EffectiveSettingsMode::RemoteServer | EffectiveSettingsMode::LocalDaemon => {
-            let server_settings = server_settings.ok_or(Error::MissingServerSettings)?;
-            // Owner-specific domains (cli, server) may only come from the
-            // local ~/.fabro/settings.toml, never from .fabro/project.toml or
-            // workflow.toml. The user layer keeps its cli/server fields.
-            strip_owner_domains(&mut workflow);
-            strip_owner_domains(&mut project);
+    // Owner-specific domains (cli, server) may only come from the local
+    // ~/.fabro/settings.toml, never from .fabro/project.toml or workflow.toml.
+    // The user layer keeps its cli/server fields.
+    strip_owner_domains(&mut workflow);
+    strip_owner_domains(&mut project);
 
-            let server_defaults = server_settings.clone();
+    let combined = combine_files(combine_files(combine_files(user, project), workflow), args);
+    let mut settings = enforce_server_authority(combined, server_settings);
 
-            let combined =
-                combine_files(combine_files(combine_files(user, project), workflow), args);
-
-            let mut settings = match mode {
-                EffectiveSettingsMode::RemoteServer => {
-                    apply_server_defaults(combined, &server_defaults)
-                }
-                EffectiveSettingsMode::LocalDaemon => {
-                    apply_local_daemon_overrides(combined, &server_defaults)
-                }
-                EffectiveSettingsMode::LocalOnly => unreachable!(),
-            };
-            // Storage root always comes from the server's local
-            // ~/.fabro/settings.toml, never from the client.
-            if let Some(server_root) = server_settings
-                .server
-                .as_ref()
-                .and_then(|s| s.storage.as_ref())
-                .cloned()
-            {
-                let server = settings.server.get_or_insert_with(ServerLayer::default);
-                server.storage = Some(server_root);
-            }
-            settings
-        }
-    };
+    // Storage root always comes from the server's local ~/.fabro/settings.toml,
+    // never from the client.
+    if let Some(server_root) = server_settings
+        .server
+        .as_ref()
+        .and_then(|server| server.storage.as_ref())
+        .cloned()
+    {
+        let server = settings.server.get_or_insert_with(ServerLayer::default);
+        server.storage = Some(server_root);
+    }
 
     Ok(apply_builtin_defaults(settings))
 }
@@ -111,30 +84,11 @@ fn strip_owner_domains(file: &mut SettingsLayer) {
     file.server = None;
 }
 
-/// Apply server-side defaults to a client-layered [`SettingsLayer`].
+/// Enforce server-owned fields on a client-layered [`SettingsLayer`].
 ///
-/// Server-owned domains (`server`, `features`, and parts of `run`) flow from
-/// the server's local `~/.fabro/settings.toml` when the corresponding client
-/// value is absent. Run-shaped defaults (model, prepare, sandbox, checkpoint,
-/// hooks, agent mcps, etc.) also flow from server to client so the persisted
-/// run spec matches the server's local configuration.
-fn apply_server_defaults(mut settings: SettingsLayer, server: &SettingsLayer) -> SettingsLayer {
-    // Server-owned domains: server-side always wins when client left blank.
-    // Use the v2 merge matrix with the server layer in lower precedence so
-    // that client-supplied values still dominate when present.
-    settings = combine_files(server.clone(), settings);
-    settings
-}
-
-/// Apply server-side overrides in LocalDaemon mode.
-///
-/// In LocalDaemon mode, a subset of server-owned fields unconditionally
-/// override any client-side values. Client-controlled run-level fields are
-/// left alone.
-fn apply_local_daemon_overrides(
-    mut settings: SettingsLayer,
-    server: &SettingsLayer,
-) -> SettingsLayer {
+/// A subset of server-owned fields unconditionally override any client-side
+/// values. Client-controlled run-level fields are left alone.
+fn enforce_server_authority(mut settings: SettingsLayer, server: &SettingsLayer) -> SettingsLayer {
     if let Some(server_layer) = server.server.clone() {
         let client = settings.server.get_or_insert_with(ServerLayer::default);
         if let Some(storage) = server_layer.storage {
@@ -173,7 +127,7 @@ mod tests {
     use fabro_types::settings::server::{ServerLayer, ServerSchedulerLayer, ServerStorageLayer};
     use fabro_types::settings::{InterpString, SettingsLayer};
 
-    use super::{EffectiveSettingsLayers, EffectiveSettingsMode, materialize_settings_layer};
+    use super::{EffectiveSettingsLayers, materialize_settings_layer};
     use crate::parse::parse_settings_layer;
 
     fn layer(source: &str) -> SettingsLayer {
@@ -181,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn local_only_merges_project_and_user_layers() {
+    fn materialize_settings_layer_merges_layers_and_applies_server_authority() {
         let settings = materialize_settings_layer(
             EffectiveSettingsLayers::new(
                 SettingsLayer::default(),
@@ -214,8 +168,17 @@ shared = "user"
 "#,
                 ),
             ),
-            None,
-            EffectiveSettingsMode::LocalOnly,
+            Some(&layer(
+                r#"
+_version = 1
+
+[server.storage]
+root = "/srv/fabro"
+
+[server.scheduler]
+max_concurrent_runs = 7
+"#,
+            )),
         )
         .unwrap();
 
@@ -229,7 +192,7 @@ shared = "user"
                 .as_deref(),
             Some("project-model")
         );
-        // Per R22, run.inputs replaces wholesale — the winning layer is the
+        // Per R22, run.inputs replaces wholesale. The winning layer is the
         // highest-precedence layer that sets `inputs` (project here, since it
         // wins over user).
         let inputs = settings
@@ -239,12 +202,30 @@ shared = "user"
             .unwrap();
         assert!(inputs.contains_key("project_only"));
         assert_eq!(
-            inputs.get("shared").and_then(|v| v.as_str()),
+            inputs.get("shared").and_then(|value| value.as_str()),
             Some("project")
         );
         assert!(
             !inputs.contains_key("user_only"),
             "project.inputs should replace user.inputs wholesale"
+        );
+        assert_eq!(
+            settings
+                .server
+                .as_ref()
+                .and_then(|server| server.storage.as_ref())
+                .and_then(|storage| storage.root.as_ref())
+                .map(InterpString::as_source)
+                .as_deref(),
+            Some("/srv/fabro")
+        );
+        assert_eq!(
+            settings
+                .server
+                .as_ref()
+                .and_then(|server| server.scheduler.as_ref())
+                .and_then(|scheduler| scheduler.max_concurrent_runs),
+            Some(7)
         );
         assert_eq!(
             settings
@@ -271,7 +252,7 @@ shared = "user"
     }
 
     #[test]
-    fn local_only_merges_workflow_project_user() {
+    fn materialize_settings_layer_preserves_client_values_with_empty_server_layer() {
         let settings = materialize_settings_layer(
             EffectiveSettingsLayers::new(
                 SettingsLayer::default(),
@@ -303,16 +284,13 @@ provider = "openai"
 "#,
                 ),
             ),
-            None,
-            EffectiveSettingsMode::LocalOnly,
+            Some(&SettingsLayer::default()),
         )
         .unwrap();
 
         assert_eq!(
             match settings.run.as_ref().and_then(|run| run.goal.as_ref()) {
-                Some(RunGoalLayer::Inline(value)) => {
-                    Some(value.as_source())
-                }
+                Some(RunGoalLayer::Inline(value)) => Some(value.as_source()),
                 _ => None,
             }
             .as_deref(),
@@ -341,83 +319,7 @@ provider = "openai"
     }
 
     #[test]
-    fn cli_and_server_domains_from_fabro_toml_are_inert_under_remote_mode() {
-        let server_settings = SettingsLayer {
-            server: Some(ServerLayer {
-                storage: Some(ServerStorageLayer {
-                    root: Some(InterpString::parse("/srv/fabro")),
-                }),
-                scheduler: Some(ServerSchedulerLayer {
-                    max_concurrent_runs: Some(9),
-                }),
-                ..ServerLayer::default()
-            }),
-            ..SettingsLayer::default()
-        };
-
-        let project_with_server = layer(
-            r#"
-_version = 1
-
-[run]
-goal = "project goal"
-
-[server.storage]
-root = "/tmp/should-be-inert"
-"#,
-        );
-
-        let settings = materialize_settings_layer(
-            EffectiveSettingsLayers::new(
-                SettingsLayer::default(),
-                SettingsLayer::default(),
-                project_with_server,
-                SettingsLayer::default(),
-            ),
-            Some(&server_settings),
-            EffectiveSettingsMode::RemoteServer,
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings
-                .server
-                .as_ref()
-                .and_then(|server| server.storage.as_ref())
-                .and_then(|storage| storage.root.as_ref())
-                .map(InterpString::as_source)
-                .as_deref(),
-            Some("/srv/fabro")
-        );
-        assert_eq!(
-            match settings.run.as_ref().and_then(|run| run.goal.as_ref()) {
-                Some(RunGoalLayer::Inline(value)) => {
-                    Some(value.as_source())
-                }
-                _ => None,
-            }
-            .as_deref(),
-            Some("project goal")
-        );
-        assert_eq!(
-            settings
-                .workflow
-                .as_ref()
-                .and_then(|workflow| workflow.graph.as_deref()),
-            Some("workflow.fabro")
-        );
-        assert_eq!(
-            settings
-                .run
-                .as_ref()
-                .and_then(|run| run.sandbox.as_ref())
-                .and_then(|sandbox| sandbox.provider.as_deref()),
-            Some("local")
-        );
-    }
-
-    #[test]
-    fn local_daemon_mode_only_applies_server_owned_overrides() {
+    fn materialize_settings_layer_applies_server_owned_overrides() {
         let server_settings = SettingsLayer {
             server: Some(ServerLayer {
                 storage: Some(ServerStorageLayer {
@@ -431,12 +333,9 @@ root = "/tmp/should-be-inert"
             ..SettingsLayer::default()
         };
 
-        let settings = materialize_settings_layer(
-            EffectiveSettingsLayers::default(),
-            Some(&server_settings),
-            EffectiveSettingsMode::LocalDaemon,
-        )
-        .unwrap();
+        let settings =
+            materialize_settings_layer(EffectiveSettingsLayers::default(), Some(&server_settings))
+                .unwrap();
 
         assert_eq!(
             settings

@@ -6,7 +6,7 @@
 use std::io::IsTerminal;
 
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use serde_json::{Map, Value, json};
@@ -18,7 +18,7 @@ use crate::user_config::{self, ServerTarget};
 
 pub(crate) async fn version_command(
     args: &VersionArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

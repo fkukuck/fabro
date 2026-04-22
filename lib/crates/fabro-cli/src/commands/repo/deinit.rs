@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 
-pub(crate) fn run_deinit(cli: &CliSettings, printer: Printer) -> Result<Vec<String>> {
+pub(crate) fn run_deinit(cli: &CliNamespace, printer: Printer) -> Result<Vec<String>> {
     let repo_root = super::init::git_repo_root()?;
     let mut removed = Vec::new();
 

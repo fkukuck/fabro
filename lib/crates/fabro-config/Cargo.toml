@@ -37,3 +37,4 @@ ulid.workspace = true
 [dev-dependencies]
 toml.workspace = true
 fabro-types = { path = "../fabro-types", features = ["test-support"] }
+temp-env = "0.3"

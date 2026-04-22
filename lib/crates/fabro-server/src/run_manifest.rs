@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
-use fabro_config::effective_settings::{EffectiveSettingsLayers, EffectiveSettingsMode};
+use fabro_config::effective_settings::EffectiveSettingsLayers;
 use fabro_config::merge::combine_files;
 use fabro_config::project::resolve_working_directory;
 use fabro_config::run::parse_run_config;
@@ -23,10 +23,10 @@ use fabro_types::settings::cli::{CliLayer, CliOutputLayer, OutputVerbosity};
 use fabro_types::settings::interp::InterpString;
 use fabro_types::settings::run::{
     ApprovalMode, DaytonaDockerfileLayer, DaytonaNetworkLayer, DaytonaSettings, DockerfileSource,
-    RunExecutionLayer, RunGoalLayer, RunLayer, RunMode, RunModelLayer, RunSandboxLayer,
-    RunSettings,
+    RunExecutionLayer, RunGoalLayer, RunLayer, RunMode, RunModelLayer, RunNamespace,
+    RunSandboxLayer,
 };
-use fabro_types::settings::{ServerSettings, SettingsLayer};
+use fabro_types::settings::{ServerNamespace, SettingsLayer};
 use fabro_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus};
 use fabro_validate::Severity;
 use fabro_workflow::Error as WorkflowError;
@@ -51,10 +51,9 @@ pub(crate) struct PreparedManifest {
     pub working_directory: PathBuf,
 }
 
-pub(crate) fn prepare_manifest_with_mode(
+pub(crate) fn prepare_manifest(
     server_settings: &SettingsLayer,
     manifest: &types::RunManifest,
-    local_daemon_mode: bool,
 ) -> Result<PreparedManifest> {
     if manifest.version != 1 {
         bail!("unsupported manifest version {}", manifest.version);
@@ -88,11 +87,6 @@ pub(crate) fn prepare_manifest_with_mode(
     let mut settings = effective_settings::materialize_settings_layer(
         EffectiveSettingsLayers::new(args_layer, workflow_layer, project_layer, user_layer),
         Some(server_settings),
-        if local_daemon_mode {
-            EffectiveSettingsMode::LocalDaemon
-        } else {
-            EffectiveSettingsMode::RemoteServer
-        },
     )?;
     if let Some(goal) = manifest.goal.as_ref() {
         let run = settings.run.get_or_insert_with(RunLayer::default);
@@ -471,7 +465,7 @@ fn base_preflight_checks(prepared: &PreparedManifest, graph: &Graph) -> Vec<Chec
     ]
 }
 
-fn resolve_sandbox_provider(settings: &RunSettings) -> Result<SandboxProvider> {
+fn resolve_sandbox_provider(settings: &RunNamespace) -> Result<SandboxProvider> {
     Ok(Some(str::parse::<SandboxProvider>(
         settings.sandbox.provider.as_str(),
     ))
@@ -480,7 +474,7 @@ fn resolve_sandbox_provider(settings: &RunSettings) -> Result<SandboxProvider> {
     .unwrap_or_default())
 }
 
-fn resolve_daytona_config(settings: &RunSettings) -> Option<DaytonaConfig> {
+fn resolve_daytona_config(settings: &RunNamespace) -> Option<DaytonaConfig> {
     settings
         .sandbox
         .daytona
@@ -492,7 +486,7 @@ async fn run_sandbox_check(
     checks: &mut Vec<CheckResult>,
     sandbox_provider: SandboxProvider,
     prepared: &PreparedManifest,
-    resolved_run: &RunSettings,
+    resolved_run: &RunNamespace,
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
 ) -> bool {
@@ -567,7 +561,7 @@ async fn run_llm_check(
     state: &AppState,
     checks: &mut Vec<CheckResult>,
     graph: &Graph,
-    settings: &RunSettings,
+    settings: &RunNamespace,
     configured_providers: &[Provider],
 ) -> bool {
     let (model, provider) = resolve_model_provider(settings, graph, configured_providers);
@@ -679,7 +673,7 @@ async fn run_llm_check(
 }
 
 fn resolve_model_provider(
-    settings: &RunSettings,
+    settings: &RunNamespace,
     _graph: &Graph,
     configured_providers: &[Provider],
 ) -> (String, Option<String>) {
@@ -753,7 +747,7 @@ fn runtime_daytona_config(settings: &DaytonaSettings) -> DaytonaConfig {
 async fn run_github_token_check(
     checks: &mut Vec<CheckResult>,
     prepared: &PreparedManifest,
-    settings: &ServerSettings,
+    settings: &ServerNamespace,
     github_app: Option<fabro_github::GitHubCredentials>,
 ) {
     if settings.integrations.github.permissions.is_empty() {
@@ -990,7 +984,7 @@ root = "/srv/fabro"
             verbose:          None,
         });
 
-        let prepared = prepare_manifest_with_mode(&server_settings, &manifest, false).unwrap();
+        let prepared = prepare_manifest(&server_settings, &manifest).unwrap();
 
         assert_eq!(
             fabro_config::resolve_run_from_file(&prepared.settings)
@@ -1002,7 +996,7 @@ root = "/srv/fabro"
     }
 
     #[test]
-    fn prepare_manifest_local_daemon_prefers_bundled_settings_without_duplication() {
+    fn prepare_manifest_prefers_bundled_settings_without_duplication() {
         let server_settings = server_settings_fixture(
             r#"
 _version = 1
@@ -1050,7 +1044,7 @@ app_id = "snapshotted-app-id"
             type_:  types::ManifestConfigType::User,
         });
 
-        let prepared = prepare_manifest_with_mode(&server_settings, &manifest, true).unwrap();
+        let prepared = prepare_manifest(&server_settings, &manifest).unwrap();
         let resolved_run = fabro_config::resolve_run_from_file(&prepared.settings).unwrap();
         let resolved_server = fabro_config::resolve_server_from_file(&prepared.settings).unwrap();
 
@@ -1075,9 +1069,7 @@ app_id = "snapshotted-app-id"
     #[tokio::test]
     async fn invalid_preflight_returns_diagnostics_without_runtime_checks() {
         let state = crate::server::create_app_state();
-        let prepared =
-            prepare_manifest_with_mode(&default_settings_fixture(), &invalid_manifest(), false)
-                .unwrap();
+        let prepared = prepare_manifest(&default_settings_fixture(), &invalid_manifest()).unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         assert!(validated.has_errors());
@@ -1112,8 +1104,7 @@ enabled = true
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared =
-            prepare_manifest_with_mode(&default_settings_fixture(), &manifest, false).unwrap();
+        let prepared = prepare_manifest(&default_settings_fixture(), &manifest).unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         assert!(!validated.has_errors());
@@ -1150,8 +1141,7 @@ provider = "daytona"
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared =
-            prepare_manifest_with_mode(&default_settings_fixture(), &manifest, false).unwrap();
+        let prepared = prepare_manifest(&default_settings_fixture(), &manifest).unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         let (response, _ok) = run_preflight(state.as_ref(), &prepared, &validated)

@@ -15,7 +15,7 @@ use fabro_llm::types::{
 use fabro_mcp::config::{McpServerSettings, McpTransport};
 use fabro_types::settings::cli::OutputFormat as SettingsOutputFormat;
 use fabro_types::settings::run::McpEntryLayer;
-use fabro_types::settings::{CliSettings, InterpString};
+use fabro_types::settings::{CliNamespace, InterpString};
 use fabro_util::exit::{ErrorExt, ExitClass};
 use fabro_util::printer::Printer;
 use futures::stream;
@@ -358,7 +358,7 @@ impl ProviderAdapter for AuthenticatedFabroServerAdapter {
 
 pub(crate) async fn execute(
     mut args: ExecArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     _printer: Printer,
 ) -> AnyResult<()> {
     use fabro_agent::cli::PermissionLevel as AgentPermissionLevel;

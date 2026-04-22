@@ -9,8 +9,8 @@ mod workflow;
 pub use cli::resolve_cli;
 pub use error::ResolveError;
 use fabro_types::settings::{
-    CliSettings, FeaturesSettings, InterpString, ProjectSettings, RunSettings, ServerSettings,
-    Settings, SettingsLayer, WorkflowSettings,
+    CliNamespace, FeaturesNamespace, InterpString, ProjectNamespace, RunNamespace, ServerNamespace,
+    SettingsLayer, WorkflowNamespace,
 };
 pub use features::resolve_features;
 pub use project::resolve_project;
@@ -20,33 +20,7 @@ pub use workflow::resolve_workflow;
 
 use crate::apply_builtin_defaults;
 
-pub fn resolve(file: &SettingsLayer) -> Result<Settings, Vec<ResolveError>> {
-    let file = apply_builtin_defaults(file.clone());
-    let mut errors = Vec::new();
-    let project_layer = file.project.clone().unwrap_or_default();
-    let workflow_layer = file.workflow.clone().unwrap_or_default();
-    let run_layer = file.run.clone().unwrap_or_default();
-    let cli_layer = file.cli.clone().unwrap_or_default();
-    let server_layer = file.server.clone().unwrap_or_default();
-    let features_layer = file.features.clone().unwrap_or_default();
-
-    let settings = Settings {
-        project:  resolve_project(&project_layer, &mut errors),
-        workflow: resolve_workflow(&workflow_layer, &mut errors),
-        run:      resolve_run(&run_layer, &mut errors),
-        cli:      resolve_cli(&cli_layer, &mut errors),
-        server:   resolve_server(&server_layer, &mut errors),
-        features: resolve_features(&features_layer, &mut errors),
-    };
-
-    if errors.is_empty() {
-        Ok(settings)
-    } else {
-        Err(errors)
-    }
-}
-
-pub fn resolve_cli_from_file(file: &SettingsLayer) -> Result<CliSettings, Vec<ResolveError>> {
+pub fn resolve_cli_from_file(file: &SettingsLayer) -> Result<CliNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let cli_layer = file.cli.clone().unwrap_or_default();
@@ -58,7 +32,9 @@ pub fn resolve_cli_from_file(file: &SettingsLayer) -> Result<CliSettings, Vec<Re
     }
 }
 
-pub fn resolve_server_from_file(file: &SettingsLayer) -> Result<ServerSettings, Vec<ResolveError>> {
+pub fn resolve_server_from_file(
+    file: &SettingsLayer,
+) -> Result<ServerNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let server_layer = file.server.clone().unwrap_or_default();
@@ -72,7 +48,7 @@ pub fn resolve_server_from_file(file: &SettingsLayer) -> Result<ServerSettings, 
 
 pub fn resolve_project_from_file(
     file: &SettingsLayer,
-) -> Result<ProjectSettings, Vec<ResolveError>> {
+) -> Result<ProjectNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let project_layer = file.project.clone().unwrap_or_default();
@@ -86,7 +62,7 @@ pub fn resolve_project_from_file(
 
 pub fn resolve_features_from_file(
     file: &SettingsLayer,
-) -> Result<FeaturesSettings, Vec<ResolveError>> {
+) -> Result<FeaturesNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let features_layer = file.features.clone().unwrap_or_default();
@@ -98,7 +74,7 @@ pub fn resolve_features_from_file(
     }
 }
 
-pub fn resolve_run_from_file(file: &SettingsLayer) -> Result<RunSettings, Vec<ResolveError>> {
+pub fn resolve_run_from_file(file: &SettingsLayer) -> Result<RunNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let run_layer = file.run.clone().unwrap_or_default();
@@ -112,7 +88,7 @@ pub fn resolve_run_from_file(file: &SettingsLayer) -> Result<RunSettings, Vec<Re
 
 pub fn resolve_workflow_from_file(
     file: &SettingsLayer,
-) -> Result<WorkflowSettings, Vec<ResolveError>> {
+) -> Result<WorkflowNamespace, Vec<ResolveError>> {
     let file = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let workflow_layer = file.workflow.clone().unwrap_or_default();
@@ -165,7 +141,7 @@ mod tests {
 
     use fabro_types::settings::run::{HookType, McpTransport, TlsMode};
 
-    use super::resolve;
+    use super::resolve_run_from_file;
     use crate::parse_settings_layer;
 
     #[test]
@@ -210,8 +186,8 @@ Authorization = "Bearer {{ env.HOOK_TOKEN }}"
         )
         .expect("settings fixture should parse");
 
-        let resolved = resolve(&settings).expect("settings should resolve");
-        let mcps = &resolved.run.agent.mcps;
+        let resolved = resolve_run_from_file(&settings).expect("run settings should resolve");
+        let mcps = &resolved.agent.mcps;
 
         assert_eq!(
             mcps.get("stdio").map(|mcp| &mcp.transport),
@@ -246,7 +222,6 @@ Authorization = "Bearer {{ env.HOOK_TOKEN }}"
         );
 
         let hook = resolved
-            .run
             .hooks
             .iter()
             .find(|hook| hook.name.as_deref() == Some("notify"))

@@ -18,7 +18,7 @@ use super::model_ref::ModelRef;
 
 /// A structurally resolved `[run]` view for consumers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct RunSettings {
+pub struct RunNamespace {
     pub goal:          Option<RunGoal>,
     pub working_dir:   Option<InterpString>,
     pub metadata:      HashMap<String, String>,

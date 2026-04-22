@@ -24,7 +24,6 @@ use crate::error::ApiError;
 use crate::jwt_auth::AuthenticatedService;
 use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::server::{AppState, PaginationParams};
-use crate::settings_view;
 
 fn paginated_response<T: serde::Serialize>(
     items: Vec<T>,
@@ -602,22 +601,8 @@ pub(crate) async fn list_query_history(
 pub(crate) async fn get_server_settings(
     _auth: AuthenticatedService,
     State(_state): State<Arc<AppState>>,
-    Query(query): Query<settings_view::SettingsQuery>,
 ) -> Response {
-    match query.view {
-        settings_view::SettingsApiView::Layer => {
-            (StatusCode::OK, Json(settings::server_settings())).into_response()
-        }
-        settings_view::SettingsApiView::Resolved => {
-            let mut response =
-                (StatusCode::OK, Json(settings::resolved_server_settings())).into_response();
-            response.headers_mut().insert(
-                settings_view::RESOLVED_VIEW_HEADER_NAME,
-                axum::http::HeaderValue::from_static(settings_view::RESOLVED_VIEW_HEADER_VALUE),
-            );
-            response
-        }
-    }
+    (StatusCode::OK, Json(settings::server_settings())).into_response()
 }
 
 // ── System ────────────────────────────────────────────────────────────
@@ -1529,208 +1514,50 @@ mod insights {
 
 mod settings {
     pub(super) fn server_settings() -> serde_json::Value {
-        // v2 SettingsLayer shape — matches what /api/v1/settings returns in
-        // production, so the demo renders identically.
-        serde_json::json!({
-            "_version": 1,
-            "server": {
-                "storage": {
-                    "root": "/home/fabro/.fabro"
-                },
-                "scheduler": {
-                    "max_concurrent_runs": 10
-                },
-                "api": {
-                    "url": "https://api.fabro.example.com"
-                },
-                "web": {
-                    "enabled": true,
-                    "url": "https://fabro.example.com"
-                },
-                "auth": {
-                    "api": {
-                        "jwt": { "enabled": true }
-                    },
-                    "web": {
-                        "allowed_usernames": ["brynary", "alice"],
-                        "providers": {
-                            "github": {
-                                "enabled": true,
-                                "client_id": "Iv1.abc123"
-                            }
-                        }
-                    }
-                },
-                "integrations": {
-                    "github": {
-                        "app_id": "12345",
-                        "client_id": "Iv1.abc123",
-                        "slug": "fabro-dev"
-                    }
-                }
-            },
-            "run": {
-                "model": {
-                    "provider": "anthropic",
-                    "name": "claude-sonnet"
-                },
-                "sandbox": {
-                    "provider": "daytona",
-                    "daytona": {
-                        "auto_stop_interval": 60,
-                        "network": "block"
-                    }
-                }
-            },
-            "features": {
-                "session_sandboxes": false,
-                "retros": false
-            }
-        })
-    }
+        let settings = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
 
-    pub(super) fn resolved_server_settings() -> serde_json::Value {
-        serde_json::json!({
-            "project": {
-                "directory": "."
-            },
-            "workflow": {
-                "graph": "workflow.fabro"
-            },
-            "run": {
-                "model": {
-                    "provider": "anthropic",
-                    "name": "claude-sonnet",
-                    "fallbacks": []
-                },
-                "execution": {
-                    "mode": "normal",
-                    "approval": "prompt",
-                    "retros": true
-                },
-                "sandbox": {
-                    "provider": "daytona",
-                    "preserve": false,
-                    "devcontainer": false,
-                    "env": {},
-                    "local": {
-                        "worktree_mode": "clean"
-                    },
-                    "daytona": {
-                        "auto_stop_interval": 60,
-                        "labels": {},
-                        "network": "block",
-                        "skip_clone": false
-                    }
-                },
-                "notifications": {},
-                "interviews": {},
-                "agent": {
-                    "mcps": {}
-                },
-                "hooks": [],
-                "scm": {},
-                "artifacts": {
-                    "include": []
-                },
-                "inputs": {},
-                "metadata": {},
-                "git": {},
-                "prepare": {
-                    "commands": [],
-                    "timeout_ms": 300000
-                },
-                "checkpoint": {
-                    "exclude_globs": []
-                }
-            },
-            "cli": {
-                "auth": {},
-                "exec": {
-                    "prevent_idle_sleep": false,
-                    "model": {},
-                    "agent": {
-                        "mcps": {}
-                    }
-                },
-                "output": {
-                    "format": "text",
-                    "verbosity": "normal"
-                },
-                "updates": {
-                    "check": true
-                },
-                "logging": {}
-            },
-            "server": {
-                "api": {
-                    "url": "https://api.fabro.example.com"
-                },
-                "web": {
-                    "enabled": true,
-                    "url": "https://fabro.example.com"
-                },
-                "auth": {
-                    "api": {
-                        "jwt": {
-                            "enabled": true
-                        }
-                    },
-                    "web": {
-                        "allowed_usernames": ["brynary", "alice"],
-                        "providers": {
-                            "github": {
-                                "enabled": true,
-                                "client_id": "Iv1.abc123"
-                            }
-                        }
-                    }
-                },
-                "storage": {
-                    "root": "/home/fabro/.fabro"
-                },
-                "artifacts": {
-                    "prefix": "",
-                    "store": {
-                        "type": "local",
-                        "root": ""
-                    }
-                },
-                "slatedb": {
-                    "prefix": "",
-                    "store": {
-                        "type": "local",
-                        "root": ""
-                    },
-                    "flush_interval": "0s"
-                },
-                "scheduler": {
-                    "max_concurrent_runs": 10
-                },
-                "logging": {},
-                "integrations": {
-                    "github": {
-                        "enabled": false,
-                        "strategy": "token",
-                        "app_id": "12345",
-                        "client_id": "Iv1.abc123",
-                        "slug": "fabro-dev",
-                        "permissions": {}
-                    },
-                    "slack": {
-                        "enabled": false
-                    },
-                    "discord": {
-                        "enabled": false
-                    },
-                    "teams": {
-                        "enabled": false
-                    }
-                }
-            },
-            "features": {
-                "session_sandboxes": false
-            }
-        })
+[server.listen]
+type = "tcp"
+address = "127.0.0.1:32276"
+
+[server.api]
+url = "https://api.fabro.example.com"
+
+[server.web]
+enabled = true
+url = "https://fabro.example.com"
+
+[server.auth]
+methods = ["github"]
+
+[server.auth.github]
+allowed_usernames = ["brynary", "alice"]
+
+[server.storage]
+root = "/home/fabro/.fabro"
+
+[server.scheduler]
+max_concurrent_runs = 10
+
+[server.integrations.github]
+enabled = true
+strategy = "app"
+app_id = "12345"
+client_id = "Iv1.abc123"
+slug = "fabro-dev"
+
+[features]
+session_sandboxes = false
+"#,
+        )
+        .expect("demo settings fixture should parse");
+
+        serde_json::to_value(
+            fabro_config::ServerSettings::from_layer(&settings)
+                .expect("demo settings fixture should resolve"),
+        )
+        .expect("demo settings should serialize")
     }
 }

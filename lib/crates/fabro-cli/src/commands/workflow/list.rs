@@ -5,7 +5,7 @@ use fabro_config::project::{
     WorkflowInfo, WorkflowSource, discover_project_config, list_workflows_detailed,
     resolve_fabro_root,
 };
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -17,7 +17,7 @@ const GOAL_MAX_LEN: usize = 60;
 
 pub(super) fn list_command(
     _args: &WorkflowListArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let styles = Styles::detect_stderr();

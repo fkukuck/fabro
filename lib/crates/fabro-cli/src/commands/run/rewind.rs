@@ -3,7 +3,7 @@ use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
 use fabro_checkpoint::git::Store;
 use fabro_types::run_event::{CheckpointCompletedProps, RunRewoundProps, RunSubmittedProps};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::{EventBody, RunEvent};
 use fabro_util::printer::Printer;
@@ -33,7 +33,7 @@ pub(crate) struct TimelineEntryJson {
 pub(crate) async fn run(
     args: &RewindArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

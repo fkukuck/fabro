@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use fabro_checkpoint::git::Store;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -16,7 +16,7 @@ use crate::shared::repo::ensure_matching_repo_origin;
 pub(crate) async fn run(
     args: &ForkArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 
 /// A structurally resolved `[features]` view for consumers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct FeaturesSettings {
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FeaturesNamespace {
     pub session_sandboxes: bool,
 }
 

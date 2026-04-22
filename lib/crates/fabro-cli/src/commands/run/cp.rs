@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tokio::fs;
@@ -28,7 +28,7 @@ enum CopyDirection {
 
 pub(crate) async fn cp_command(
     args: CpArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -128,7 +128,7 @@ fn parse_direction(src: &str, dst: &str) -> Result<CopyDirection> {
 async fn resolve_client_and_run_id(
     server: &ServerTargetArgs,
     run_prefix: &str,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(Client, fabro_types::RunId)> {

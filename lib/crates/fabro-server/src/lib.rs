@@ -31,7 +31,6 @@ pub mod security_headers;
 pub mod serve;
 pub mod server;
 mod server_secrets;
-mod settings_view;
 pub mod static_files;
 pub mod web_auth;
 

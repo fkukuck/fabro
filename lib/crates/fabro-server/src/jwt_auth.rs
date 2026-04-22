@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use axum::extract::FromRequestParts;
 use axum::http::header;
 use axum::http::request::Parts;
-use fabro_types::settings::{ServerAuthMethod, ServerSettings as ResolvedServerSettings};
+use fabro_types::settings::{ServerAuthMethod, ServerNamespace as ResolvedServerSettings};
 use fabro_types::{IdpIdentity, RunAuthMethod};
 use fabro_util::dev_token::validate_dev_token_format;
 use hmac::{Hmac, Mac};
@@ -563,7 +563,7 @@ methods = []
         let errors = resolve_server_from_file(&file).expect_err("empty auth methods should fail");
         assert!(errors.iter().any(|err| matches!(
             err,
-            fabro_config::resolve::ResolveError::Invalid { path, reason }
+            fabro_config::ResolveError::Invalid { path, reason }
                 if path == "server.auth.methods" && reason.contains("must not be empty")
         )));
     }

@@ -1,12 +1,12 @@
-use fabro_types::settings::workflow::{WorkflowLayer, WorkflowSettings};
+use fabro_types::settings::workflow::{WorkflowLayer, WorkflowNamespace};
 
 use super::ResolveError;
 
 pub fn resolve_workflow(
     layer: &WorkflowLayer,
     _errors: &mut Vec<ResolveError>,
-) -> WorkflowSettings {
-    WorkflowSettings {
+) -> WorkflowNamespace {
+    WorkflowNamespace {
         name:        layer.name.clone(),
         description: layer.description.clone(),
         graph:       layer

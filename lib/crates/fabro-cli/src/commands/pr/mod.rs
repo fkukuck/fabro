@@ -9,7 +9,7 @@ use fabro_config::Storage;
 use fabro_github::GitHubCredentials;
 use fabro_types::PullRequestRecord;
 use fabro_types::settings::cli::CliLayer;
-use fabro_types::settings::{CliSettings, InterpString};
+use fabro_types::settings::{CliNamespace, InterpString};
 use fabro_util::printer::Printer;
 
 use crate::args::{PrCommand, PrNamespace, ServerTargetArgs};
@@ -22,7 +22,7 @@ const GITHUB_CREDENTIALS_REQUIRED: &str =
 
 pub(crate) async fn dispatch(
     ns: PrNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -42,28 +42,20 @@ pub(crate) async fn dispatch(
     reason = "boundary-exempt(pr-api): remove with follow-up #1 when PR ops move server-side"
 )]
 fn load_github_credentials_required(
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<GitHubCredentials> {
     let ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
-    let server_settings =
-        fabro_config::resolve_server_from_file(ctx.machine_settings()).map_err(|errors| {
-            anyhow!(
-                "failed to resolve server settings:\n{}",
-                errors
-                    .into_iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        })?;
+    let server_settings = fabro_config::ServerSettings::from_layer(ctx.machine_settings())
+        .map_err(anyhow::Error::from)?;
     let vault = user_config::storage_dir(ctx.machine_settings())
         .ok()
         .and_then(|dir| fabro_vault::Vault::load(Storage::new(&dir).secrets_path()).ok());
     let creds = build_github_credentials(
-        server_settings.integrations.github.strategy,
+        server_settings.server.integrations.github.strategy,
         server_settings
+            .server
             .integrations
             .github
             .app_id
@@ -79,7 +71,7 @@ fn load_github_credentials_required(
 pub(crate) async fn load_pr_record(
     server: &ServerTargetArgs,
     run_id: &str,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(PullRequestRecord, fabro_types::RunId)> {

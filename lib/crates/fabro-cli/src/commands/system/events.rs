@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fabro_client::sse;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use futures::StreamExt;
@@ -10,7 +10,7 @@ use crate::command_context::CommandContext;
 
 pub(super) async fn events_command(
     args: &SystemEventsArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

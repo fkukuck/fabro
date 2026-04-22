@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Style, Table};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -25,7 +25,7 @@ fn format_age(dt: DateTime<Utc>, now: DateTime<Utc>) -> String {
 pub(super) async fn list_command(
     client: &Client,
     _args: &SecretListArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let secrets = client.list_secrets().await?;

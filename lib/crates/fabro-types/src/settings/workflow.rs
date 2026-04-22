@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// A structurally resolved `[workflow]` view for consumers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct WorkflowSettings {
+pub struct WorkflowNamespace {
     pub name:        Option<String>,
     pub description: Option<String>,
     pub graph:       String,

@@ -1077,36 +1077,22 @@ level = "warn"
         assert_eq!(cli.command.as_ref().unwrap().name(), "settings");
         match *cli.command.unwrap() {
             Commands::Settings(args) => {
-                assert!(!args.local);
                 assert!(args.target.server.is_none());
-                assert!(args.workflow.is_none());
             }
             _ => panic!("unexpected command variant"),
         }
     }
 
     #[test]
-    fn parse_settings_with_workflow() {
-        let cli = Cli::try_parse_from(["fabro", "settings", "demo"]).expect("should parse");
-        match *cli.command.unwrap() {
-            Commands::Settings(args) => {
-                assert_eq!(args.workflow, Some(std::path::PathBuf::from("demo")));
-            }
-            _ => panic!("unexpected command variant"),
-        }
+    fn parse_settings_rejects_workflow_argument() {
+        let result = Cli::try_parse_from(["fabro", "settings", "demo"]);
+        assert!(result.is_err(), "should reject settings workflow argument");
     }
 
     #[test]
-    fn parse_settings_local_mode() {
-        let cli =
-            Cli::try_parse_from(["fabro", "settings", "--local", "demo"]).expect("should parse");
-        match *cli.command.unwrap() {
-            Commands::Settings(args) => {
-                assert!(args.local);
-                assert_eq!(args.workflow, Some(std::path::PathBuf::from("demo")));
-            }
-            _ => panic!("unexpected command variant"),
-        }
+    fn parse_settings_rejects_local_flag() {
+        let result = Cli::try_parse_from(["fabro", "settings", "--local"]);
+        assert!(result.is_err(), "should reject settings --local");
     }
 
     #[test]

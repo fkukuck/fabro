@@ -14,7 +14,7 @@ use fabro_api::types;
 use fabro_config::load::load_settings_user;
 use fabro_config::user::active_settings_path;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
-use fabro_types::settings::{CliSettings, SettingsLayer};
+use fabro_types::settings::{CliNamespace, SettingsLayer};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use tracing::debug;
@@ -28,7 +28,7 @@ use crate::shared::{absolute_or_current, print_diagnostics, print_json_pretty, r
 pub(crate) async fn run(
     args: &GraphArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
+use fabro_types::settings::CliNamespace;
+use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
@@ -29,7 +29,7 @@ pub(crate) mod wait;
 
 pub(crate) async fn dispatch(
     cmd: RunCommands,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     _process_local_json: bool,
     printer: Printer,
@@ -77,6 +77,7 @@ pub(crate) async fn dispatch(
                 false,
                 styles,
                 cli.output.format == OutputFormat::Json,
+                ctx.user_settings().cli.output.verbosity == OutputVerbosity::Verbose,
                 printer,
             ))
             .await?;

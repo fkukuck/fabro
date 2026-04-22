@@ -3,7 +3,7 @@ use cli_table::format::{Border, Justify, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
 use fabro_api::types as api_types;
 use fabro_model::{Catalog, Model, Provider};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -42,7 +42,7 @@ struct ModelTestOutput {
 
 pub(crate) async fn execute(
     command: Option<ModelsCommand>,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

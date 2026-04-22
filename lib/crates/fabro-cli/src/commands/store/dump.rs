@@ -11,7 +11,7 @@ use bytes::Bytes;
 #[cfg(test)]
 use fabro_store::{ArtifactStore, RunDatabase};
 use fabro_store::{EventEnvelope, RunProjection, StageId};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::{RunBlobId, RunId};
 use fabro_util::printer::Printer;
@@ -28,7 +28,7 @@ use crate::shared::{absolute_or_current, print_json_pretty};
 
 pub(crate) async fn dump_command(
     args: &StoreDumpArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

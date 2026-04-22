@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 use fabro_workflow::run_status::RunStatus;
@@ -23,7 +23,7 @@ pub(crate) struct InspectOutput {
 
 pub(crate) async fn run(
     args: &InspectArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

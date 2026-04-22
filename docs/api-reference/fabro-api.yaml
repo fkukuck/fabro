@@ -1314,7 +1314,7 @@ paths:
       operationId: retrieveRunSettings
       tags: [Run Internals]
       summary: Retrieve Run Settings
-      description: Returns the structured settings used to launch this run.
+      description: Returns the persisted `SettingsLayer` used to launch this run.
       parameters:
         - $ref: "#/components/parameters/RunId"
       responses:
@@ -1323,7 +1323,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RunSettings"
+                $ref: "#/components/schemas/RunSettingsLayer"
         "404":
           description: Run not found
           content:
@@ -1950,22 +1950,11 @@ paths:
       tags: [Settings]
       summary: Retrieve Server Settings
       description: >
-        Returns the server settings view selected by the optional `view` query
-        parameter. `view=layer` (the default) returns the current sparse
-        redacted `SettingsLayer` payload. `view=resolved` returns the server's
-        dense resolved settings payload after applying the same redaction
-        policy.
-      parameters:
-        - $ref: "#/components/parameters/SettingsView"
+        Returns the server's current in-memory settings view as the typed
+        `ServerSettings` payload.
       responses:
         "200":
           description: Server settings
-          headers:
-            X-Fabro-Settings-View:
-              description: Present with value `resolved` when the response body is the dense resolved settings view.
-              schema:
-                type: string
-                enum: [resolved]
           content:
             application/json:
               schema:
@@ -2006,16 +1995,6 @@ components:
       schema:
         type: string
       example: nightly-build
-
-    SettingsView:
-      name: view
-      in: query
-      required: false
-      description: Selects the server settings representation to return.
-      schema:
-        type: string
-        enum: [layer, resolved]
-        default: layer
 
     StageId:
       name: stageId
@@ -4895,32 +4874,328 @@ components:
     # ── Settings Schemas ─────────────────────────────────────────────────
 
     ServerSettings:
-      description: |
-        Redacted server settings payload.
-
-        The `/api/v1/settings` endpoint supports two response shapes:
-
-        - `view=layer` (default): the sparse redacted `SettingsLayer` shape
-        - `view=resolved`: the dense resolved `Settings` shape
-
-        Both views drop the same exact operational path:
-
-        - `server.listen`
-
-        For non-redacted `InterpString` fields, the wire payload preserves the
-        unresolved source/template string rather than any environment-resolved
-        secret value.
+      description: Current in-memory server settings view.
       type: object
-      additionalProperties: true
+      required: [server, features]
+      properties:
+        server:
+          $ref: "#/components/schemas/ServerNamespace"
+        features:
+          $ref: "#/components/schemas/FeaturesNamespace"
 
-    RunSettings:
+    ServerNamespace:
+      type: object
+      required:
+        - listen
+        - api
+        - web
+        - auth
+        - ip_allowlist
+        - storage
+        - artifacts
+        - slatedb
+        - scheduler
+        - logging
+        - integrations
+      properties:
+        listen:
+          $ref: "#/components/schemas/ServerListenSettings"
+        api:
+          $ref: "#/components/schemas/ServerApiSettings"
+        web:
+          $ref: "#/components/schemas/ServerWebSettings"
+        auth:
+          $ref: "#/components/schemas/ServerAuthSettings"
+        ip_allowlist:
+          $ref: "#/components/schemas/ServerIpAllowlistSettings"
+        storage:
+          $ref: "#/components/schemas/ServerStorageSettings"
+        artifacts:
+          $ref: "#/components/schemas/ServerArtifactsSettings"
+        slatedb:
+          $ref: "#/components/schemas/ServerSlateDbSettings"
+        scheduler:
+          $ref: "#/components/schemas/ServerSchedulerSettings"
+        logging:
+          $ref: "#/components/schemas/ServerLoggingSettings"
+        integrations:
+          $ref: "#/components/schemas/ServerIntegrationsSettings"
+
+    FeaturesNamespace:
+      type: object
+      required: [session_sandboxes]
+      properties:
+        session_sandboxes:
+          type: boolean
+
+    ServerListenSettings:
+      oneOf:
+        - $ref: "#/components/schemas/ServerListenTcpSettings"
+        - $ref: "#/components/schemas/ServerListenUnixSettings"
+
+    ServerListenTcpSettings:
+      type: object
+      required: [type, address]
+      properties:
+        type:
+          type: string
+          enum: [tcp]
+        address:
+          type: string
+
+    ServerListenUnixSettings:
+      type: object
+      required: [type, path]
+      properties:
+        type:
+          type: string
+          enum: [unix]
+        path:
+          type: string
+
+    ServerApiSettings:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: ["string", "null"]
+
+    ServerWebSettings:
+      type: object
+      required: [enabled, url]
+      properties:
+        enabled:
+          type: boolean
+        url:
+          type: string
+
+    ServerAuthSettings:
+      type: object
+      required: [methods, github]
+      properties:
+        methods:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServerAuthMethod"
+        github:
+          $ref: "#/components/schemas/ServerAuthGithubSettings"
+
+    ServerAuthMethod:
+      type: string
+      enum: [dev-token, github]
+
+    ServerAuthGithubSettings:
+      type: object
+      required: [allowed_usernames]
+      properties:
+        allowed_usernames:
+          type: array
+          items:
+            type: string
+
+    ServerIpAllowlistSettings:
+      type: object
+      required: [entries, trusted_proxy_count]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/IpAllowEntry"
+        trusted_proxy_count:
+          type: integer
+
+    ServerIpAllowlistOverrideSettings:
+      type: object
+      required: [entries, trusted_proxy_count]
+      properties:
+        entries:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/IpAllowEntry"
+        trusted_proxy_count:
+          type: ["integer", "null"]
+
+    IpAllowEntry:
+      oneOf:
+        - $ref: "#/components/schemas/LiteralIpAllowEntry"
+        - $ref: "#/components/schemas/GitHubMetaHooksEntry"
+
+    LiteralIpAllowEntry:
+      type: object
+      required: [Literal]
+      properties:
+        Literal:
+          type: string
+
+    GitHubMetaHooksEntry:
+      type: string
+      enum: [GitHubMetaHooks]
+
+    ServerStorageSettings:
+      type: object
+      required: [root]
+      properties:
+        root:
+          type: string
+
+    ServerArtifactsSettings:
+      type: object
+      required: [prefix, store]
+      properties:
+        prefix:
+          type: string
+        store:
+          $ref: "#/components/schemas/ObjectStoreSettings"
+
+    ServerSlateDbSettings:
+      type: object
+      required: [prefix, store, flush_interval, disk_cache]
+      properties:
+        prefix:
+          type: string
+        store:
+          $ref: "#/components/schemas/ObjectStoreSettings"
+        flush_interval:
+          type: string
+        disk_cache:
+          type: boolean
+
+    ObjectStoreSettings:
+      oneOf:
+        - $ref: "#/components/schemas/ObjectStoreLocalSettings"
+        - $ref: "#/components/schemas/ObjectStoreS3Settings"
+
+    ObjectStoreLocalSettings:
+      type: object
+      required: [type, root]
+      properties:
+        type:
+          type: string
+          enum: [local]
+        root:
+          type: string
+
+    ObjectStoreS3Settings:
+      type: object
+      required: [type, bucket, region, endpoint, path_style]
+      properties:
+        type:
+          type: string
+          enum: [s3]
+        bucket:
+          type: string
+        region:
+          type: string
+        endpoint:
+          type: ["string", "null"]
+        path_style:
+          type: boolean
+
+    ServerSchedulerSettings:
+      type: object
+      required: [max_concurrent_runs]
+      properties:
+        max_concurrent_runs:
+          type: integer
+
+    ServerLoggingSettings:
+      type: object
+      required: [level]
+      properties:
+        level:
+          type: ["string", "null"]
+
+    ServerIntegrationsSettings:
+      type: object
+      required: [github, slack, discord, teams]
+      properties:
+        github:
+          $ref: "#/components/schemas/GithubIntegrationSettings"
+        slack:
+          $ref: "#/components/schemas/SlackIntegrationSettings"
+        discord:
+          $ref: "#/components/schemas/DiscordIntegrationSettings"
+        teams:
+          $ref: "#/components/schemas/TeamsIntegrationSettings"
+
+    GithubIntegrationSettings:
+      type: object
+      required:
+        - enabled
+        - strategy
+        - app_id
+        - client_id
+        - slug
+        - permissions
+        - webhooks
+      properties:
+        enabled:
+          type: boolean
+        strategy:
+          $ref: "#/components/schemas/GithubIntegrationStrategy"
+        app_id:
+          type: ["string", "null"]
+        client_id:
+          type: ["string", "null"]
+        slug:
+          type: ["string", "null"]
+        permissions:
+          type: object
+          additionalProperties:
+            type: string
+        webhooks:
+          oneOf:
+            - $ref: "#/components/schemas/IntegrationWebhooksSettings"
+            - type: "null"
+
+    GithubIntegrationStrategy:
+      type: string
+      enum: [token, app]
+
+    SlackIntegrationSettings:
+      type: object
+      required: [enabled, default_channel]
+      properties:
+        enabled:
+          type: boolean
+        default_channel:
+          type: ["string", "null"]
+
+    DiscordIntegrationSettings:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    TeamsIntegrationSettings:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    IntegrationWebhooksSettings:
+      type: object
+      required: [strategy, ip_allowlist]
+      properties:
+        strategy:
+          oneOf:
+            - $ref: "#/components/schemas/WebhookStrategy"
+            - type: "null"
+        ip_allowlist:
+          oneOf:
+            - $ref: "#/components/schemas/ServerIpAllowlistOverrideSettings"
+            - type: "null"
+
+    WebhookStrategy:
+      type: string
+      enum: [tailscale_funnel, server_url]
+
+    RunSettingsLayer:
       description: |
-        The merged, persisted v2 `[run]` subtree for a specific run, serialized
-        as the wrapping `SettingsFile` shape (so `settings.run.*` holds the run
-        config). Matches `fabro_types::settings::SettingsFile` minus secret
-        subtrees, identical to ServerSettings' redaction rules.
-
-        See `lib/crates/fabro-types/src/settings/run.rs` for the full type.
+        The persisted `SettingsLayer` used for a specific run, serialized as-is.
+        This matches the stored run manifest shape rather than a resolved view.
       type: object
       additionalProperties: true
 

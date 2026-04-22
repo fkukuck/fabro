@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 
@@ -11,7 +11,7 @@ use crate::shared::print_json_pretty;
 
 pub(crate) async fn archive_command(
     args: &RunsArchiveArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -28,7 +28,7 @@ pub(crate) async fn archive_command(
 
 pub(crate) async fn unarchive_command(
     args: &RunsUnarchiveArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -66,7 +66,7 @@ async fn run_bulk(
     action: Action,
     identifiers: &[String],
     client: &server_client::Client,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let json = cli.output.format == OutputFormat::Json;

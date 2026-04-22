@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use fabro_api::types as api_types;
 use fabro_config::user::active_settings_path;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 pub(crate) use fabro_util::check_report::{
     CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus,
@@ -143,7 +143,7 @@ fn render_report(report: &CheckReport, styles: &Styles, verbose: bool, printer: 
 pub(crate) async fn run_doctor(
     args: &DoctorArgs,
     verbose: bool,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<i32, anyhow::Error> {

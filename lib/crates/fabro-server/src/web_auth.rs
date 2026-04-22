@@ -290,6 +290,7 @@ fn session_provider(auth_method: RunAuthMethod) -> &'static str {
 fn session_cookie_secure(state: &AppState) -> bool {
     state
         .server_settings()
+        .server
         .web
         .url
         .resolve(|name| std::env::var(name).ok())
@@ -374,7 +375,7 @@ async fn login_github(
         );
     };
     let settings = state.server_settings();
-    let Some(client_id) = settings.integrations.github.client_id.as_ref() else {
+    let Some(client_id) = settings.server.integrations.github.client_id.as_ref() else {
         warn!("OAuth login failed: client_id not configured");
         return json_response(
             StatusCode::CONFLICT,
@@ -516,7 +517,7 @@ async fn callback_github(
         .as_deref()
         .expect("validated oauth callback state should exist");
 
-    let Some(client_id) = settings.integrations.github.client_id.as_ref() else {
+    let Some(client_id) = settings.server.integrations.github.client_id.as_ref() else {
         error!("OAuth callback failed: client_id not configured");
         return json_response(
             StatusCode::CONFLICT,
@@ -686,7 +687,7 @@ async fn callback_github(
         _ => Vec::new(),
     };
 
-    let allowed_usernames = settings.auth.github.allowed_usernames.clone();
+    let allowed_usernames = settings.server.auth.github.allowed_usernames.clone();
     if !allowed_usernames.iter().any(|user| user == &profile.login) {
         warn!(login = %profile.login, "OAuth callback denied: username not in allowlist");
         return callback_error_redirect(
@@ -909,7 +910,6 @@ mod tests {
         let state = server::create_test_app_state_with_session_key(
             settings,
             Some("web-auth-test-key-material-0123456789"),
-            false,
         );
         let middleware_state = state.clone();
         axum::Router::new()
@@ -1105,7 +1105,6 @@ mod tests {
         let state = server::create_test_app_state_with_session_key(
             github_settings("https://fabro.example"),
             Some("web-auth-test-key-material-0123456789"),
-            false,
         );
         let app = server::build_router_with_options(
             state,
@@ -1198,7 +1197,6 @@ mod tests {
         let state = server::create_test_app_state_with_session_key(
             github_settings("https://fabro.example"),
             Some("web-auth-test-key-material-0123456789"),
-            false,
         );
         let app = crate::server::build_router_with_options(
             state,

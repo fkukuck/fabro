@@ -2,7 +2,7 @@ mod cp;
 mod list;
 
 use anyhow::{Context, Result};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_types::{RunId, StageId};
 use fabro_util::printer::Printer;
@@ -26,7 +26,7 @@ pub(super) async fn resolve_artifacts(
     run_selector: &str,
     node: Option<&str>,
     retry: Option<u32>,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(RunId, Client, Vec<ArtifactEntry>)> {
@@ -65,7 +65,7 @@ pub(super) async fn resolve_artifacts(
 
 pub(crate) async fn dispatch(
     ns: ArtifactNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

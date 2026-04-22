@@ -8,14 +8,14 @@ use clap::Args;
 use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::merge::combine_files;
 use fabro_config::user::load_settings_config;
-use fabro_config::{Storage, resolve_server_from_file};
+use fabro_config::{ServerSettings as CurrentServerSettings, Storage};
 use fabro_sandbox::SandboxProvider;
 use fabro_types::settings::server::{
     GithubIntegrationStrategy, ServerLayer, ServerListenLayer, WebhookStrategy,
 };
 use fabro_types::settings::{
     GithubIntegrationSettings, InterpString, ObjectStoreSettings, ServerListenSettings,
-    ServerSettings as ResolvedServerSettings, SettingsLayer,
+    ServerNamespace as ResolvedServerSettings, SettingsLayer,
 };
 use fabro_util::terminal::Styles;
 use object_store::ObjectStore;
@@ -350,16 +350,9 @@ fn build_object_store_from_settings(
 }
 
 fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ResolvedServerSettings> {
-    resolve_server_from_file(file).map_err(|errors| {
-        anyhow::anyhow!(
-            "failed to resolve server settings:\n{}",
-            errors
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    })
+    CurrentServerSettings::from_layer(file)
+        .map(|settings| settings.server)
+        .map_err(anyhow::Error::from)
 }
 
 pub fn resolve_bind_request_from_settings(
@@ -520,7 +513,6 @@ where
         artifact_store,
         vault_path,
         server_env_path,
-        local_daemon_mode: true,
         env_lookup,
         http_client: None,
     })?;

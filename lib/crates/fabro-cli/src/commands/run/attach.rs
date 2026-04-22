@@ -19,7 +19,6 @@ use anyhow::Result;
 use fabro_api::types;
 use fabro_interview::{AnswerValue, ConsoleInterviewer, Question, QuestionOption, QuestionType};
 use fabro_store::EventEnvelope;
-use fabro_types::settings::cli::OutputVerbosity;
 use fabro_types::settings::run::ApprovalMode;
 use fabro_types::{EventBody, RunId};
 use fabro_util::json::normalize_json_value;
@@ -49,6 +48,7 @@ pub(crate) async fn attach_run(
     kill_on_detach: bool,
     styles: &'static Styles,
     json_output: bool,
+    live_verbose: bool,
 ) -> Result<ExitCode> {
     let inferred_storage_dir = infer_storage_dir(run_dir);
     let inferred_run_id = infer_run_id(run_dir);
@@ -63,6 +63,7 @@ pub(crate) async fn attach_run(
             kill_on_detach,
             styles,
             json_output,
+            live_verbose,
             Printer::Default,
         ))
         .await;
@@ -79,16 +80,13 @@ pub(crate) async fn attach_run_with_client(
     kill_on_detach: bool,
     styles: &'static Styles,
     json_output: bool,
+    live_verbose: bool,
     printer: Printer,
 ) -> Result<ExitCode> {
     let state = client.get_run_state(run_id).await?;
     let auto_approve = state.spec.as_ref().is_some_and(|record| {
         fabro_config::resolve_run_from_file(&record.settings)
             .is_ok_and(|settings| settings.execution.approval == ApprovalMode::Auto)
-    });
-    let verbose = state.spec.as_ref().is_some_and(|record| {
-        fabro_config::resolve_cli_from_file(&record.settings)
-            .is_ok_and(|settings| settings.output.verbosity == OutputVerbosity::Verbose)
     });
     let events = client.list_run_events(run_id, None, None).await?;
     let replay_events = events.clone();
@@ -98,7 +96,7 @@ pub(crate) async fn attach_run_with_client(
 
     if state_is_terminal(&state) || initial_exit_code.is_some() {
         return replay_run_with_client(
-            verbose,
+            live_verbose,
             events,
             initial_exit_code
                 .or(state_exit_code)
@@ -116,7 +114,7 @@ pub(crate) async fn attach_run_with_client(
         styles,
         AttachOptions {
             auto_approve,
-            verbose,
+            verbose: live_verbose,
             kill_on_detach,
             json_output,
         },
@@ -541,6 +539,7 @@ mod tests {
             None,
             false,
             no_color_styles(),
+            false,
             false,
         ))
         .await

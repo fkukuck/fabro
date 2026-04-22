@@ -8,151 +8,41 @@
 )]
 
 use std::io::Write;
-use std::path::Path;
 
-use fabro_config::effective_settings::{
-    EffectiveSettingsLayers, EffectiveSettingsMode, materialize_settings_layer,
-};
-use fabro_config::{load_settings_project, project};
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
-use fabro_types::settings::{CliSettings, SettingsLayer};
 use fabro_util::printer::Printer;
-use serde_json::json;
+use serde::Serialize;
 
 use crate::args::SettingsArgs;
 use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
-use crate::user_config;
 
-fn config_layers(
-    ctx: &CommandContext,
-    workflow: Option<&Path>,
-) -> anyhow::Result<EffectiveSettingsLayers> {
-    let cwd = ctx.cwd();
-    let (workflow_layer, project_layer) = match workflow {
-        Some(path) => workflow_and_project_layers(path, cwd)?,
-        None => (SettingsLayer::default(), load_settings_project(cwd)?),
-    };
-    let user_layer =
-        user_config::load_settings_with_config_and_storage_dir(Some(ctx.base_config_path()), None)?;
-    Ok(EffectiveSettingsLayers::new(
-        SettingsLayer::default(),
-        workflow_layer,
-        project_layer,
-        user_layer,
-    ))
-}
-
-fn workflow_and_project_layers(
-    path: &Path,
-    cwd: &Path,
-) -> anyhow::Result<(SettingsLayer, SettingsLayer)> {
-    let resolution = project::resolve_workflow_path(path, cwd)?;
-    if resolution.workflow_config.is_none() && !resolution.resolved_workflow_path.is_file() {
-        anyhow::bail!(
-            "Workflow not found: {}",
-            resolution.resolved_workflow_path.display()
-        );
-    }
-
-    let workflow_layer = resolution.workflow_config.unwrap_or_default();
-    let project_layer = project::discover_project_config(
-        resolution
-            .resolved_workflow_path
-            .parent()
-            .unwrap_or_else(|| Path::new(".")),
-    )?
-    .map(|(_, config)| config)
-    .unwrap_or_default();
-
-    Ok((workflow_layer, project_layer))
-}
-
-fn strip_nulls(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) => {
-            for child in map.values_mut() {
-                strip_nulls(child);
-            }
-            map.retain(|_, child| !child.is_null());
-        }
-        serde_json::Value::Array(values) => {
-            for child in values {
-                strip_nulls(child);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn local_settings_value(
-    args: &SettingsArgs,
-    cli: &CliSettings,
-    cli_layer: &CliLayer,
-    printer: Printer,
-) -> anyhow::Result<serde_json::Value> {
-    let base_ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
-    let layers = config_layers(&base_ctx, args.workflow.as_deref())?;
-    let local_settings =
-        materialize_settings_layer(layers, None, EffectiveSettingsMode::LocalOnly)?;
-    let mut value = resolve_local_settings_value(&local_settings)?;
-    strip_nulls(&mut value);
-    Ok(value)
-}
-
-fn render_resolve_errors(errors: Vec<fabro_config::ResolveError>) -> anyhow::Error {
-    anyhow::anyhow!(
-        "failed to resolve local settings:\n{}",
-        errors
-            .into_iter()
-            .map(|error| error.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-}
-
-fn resolve_local_settings_value(file: &SettingsLayer) -> anyhow::Result<serde_json::Value> {
-    let file = fabro_config::apply_builtin_defaults(file.clone());
-
-    let project = fabro_config::resolve_project_from_file(&file).map_err(render_resolve_errors)?;
-    let workflow =
-        fabro_config::resolve_workflow_from_file(&file).map_err(render_resolve_errors)?;
-    let run = fabro_config::resolve_run_from_file(&file).map_err(render_resolve_errors)?;
-    let cli = fabro_config::resolve_cli_from_file(&file).map_err(render_resolve_errors)?;
-    let features =
-        fabro_config::resolve_features_from_file(&file).map_err(render_resolve_errors)?;
-
-    Ok(json!({
-        "project": project,
-        "workflow": workflow,
-        "run": run,
-        "cli": cli,
-        "features": features,
-    }))
+#[derive(Serialize)]
+struct RenderedConfig {
+    user:   fabro_config::UserSettings,
+    server: fabro_api::types::ServerSettings,
 }
 
 async fn rendered_config(
     args: &SettingsArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<serde_json::Value> {
-    if args.local {
-        return local_settings_value(args, cli, cli_layer, printer);
-    }
-    if args.workflow.is_some() {
-        anyhow::bail!("WORKFLOW requires --local; use `fabro settings --local WORKFLOW`");
-    }
     let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
-    ctx.server()
+    let user = fabro_config::UserSettings::resolve()?;
+    let server = ctx
+        .server()
         .await?
         .retrieve_resolved_server_settings()
-        .await
+        .await?;
+    serde_json::to_value(RenderedConfig { user, server }).map_err(Into::into)
 }
 
 pub(crate) async fn execute(
     args: &SettingsArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {

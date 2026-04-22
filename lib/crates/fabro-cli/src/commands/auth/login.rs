@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result, bail};
 use chrono::{DateTime, Utc};
 use fabro_client::{AuthEntry, AuthStore, StoredSubject};
 use fabro_http::header::CONTENT_TYPE;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::browser;
 use fabro_util::printer::Printer;
@@ -36,7 +36,7 @@ struct CliTokenSubject {
 
 pub(super) async fn login_command(
     args: AuthLoginArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,

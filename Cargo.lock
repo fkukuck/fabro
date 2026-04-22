@@ -1544,6 +1544,7 @@ name = "fabro-api"
 version = "0.211.0-nightly.1"
 dependencies = [
  "chrono",
+ "fabro-config",
  "fabro-types",
  "openapiv3",
  "prettyplease",
@@ -1726,6 +1727,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strsim 0.11.1",
+ "temp-env",
  "tempfile",
  "thiserror 2.0.18",
  "toml 0.8.23",
@@ -6417,6 +6419,15 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "temp-env"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
+dependencies = [
+ "parking_lot",
 ]
 
 [[package]]

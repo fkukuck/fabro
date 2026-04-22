@@ -6,7 +6,7 @@ use fabro_types::settings::server::{
     ServerAuthLayer, ServerAuthMethod, ServerAuthSettings, ServerIntegrationsLayer,
     ServerIntegrationsSettings, ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer,
     ServerIpAllowlistOverrideSettings, ServerIpAllowlistSettings, ServerLayer, ServerListenLayer,
-    ServerListenSettings, ServerLoggingSettings, ServerSchedulerSettings, ServerSettings,
+    ServerListenSettings, ServerLoggingSettings, ServerNamespace, ServerSchedulerSettings,
     ServerSlateDbLayer, ServerSlateDbSettings, ServerStorageLayer, ServerStorageSettings,
     ServerWebLayer, ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
     WebhookStrategy,
@@ -35,7 +35,7 @@ pub fn dev_token_auth_enabled(layer: &SettingsLayer) -> bool {
         .is_some_and(|methods| methods.contains(&ServerAuthMethod::DevToken))
 }
 
-pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerSettings {
+pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerNamespace {
     let storage = resolve_storage(layer.storage.as_ref());
     let listen = resolve_listen(layer.listen.as_ref(), errors);
     let web = resolve_web(layer.api.as_ref(), layer.web.as_ref());
@@ -46,7 +46,7 @@ pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> Se
     validate_github_webhook_ip_allowlist_for_listen(&listen, &ip_allowlist, &integrations, errors);
     validate_github_webhook_strategy(&integrations, layer.api.as_ref(), errors);
 
-    ServerSettings {
+    ServerNamespace {
         listen,
         api: ServerApiSettings {
             url: layer.api.as_ref().and_then(|api| api.url.clone()),

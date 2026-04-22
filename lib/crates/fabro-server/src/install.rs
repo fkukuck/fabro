@@ -13,8 +13,8 @@ use axum::{Json, Router, middleware};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use fabro_auth::{AuthCredential, AuthDetails, credential_id_for};
+use fabro_config::Storage;
 use fabro_config::bind::{Bind, BindRequest};
-use fabro_config::{Storage, resolve_server_from_file};
 use fabro_install::{
     InstallListenConfig, PendingSettingsWrite, VaultSecretWrite, generate_jwt_keypair,
     merge_server_settings, persist_install_outputs_direct, write_github_app_settings,
@@ -1372,17 +1372,9 @@ async fn write_artifact_store_metadata(
         .get_or_insert_with(ServerStorageLayer::default);
     storage.root = Some(InterpString::parse(&storage_dir.display().to_string()));
 
-    let resolved = resolve_server_from_file(&settings).map_err(|errors| {
-        anyhow::anyhow!(
-            "failed to resolve server settings:\n{}",
-            errors
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    })?;
-    let (object_store, prefix) = serve::build_artifact_object_store(&resolved)?;
+    let resolved =
+        fabro_config::ServerSettings::from_layer(&settings).map_err(anyhow::Error::from)?;
+    let (object_store, prefix) = serve::build_artifact_object_store(&resolved.server)?;
     let artifact_store = ArtifactStore::new(object_store, prefix);
     artifact_store.write_metadata(FABRO_VERSION).await?;
     Ok(())

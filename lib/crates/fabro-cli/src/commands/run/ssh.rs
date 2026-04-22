@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tracing::info;
@@ -10,7 +10,7 @@ use crate::shared::print_json_pretty;
 
 pub(crate) async fn run(
     args: SshArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,

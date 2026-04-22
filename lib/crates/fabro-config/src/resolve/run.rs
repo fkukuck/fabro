@@ -8,15 +8,15 @@ use fabro_types::settings::run::{
     NotificationRouteLayer, NotificationRouteSettings, PullRequestSettings, RunAgentLayer,
     RunAgentSettings, RunArtifactsLayer, RunCheckpointLayer, RunCheckpointSettings,
     RunExecutionLayer, RunExecutionSettings, RunGitLayer, RunGitSettings, RunGoal, RunGoalLayer,
-    RunInterviewsSettings, RunLayer, RunModelLayer, RunModelSettings, RunPrepareLayer,
-    RunPrepareSettings, RunPullRequestLayer, RunSandboxLayer, RunSandboxSettings, RunScmLayer,
-    RunScmSettings, RunSettings, ScmGitHubSettings, StringOrSplice, TlsMode,
+    RunInterviewsSettings, RunLayer, RunModelLayer, RunModelSettings, RunNamespace,
+    RunPrepareLayer, RunPrepareSettings, RunPullRequestLayer, RunSandboxLayer, RunSandboxSettings,
+    RunScmLayer, RunScmSettings, ScmGitHubSettings, StringOrSplice, TlsMode,
 };
 
 use super::ResolveError;
 
-pub fn resolve_run(layer: &RunLayer, errors: &mut Vec<ResolveError>) -> RunSettings {
-    RunSettings {
+pub fn resolve_run(layer: &RunLayer, errors: &mut Vec<ResolveError>) -> RunNamespace {
+    RunNamespace {
         goal:          resolve_goal(layer.goal.as_ref()),
         working_dir:   layer.working_dir.clone(),
         metadata:      layer.metadata.clone(),

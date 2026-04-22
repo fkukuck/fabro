@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
 use fabro_api::types;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tracing::{debug, info};
@@ -13,7 +13,7 @@ use crate::shared::{format_size, print_json_pretty};
 
 pub(super) async fn prune_command(
     args: &RunsPruneArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

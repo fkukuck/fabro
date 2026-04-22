@@ -1,4 +1,4 @@
-use fabro_types::settings::ServerSettings as ResolvedServerSettings;
+use fabro_types::settings::ServerNamespace as ResolvedServerSettings;
 use url::Url;
 
 use crate::server::EnvLookup;

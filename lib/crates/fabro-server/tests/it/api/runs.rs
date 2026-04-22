@@ -3,7 +3,6 @@ use axum::http::{Request, StatusCode};
 use fabro_config::parse_settings_layer;
 use fabro_server::jwt_auth::AuthMode;
 use fabro_server::server::build_router;
-use serde_json::json;
 use tower::ServiceExt;
 
 use crate::helpers::{
@@ -11,7 +10,7 @@ use crate::helpers::{
 };
 
 #[tokio::test]
-async fn retrieve_run_settings_preserves_templates_and_redacts_sensitive_fields() {
+async fn retrieve_run_settings_returns_persisted_layer_without_redaction() {
     let storage_dir = tempfile::tempdir().unwrap();
     let settings = parse_settings_layer(&format!(
         r#"
@@ -97,21 +96,11 @@ session_sandboxes = true
         storage_dir.path().display().to_string()
     );
     assert_eq!(body["server"]["scheduler"]["max_concurrent_runs"], 9);
-    assert_eq!(
-        body["server"]["integrations"]["github"]["app_id"],
-        "{{ env.GITHUB_APP_ID }}"
+    assert!(body.pointer("/server/integrations/github/app_id").is_none());
+    assert!(
+        body.pointer("/server/integrations/github/client_id")
+            .is_none()
     );
-    assert_eq!(
-        body["server"]["integrations"]["github"]["client_id"],
-        "Iv1.github"
-    );
-    assert_eq!(
-        body["server"]["auth"]["methods"],
-        json!(["dev-token", "github"])
-    );
-    assert_eq!(
-        body["server"]["auth"]["github"]["allowed_usernames"],
-        json!(["alice"])
-    );
+    assert!(body.pointer("/server/auth").is_none());
     assert!(body.pointer("/server/listen").is_none());
 }
