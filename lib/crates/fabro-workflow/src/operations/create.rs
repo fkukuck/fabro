@@ -18,6 +18,7 @@ use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::settings::run::{RunMode, RunNamespace};
 use fabro_types::{RunId, RunProvenance, WorkflowSettings};
 use fabro_util::json::normalize_json_value;
+use git2::Repository;
 use tokio::task::spawn_blocking;
 
 use super::source::{ResolveWorkflowInput, WorkflowInput, resolve_workflow};
@@ -71,6 +72,26 @@ struct PersistCreateOptions {
     configured_providers: Vec<Provider>,
 }
 
+fn sanitize_host_repo_path(
+    host_repo_path: Option<String>,
+    working_directory: &Path,
+) -> Option<String> {
+    match host_repo_path {
+        Some(path) => discover_host_repo_root(Path::new(&path))
+            .map(|path| path.to_string_lossy().to_string()),
+        None => working_directory
+            .exists()
+            .then(|| working_directory.to_string_lossy().to_string()),
+    }
+}
+
+fn discover_host_repo_root(path: &Path) -> Option<PathBuf> {
+    let repo = Repository::discover(path).ok()?;
+    repo.workdir()
+        .map(Path::to_path_buf)
+        .or_else(|| repo.path().parent().map(Path::to_path_buf))
+}
+
 /// Resolve workflow inputs, normalize settings, and persist a run directory.
 pub async fn create(
     store: &Database,
@@ -109,8 +130,7 @@ pub async fn create(
     let storage = Storage::new(storage_root);
     let run_dir = storage.run_scratch(&run_id).root().to_path_buf();
     let working_directory = resolved.working_directory.clone();
-    let host_repo_path =
-        host_repo_path.or_else(|| Some(working_directory.to_string_lossy().to_string()));
+    let host_repo_path = sanitize_host_repo_path(host_repo_path, &working_directory);
     let detected_repo = detect_repo_info(&working_directory).ok();
     let repo_origin_url = repo_origin_url.or_else(|| {
         detected_repo
@@ -978,6 +998,98 @@ mod tests {
                     .as_ref()
             )
         );
+    }
+
+    #[tokio::test]
+    async fn create_drops_missing_host_repo_path_from_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let store = memory_store();
+        let created = create(&store, CreateRunInput {
+            workflow: WorkflowInput::DotSource {
+                source:   MINIMAL_DOT.to_string(),
+                base_dir: None,
+            },
+            settings: {
+                use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
+                SettingsLayer {
+                    run: Some(RunLayer {
+                        working_dir: Some(InterpString::parse("workspace")),
+                        execution: Some(RunExecutionLayer {
+                            mode: Some(RunMode::DryRun),
+                            ..RunExecutionLayer::default()
+                        }),
+                        ..RunLayer::default()
+                    }),
+                    ..SettingsLayer::default()
+                }
+            },
+            cwd: dir.path().to_path_buf(),
+            workflow_slug: None,
+            workflow_path: None,
+            workflow_bundle: None,
+            submitted_manifest_bytes: None,
+            run_id: Some(fixtures::RUN_2),
+            host_repo_path: Some("/definitely/missing/on/remote/server".to_string()),
+            repo_origin_url: None,
+            base_branch: None,
+            provenance: None,
+            configured_providers: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(created.persisted.run_record().working_directory, workspace);
+        assert_eq!(created.persisted.run_record().host_repo_path, None);
+    }
+
+    #[tokio::test]
+    async fn create_drops_non_repo_host_repo_path_from_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let non_repo = dir.path().join("not-a-repo");
+        std::fs::create_dir_all(&non_repo).unwrap();
+
+        let store = memory_store();
+        let created = create(&store, CreateRunInput {
+            workflow: WorkflowInput::DotSource {
+                source:   MINIMAL_DOT.to_string(),
+                base_dir: None,
+            },
+            settings: {
+                use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
+                SettingsLayer {
+                    run: Some(RunLayer {
+                        working_dir: Some(InterpString::parse("workspace")),
+                        execution: Some(RunExecutionLayer {
+                            mode: Some(RunMode::DryRun),
+                            ..RunExecutionLayer::default()
+                        }),
+                        ..RunLayer::default()
+                    }),
+                    ..SettingsLayer::default()
+                }
+            },
+            cwd: dir.path().to_path_buf(),
+            workflow_slug: None,
+            workflow_path: None,
+            workflow_bundle: None,
+            submitted_manifest_bytes: None,
+            run_id: Some(fixtures::RUN_2),
+            host_repo_path: Some(non_repo.to_string_lossy().to_string()),
+            repo_origin_url: None,
+            base_branch: None,
+            provenance: None,
+            configured_providers: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(created.persisted.run_record().working_directory, workspace);
+        assert_eq!(created.persisted.run_record().host_repo_path, None);
     }
 
     #[tokio::test]
