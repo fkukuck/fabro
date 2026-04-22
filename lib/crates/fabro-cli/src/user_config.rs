@@ -124,8 +124,13 @@ pub(crate) fn cli_http_client_builder() -> fabro_http::HttpClientBuilder {
 }
 
 #[cfg(test)]
+#[allow(
+    deprecated,
+    reason = "the storage_dir tests are exercising the deprecated helper by definition"
+)]
 mod tests {
     use fabro_config::parse_settings_layer;
+    use fabro_config::user::default_storage_dir;
 
     use super::*;
     use crate::args::ServerTargetArgs;
@@ -248,10 +253,7 @@ url = "https://config.example.com"
     fn storage_dir_defaults_without_server_auth_methods() {
         let settings = SettingsLayer::default();
 
-        assert_eq!(
-            storage_dir(&settings).unwrap(),
-            fabro_config::user::default_storage_dir()
-        );
+        assert_eq!(storage_dir(&settings).unwrap(), default_storage_dir());
     }
 
     #[test]

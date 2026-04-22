@@ -27,13 +27,15 @@ fn write_dev_token_server_settings(config_path: &std::path::Path, rest: &str) {
         config_path,
         format!("_version = 1\n\n[server.auth]\nmethods = [\"dev-token\"]\n\n{rest}"),
     )
-    .unwrap();
+    .expect("writing dev-token server settings fixture");
 }
 
 fn provision_dev_token_auth(home_dir: &std::path::Path, storage_dir: &std::path::Path) {
     let server_env_path = Storage::new(storage_dir).runtime_state().env_path();
-    envfile::merge_env_file(&server_env_path, [("FABRO_DEV_TOKEN", TEST_DEV_TOKEN)]).unwrap();
-    dev_token::write_dev_token(&home_dir.join(".fabro").join("dev-token"), TEST_DEV_TOKEN).unwrap();
+    envfile::merge_env_file(&server_env_path, [("FABRO_DEV_TOKEN", TEST_DEV_TOKEN)])
+        .expect("merging FABRO_DEV_TOKEN into server.env");
+    dev_token::write_dev_token(&home_dir.join(".fabro").join("dev-token"), TEST_DEV_TOKEN)
+        .expect("writing home dev-token");
 }
 
 #[test]

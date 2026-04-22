@@ -25,9 +25,9 @@ fn parse(source: &str) -> SettingsLayer {
 
 fn empty_settings_with_auth_methods() -> SettingsLayer {
     parse(
-        r#"
+        r"
 _version = 1
-"#,
+",
     )
 }
 

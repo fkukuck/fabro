@@ -122,7 +122,7 @@ async fn connect_local_api_client_bundle(
             Ok(Client::from_http_client("http://fabro", http_client))
         }
         Bind::Tcp(addr) => {
-            let target = ServerTarget::http_url(&format!("http://{addr}"))?;
+            let target = ServerTarget::http_url(format!("http://{addr}"))?;
             let credential = resolve_local_tcp_credential(&target)?;
             let oauth_session = refreshable_oauth(&target, credential.as_ref());
             build_client(target, credential, oauth_session, None).await

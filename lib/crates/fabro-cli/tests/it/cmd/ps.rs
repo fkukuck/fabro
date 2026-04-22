@@ -13,12 +13,13 @@ const TEST_DEV_TOKEN: &str =
 fn provision_local_server_auth(context: &fabro_test::TestContext, storage_dir: &std::path::Path) {
     context.ensure_home_server_auth_methods();
     let server_env_path = Storage::new(storage_dir).runtime_state().env_path();
-    envfile::merge_env_file(&server_env_path, [("FABRO_DEV_TOKEN", TEST_DEV_TOKEN)]).unwrap();
+    envfile::merge_env_file(&server_env_path, [("FABRO_DEV_TOKEN", TEST_DEV_TOKEN)])
+        .expect("merging FABRO_DEV_TOKEN into server.env");
     dev_token::write_dev_token(
         &context.home_dir.join(".fabro").join("dev-token"),
         TEST_DEV_TOKEN,
     )
-    .unwrap();
+    .expect("writing home dev-token");
 }
 
 #[test]

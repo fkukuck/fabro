@@ -2528,8 +2528,10 @@ pub(crate) fn create_test_app_state_with_session_key(
     }
     let (store, artifact_store) = test_store_bundle();
     let env_lookup = default_env_lookup();
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
     build_app_state(AppStateConfig {
-        settings: Arc::new(RwLock::new(settings)),
+        settings,
         registry_factory_override: None,
         max_concurrent_runs: 5,
         store,
@@ -7457,6 +7459,9 @@ mod tests {
             r#"
 _version = 1
 
+[server.auth]
+methods = ["dev-token"]
+
 [server.web]
 url = "{url}"
 "#
@@ -7848,7 +7853,7 @@ type = "http"
         .unwrap();
         assert_eq!(
             command_env_value(&github_cmd, "FABRO_DEV_TOKEN"),
-            Some(None)
+            EnvOverride::Removed
         );
 
         let dev_token = tempfile::tempdir().unwrap();
@@ -7863,7 +7868,7 @@ type = "http"
         .unwrap();
         assert_eq!(
             command_env_value(&dev_token_cmd, "FABRO_DEV_TOKEN"),
-            Some(Some(TEST_DEV_TOKEN.to_string()))
+            EnvOverride::Set(TEST_DEV_TOKEN.to_string())
         );
     }
 
@@ -7913,11 +7918,24 @@ allowed_usernames = ["octocat"]
     }
 
     #[cfg(unix)]
-    fn command_env_value(cmd: &Command, key: &str) -> Option<Option<String>> {
-        cmd.as_std().get_envs().find_map(|(name, value)| {
-            (name.to_str() == Some(key))
-                .then(|| value.map(|value| value.to_string_lossy().into_owned()))
-        })
+    #[derive(Debug, PartialEq, Eq)]
+    enum EnvOverride {
+        Unchanged,
+        Removed,
+        Set(String),
+    }
+
+    #[cfg(unix)]
+    fn command_env_value(cmd: &Command, key: &str) -> EnvOverride {
+        cmd.as_std()
+            .get_envs()
+            .find_map(|(name, value)| {
+                (name.to_str() == Some(key)).then(|| match value {
+                    Some(value) => EnvOverride::Set(value.to_string_lossy().into_owned()),
+                    None => EnvOverride::Removed,
+                })
+            })
+            .unwrap_or(EnvOverride::Unchanged)
     }
 
     #[test]

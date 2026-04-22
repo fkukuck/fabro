@@ -570,7 +570,14 @@ methods = []
 
     #[test]
     fn fails_when_web_enabled_without_session_secret() {
-        let file = settings("_version = 1\n");
+        let file = settings(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+        );
         let err = resolve_auth_mode_with_lookup(&file, empty_lookup)
             .expect_err("missing session secret should fail");
         assert!(err.to_string().contains("SESSION_SECRET"));
@@ -602,7 +609,14 @@ methods = ["dev-token"]
 
     #[test]
     fn resolves_dev_token_mode_when_secrets_present() {
-        let file = settings("_version = 1\n");
+        let file = settings(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+        );
         let mode = resolve_auth_mode_with_lookup(&file, |name| match name {
             "SESSION_SECRET" => {
                 Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string())

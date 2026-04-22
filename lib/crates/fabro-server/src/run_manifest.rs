@@ -954,7 +954,33 @@ mod tests {
     }
 
     fn server_settings_fixture(source: &str) -> SettingsLayer {
-        fabro_config::parse_settings_layer(source).expect("v2 fixture should parse")
+        let mut layer =
+            fabro_config::parse_settings_layer(source).expect("v2 fixture should parse");
+        ensure_fixture_auth_methods(&mut layer);
+        layer
+    }
+
+    fn ensure_fixture_auth_methods(layer: &mut SettingsLayer) {
+        use fabro_types::settings::server::{ServerAuthLayer, ServerAuthMethod, ServerLayer};
+
+        if layer
+            .server
+            .as_ref()
+            .and_then(|server| server.auth.as_ref())
+            .and_then(|auth| auth.methods.as_ref())
+            .is_some()
+        {
+            return;
+        }
+        let server = layer.server.get_or_insert_with(ServerLayer::default);
+        let auth = server.auth.get_or_insert_with(ServerAuthLayer::default);
+        auth.methods = Some(vec![ServerAuthMethod::DevToken]);
+    }
+
+    fn default_settings_fixture() -> SettingsLayer {
+        let mut layer = SettingsLayer::default();
+        ensure_fixture_auth_methods(&mut layer);
+        layer
     }
 
     #[test]
@@ -1029,6 +1055,9 @@ script = "workflow-setup"
                 r#"
 _version = 1
 
+[server.auth]
+methods = ["dev-token"]
+
 [[run.prepare.steps]]
 script = "cli-setup"
 
@@ -1066,7 +1095,7 @@ app_id = "snapshotted-app-id"
     async fn invalid_preflight_returns_diagnostics_without_runtime_checks() {
         let state = crate::server::create_app_state();
         let prepared =
-            prepare_manifest_with_mode(&SettingsLayer::default(), &invalid_manifest(), false)
+            prepare_manifest_with_mode(&default_settings_fixture(), &invalid_manifest(), false)
                 .unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
@@ -1103,7 +1132,7 @@ enabled = true
         });
 
         let prepared =
-            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+            prepare_manifest_with_mode(&default_settings_fixture(), &manifest, false).unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         assert!(!validated.has_errors());
@@ -1141,7 +1170,7 @@ provider = "daytona"
         });
 
         let prepared =
-            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+            prepare_manifest_with_mode(&default_settings_fixture(), &manifest, false).unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         let (response, _ok) = run_preflight(state.as_ref(), &prepared, &validated)

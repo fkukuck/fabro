@@ -1,4 +1,3 @@
-use fabro_types::settings::InterpString;
 use fabro_types::settings::server::{
     DiscordIntegrationSettings, GithubIntegrationSettings, GithubIntegrationStrategy,
     IntegrationWebhooksLayer, IntegrationWebhooksSettings, IpAllowEntry, ObjectStoreLocalLayer,
@@ -12,12 +11,13 @@ use fabro_types::settings::server::{
     ServerWebLayer, ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
     WebhookStrategy,
 };
+use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_util::Home;
 
 use super::{ResolveError, default_interp, parse_socket_addr, require_interp};
 use crate::user::default_storage_dir;
 
-pub fn resolve_storage_root(file: &fabro_types::settings::SettingsLayer) -> InterpString {
+pub fn resolve_storage_root(file: &SettingsLayer) -> InterpString {
     let file = crate::apply_builtin_defaults(file.clone());
     file.server
         .as_ref()
@@ -26,7 +26,7 @@ pub fn resolve_storage_root(file: &fabro_types::settings::SettingsLayer) -> Inte
         .unwrap_or_else(|| default_interp(default_storage_dir()))
 }
 
-pub fn dev_token_auth_enabled(layer: &fabro_types::settings::SettingsLayer) -> bool {
+pub fn dev_token_auth_enabled(layer: &SettingsLayer) -> bool {
     layer
         .server
         .as_ref()
@@ -124,23 +124,20 @@ fn resolve_auth(
     layer: Option<&ServerAuthLayer>,
     errors: &mut Vec<ResolveError>,
 ) -> ServerAuthSettings {
-    let methods = match layer.and_then(|auth| auth.methods.clone()) {
-        Some(mut methods) => {
-            if methods.is_empty() {
-                errors.push(ResolveError::Invalid {
-                    path:   "server.auth.methods".to_string(),
-                    reason: "must not be empty".to_string(),
-                });
-            }
-            methods.dedup();
-            methods
-        }
-        None => {
-            errors.push(ResolveError::Missing {
-                path: "server.auth.methods".to_string(),
+    let methods = if let Some(mut methods) = layer.and_then(|auth| auth.methods.clone()) {
+        if methods.is_empty() {
+            errors.push(ResolveError::Invalid {
+                path:   "server.auth.methods".to_string(),
+                reason: "must not be empty".to_string(),
             });
-            Vec::new()
         }
+        methods.dedup();
+        methods
+    } else {
+        errors.push(ResolveError::Missing {
+            path: "server.auth.methods".to_string(),
+        });
+        Vec::new()
     };
 
     let github = layer

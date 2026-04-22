@@ -462,6 +462,12 @@ mod tests {
         ))
     }
 
+    fn test_default_settings() -> SettingsLayer {
+        let mut layer = SettingsLayer::default();
+        ensure_fixture_auth_methods(&mut layer);
+        layer
+    }
+
     fn validate_dot(dot_source: &str, settings: SettingsLayer) -> Validated {
         validate(ValidateInput {
             workflow: WorkflowInput::DotSource {
@@ -732,7 +738,7 @@ mod tests {
                 source:   dot.to_string(),
                 base_dir: None,
             },
-            settings: SettingsLayer::default(),
+            settings: test_default_settings(),
             cwd: dir.path().to_path_buf(),
             workflow_slug: None,
             workflow_path: None,
@@ -772,7 +778,7 @@ mod tests {
                 };
                 let mut metadata = HashMap::new();
                 metadata.insert("env".to_string(), "test".to_string());
-                SettingsLayer {
+                let mut layer = SettingsLayer {
                     run: Some(RunLayer {
                         goal: Some(RunGoalLayer::Inline(InterpString::parse("override goal"))),
                         metadata,
@@ -791,7 +797,9 @@ mod tests {
                         ..RunLayer::default()
                     }),
                     ..SettingsLayer::default()
-                }
+                };
+                ensure_fixture_auth_methods(&mut layer);
+                layer
             },
             cwd: dir.path().to_path_buf(),
             workflow_slug: Some("slug".to_string()),
@@ -876,7 +884,7 @@ mod tests {
             },
             settings: {
                 use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-                SettingsLayer {
+                let mut layer = SettingsLayer {
                     run: Some(RunLayer {
                         working_dir: Some(InterpString::parse("workspace")),
                         execution: Some(RunExecutionLayer {
@@ -886,7 +894,9 @@ mod tests {
                         ..RunLayer::default()
                     }),
                     ..SettingsLayer::default()
-                }
+                };
+                ensure_fixture_auth_methods(&mut layer);
+                layer
             },
             cwd: dir.path().to_path_buf(),
             workflow_slug: None,
@@ -950,7 +960,7 @@ mod tests {
 
     fn dry_run_only_settings() -> SettingsLayer {
         use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-        SettingsLayer {
+        let mut layer = SettingsLayer {
             run: Some(RunLayer {
                 execution: Some(RunExecutionLayer {
                     mode: Some(RunMode::DryRun),
@@ -959,13 +969,32 @@ mod tests {
                 ..RunLayer::default()
             }),
             ..SettingsLayer::default()
+        };
+        ensure_fixture_auth_methods(&mut layer);
+        layer
+    }
+
+    pub(super) fn ensure_fixture_auth_methods(layer: &mut SettingsLayer) {
+        use fabro_types::settings::server::{ServerAuthLayer, ServerAuthMethod, ServerLayer};
+
+        if layer
+            .server
+            .as_ref()
+            .and_then(|server| server.auth.as_ref())
+            .and_then(|auth| auth.methods.as_ref())
+            .is_some()
+        {
+            return;
         }
+        let server = layer.server.get_or_insert_with(ServerLayer::default);
+        let auth = server.auth.get_or_insert_with(ServerAuthLayer::default);
+        auth.methods = Some(vec![ServerAuthMethod::DevToken]);
     }
 
     fn dry_run_with_storage(storage_dir: &Path) -> SettingsLayer {
         use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
         use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-        SettingsLayer {
+        let mut layer = SettingsLayer {
             run: Some(RunLayer {
                 execution: Some(RunExecutionLayer {
                     mode: Some(RunMode::DryRun),
@@ -980,7 +1009,9 @@ mod tests {
                 ..ServerLayer::default()
             }),
             ..SettingsLayer::default()
-        }
+        };
+        ensure_fixture_auth_methods(&mut layer);
+        layer
     }
 
     #[tokio::test]

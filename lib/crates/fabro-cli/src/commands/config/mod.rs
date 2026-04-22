@@ -10,7 +10,9 @@
 use std::io::Write;
 use std::path::Path;
 
-use fabro_config::effective_settings::{EffectiveSettingsLayers, EffectiveSettingsMode};
+use fabro_config::effective_settings::{
+    EffectiveSettingsLayers, EffectiveSettingsMode, materialize_settings_layer,
+};
 use fabro_config::{load_settings_project, project};
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::settings::{CliSettings, SettingsLayer};
@@ -91,11 +93,8 @@ fn local_settings_value(
 ) -> anyhow::Result<serde_json::Value> {
     let base_ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
     let layers = config_layers(&base_ctx, args.workflow.as_deref())?;
-    let local_settings = fabro_config::effective_settings::materialize_settings_layer(
-        layers,
-        None,
-        EffectiveSettingsMode::LocalOnly,
-    )?;
+    let local_settings =
+        materialize_settings_layer(layers, None, EffectiveSettingsMode::LocalOnly)?;
     let mut value = resolve_local_settings_value(&local_settings)?;
     strip_nulls(&mut value);
     Ok(value)
