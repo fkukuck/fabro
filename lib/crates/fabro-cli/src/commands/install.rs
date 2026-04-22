@@ -21,6 +21,8 @@ use dialoguer::theme::ColorfulTheme;
 use dialoguer::{MultiSelect, Select};
 use fabro_api::types::{CreateSecretRequest, SecretType as ApiSecretType};
 use fabro_auth::{AuthCredential, AuthMethod, codex_oauth_config, credential_id_for};
+use fabro_config::bind::Bind;
+use fabro_config::daemon::ServerDaemon;
 use fabro_config::user::{SETTINGS_CONFIG_FILENAME, default_storage_dir};
 use fabro_config::{ResolveError, Storage, envfile};
 use fabro_install::{
@@ -28,8 +30,6 @@ use fabro_install::{
     write_github_app_settings, write_token_settings,
 };
 use fabro_model::Provider;
-use fabro_server::bind::Bind;
-use fabro_server::daemon::ServerDaemon;
 use fabro_server::serve;
 use fabro_store::ArtifactStore;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};

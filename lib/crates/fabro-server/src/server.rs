@@ -39,6 +39,7 @@ pub use fabro_api::types::{
     SystemInfoResponse, SystemRunCounts, WriteBlobResponse,
 };
 use fabro_auth::parse_credential_secret;
+use fabro_config::daemon::ServerDaemon;
 use fabro_config::{Storage, resolve_server_from_file};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
@@ -111,7 +112,6 @@ use ulid::Ulid;
 
 use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
 use crate::canonical_origin::resolve_canonical_origin;
-use crate::daemon::ServerDaemon;
 use crate::error::ApiError;
 use crate::github_webhooks::{
     WEBHOOK_ROUTE, WEBHOOK_SECRET_ENV, parse_event_metadata, verify_signature,
@@ -7325,6 +7325,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, header};
     use chrono::Utc;
+    use fabro_config::bind::Bind;
     use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
@@ -7334,7 +7335,6 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::bind::Bind;
     use crate::github_webhooks::compute_signature;
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
 

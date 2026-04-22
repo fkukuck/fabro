@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use fabro_config::RuntimeDirectory;
-use fabro_server::bind::Bind;
-use fabro_server::daemon::ServerDaemon;
+use fabro_config::bind::Bind;
+use fabro_config::daemon::ServerDaemon;
 use fabro_util::printer::Printer;
 use tokio::time;
 

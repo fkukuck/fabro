@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
+use fabro_config::bind::Bind;
 use fabro_config::{RuntimeDirectory, parse_settings_layer, resolve_server_from_file};
-use fabro_server::bind::Bind;
 use fabro_server::ip_allowlist::{IpAllowlist, IpAllowlistConfig};
 use fabro_server::jwt_auth::{AuthMode, resolve_auth_mode_with_lookup};
 use fabro_server::serve::{ServeArgs, serve_command};

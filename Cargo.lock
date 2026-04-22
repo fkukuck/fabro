@@ -1719,6 +1719,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "fabro-proc",
  "fabro-types",
  "fabro-util",
  "ipnet",

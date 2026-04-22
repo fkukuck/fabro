@@ -7,6 +7,8 @@ extern crate self as fabro_config;
 
 mod defaults;
 
+pub mod bind;
+pub mod daemon;
 pub mod effective_settings;
 pub mod envfile;
 pub mod error;

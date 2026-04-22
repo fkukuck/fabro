@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use fabro_config::Storage;
-use fabro_server::daemon::ServerDaemon;
+use fabro_config::daemon::ServerDaemon;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::Home;

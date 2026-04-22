@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use chrono::Utc;
 use fabro_config::RuntimeDirectory;
-use fabro_server::daemon::ServerDaemon;
+use fabro_config::daemon::ServerDaemon;
 use fabro_util::printer::Printer;
 
 pub(crate) fn execute(storage_dir: &Path, json: bool, printer: Printer) -> Result<()> {

@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use fabro_config::RuntimeDirectory;
-use fabro_server::bind::BindRequest;
-use fabro_server::daemon::ServerDaemon;
+use fabro_config::bind::BindRequest;
+use fabro_config::daemon::ServerDaemon;
 use fabro_server::serve;
 use fabro_server::serve::ServeArgs;
 use fabro_util::terminal::Styles;
