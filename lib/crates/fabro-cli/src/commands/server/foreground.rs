@@ -6,17 +6,17 @@ use fabro_server::bind::BindRequest;
 use fabro_server::daemon::ServerDaemon;
 use fabro_server::serve;
 use fabro_server::serve::ServeArgs;
-use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
-pub(crate) async fn execute(
+/// Run `serve::serve_command` with scopeguards that write/remove the server
+/// daemon record and clean up a Unix socket on exit. Used by both
+/// `fabro server serve` and `fabro server start --foreground`.
+pub(crate) async fn serve_with_daemon_record(
     mut serve_args: ServeArgs,
     bind: BindRequest,
     storage_dir: PathBuf,
     styles: &'static Styles,
-    printer: Printer,
 ) -> Result<()> {
-    let _ = printer;
     serve_args.bind = Some(bind.to_string());
 
     let runtime_directory = RuntimeDirectory::new(&storage_dir);
@@ -35,7 +35,7 @@ pub(crate) async fn execute(
 
     let log_path = runtime_directory.log_path();
     let pid = std::process::id();
-    let daemon_dir = runtime_directory.clone();
+    let daemon_dir = runtime_directory;
 
     Box::pin(serve::serve_command(
         serve_args,

@@ -12,7 +12,6 @@ use fabro_config::{RuntimeDirectory, envfile};
 use fabro_server::bind::{Bind, BindRequest};
 use fabro_server::daemon::ServerDaemon;
 use fabro_server::jwt_auth::auth_method_name;
-use fabro_server::serve;
 use fabro_server::serve::{DEFAULT_TCP_PORT, ServeArgs};
 use fabro_types::settings::ServerAuthMethod;
 use fabro_util::printer::Printer;
@@ -66,11 +65,10 @@ pub(crate) async fn execute(
 }
 
 pub(crate) async fn prepare_foreground_server_log(
-    storage_dir: &Path,
+    runtime_directory: &RuntimeDirectory,
 ) -> Result<ForegroundServerLogBootstrap> {
-    let lock_file = acquire_lock(storage_dir).await?;
-    let runtime_directory = RuntimeDirectory::new(storage_dir);
-    if let Some(existing) = ServerDaemon::load_running(&runtime_directory)? {
+    let lock_file = acquire_lock(runtime_directory).await?;
+    if let Some(existing) = ServerDaemon::load_running(runtime_directory)? {
         bail!(
             "Server already running (pid {}) on {}",
             existing.pid,
@@ -228,7 +226,7 @@ fn valid_session_secret(secret: &str) -> bool {
     session_secret::validate_session_secret(secret).is_ok()
 }
 
-fn load_or_create_local_session_secret(storage_dir: &Path) -> Result<String> {
+fn load_or_create_local_session_secret(runtime_directory: &RuntimeDirectory) -> Result<String> {
     if let Some(secret) = std::env::var("SESSION_SECRET")
         .ok()
         .filter(|secret| valid_session_secret(secret))
@@ -236,7 +234,7 @@ fn load_or_create_local_session_secret(storage_dir: &Path) -> Result<String> {
         return Ok(secret);
     }
 
-    let server_env_path = RuntimeDirectory::new(storage_dir).env_path();
+    let server_env_path = runtime_directory.env_path();
     if let Some(secret) = envfile::read_env_file(&server_env_path)
         .ok()
         .and_then(|entries| entries.get("SESSION_SECRET").cloned())
@@ -263,7 +261,7 @@ async fn execute_foreground(
     styles: &'static Styles,
     _printer: Printer,
 ) -> Result<()> {
-    let session_secret = load_or_create_local_session_secret(&storage_dir)?;
+    let session_secret = load_or_create_local_session_secret(&RuntimeDirectory::new(&storage_dir))?;
     let prior_session_secret = std::env::var_os("SESSION_SECRET");
     std::env::set_var("SESSION_SECRET", &session_secret);
     let _env_guard =
@@ -275,33 +273,7 @@ async fn execute_foreground(
             },
         );
 
-    let runtime_directory = RuntimeDirectory::new(&storage_dir);
-    let log_path = runtime_directory.log_path();
-    let pid = std::process::id();
-    let daemon_dir = runtime_directory.clone();
-
-    let _record_guard = scopeguard::guard(runtime_directory.clone(), |dir| {
-        ServerDaemon::remove(&dir);
-    });
-
-    let _socket_guard = if let BindRequest::Unix(ref path) = bind {
-        let path = path.clone();
-        Some(scopeguard::guard(path, |p| {
-            let _ = std::fs::remove_file(p);
-        }))
-    } else {
-        None
-    };
-
-    Box::pin(serve::serve_command(
-        serve_args,
-        styles,
-        Some(storage_dir),
-        move |resolved_bind| {
-            ServerDaemon::new(pid, resolved_bind.clone(), log_path.clone()).write(&daemon_dir)
-        },
-    ))
-    .await
+    super::foreground::serve_with_daemon_record(serve_args, bind, storage_dir, styles).await
 }
 
 // ---------------------------------------------------------------------------
@@ -316,10 +288,10 @@ async fn execute_daemon(
     styles: Option<&Styles>,
     printer: Printer,
 ) -> Result<()> {
-    let lock_file = acquire_lock(storage_dir).await?;
+    let runtime_directory = RuntimeDirectory::new(storage_dir);
+    let lock_file = acquire_lock(&runtime_directory).await?;
     let _lock_file = lock_file;
 
-    let runtime_directory = RuntimeDirectory::new(storage_dir);
     if let Some(existing) = ServerDaemon::load_running(&runtime_directory)? {
         if announce {
             bail!(
@@ -375,7 +347,7 @@ async fn execute_daemon(
         cmd.arg("--watch-web");
     }
 
-    let session_secret = load_or_create_local_session_secret(storage_dir)?;
+    let session_secret = load_or_create_local_session_secret(&runtime_directory)?;
     cmd.arg("--storage-dir").arg(storage_dir);
     cmd.env("SESSION_SECRET", &session_secret);
 
@@ -472,8 +444,8 @@ fn print_auth_methods(printer: Printer, serve_args: &ServeArgs) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async fn acquire_lock(storage_dir: &Path) -> Result<std::fs::File> {
-    let lock_path = RuntimeDirectory::new(storage_dir).lock_path();
+async fn acquire_lock(runtime_directory: &RuntimeDirectory) -> Result<std::fs::File> {
+    let lock_path = runtime_directory.lock_path();
     if let Some(parent) = lock_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating server lock directory {}", parent.display()))?;

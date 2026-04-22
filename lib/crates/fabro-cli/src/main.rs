@@ -497,7 +497,7 @@ async fn prepare_server_bootstrap(
     let storage_dir = local_server::storage_dir(&settings)?;
     let runtime_directory = fabro_config::RuntimeDirectory::new(storage_dir.clone());
     let foreground_server_log_bootstrap = if foreground {
-        Some(commands::server::start::prepare_foreground_server_log(&storage_dir).await?)
+        Some(commands::server::start::prepare_foreground_server_log(&runtime_directory).await?)
     } else {
         None
     };

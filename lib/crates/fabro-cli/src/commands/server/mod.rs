@@ -137,8 +137,9 @@ pub(crate) async fn dispatch(
             );
             let storage_dir = local_server::storage_dir(&settings)?;
             let bind_addr = local_server::bind_request(&settings, serve_args.bind.as_deref())?;
+            let _ = printer;
             let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-            Box::pin(foreground::execute(
+            Box::pin(foreground::serve_with_daemon_record(
                 ServeArgs {
                     config: active_config_path,
                     ..serve_args
@@ -146,7 +147,6 @@ pub(crate) async fn dispatch(
                 bind_addr,
                 storage_dir,
                 styles,
-                printer,
             ))
             .await
         }
