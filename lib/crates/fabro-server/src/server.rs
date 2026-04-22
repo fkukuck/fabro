@@ -108,7 +108,7 @@ use ulid::Ulid;
 
 use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
 use crate::bind::Bind;
-use crate::canonical_origin::{resolve_canonical_origin, validate_canonical_origin};
+use crate::canonical_origin::resolve_canonical_origin;
 use crate::error::ApiError;
 use crate::github_webhooks::{
     WEBHOOK_ROUTE, WEBHOOK_SECRET_ENV, parse_event_metadata, verify_signature,
@@ -793,15 +793,7 @@ impl AppState {
                     .join("\n")
             )
         })?);
-        let resolved_ref = Arc::as_ref(&resolved);
-        if let Err(error) = validate_canonical_origin(resolved_ref, &self.env_lookup) {
-            let error = anyhow::anyhow!(error);
-            warn!(
-                error = %error,
-                "Failed to resolve reloaded server config, keeping previous"
-            );
-            return Err(error);
-        }
+        resolve_canonical_origin(&resolved, &self.env_lookup).map_err(anyhow::Error::msg)?;
 
         *self.settings.write().expect("settings lock poisoned") = settings;
         *self
@@ -7317,7 +7309,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     #[cfg(unix)]
     use std::process::Stdio;
-    use std::sync::{Arc as StdArc, Mutex as StdMutex};
 
     use axum::body::Body;
     use axum::http::{Request, header};
@@ -7327,10 +7318,6 @@ mod tests {
     use fabro_types::{InterviewQuestionRecord, InterviewQuestionType, RunBlobId, RunId, fixtures};
     use serde_json::json;
     use tower::ServiceExt;
-    use tracing::field::{Field, Visit};
-    use tracing::{Event, Subscriber};
-    use tracing_subscriber::layer::{Context, SubscriberExt};
-    use tracing_subscriber::{Layer, Registry};
 
     use super::*;
     use crate::github_webhooks::compute_signature;
@@ -7438,54 +7425,6 @@ mod tests {
         })
     }
 
-    #[derive(Debug)]
-    struct LogCapture {
-        level:  tracing::Level,
-        target: String,
-        fields: Vec<(String, String)>,
-    }
-
-    #[derive(Default)]
-    struct LogCaptureVisitor {
-        fields: Vec<(String, String)>,
-    }
-
-    impl Visit for LogCaptureVisitor {
-        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-            self.fields
-                .push((field.name().to_string(), format!("{value:?}")));
-        }
-    }
-
-    struct LogCaptureLayer {
-        events: StdArc<StdMutex<Vec<LogCapture>>>,
-    }
-
-    impl<S: Subscriber> Layer<S> for LogCaptureLayer {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            if event.metadata().target() != "fabro_server::server" {
-                return;
-            }
-
-            let mut visitor = LogCaptureVisitor::default();
-            event.record(&mut visitor);
-            self.events.lock().unwrap().push(LogCapture {
-                level:  *event.metadata().level(),
-                target: event.metadata().target().to_string(),
-                fields: visitor.fields,
-            });
-        }
-    }
-
-    fn capture_logs<T>(f: impl FnOnce() -> T) -> (T, StdArc<StdMutex<Vec<LogCapture>>>) {
-        let events = StdArc::new(StdMutex::new(Vec::<LogCapture>::new()));
-        let subscriber = Registry::default().with(LogCaptureLayer {
-            events: StdArc::clone(&events),
-        });
-        let result = tracing::subscriber::with_default(subscriber, f);
-        (result, events)
-    }
-
     fn canonical_origin_settings(url: &str) -> SettingsLayer {
         fabro_config::parse_settings_layer(&format!(
             r#"
@@ -7538,11 +7477,9 @@ type = "http"
                 },
             );
 
-            let (result, logs) = capture_logs(|| {
-                state.replace_settings(canonical_origin_settings("{{ env.FABRO_WEB_URL }}"))
-            });
-
-            let err = result.expect_err("invalid canonical origin should be rejected");
+            let err = state
+                .replace_settings(canonical_origin_settings("{{ env.FABRO_WEB_URL }}"))
+                .expect_err("invalid canonical origin should be rejected");
             assert!(
                 err.to_string()
                     .contains("server.web.url is required and must be an absolute http(s) URL"),
@@ -7552,18 +7489,6 @@ type = "http"
                 state.canonical_origin().unwrap(),
                 "http://valid.example.com".to_string()
             );
-
-            let logs = logs.lock().unwrap();
-            assert!(logs.iter().any(|event| {
-                event.level == tracing::Level::WARN
-                    && event.target == "fabro_server::server"
-                    && event.fields.iter().any(|(name, value)| {
-                        name == "message"
-                            && value.contains(
-                                "Failed to resolve reloaded server config, keeping previous",
-                            )
-                    })
-            }));
         }
     }
 

@@ -3,13 +3,6 @@ use url::Url;
 
 use crate::server::EnvLookup;
 
-pub(crate) fn validate_canonical_origin(
-    resolved: &ResolvedServerSettings,
-    env_lookup: &EnvLookup,
-) -> Result<(), String> {
-    resolve_canonical_origin(resolved, env_lookup).map(|_| ())
-}
-
 pub(crate) fn resolve_canonical_origin(
     resolved: &ResolvedServerSettings,
     env_lookup: &EnvLookup,
@@ -22,8 +15,7 @@ pub(crate) fn resolve_canonical_origin(
         .value;
 
     let parsed = Url::parse(&value).map_err(|_| canonical_origin_error(&value))?;
-    let scheme = parsed.scheme();
-    if !matches!(scheme, "http" | "https") || parsed.host_str().is_none() {
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
         return Err(canonical_origin_error(&value));
     }
 

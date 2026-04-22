@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use cookie::time::Duration;
 use cookie::{Cookie, CookieJar, Key, SameSite};
-use fabro_types::settings::{InterpString, ServerAuthMethod};
+use fabro_types::settings::ServerAuthMethod;
 use fabro_types::{IdpIdentity, RunAuthMethod};
 use fabro_util::dev_token::validate_dev_token_format;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
@@ -257,10 +257,6 @@ fn callback_error_redirect(
     }
 }
 
-fn resolve_interp(state: &AppState, value: &InterpString) -> anyhow::Result<String> {
-    state.resolve_interp(value)
-}
-
 fn auth_methods_from_mode(auth_mode: &AuthMode) -> Vec<String> {
     match auth_mode {
         AuthMode::Enabled(config) => config
@@ -385,7 +381,7 @@ async fn login_github(
             json!({"error": "GitHub App client_id is not configured"}),
         );
     };
-    let client_id = match resolve_interp(state.as_ref(), client_id) {
+    let client_id = match state.resolve_interp(client_id) {
         Ok(client_id) => client_id,
         Err(err) => {
             warn!(error = %err, "OAuth login failed: client_id could not be resolved");
@@ -395,23 +391,13 @@ async fn login_github(
             );
         }
     };
-    let web_url = match resolve_interp(state.as_ref(), &settings.web.url) {
+    let web_url = match state.canonical_origin() {
         Ok(web_url) => web_url,
         Err(err) => {
-            warn!(error = %err, "OAuth login failed: server.web.url could not be resolved");
-            return json_response(
-                StatusCode::CONFLICT,
-                json!({"error": format!("server.web.url could not be resolved: {err}")}),
-            );
+            warn!(error = %err, "OAuth login failed: server.web.url is invalid");
+            return json_response(StatusCode::CONFLICT, json!({"error": err}));
         }
     };
-    if web_url.is_empty() {
-        warn!("OAuth login failed: server.web.url not configured");
-        return json_response(
-            StatusCode::CONFLICT,
-            json!({"error": "server.web.url is not configured"}),
-        );
-    }
 
     let state_token = format!("fabro-{}", ulid::Ulid::new());
     let authorize_url = fabro_http::Url::parse_with_params(
@@ -537,7 +523,7 @@ async fn callback_github(
             json!({"error": "GitHub App client_id is not configured"}),
         );
     };
-    let client_id = match resolve_interp(state.as_ref(), client_id) {
+    let client_id = match state.resolve_interp(client_id) {
         Ok(client_id) => client_id,
         Err(err) => {
             error!(error = %err, "OAuth callback failed: client_id could not be resolved");
@@ -554,14 +540,11 @@ async fn callback_github(
             json!({"error": "GITHUB_APP_CLIENT_SECRET is not configured"}),
         );
     };
-    let web_url = match resolve_interp(state.as_ref(), &settings.web.url) {
+    let web_url = match state.canonical_origin() {
         Ok(web_url) => web_url,
         Err(err) => {
-            error!(error = %err, "OAuth callback failed: server.web.url could not be resolved");
-            return json_response(
-                StatusCode::CONFLICT,
-                json!({"error": format!("server.web.url could not be resolved: {err}")}),
-            );
+            error!(error = %err, "OAuth callback failed: server.web.url is invalid");
+            return json_response(StatusCode::CONFLICT, json!({"error": err}));
         }
     };
 
