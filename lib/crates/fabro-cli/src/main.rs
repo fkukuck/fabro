@@ -31,9 +31,9 @@ use fabro_config::merge::combine_files;
 use fabro_telemetry::{git, panic as tel_panic, sanitize, sender};
 use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::cli::OutputVerbosity;
-use fabro_util::exit;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
+use fabro_util::{browser, exit};
 use rustls::crypto::ring::default_provider;
 use tracing::debug;
 
@@ -276,7 +276,7 @@ async fn main_inner() -> (String, Result<()>) {
                         "url": "https://fabro.sh/discord",
                     }))?;
                 } else {
-                    open::that("https://fabro.sh/discord")?;
+                    browser::try_open("https://fabro.sh/discord")?;
                 }
             }
             Commands::Docs => {
@@ -285,7 +285,7 @@ async fn main_inner() -> (String, Result<()>) {
                         "url": "https://docs.fabro.sh/",
                     }))?;
                 } else {
-                    open::that("https://docs.fabro.sh/")?;
+                    browser::try_open("https://docs.fabro.sh/")?;
                 }
             }
             Commands::Repo(ns) => {

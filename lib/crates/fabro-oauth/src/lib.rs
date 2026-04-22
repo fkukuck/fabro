@@ -6,6 +6,7 @@ use axum::response::Html;
 use axum::routing::get;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use fabro_util::browser;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
@@ -653,7 +654,7 @@ pub async fn run_browser_flow(
         "OAuth browser flow started"
     );
 
-    if let Err(e) = open::that(&auth_url) {
+    if let Err(e) = browser::try_open(&auth_url) {
         tracing::warn!("Could not open browser: {e}");
     }
 

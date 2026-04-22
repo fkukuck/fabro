@@ -81,7 +81,6 @@ rand.workspace = true
 dialoguer.workspace = true
 git2.workspace = true
 axum.workspace = true
-open = "5"
 serde_json.workspace = true
 serde_yaml = "0.9"
 tempfile = "3"

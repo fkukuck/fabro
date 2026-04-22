@@ -6,6 +6,7 @@ use fabro_client::{AuthEntry, AuthStore, StoredSubject};
 use fabro_http::header::CONTENT_TYPE;
 use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
+use fabro_util::browser;
 use fabro_util::printer::Printer;
 use serde::Deserialize;
 use tokio::time::timeout;
@@ -189,7 +190,7 @@ fn open_browser_or_print(browser_url: &str, no_browser: bool, printer: Printer) 
         return;
     }
 
-    if let Err(error) = open::that(browser_url) {
+    if let Err(error) = browser::try_open(browser_url) {
         fabro_util::printerr!(printer, "Could not open a browser automatically: {error}");
         fabro_util::printerr!(printer, "Open this URL to continue login:");
         fabro_util::printerr!(printer, "{browser_url}");

@@ -23,7 +23,7 @@ hex.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 axum.workspace = true
-open = "5"
+fabro-util = { path = "../fabro-util" }
 
 [dev-dependencies]
 httpmock = "0.8"

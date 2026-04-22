@@ -1,4 +1,5 @@
 pub mod backoff;
+pub mod browser;
 pub mod check_report;
 pub mod dev_token;
 pub mod env;

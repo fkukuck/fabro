@@ -13,6 +13,7 @@ use fabro_config::user::{FABRO_CONFIG_ENV, active_settings_path, default_storage
 use fabro_server::bind::{self, Bind, BindRequest};
 use fabro_server::install::{self, InstallAppState};
 use fabro_server::serve::{self, ServeArgs};
+use fabro_util::browser;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -223,7 +224,7 @@ fn announce_install_mode(bind: &Bind, token: &str, styles: &Styles, printer: Pri
         Some(url) => {
             fabro_util::printerr!(printer, "  Open this URL in your browser to finish setup:");
             fabro_util::printerr!(printer, "    {url}");
-            if let Err(e) = open::that(&url) {
+            if let Err(e) = browser::try_open(&url) {
                 fabro_util::printerr!(printer, "");
                 fabro_util::printerr!(printer, "  Could not open a browser automatically: {e}");
                 fabro_util::printerr!(printer, "  Open the URL above manually to continue.");

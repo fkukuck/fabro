@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use assert_cmd::Command;
 use fabro_config::Storage;
 use fabro_types::RunId;
+use fabro_util::browser;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use toml::Value as TomlValue;
@@ -163,7 +164,8 @@ fn apply_test_isolation_with_lookup(
     cmd.env("HOME", home_dir);
     cmd.env("FABRO_NO_UPGRADE_CHECK", "true")
         .env("FABRO_HTTP_PROXY_POLICY", "disabled")
-        .env("FABRO_TELEMETRY", "off");
+        .env("FABRO_TELEMETRY", "off")
+        .env(browser::SUPPRESS_ENV_VAR, "1");
     cmd.env("FABRO_SERVER_MAX_CONCURRENT_RUNS", "64");
     cmd.env(TEST_IN_MEMORY_STORE_ENV, "1");
 }

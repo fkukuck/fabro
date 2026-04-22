@@ -37,7 +37,7 @@ use fabro_types::settings::{CliSettings, SettingsLayer};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_util::version::FABRO_VERSION;
-use fabro_util::{dev_token, path, session_secret};
+use fabro_util::{browser, dev_token, path, session_secret};
 use fabro_vault::{SecretType as VaultSecretType, Vault};
 use futures::future::BoxFuture;
 use rand::Rng;
@@ -1003,7 +1003,7 @@ async fn setup_github_app(
     match handoff_mode {
         GitHubAppHandoffMode::Interactive => {
             fabro_util::printerr!(printer, "  {}", s.dim.apply_to("Opening browser..."));
-            if let Err(e) = open::that(&url) {
+            if let Err(e) = browser::try_open(&url) {
                 fabro_util::printerr!(printer, "  Could not open browser automatically: {e}");
                 fabro_util::printerr!(printer, "  Please open this URL manually: {url}");
             }
