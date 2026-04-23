@@ -7,7 +7,7 @@ use std::time::Duration;
 use fabro_agent::Sandbox;
 use fabro_auth::CredentialSource;
 #[cfg(test)]
-use fabro_auth::EnvCredentialSource;
+use fabro_auth::ResolvedCredentials;
 use fabro_hooks::{HookContext, HookDecision, HookRunner};
 use fabro_model::Provider;
 #[cfg(test)]
@@ -25,16 +25,35 @@ use crate::runtime_store::RunStoreHandle;
 use crate::sandbox_git::GitState;
 use crate::workflow_bundle::WorkflowBundle;
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct StubCredentialSource;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl CredentialSource for StubCredentialSource {
+    async fn resolve(&self) -> anyhow::Result<ResolvedCredentials> {
+        Ok(ResolvedCredentials {
+            credentials: Vec::new(),
+            auth_issues: Vec::new(),
+        })
+    }
+
+    async fn configured_providers(&self) -> Vec<Provider> {
+        Vec::new()
+    }
+}
+
 /// Services shared across workflow phases.
 #[derive(Clone)]
 pub struct RunServices {
-    pub run_store:         RunStoreHandle,
-    pub emitter:           Arc<Emitter>,
-    pub sandbox:           Arc<dyn Sandbox>,
-    pub hook_runner:       Option<Arc<HookRunner>>,
-    pub cancel_requested:  Option<Arc<AtomicBool>>,
-    pub provider:          Provider,
-    pub llm_source:        Arc<dyn CredentialSource>,
+    pub run_store:        RunStoreHandle,
+    pub emitter:          Arc<Emitter>,
+    pub sandbox:          Arc<dyn Sandbox>,
+    pub hook_runner:      Option<Arc<HookRunner>>,
+    pub cancel_requested: Option<Arc<AtomicBool>>,
+    pub provider:         Provider,
+    pub llm_source:       Arc<dyn CredentialSource>,
 }
 
 impl RunServices {
@@ -71,16 +90,15 @@ impl RunServices {
         let Some(ref runner) = self.hook_runner else {
             return HookDecision::Proceed;
         };
-        runner.run(hook_context, Arc::clone(&self.sandbox), None).await
+        runner
+            .run(hook_context, Arc::clone(&self.sandbox), None)
+            .await
     }
 
     /// CLI helper: minimal cross-phase services for PR generation and similar
     /// source-backed operations outside the workflow executor.
     #[must_use]
-    pub fn for_cli(
-        run_store: RunStoreHandle,
-        llm_source: Arc<dyn CredentialSource>,
-    ) -> Arc<Self> {
+    pub fn for_cli(run_store: RunStoreHandle, llm_source: Arc<dyn CredentialSource>) -> Arc<Self> {
         Self::new(
             run_store,
             Arc::new(Emitter::default()),
@@ -129,7 +147,7 @@ impl RunServices {
         })
     }
 
-    /// Test-only default: local sandbox at cwd, empty run store, env source.
+    /// Test-only default: local sandbox at cwd, empty run store, stub source.
     #[cfg(test)]
     #[expect(
         clippy::disallowed_methods,
@@ -165,30 +183,30 @@ impl RunServices {
             None,
             None,
             Provider::Anthropic,
-            Arc::new(EnvCredentialSource::new()),
+            Arc::new(StubCredentialSource),
         )
     }
 }
 
 /// Services available only while executing workflow nodes.
 pub struct EngineServices {
-    pub run:             Arc<RunServices>,
-    pub registry:        Arc<HandlerRegistry>,
+    pub run:              Arc<RunServices>,
+    pub registry:         Arc<HandlerRegistry>,
     /// Git state for the current run. Set via `set_git_state` at the start of
     /// `execute` and read by parallel/fan-in handlers.
     pub(crate) git_state: std::sync::RwLock<Option<Arc<GitState>>>,
     /// Environment variables from `[sandbox.env]` config, injected into command
     /// nodes.
-    pub env:             HashMap<String, String>,
+    pub env:              HashMap<String, String>,
     /// Typed values from `[run.inputs]`, available to prompt templates.
-    pub inputs:          HashMap<String, toml::Value>,
+    pub inputs:           HashMap<String, toml::Value>,
     /// When true, handlers should skip real execution and return simulated
     /// results.
-    pub dry_run:         bool,
+    pub dry_run:          bool,
     /// Logical path of the current workflow when running from a bundle.
-    pub workflow_path:   Option<PathBuf>,
+    pub workflow_path:    Option<PathBuf>,
     /// Bundled workflows available for child-workflow resolution.
-    pub workflow_bundle: Option<Arc<WorkflowBundle>>,
+    pub workflow_bundle:  Option<Arc<WorkflowBundle>>,
 }
 
 impl EngineServices {
@@ -244,4 +262,16 @@ pub(crate) fn sandbox_cancel_token(
     });
 
     Some(token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunServices;
+
+    #[tokio::test]
+    async fn for_test_uses_stub_credential_source() {
+        let services = RunServices::for_test();
+
+        assert!(services.llm_source.configured_providers().await.is_empty());
+    }
 }

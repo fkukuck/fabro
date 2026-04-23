@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::{Args, Parser};
-use fabro_auth::EnvCredentialSource;
+use fabro_auth::{CredentialSource, EnvCredentialSource, VaultCredentialSource};
+use fabro_config::{Storage, load_settings_user, resolve_storage_root};
 use fabro_llm::Error as LlmError;
 use fabro_llm::client::Client;
 use fabro_llm::middleware::{Middleware, NextFn, NextStreamFn};
@@ -17,9 +18,10 @@ use fabro_llm::types::{Request, Response};
 use fabro_mcp::config::McpServerSettings;
 use fabro_model::{Catalog, ModelHandle, Provider};
 use fabro_util::terminal::Styles;
+use fabro_vault::Vault;
 use tokio::io::{AsyncWriteExt, stdout};
 use tokio::signal;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 use crate::config::{ToolApprovalAdapter, ToolApprovalFn, ToolHookCallback};
 use crate::error::InterruptReason;
@@ -216,20 +218,18 @@ fn summarizer_model_id(provider: Provider) -> ModelHandle {
     }
 }
 
-fn build_summarizer(provider: Provider, llm_client: Option<Client>) -> Option<WebFetchSummarizer> {
-    let client = llm_client?;
-    Some(WebFetchSummarizer {
-        client,
+fn build_summarizer(provider: Provider, llm_client: Client) -> WebFetchSummarizer {
+    WebFetchSummarizer {
+        client:   llm_client,
         model_id: summarizer_model_id(provider),
-    })
+    }
 }
 
 fn build_profile(
     provider: Provider,
     model: &str,
-    llm_client: Option<Client>,
+    summarizer: Option<WebFetchSummarizer>,
 ) -> Box<dyn AgentProfile> {
-    let summarizer = build_summarizer(provider, llm_client);
     match provider {
         Provider::OpenAi => Box::new(OpenAiProfile::with_summarizer(model, summarizer)),
         Provider::Kimi
@@ -242,6 +242,45 @@ fn build_profile(
         Provider::Gemini => Box::new(GeminiProfile::with_summarizer(model, summarizer)),
         Provider::Anthropic => Box::new(AnthropicProfile::with_summarizer(model, summarizer)),
     }
+}
+
+fn parse_provider(args: &AgentArgs) -> anyhow::Result<Provider> {
+    let provider_str = args.provider.as_deref().unwrap_or("anthropic");
+    provider_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("unknown provider: {provider_str}"))
+}
+
+fn standalone_llm_source() -> anyhow::Result<Arc<dyn CredentialSource>> {
+    fn env_lookup(name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+
+    let settings = load_settings_user()?;
+    let storage_root = resolve_storage_root(&settings);
+
+    let storage_dir = match storage_root.resolve(&env_lookup) {
+        Ok(resolved) => PathBuf::from(resolved.value),
+        Err(_) => return Ok(Arc::new(EnvCredentialSource::new())),
+    };
+
+    let vault = Vault::load(Storage::new(&storage_dir).secrets_path())
+        .map_err(|err| anyhow::anyhow!("Failed to load vault for LLM credentials: {err}"))?;
+    Ok(Arc::new(VaultCredentialSource::new(Arc::new(
+        AsyncRwLock::new(vault),
+    ))))
+}
+
+fn ensure_provider_registered(client: &Client, provider: Provider) -> anyhow::Result<()> {
+    if client
+        .provider_names()
+        .iter()
+        .any(|name| *name == provider.as_str())
+    {
+        return Ok(());
+    }
+
+    anyhow::bail!("LLM credentials not configured for provider '{provider}'");
 }
 
 fn format_tool_args(args: &serde_json::Value, cwd: &str) -> String {
@@ -403,7 +442,27 @@ pub async fn run_with_args(
     args: AgentArgs,
     mcp_servers: Vec<McpServerSettings>,
 ) -> anyhow::Result<()> {
-    run_with_args_and_client(args, None, mcp_servers).await
+    let llm_source = standalone_llm_source()?;
+    run_with_args_and_source(args, llm_source, mcp_servers).await
+}
+
+#[allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "Assistant output stays on stdout while prompts and diagnostics use stderr."
+)]
+pub async fn run_with_args_and_source(
+    args: AgentArgs,
+    llm_source: Arc<dyn CredentialSource>,
+    mcp_servers: Vec<McpServerSettings>,
+) -> anyhow::Result<()> {
+    let provider = parse_provider(&args)?;
+    let client = Client::from_source(llm_source.as_ref())
+        .await
+        .map(|client| (*client).clone())
+        .map_err(|e| anyhow::anyhow!("Failed to create LLM client: {e}"))?;
+    ensure_provider_registered(&client, provider)?;
+    run_with_args_and_client(args, client, mcp_servers).await
 }
 
 #[allow(
@@ -413,33 +472,15 @@ pub async fn run_with_args(
 )]
 pub async fn run_with_args_and_client(
     args: AgentArgs,
-    llm_client: Option<Client>,
+    mut client: Client,
     mcp_servers: Vec<McpServerSettings>,
 ) -> anyhow::Result<()> {
     // Resolve color support once, leak to get 'static lifetime for use across
     // threads
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
 
-    // Parse provider string to enum early for compile-time safety
-    let provider_str = args.provider.as_deref().unwrap_or("anthropic");
-    let provider: Provider = provider_str
-        .parse()
-        .map_err(|_| anyhow::anyhow!("unknown provider: {provider_str}"))?;
-
-    // Build LLM client — use provided client or create from env
-    let mut client = if let Some(c) = llm_client {
-        c
-    } else {
-        // Validate provider API key only in standalone mode
-        if !provider.has_api_key() {
-            anyhow::bail!("API key not set for provider '{provider}'");
-        }
-        let source = EnvCredentialSource::new();
-        Client::from_source(&source)
-            .await
-            .map(|client| (*client).clone())
-            .map_err(|e| anyhow::anyhow!("Failed to create LLM client: {e}"))?
-    };
+    let provider = parse_provider(&args)?;
+    ensure_provider_registered(&client, provider)?;
 
     if args.verbose {
         client.add_middleware(Arc::new(VerboseMiddleware { styles }));
@@ -461,7 +502,11 @@ pub async fn run_with_args_and_client(
             })?
     };
     eprintln!("{}", styles.dim.apply_to(format!("Using model: {model}")));
-    let mut profile = build_profile(provider, &model, Some(client.clone()));
+    let mut profile = build_profile(
+        provider,
+        &model,
+        Some(build_summarizer(provider, client.clone())),
+    );
 
     // Build sandbox
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -497,7 +542,7 @@ pub async fn run_with_args_and_client(
     let factory_env = Arc::clone(&env);
     let factory_hooks = config.tool_hooks.clone();
     let factory: SessionFactory = Arc::new(move || {
-        let child_summarizer = build_summarizer(provider, Some(factory_client.clone()));
+        let child_summarizer = Some(build_summarizer(provider, factory_client.clone()));
         let child_profile: Arc<dyn AgentProfile> = match provider {
             Provider::OpenAi => Arc::new(OpenAiProfile::with_summarizer(
                 &factory_model,

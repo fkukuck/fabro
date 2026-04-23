@@ -530,8 +530,8 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
         } else if let Ok(ref result) = outcome {
             if matches!(
                 result.status,
-            StageStatus::Success | StageStatus::PartialSuccess
-        ) {
+                StageStatus::Success | StageStatus::PartialSuccess
+            ) {
                 let diff = load_pull_request_diff(&services.run_store).await;
                 if let (Some(base_branch), Some(run_branch), Some(creds), Some(origin)) = (
                     &run_options.base_branch,
@@ -610,20 +610,26 @@ mod tests {
     use std::time::Duration;
 
     use chrono::Utc;
-    use fabro_auth::{CredentialSource, EnvCredentialSource};
+    use fabro_auth::{
+        AuthCredential, AuthDetails, CredentialSource, EnvCredentialSource, VaultCredentialSource,
+    };
     use fabro_graphviz::graph::Graph;
+    use fabro_llm::Error as LlmError;
     use fabro_llm::client::Client;
     use fabro_llm::provider::{ProviderAdapter, StreamEventStream};
     use fabro_llm::types::{FinishReason, Message, Request, Response, StreamEvent, TokenCounts};
-    use fabro_llm::Error as LlmError;
     use fabro_retro::retro::{
         AggregateStats, FrictionKind, FrictionPoint, OpenItem, OpenItemKind, StageRetro,
     };
     use fabro_store::Database;
     use fabro_types::settings::SettingsLayer;
     use fabro_types::{BilledTokenCounts, RunSpec, SuccessReason, fixtures};
+    use fabro_vault::{SecretType, Vault};
     use futures::stream;
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
     use object_store::memory::InMemory;
+    use tokio::sync::RwLock as AsyncRwLock;
 
     use super::*;
     use crate::event::{Event, append_event};
@@ -723,6 +729,39 @@ mod tests {
 
     fn test_llm_source() -> Arc<dyn CredentialSource> {
         Arc::new(EnvCredentialSource::new())
+    }
+
+    fn openai_api_key_credential(key: &str) -> AuthCredential {
+        AuthCredential {
+            provider: fabro_model::Provider::OpenAi,
+            details:  AuthDetails::ApiKey {
+                key: key.to_string(),
+            },
+        }
+    }
+
+    fn openai_responses_payload(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-5.4",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": text
+                        }
+                    ]
+                }
+            ],
+            "status": "completed",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20
+            }
+        })
     }
 
     fn make_test_conclusion() -> Conclusion {
@@ -1265,6 +1304,58 @@ mod tests {
 
         assert!(body.contains("Narrative from explicit client."));
         assert!(!body.contains("Narrative from mock."));
+    }
+
+    #[tokio::test]
+    async fn build_pr_body_uses_vault_only_openai_codex_source() {
+        let server = MockServer::start_async().await;
+        let response_mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/v1/responses")
+                    .header("authorization", "Bearer vault-openai-key");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(openai_responses_payload("Narrative from vault source."));
+            })
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = Vault::load(dir.path().join("secrets.json")).unwrap();
+        vault
+            .set(
+                "openai_codex",
+                &serde_json::to_string(&openai_api_key_credential("vault-openai-key")).unwrap(),
+                SecretType::Credential,
+                None,
+            )
+            .unwrap();
+        let base_url = server.url("/v1");
+        let llm_source: Arc<dyn CredentialSource> =
+            Arc::new(VaultCredentialSource::with_env_lookup(
+                Arc::new(AsyncRwLock::new(vault)),
+                move |name| match name {
+                    "OPENAI_BASE_URL" => Some(base_url.clone()),
+                    _ => None,
+                },
+            ));
+
+        let store = test_store();
+        let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
+        let services = RunServices::for_cli(run_store.into(), llm_source);
+
+        let body = build_pr_body(
+            "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
+            "Implement feature",
+            "gpt-5.4",
+            services.as_ref(),
+            Some(&make_test_conclusion()),
+        )
+        .await
+        .unwrap();
+
+        assert!(body.contains("Narrative from vault source."));
+        response_mock.assert_async().await;
     }
 
     // ── parse_dot_summary tests ─────────────────────────────────────────

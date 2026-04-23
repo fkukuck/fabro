@@ -103,7 +103,7 @@ fn exec_missing_api_key_exits_with_error() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: API key not set for provider 'anthropic'
+    error: LLM credentials not configured for provider 'anthropic'
     ");
 }
 
@@ -129,7 +129,7 @@ fn exec_uses_user_config_defaults() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: API key not set for provider 'openai'
+    error: LLM credentials not configured for provider 'openai'
     ");
 }
 
@@ -205,8 +205,8 @@ fn exec_configured_server_target_alone_does_not_reroute_exec() {
     let output = cmd.assert().failure().get_output().clone();
     let stderr = String::from_utf8(output.stderr).expect("valid utf8");
     assert!(
-        stderr.contains("API key not set for provider 'openai'"),
-        "expected local API key validation failure, got: {stderr}"
+        stderr.contains("LLM credentials not configured for provider 'openai'"),
+        "expected local credential resolution failure, got: {stderr}"
     );
     assert!(
         !stderr.contains("config-should-not-be-used"),

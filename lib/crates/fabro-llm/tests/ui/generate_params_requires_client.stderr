@@ -1,0 +1,15 @@
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+ --> tests/ui/generate_params_requires_client.rs:4:13
+  |
+4 |     let _ = GenerateParams::new("claude-sonnet-4-5");
+  |             ^^^^^^^^^^^^^^^^^^^--------------------- argument #2 of type `Arc<Client>` is missing
+  |
+note: associated function defined here
+ --> src/generate.rs
+  |
+  |     pub fn new(model: impl Into<String>, client: Arc<Client>) -> Self {
+  |            ^^^
+help: provide the argument
+  |
+4 |     let _ = GenerateParams::new("claude-sonnet-4-5", /* Arc<Client> */);
+  |                                                    +++++++++++++++++++

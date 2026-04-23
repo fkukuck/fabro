@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fabro_agent::Sandbox;
-use fabro_auth::EnvCredentialSource;
+use fabro_auth::{CredentialSource, EnvCredentialSource};
 use fabro_graphviz::graph::Graph as GvGraph;
 use fabro_store::{ArtifactStore, Database, RunProjection};
 use object_store::local::LocalFileSystem;
@@ -34,6 +34,7 @@ struct InitializedOptions {
     hook_runner: Option<Arc<fabro_hooks::HookRunner>>,
     env:         HashMap<String, String>,
     checkpoint:  Option<Checkpoint>,
+    llm_source:  Option<Arc<dyn CredentialSource>>,
 }
 
 struct InitializedState {
@@ -115,38 +116,40 @@ async fn initialized(
     );
     InitializedState {
         initialized: Initialized {
-            graph: graph.clone(),
-            source: String::new(),
-            run_options: run_options.clone(),
-            checkpoint: options.checkpoint,
-            seed_context: None,
-            on_node: None,
+            graph:         graph.clone(),
+            source:        String::new(),
+            run_options:   run_options.clone(),
+            checkpoint:    options.checkpoint,
+            seed_context:  None,
+            on_node:       None,
             artifact_sink: Some(ArtifactSink::Store(artifact_store)),
-            run_control: None,
-            engine: Arc::new(EngineServices {
-                run: RunServices::new(
+            run_control:   None,
+            engine:        Arc::new(EngineServices {
+                run:             RunServices::new(
                     run_store.into(),
                     emitter,
                     sandbox,
                     options.hook_runner,
                     run_options.cancel_token.clone(),
                     fabro_llm::Provider::Anthropic,
-                    Arc::new(EnvCredentialSource::new()),
+                    options
+                        .llm_source
+                        .unwrap_or_else(|| Arc::new(EnvCredentialSource::new())),
                 ),
-                registry: Arc::new(registry),
-                git_state: std::sync::RwLock::new(None),
-                env: options.env,
-                inputs: run_options
+                registry:        Arc::new(registry),
+                git_state:       std::sync::RwLock::new(None),
+                env:             options.env,
+                inputs:          run_options
                     .settings
                     .run
                     .as_ref()
                     .and_then(|run| run.inputs.clone())
                     .unwrap_or_default(),
-                dry_run: run_options.dry_run_enabled(),
-                workflow_path: None,
+                dry_run:         run_options.dry_run_enabled(),
+                workflow_path:   None,
                 workflow_bundle: None,
             }),
-            model: String::new(),
+            model:         String::new(),
         },
         store_logger,
     }
@@ -169,6 +172,7 @@ pub async fn run_graph(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -196,6 +200,7 @@ pub async fn run_graph_with_state(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -231,6 +236,7 @@ pub async fn run_graph_with_hooks(
             hook_runner: Some(hook_runner),
             env:         env.unwrap_or_default(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -258,6 +264,7 @@ pub async fn run_graph_with_hooks_and_state(
             hook_runner: Some(hook_runner),
             env:         env.unwrap_or_default(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -292,6 +299,7 @@ pub async fn run_graph_from_checkpoint(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  Some(checkpoint.clone()),
+            llm_source:  None,
         },
     )
     .await;
@@ -318,6 +326,42 @@ pub async fn run_graph_from_checkpoint_with_state(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  Some(checkpoint.clone()),
+            llm_source:  None,
+        },
+    )
+    .await;
+    let executed = pipeline::execute(initialized.initialized).await;
+    initialized.store_logger.flush().await;
+    let outcome = executed.outcome?;
+    let state = executed
+        .engine
+        .run
+        .run_store
+        .state()
+        .await
+        .map_err(|err| Error::engine(err.to_string()))?;
+    Ok((outcome, state))
+}
+
+pub async fn run_graph_with_state_and_llm_source(
+    registry: HandlerRegistry,
+    emitter: Arc<Emitter>,
+    sandbox: Arc<dyn Sandbox>,
+    graph: &GvGraph,
+    run_options: &RunOptions,
+    llm_source: Arc<dyn CredentialSource>,
+) -> Result<(Outcome, RunProjection)> {
+    let initialized = initialized(
+        registry,
+        emitter,
+        sandbox,
+        graph,
+        run_options,
+        InitializedOptions {
+            hook_runner: None,
+            env:         HashMap::new(),
+            checkpoint:  None,
+            llm_source:  Some(llm_source),
         },
     )
     .await;
@@ -388,6 +432,29 @@ impl WorkflowRunner {
             Arc::clone(&self.sandbox),
             graph,
             run_options,
+        ))
+        .await
+    }
+
+    pub async fn run_with_state_and_llm_source(
+        &self,
+        graph: &GvGraph,
+        run_options: &RunOptions,
+        llm_source: Arc<dyn CredentialSource>,
+    ) -> Result<(Outcome, RunProjection)> {
+        let registry = self
+            .registry
+            .lock()
+            .unwrap()
+            .take()
+            .expect("WorkflowRunner may only be used once");
+        Box::pin(run_graph_with_state_and_llm_source(
+            registry,
+            Arc::clone(&self.emitter),
+            Arc::clone(&self.sandbox),
+            graph,
+            run_options,
+            llm_source,
         ))
         .await
     }
