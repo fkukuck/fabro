@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::args::RewindArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::server_client::Client;
 use crate::shared::repo::ensure_matching_repo_origin;
 use crate::shared::{color_if, print_json_pretty};

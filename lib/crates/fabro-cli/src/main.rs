@@ -248,8 +248,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::artifact::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
             }
             Commands::Dump(args) => {
-                commands::store::dump::dump_command(&args, &cli_settings, &cli_layer, printer)
-                    .await?;
+                commands::dump::run(&args, &cli_settings, &cli_layer, printer).await?;
             }
             Commands::RunsCmd(cmd) => {
                 commands::runs::dispatch(cmd, &cli_settings, &cli_layer, printer).await?;

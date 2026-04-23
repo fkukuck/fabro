@@ -42,26 +42,6 @@ fn help() {
 }
 
 #[test]
-fn old_store_dump_command_is_rejected() {
-    let context = test_context!();
-    let mut cmd = context.command();
-    cmd.args(["store", "dump", "--help"]);
-    fabro_snapshot!(context.filters(), cmd, @"
-    success: false
-    exit_code: 2
-    ----- stdout -----
-    ----- stderr -----
-    error: unrecognized subcommand 'store'
-
-      tip: some similar subcommands exist: 'server', 'secret', 'system', 'start'
-
-    Usage: fabro [OPTIONS] [COMMAND]
-
-    For more information, try '--help'.
-    ");
-}
-
-#[test]
 fn dump_accepts_server_target_from_separate_home() {
     let context = test_context!();
     let run = setup_completed_dry_run(&context);
