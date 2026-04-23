@@ -40,7 +40,7 @@ pub use fabro_api::types::{
 };
 use fabro_auth::parse_credential_secret;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{ServerSettingsBuilder, Storage, WorkflowSettingsBuilder};
+use fabro_config::{RunSettingsBuilder, ServerSettingsBuilder, Storage};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
 };
@@ -1688,9 +1688,7 @@ fn build_prune_plan(
 fn resolve_manifest_run_settings(
     manifest_defaults: &SettingsLayer,
 ) -> std::result::Result<RunNamespace, String> {
-    WorkflowSettingsBuilder::from_layer(manifest_defaults)
-        .map(|settings| settings.run)
-        .map_err(|err| err.to_string())
+    RunSettingsBuilder::from_layer(manifest_defaults).map_err(|err| err.to_string())
 }
 
 fn system_sandbox_provider(

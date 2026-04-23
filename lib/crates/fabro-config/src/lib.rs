@@ -25,7 +25,8 @@ pub mod user;
 use std::path::Path;
 
 pub use builders::{
-    ResolveErrors, ServerSettingsBuilder, UserSettingsBuilder, WorkflowSettingsBuilder,
+    ResolveErrors, RunSettingsBuilder, ServerSettingsBuilder, UserSettingsBuilder,
+    WorkflowSettingsBuilder,
 };
 pub use error::{Error, Result};
 pub use fabro_util::path::expand_tilde;

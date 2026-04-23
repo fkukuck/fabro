@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
-use fabro_config::{ServerSettingsBuilder, UserSettingsBuilder, WorkflowSettingsBuilder};
+use fabro_config::{RunSettingsBuilder, ServerSettingsBuilder, UserSettingsBuilder};
 use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_types::settings::{Combine, RunNamespace, SettingsLayer};
 use fabro_types::{ServerSettings, UserSettings};
@@ -200,13 +200,11 @@ fn merge_settings_layer(
     cli_layer: &CliLayer,
 ) -> Result<ResolvedCommandSettings> {
     let storage_dir = crate::local_server::storage_dir(&disk_settings)?;
-    let run_settings = WorkflowSettingsBuilder::from_layer(&disk_settings)
-        .map(|settings| settings.run)
-        .map_err(|err| {
-            // Keep command context tolerant even when unrelated run defaults
-            // do not resolve cleanly.
-            err.to_string()
-        });
+    let run_settings = RunSettingsBuilder::from_layer(&disk_settings).map_err(|err| {
+        // Keep command context tolerant even when unrelated run defaults
+        // do not resolve cleanly.
+        err.to_string()
+    });
     let server_settings = ServerSettingsBuilder::from_layer(&disk_settings).map_err(|err| {
         // Keep storage-dir and CLI-target resolution tolerant even when full
         // server resolution would reject a partial local settings file.

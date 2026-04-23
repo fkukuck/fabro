@@ -125,6 +125,33 @@ impl UserSettingsBuilder {
     }
 }
 
+pub struct RunSettingsBuilder;
+
+impl RunSettingsBuilder {
+    pub fn load_default() -> Result<RunNamespace> {
+        let layer = load_settings_config(None)?;
+        Self::from_layer(&layer)
+    }
+
+    pub fn load_from(path: &Path) -> Result<RunNamespace> {
+        let layer = load_settings_path(path)?;
+        Self::from_layer(&layer)
+    }
+
+    pub fn from_toml(source: &str) -> Result<RunNamespace> {
+        let layer = parse_settings_layer(source)
+            .map_err(|err| Error::parse("Failed to parse settings file", err))?;
+        Self::from_layer(&layer)
+    }
+
+    pub fn from_layer(layer: &SettingsLayer) -> Result<RunNamespace> {
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
+        let mut errors = Vec::new();
+        let run = resolve_run(&layer.run.clone().unwrap_or_default(), &mut errors);
+        finish_result(run, "failed to resolve run settings", errors)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct WorkflowSettingsBuilder {
     args:     SettingsLayer,
@@ -279,5 +306,32 @@ fn finish_dense_result<T>(
         Ok(value)
     } else {
         Err(errors.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fabro_types::settings::run::RunMode;
+
+    use super::RunSettingsBuilder;
+
+    #[test]
+    fn run_settings_builder_resolves_run_namespace() {
+        let settings = RunSettingsBuilder::from_toml(
+            r#"
+_version = 1
+
+[run.execution]
+mode = "dry_run"
+
+[run.agent.mcps.demo]
+type = "stdio"
+command = ["demo-mcp"]
+"#,
+        )
+        .expect("run settings should resolve");
+
+        assert_eq!(settings.execution.mode, RunMode::DryRun);
+        assert!(settings.agent.mcps.contains_key("demo"));
     }
 }
