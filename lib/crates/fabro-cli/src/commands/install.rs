@@ -32,9 +32,8 @@ use fabro_install::{
 use fabro_model::Provider;
 use fabro_server::serve;
 use fabro_store::ArtifactStore;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::settings::server::ServerAuthMethod;
-use fabro_types::settings::{CliNamespace, SettingsLayer};
+use fabro_types::settings::SettingsLayer;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_util::version::FABRO_VERSION;
@@ -52,7 +51,7 @@ use crate::args::{
     DoctorArgs, InstallArgs, InstallCommand, InstallGitHubStrategyArg, InstallGithubArgs,
     InstallNonInteractiveArgs, ServerTargetArgs,
 };
-use crate::command_context::ResolvedBaseContext;
+use crate::command_context::CommandContext;
 use crate::commands::server::{start, stop};
 use crate::gh::GhCli;
 use crate::shared::provider_auth::{
@@ -1416,15 +1415,12 @@ where
 pub(crate) async fn execute(
     args: &InstallArgs,
     command: Option<InstallCommand>,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    process_local_json: bool,
-    printer: Printer,
+    ctx: &CommandContext,
 ) -> Result<()> {
     match command {
-        None => run_install(args, cli, cli_layer, process_local_json, printer).await,
+        None => run_install(args, ctx).await,
         Some(InstallCommand::Github(github_args)) => {
-            run_install_github_command(args, &github_args, cli, process_local_json, printer).await
+            run_install_github_command(args, &github_args, ctx).await
         }
     }
 }
@@ -1432,16 +1428,20 @@ pub(crate) async fn execute(
 async fn run_install_github_command(
     args: &InstallArgs,
     github_args: &InstallGithubArgs,
-    cli: &CliNamespace,
-    process_local_json: bool,
-    printer: Printer,
+    ctx: &CommandContext,
 ) -> Result<()> {
-    let json = cli.output.format == OutputFormat::Json;
-    if process_local_json && !args.non_interactive {
+    let json = ctx.json_output();
+    if ctx.explicit_json_requested() && !args.non_interactive {
         bail!("--json is only supported for install with --non-interactive");
     }
 
-    let result = Box::pin(run_install_github_inner(args, github_args, json, printer)).await;
+    let result = Box::pin(run_install_github_inner(
+        args,
+        github_args,
+        json,
+        ctx.printer(),
+    ))
+    .await;
     if json {
         let emit_result = match &result {
             Ok(()) => emit_install_json_event(&install_complete_event()),
@@ -1593,19 +1593,13 @@ async fn run_install_github_inner(
     Ok(())
 }
 
-pub(crate) async fn run_install(
-    args: &InstallArgs,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    process_local_json: bool,
-    printer: Printer,
-) -> Result<()> {
-    let json = cli.output.format == OutputFormat::Json;
-    if process_local_json && !args.non_interactive {
+pub(crate) async fn run_install(args: &InstallArgs, ctx: &CommandContext) -> Result<()> {
+    let json = ctx.json_output();
+    if ctx.explicit_json_requested() && !args.non_interactive {
         bail!("--json is only supported for install with --non-interactive");
     }
 
-    let result = Box::pin(run_install_inner(args, cli, cli_layer, printer)).await;
+    let result = Box::pin(run_install_inner(args, ctx)).await;
     if json {
         let emit_result = match &result {
             Ok(()) => emit_install_json_event(&install_complete_event()),
@@ -1619,13 +1613,10 @@ pub(crate) async fn run_install(
     result
 }
 
-async fn run_install_inner(
-    args: &InstallArgs,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    printer: Printer,
-) -> Result<()> {
-    let json = cli.output.format == OutputFormat::Json;
+async fn run_install_inner(args: &InstallArgs, ctx: &CommandContext) -> Result<()> {
+    let _cli = &ctx.user_settings().cli;
+    let printer = ctx.printer();
+    let json = ctx.json_output();
     let web_url = &args.web_url;
     let s = Styles::detect_stderr();
     let emoji = console::Emoji("⚒️  ", "");
@@ -1942,8 +1933,7 @@ async fn run_install_inner(
                 target:  ServerTargetArgs::default(),
                 verbose: false,
             };
-            let base_ctx = ResolvedBaseContext::from_disk(cli_layer, false)?.to_context()?;
-            doctor::run_doctor(&doctor_args, &base_ctx).await
+            doctor::run_doctor(&doctor_args, ctx).await
         },
     )
     .await?

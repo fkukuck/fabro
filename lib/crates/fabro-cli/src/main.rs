@@ -204,7 +204,6 @@ async fn main_inner() -> (String, Result<()>) {
     };
 
     let result = Box::pin(async move {
-        let cli_settings = &resolved_base.user_settings().cli;
         let build_base_ctx = || resolved_base.to_context();
 
         match *command {
@@ -290,15 +289,8 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::repo::dispatch(ns, &base_ctx).await?;
             }
             Commands::Install { args, command } => {
-                Box::pin(commands::install::execute(
-                    &args,
-                    command,
-                    cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                ))
-                .await?;
+                let base_ctx = build_base_ctx()?;
+                Box::pin(commands::install::execute(&args, command, &base_ctx)).await?;
             }
             Commands::Uninstall(args) => {
                 let base_ctx = build_base_ctx()?;
