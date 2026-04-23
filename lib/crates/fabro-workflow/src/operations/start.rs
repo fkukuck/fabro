@@ -847,6 +847,7 @@ impl RunSession {
             pr_config:  self.pr_config,
             github_app: self.pr_github_app,
             origin_url: self.pr_origin_url,
+            llm_client: retroed.llm_client.clone(),
             model:      self.pr_model,
         };
 

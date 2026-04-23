@@ -150,7 +150,7 @@ pub async fn retro(executed: Executed, options: &RetroOptions) -> Retroed {
         sandbox,
         duration_ms,
         final_context: _,
-        llm_client: _,
+        llm_client,
         model: _,
         provider: _,
     } = executed;
@@ -172,6 +172,7 @@ pub async fn retro(executed: Executed, options: &RetroOptions) -> Retroed {
         emitter,
         sandbox,
         duration_ms,
+        llm_client,
         retro,
     }
 }

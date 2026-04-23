@@ -312,6 +312,7 @@ pub struct Retroed {
     pub emitter:     Arc<Emitter>,
     pub sandbox:     Arc<dyn Sandbox>,
     pub duration_ms: u64,
+    pub llm_client:  Option<Client>,
     pub retro:       Option<Retro>,
 }
 
@@ -380,5 +381,6 @@ pub struct PullRequestOptions {
     pub pr_config:  Option<PullRequestSettings>,
     pub github_app: Option<fabro_github::GitHubCredentials>,
     pub origin_url: Option<String>,
+    pub llm_client: Option<Client>,
     pub model:      String,
 }

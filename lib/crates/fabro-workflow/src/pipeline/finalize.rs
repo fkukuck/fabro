@@ -233,6 +233,7 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
         emitter,
         sandbox,
         duration_ms,
+        llm_client: _,
         retro: _,
     } = retroed;
 
@@ -363,6 +364,7 @@ mod tests {
                 std::env::current_dir().unwrap(),
             )),
             duration_ms: 5,
+            llm_client: None,
             retro: None,
         };
 

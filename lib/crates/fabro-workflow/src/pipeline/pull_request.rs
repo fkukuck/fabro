@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use fabro_github::{self as github_app, GitHubCredentials, ssh_url_to_https};
 use fabro_graphviz::parser;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{GenerateParams, generate};
 use fabro_retro::retro::Retro;
 use fabro_store::RunProjection;
@@ -303,6 +306,7 @@ pub async fn build_pr_body(
     model: &str,
     run_store: &RunStoreHandle,
     conclusion: Option<&Conclusion>,
+    llm_client: Option<Client>,
 ) -> Result<String, String> {
     debug!("Building PR body");
 
@@ -363,7 +367,10 @@ pub async fn build_pr_body(
         format!("Goal: {goal}\n\nDiff:\n```\n{truncated_diff}\n```")
     };
 
-    let params = GenerateParams::new(model).system(system).prompt(prompt);
+    let mut params = GenerateParams::new(model).system(system).prompt(prompt);
+    if let Some(client) = llm_client {
+        params = params.client(Arc::new(client));
+    }
 
     let result = generate(params)
         .await
@@ -414,6 +421,7 @@ pub async fn maybe_open_pull_request(
     auto_merge: Option<AutoMergeOptions>,
     run_store: &RunStoreHandle,
     conclusion: Option<&Conclusion>,
+    llm_client: Option<Client>,
 ) -> Result<Option<PullRequestRecord>, String> {
     if diff.is_empty() {
         debug!("Empty diff, skipping pull request creation");
@@ -423,7 +431,7 @@ pub async fn maybe_open_pull_request(
     let https_url = ssh_url_to_https(origin_url);
     let (owner, repo) = github_app::parse_github_owner_repo(&https_url)?;
 
-    let body = build_pr_body(diff, goal, model, run_store, conclusion).await?;
+    let body = build_pr_body(diff, goal, model, run_store, conclusion, llm_client).await?;
     let body = truncate_pr_body(&body);
 
     let title = pr_title_from_goal(goal);
@@ -538,6 +546,7 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
                         auto_merge,
                         &options.run_store,
                         Some(&conclusion),
+                        options.llm_client.clone(),
                     )
                     .await
                     {
@@ -606,12 +615,14 @@ mod tests {
     use crate::records::StageSummary;
 
     struct MockProvider {
+        name:          String,
         response_text: String,
     }
 
     impl MockProvider {
-        fn new(text: &str) -> Self {
+        fn new(name: &str, text: &str) -> Self {
             Self {
+                name:          name.to_string(),
                 response_text: text.to_string(),
             }
         }
@@ -620,7 +631,7 @@ mod tests {
     #[async_trait::async_trait]
     impl ProviderAdapter for MockProvider {
         fn name(&self) -> &str {
-            "mock"
+            &self.name
         }
 
         async fn complete(&self, _request: &Request) -> Result<Response, LlmError> {
@@ -689,10 +700,19 @@ mod tests {
             let mut providers: HashMap<String, Arc<dyn ProviderAdapter>> = HashMap::new();
             providers.insert(
                 "mock".to_string(),
-                Arc::new(MockProvider::new("Narrative from mock.")),
+                Arc::new(MockProvider::new("mock", "Narrative from mock.")),
             );
             set_default_client(Client::new(providers, Some("mock".to_string()), vec![]));
         });
+    }
+
+    fn explicit_client(provider_name: &str, text: &str) -> Client {
+        let mut providers: HashMap<String, Arc<dyn ProviderAdapter>> = HashMap::new();
+        providers.insert(
+            provider_name.to_string(),
+            Arc::new(MockProvider::new(provider_name, text)),
+        );
+        Client::new(providers, Some(provider_name.to_string()), vec![])
     }
 
     fn make_test_conclusion() -> Conclusion {
@@ -1069,6 +1089,7 @@ mod tests {
             "mock-model",
             &run_store.clone().into(),
             Some(&conclusion),
+            None,
         )
         .await
         .unwrap();
@@ -1134,6 +1155,7 @@ mod tests {
             "mock-model",
             &run_store.clone().into(),
             Some(&conclusion),
+            None,
         )
         .await
         .unwrap();
@@ -1215,12 +1237,34 @@ mod tests {
             "mock-model",
             &run_store.clone().into(),
             Some(&make_test_conclusion()),
+            None,
         )
         .await
         .unwrap();
 
         assert!(body.contains("<summary>Full plan</summary>"));
         assert!(body.contains("Plan from store"));
+    }
+
+    #[tokio::test]
+    async fn build_pr_body_uses_explicit_llm_client() {
+        install_mock_llm();
+
+        let store = test_store();
+        let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
+        let body = build_pr_body(
+            "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
+            "Implement feature",
+            "gpt-5.4",
+            &run_store.clone().into(),
+            Some(&make_test_conclusion()),
+            Some(explicit_client("openai", "Narrative from explicit client.")),
+        )
+        .await
+        .unwrap();
+
+        assert!(body.contains("Narrative from explicit client."));
+        assert!(!body.contains("Narrative from mock."));
     }
 
     // ── parse_dot_summary tests ─────────────────────────────────────────
@@ -1357,6 +1401,7 @@ mod tests {
             false,
             None,
             &run_store.clone().into(),
+            None,
             None,
         )
         .await;
