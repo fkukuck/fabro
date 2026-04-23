@@ -309,7 +309,7 @@ where
 /// A sparse `[server]` layer as it appears in a single settings file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerLayer {
+pub(crate) struct ServerLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listen:       Option<ServerListenLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,7 +337,7 @@ pub struct ServerLayer {
 /// `[server.listen]` — shared bind transport.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "lowercase")]
-pub enum ServerListenLayer {
+pub(crate) enum ServerListenLayer {
     Tcp {
         #[serde(default)]
         address: Option<InterpString>,
@@ -353,7 +353,7 @@ pub enum ServerListenLayer {
 /// `url` is an optional public URL; it is **not** derived from `server.listen`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerApiLayer {
+pub(crate) struct ServerApiLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<InterpString>,
 }
@@ -361,7 +361,7 @@ pub struct ServerApiLayer {
 /// `[server.web]` — web surface settings.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerWebLayer {
+pub(crate) struct ServerWebLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -375,7 +375,7 @@ pub struct ServerWebLayer {
 /// explicitly opt in to insecure configurations.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerAuthLayer {
+pub(crate) struct ServerAuthLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub methods: Option<Vec<ServerAuthMethod>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -384,14 +384,14 @@ pub struct ServerAuthLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerAuthGithubLayer {
+pub(crate) struct ServerAuthGithubLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_usernames: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerIpAllowlistLayer {
+pub(crate) struct ServerIpAllowlistLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entries:             Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -400,7 +400,7 @@ pub struct ServerIpAllowlistLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerIpAllowlistOverrideLayer {
+pub(crate) struct ServerIpAllowlistOverrideLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entries:             Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -410,7 +410,7 @@ pub struct ServerIpAllowlistOverrideLayer {
 /// `[server.storage]` — single managed local disk root.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerStorageLayer {
+pub(crate) struct ServerStorageLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<InterpString>,
 }
@@ -418,7 +418,7 @@ pub struct ServerStorageLayer {
 /// `[server.artifacts]` — object-store-backed artifact storage.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerArtifactsLayer {
+pub(crate) struct ServerArtifactsLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<ObjectStoreProvider>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -432,7 +432,7 @@ pub struct ServerArtifactsLayer {
 /// `[server.slatedb]` — SlateDB bottomless storage plus tunables.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerSlateDbLayer {
+pub(crate) struct ServerSlateDbLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider:       Option<ObjectStoreProvider>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -458,7 +458,7 @@ pub enum ObjectStoreProvider {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectStoreLocalLayer {
+pub(crate) struct ObjectStoreLocalLayer {
     /// Overrides the default root, which otherwise falls back to
     /// `{server.storage.root}/objects/{domain}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -467,7 +467,7 @@ pub struct ObjectStoreLocalLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectStoreS3Layer {
+pub(crate) struct ObjectStoreS3Layer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bucket:     Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -481,7 +481,7 @@ pub struct ObjectStoreS3Layer {
 /// `[server.scheduler]` — server-managed execution policy.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerSchedulerLayer {
+pub(crate) struct ServerSchedulerLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_runs: Option<usize>,
 }
@@ -489,7 +489,7 @@ pub struct ServerSchedulerLayer {
 /// `[server.logging]` — process-owned logging configuration for the server.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerLoggingLayer {
+pub(crate) struct ServerLoggingLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<String>,
 }
@@ -500,7 +500,7 @@ pub struct ServerLoggingLayer {
 /// shape so strict unknown-field validation still holds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ServerIntegrationsLayer {
+pub(crate) struct ServerIntegrationsLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub github:  Option<GithubIntegrationLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -515,7 +515,7 @@ pub struct ServerIntegrationsLayer {
 /// webhooks.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GithubIntegrationLayer {
+pub(crate) struct GithubIntegrationLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled:     Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -535,7 +535,7 @@ pub struct GithubIntegrationLayer {
 /// `[server.integrations.slack]` — Slack workspace credentials and defaults.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SlackIntegrationLayer {
+pub(crate) struct SlackIntegrationLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled:         Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -545,7 +545,7 @@ pub struct SlackIntegrationLayer {
 /// `[server.integrations.discord]` — Discord workspace configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DiscordIntegrationLayer {
+pub(crate) struct DiscordIntegrationLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 }
@@ -553,14 +553,14 @@ pub struct DiscordIntegrationLayer {
 /// `[server.integrations.teams]` — Microsoft Teams configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TeamsIntegrationLayer {
+pub(crate) struct TeamsIntegrationLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct IntegrationWebhooksLayer {
+pub(crate) struct IntegrationWebhooksLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy:     Option<WebhookStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

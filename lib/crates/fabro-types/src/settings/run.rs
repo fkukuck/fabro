@@ -429,7 +429,7 @@ pub struct ArtifactsSettings {
 /// A sparse `[run]` layer as it appears in a single settings file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunLayer {
+pub(crate) struct RunLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal:          Option<RunGoalLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -491,7 +491,7 @@ pub struct RunLayer {
 /// effective working directory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum RunGoalLayer {
+pub(crate) enum RunGoalLayer {
     Inline(InterpString),
     File { file: InterpString },
 }
@@ -520,7 +520,7 @@ pub enum ResolvedGoalSource {
 /// `[run.model]` — provider-neutral default model selection.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunModelLayer {
+pub(crate) struct RunModelLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider:  Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -533,7 +533,7 @@ pub struct RunModelLayer {
 
 /// A single `fallbacks` entry: either a parsed `ModelRef` or the splice marker.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModelRefOrSplice {
+pub(crate) enum ModelRefOrSplice {
     ModelRef(ModelRef),
     Splice,
 }
@@ -562,14 +562,14 @@ impl<'de> Deserialize<'de> for ModelRefOrSplice {
 /// `[run.git]` — local git behavior such as commit author.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunGitLayer {
+pub(crate) struct RunGitLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<GitAuthorLayer>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GitAuthorLayer {
+pub(crate) struct GitAuthorLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name:  Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -580,7 +580,7 @@ pub struct GitAuthorLayer {
 /// across layers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunPrepareLayer {
+pub(crate) struct RunPrepareLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps:   Vec<PrepareStep>,
     /// Optional timeout applied to each prepare step.
@@ -603,7 +603,7 @@ pub struct PrepareStep {
 /// `[run.execution]` — run posture knobs.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunExecutionLayer {
+pub(crate) struct RunExecutionLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode:     Option<RunMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -630,7 +630,7 @@ pub enum ApprovalMode {
 /// `[run.checkpoint]` — checkpoint policy.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunCheckpointLayer {
+pub(crate) struct RunCheckpointLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude_globs: Vec<String>,
 }
@@ -638,7 +638,7 @@ pub struct RunCheckpointLayer {
 /// `[run.sandbox]` — sandbox selection and execution-environment surface.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunSandboxLayer {
+pub(crate) struct RunSandboxLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider:     Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -656,7 +656,7 @@ pub struct RunSandboxLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LocalSandboxLayer {
+pub(crate) struct LocalSandboxLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_mode: Option<WorktreeMode>,
 }
@@ -673,7 +673,7 @@ pub enum WorktreeMode {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DaytonaSandboxLayer {
+pub(crate) struct DaytonaSandboxLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_stop_interval: Option<i32>,
     /// Sticky merge-by-key (provider-native labels).
@@ -689,7 +689,7 @@ pub struct DaytonaSandboxLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DaytonaSnapshotLayer {
+pub(crate) struct DaytonaSnapshotLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name:       Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -704,7 +704,7 @@ pub struct DaytonaSnapshotLayer {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum DaytonaDockerfileLayer {
+pub(crate) enum DaytonaDockerfileLayer {
     Inline(String),
     Path { path: String },
 }
@@ -720,7 +720,7 @@ pub enum DaytonaNetworkLayer {
 /// `[run.notifications.<name>]` — a keyed notification route.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct NotificationRouteLayer {
+pub(crate) struct NotificationRouteLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled:  Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -739,7 +739,7 @@ pub struct NotificationRouteLayer {
 
 /// A single string array entry that may be the splice marker.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StringOrSplice {
+pub(crate) enum StringOrSplice {
     Value(String),
     Splice,
 }
@@ -767,7 +767,7 @@ impl<'de> Deserialize<'de> for StringOrSplice {
 /// Provider-specific destination fields for a notification route.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct NotificationProviderLayer {
+pub(crate) struct NotificationProviderLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<InterpString>,
 }
@@ -775,7 +775,7 @@ pub struct NotificationProviderLayer {
 /// `[run.interviews]` — external interview delivery.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InterviewsLayer {
+pub(crate) struct InterviewsLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -788,7 +788,7 @@ pub struct InterviewsLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InterviewProviderLayer {
+pub(crate) struct InterviewProviderLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<InterpString>,
 }
@@ -796,7 +796,7 @@ pub struct InterviewProviderLayer {
 /// `[run.agent]` — agent knobs only (permissions, MCPs).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunAgentLayer {
+pub(crate) struct RunAgentLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<AgentPermissions>,
     /// Agent-scoped MCP server entries, keyed by name.
@@ -817,7 +817,7 @@ pub enum AgentPermissions {
 /// transports use neither field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
-pub enum McpEntryLayer {
+pub(crate) enum McpEntryLayer {
     Http {
         #[serde(default)]
         enabled:         Option<bool>,
@@ -865,7 +865,7 @@ pub enum McpEntryLayer {
 /// used for cross-layer replace-by-id merging.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HookEntry {
+pub(crate) struct HookEntry {
     /// Optional merge identity. Hooks with the same `id` replace in place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id:               Option<String>,
@@ -906,7 +906,7 @@ pub struct HookEntry {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum HookTlsMode {
+pub(crate) enum HookTlsMode {
     #[default]
     Verify,
     NoVerify,
@@ -918,7 +918,7 @@ pub enum HookTlsMode {
 /// struct without a discriminator.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum HookAgentMarker {
+pub(crate) enum HookAgentMarker {
     #[default]
     Enabled,
 }
@@ -947,7 +947,7 @@ pub enum HookEvent {
 /// `[run.scm]` — remote SCM host/provider behavior.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunScmLayer {
+pub(crate) struct RunScmLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider:   Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -964,12 +964,12 @@ pub struct RunScmLayer {
 /// `run.pull_request` until a concrete use case lands.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScmGitHubLayer;
+pub(crate) struct ScmGitHubLayer;
 
 /// `[run.pull_request]` — provider-neutral PR behavior.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunPullRequestLayer {
+pub(crate) struct RunPullRequestLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled:        Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -991,7 +991,7 @@ pub enum MergeStrategy {
 /// `[run.artifacts]` — run artifact collection policy.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunArtifactsLayer {
+pub(crate) struct RunArtifactsLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub include: Vec<String>,
 }

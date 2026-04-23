@@ -21,7 +21,7 @@ pub struct WorkflowNamespace {
 /// A sparse `[workflow]` layer as it appears in a single settings file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WorkflowLayer {
+pub(crate) struct WorkflowLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name:        Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

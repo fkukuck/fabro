@@ -17,7 +17,7 @@ pub struct FeaturesNamespace {
 /// override a flag without forcing a default that hides an unset value.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FeaturesLayer {
+pub(crate) struct FeaturesLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_sandboxes: Option<bool>,
 }

@@ -19,7 +19,7 @@ use super::server::{
 };
 use super::size::Size;
 
-pub trait Combine {
+pub(crate) trait Combine {
     /// Combine two values, preferring the values in `self`.
     #[must_use]
     fn combine(self, other: Self) -> Self;
@@ -137,7 +137,7 @@ impl Combine for RunCheckpointLayer {
 
 /// An element of a splice-aware sequence: either a regular value or the
 /// `...` marker that asks the combiner to expand the fallback list inline.
-pub trait SpliceMarker {
+pub(crate) trait SpliceMarker {
     fn is_splice(&self) -> bool;
 }
 
@@ -217,10 +217,19 @@ fn combine_hooks(fallback: &[HookEntry], current: Vec<HookEntry>) -> Vec<HookEnt
 mod tests {
     use super::*;
 
-    #[derive(Debug, PartialEq, fabro_macros::Combine)]
+    #[derive(Debug, PartialEq)]
     struct FieldMergeLayer {
         a: Option<u32>,
         b: Option<u32>,
+    }
+
+    impl Combine for FieldMergeLayer {
+        fn combine(self, other: Self) -> Self {
+            Self {
+                a: self.a.combine(other.a),
+                b: self.b.combine(other.b),
+            }
+        }
     }
 
     #[derive(Debug, PartialEq)]

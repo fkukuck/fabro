@@ -74,7 +74,7 @@ pub struct CliLoggingSettings {
 /// A sparse `[cli]` layer as it appears in a single settings file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliLayer {
+pub(crate) struct CliLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target:  Option<CliTargetLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,7 +92,7 @@ pub struct CliLayer {
 /// `[cli.target]` — explicit transport selection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "lowercase")]
-pub enum CliTargetLayer {
+pub(crate) enum CliTargetLayer {
     Http {
         #[serde(default)]
         url: Option<InterpString>,
@@ -106,7 +106,7 @@ pub enum CliTargetLayer {
 /// `[cli.auth]` — explicit auth strategy selection.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliAuthLayer {
+pub(crate) struct CliAuthLayer {
     /// `none` explicitly disables inherited auth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<CliAuthStrategy>,
@@ -122,7 +122,7 @@ pub enum CliAuthStrategy {
 /// `[cli.exec]` — `fabro exec` defaults.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliExecLayer {
+pub(crate) struct CliExecLayer {
     /// Prevent idle sleep on macOS while an exec run is in flight.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prevent_idle_sleep: Option<bool>,
@@ -134,7 +134,7 @@ pub struct CliExecLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliExecModelLayer {
+pub(crate) struct CliExecModelLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -143,7 +143,7 @@ pub struct CliExecModelLayer {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliExecAgentLayer {
+pub(crate) struct CliExecAgentLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<AgentPermissions>,
     /// Agent-scoped MCP entries for `fabro exec`.
@@ -154,7 +154,7 @@ pub struct CliExecAgentLayer {
 /// `[cli.output]` — generic CLI output defaults.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliOutputLayer {
+pub(crate) struct CliOutputLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format:    Option<OutputFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,7 +181,7 @@ pub enum OutputVerbosity {
 /// `[cli.updates]` — upgrade check toggle.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliUpdatesLayer {
+pub(crate) struct CliUpdatesLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<bool>,
 }
@@ -189,7 +189,7 @@ pub struct CliUpdatesLayer {
 /// `[cli.logging]` — process-owned logging configuration for the CLI.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CliLoggingLayer {
+pub(crate) struct CliLoggingLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<String>,
 }

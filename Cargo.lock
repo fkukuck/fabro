@@ -1585,6 +1585,7 @@ name = "fabro-checkpoint"
 version = "0.212.0-nightly.0"
 dependencies = [
  "chrono",
+ "fabro-config",
  "fabro-store",
  "fabro-types",
  "git2",

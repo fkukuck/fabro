@@ -14,11 +14,11 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The reserved literal that marks the splice insertion point.
-pub const SPLICE_MARKER: &str = "...";
+pub(crate) const SPLICE_MARKER: &str = "...";
 
 /// A string array that may contain at most one splice marker.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SpliceArray {
+pub(crate) struct SpliceArray {
     entries: Vec<Entry>,
 }
 
@@ -30,7 +30,7 @@ enum Entry {
 
 /// An error returned when a splice array fails validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SpliceArrayError {
+pub(crate) enum SpliceArrayError {
     /// The array contained more than one splice marker.
     MultipleMarkers,
 }
@@ -49,7 +49,7 @@ impl std::error::Error for SpliceArrayError {}
 
 impl SpliceArray {
     /// Build a splice array from a raw `Vec<String>`.
-    pub fn from_raw(raw: Vec<String>) -> Result<Self, SpliceArrayError> {
+    pub(crate) fn from_raw(raw: Vec<String>) -> Result<Self, SpliceArrayError> {
         let mut entries = Vec::with_capacity(raw.len());
         let mut marker_count = 0;
         for item in raw {
@@ -68,7 +68,7 @@ impl SpliceArray {
 
     /// Build a splice array with no inherited splice marker.
     #[must_use]
-    pub fn from_values(values: impl IntoIterator<Item = String>) -> Self {
+    pub(crate) fn from_values(values: impl IntoIterator<Item = String>) -> Self {
         Self {
             entries: values.into_iter().map(Entry::Value).collect(),
         }
@@ -76,19 +76,19 @@ impl SpliceArray {
 
     /// True when the array contains a splice marker.
     #[must_use]
-    pub fn has_splice(&self) -> bool {
+    pub(crate) fn has_splice(&self) -> bool {
         self.entries.iter().any(|e| matches!(e, Entry::Splice))
     }
 
     /// The index of the splice marker, if present.
     #[must_use]
-    pub fn splice_position(&self) -> Option<usize> {
+    pub(crate) fn splice_position(&self) -> Option<usize> {
         self.entries.iter().position(|e| matches!(e, Entry::Splice))
     }
 
     /// The non-splice values, in source order.
     #[must_use]
-    pub fn values(&self) -> Vec<&str> {
+    pub(crate) fn values(&self) -> Vec<&str> {
         self.entries
             .iter()
             .filter_map(|e| match e {
@@ -105,7 +105,7 @@ impl SpliceArray {
     /// - If the array has no splice marker, it replaces the inherited list
     ///   wholesale.
     #[must_use]
-    pub fn resolve(self, inherited: Vec<String>) -> Vec<String> {
+    pub(crate) fn resolve(self, inherited: Vec<String>) -> Vec<String> {
         let Some(pos) = self.splice_position() else {
             return self
                 .entries

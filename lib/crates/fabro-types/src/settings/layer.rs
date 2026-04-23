@@ -16,7 +16,7 @@ use super::workflow::WorkflowLayer;
 
 /// A sparse settings layer before merge/resolve.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct SettingsLayer {
+pub(crate) struct SettingsLayer {
     #[serde(default, rename = "_version", skip_serializing_if = "Option::is_none")]
     pub version:  Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,7 +39,7 @@ impl SettingsLayer {
     /// with `["dev-token"]`. Use anywhere a test needs a starter
     /// `SettingsLayer` that the strict resolver will accept.
     #[must_use]
-    pub fn test_default() -> Self {
+    pub(crate) fn test_default() -> Self {
         let mut layer = Self::default();
         layer.ensure_test_auth_methods();
         layer
@@ -48,7 +48,7 @@ impl SettingsLayer {
     /// If `server.auth.methods` is unset, populate it with `["dev-token"]`.
     /// Existing methods (set by a fixture) are preserved. Use to make a
     /// parsed-from-TOML layer resolve cleanly without overriding test intent.
-    pub fn ensure_test_auth_methods(&mut self) {
+    pub(crate) fn ensure_test_auth_methods(&mut self) {
         use super::server::{ServerAuthLayer, ServerAuthMethod, ServerLayer as ServerLayerTy};
 
         if self

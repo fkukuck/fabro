@@ -21,7 +21,7 @@ pub struct ProjectNamespace {
 /// A sparse `[project]` layer as it appears in a single settings file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectLayer {
+pub(crate) struct ProjectLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name:        Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

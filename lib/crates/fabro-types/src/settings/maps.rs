@@ -8,26 +8,26 @@ use super::combine::Combine;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ReplaceMap<V>(pub HashMap<String, V>);
+pub(crate) struct ReplaceMap<V>(pub HashMap<String, V>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct StickyMap<V>(pub HashMap<String, V>);
+pub(crate) struct StickyMap<V>(pub HashMap<String, V>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MergeMap<V>(pub HashMap<String, V>);
+pub(crate) struct MergeMap<V>(pub HashMap<String, V>);
 
 macro_rules! impl_map_wrapper {
     ($name:ident) => {
         impl<V> $name<V> {
             #[must_use]
-            pub fn is_empty(&self) -> bool {
+            pub(crate) fn is_empty(&self) -> bool {
                 self.0.is_empty()
             }
 
             #[must_use]
-            pub fn into_inner(self) -> HashMap<String, V> {
+            pub(crate) fn into_inner(self) -> HashMap<String, V> {
                 self.0
             }
         }
@@ -107,10 +107,19 @@ impl<V: Combine> Combine for MergeMap<V> {
 mod tests {
     use super::*;
 
-    #[derive(Debug, PartialEq, fabro_macros::Combine)]
+    #[derive(Debug, PartialEq)]
     struct ValueLayer {
         a: Option<String>,
         b: Option<String>,
+    }
+
+    impl Combine for ValueLayer {
+        fn combine(self, other: Self) -> Self {
+            Self {
+                a: self.a.combine(other.a),
+                b: self.b.combine(other.b),
+            }
+        }
     }
 
     #[test]
