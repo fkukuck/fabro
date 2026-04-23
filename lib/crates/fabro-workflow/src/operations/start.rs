@@ -969,10 +969,11 @@ mod tests {
     use std::time::Duration;
 
     use chrono::Utc;
+    use fabro_config::WorkflowSettingsBuilder;
     use fabro_store::Database;
-    use fabro_types::fixtures;
     use fabro_types::settings::SettingsLayer;
     use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
+    use fabro_types::{WorkflowSettings, fixtures};
     use object_store::memory::InMemory;
 
     use super::*;
@@ -1011,6 +1012,11 @@ mod tests {
         (storage_root, run_dir)
     }
 
+    fn settings_from_layer(mut layer: SettingsLayer) -> WorkflowSettings {
+        layer.ensure_test_auth_methods();
+        WorkflowSettingsBuilder::from_layer(&layer).expect("settings should resolve")
+    }
+
     async fn persisted_workflow(dot: &str, storage_root: &Path) -> (Persisted, Arc<Database>) {
         let store = memory_store();
         let created = crate::operations::create(
@@ -1020,8 +1026,8 @@ mod tests {
                     source:   dot.to_string(),
                     base_dir: None,
                 },
-                settings: {
-                    let mut layer = SettingsLayer {
+                settings: settings_from_layer({
+                    let layer = SettingsLayer {
                         run: Some(RunLayer {
                             execution: Some(RunExecutionLayer {
                                 mode: Some(RunMode::DryRun),
@@ -1031,9 +1037,8 @@ mod tests {
                         }),
                         ..SettingsLayer::default()
                     };
-                    layer.ensure_test_auth_methods();
                     layer
-                },
+                }),
                 cwd: storage_root
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
@@ -1208,8 +1213,8 @@ mod tests {
                         .unwrap()
                         .clone(),
                 ),
-                settings: {
-                    let mut layer = SettingsLayer {
+                settings: settings_from_layer({
+                    let layer = SettingsLayer {
                         run: Some(RunLayer {
                             execution: Some(RunExecutionLayer {
                                 mode: Some(RunMode::DryRun),
@@ -1219,9 +1224,8 @@ mod tests {
                         }),
                         ..SettingsLayer::default()
                     };
-                    layer.ensure_test_auth_methods();
                     layer
-                },
+                }),
                 cwd: temp.path().to_path_buf(),
                 workflow_slug: Some("bundle-child".to_string()),
                 workflow_path: Some(PathBuf::from("workflow.fabro")),

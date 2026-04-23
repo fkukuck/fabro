@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use fabro_graphviz::graph::{AttrValue, Graph, Node};
 use fabro_store::{ArtifactStore, Database};
 use fabro_types::WorkflowSettings;
-use fabro_types::settings::SettingsLayer;
 use object_store::memory::InMemory;
 use tokio::fs;
 use tokio::time::{sleep, timeout};
@@ -74,7 +73,7 @@ fn parse_child_graph(node: &Node, services: &EngineServices) -> Result<ParsedChi
                 source:   dot.to_string(),
                 base_dir: None,
             },
-            settings:          SettingsLayer::default(),
+            settings:          WorkflowSettings::default(),
             cwd:               cwd.clone(),
             custom_transforms: Vec::new(),
         })?;
@@ -116,7 +115,7 @@ fn parse_child_graph(node: &Node, services: &EngineServices) -> Result<ParsedChi
         };
         let validated = validate(ValidateInput {
             workflow,
-            settings: SettingsLayer::default(),
+            settings: WorkflowSettings::default(),
             cwd,
             custom_transforms: Vec::new(),
         })?;

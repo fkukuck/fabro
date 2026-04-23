@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
-use fabro_config::{RunSettingsBuilder, WorkflowSettingsBuilder, parse_settings_layer};
+use fabro_config::{WorkflowSettingsBuilder, parse_settings_layer};
 use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
@@ -41,7 +41,6 @@ pub(crate) struct PreparedManifest {
     pub root_source:       String,
     pub run_id:            Option<RunId>,
     pub settings:          WorkflowSettings,
-    pub settings_layer:    SettingsLayer,
     pub target_path:       PathBuf,
     pub workflow_bundle:   WorkflowBundle,
     pub workflow_input:    BundledWorkflow,
@@ -114,7 +113,6 @@ pub(crate) fn prepare_manifest(
             .transpose()
             .map_err(|err| anyhow!("invalid run ID: {err}"))?,
         settings: settings.clone(),
-        settings_layer: settings_layer.clone(),
         target_path,
         workflow_bundle,
         workflow_input,
@@ -127,7 +125,7 @@ pub(crate) fn validate_prepared_manifest(
 ) -> Result<Validated, WorkflowError> {
     validate(ValidateInput {
         workflow:          WorkflowInput::Bundled(prepared.workflow_input.clone()),
-        settings:          prepared.settings_layer.clone(),
+        settings:          prepared.settings.clone(),
         cwd:               prepared.cwd.clone(),
         custom_transforms: Vec::new(),
     })
@@ -139,7 +137,7 @@ pub(crate) fn create_run_input(
 ) -> CreateRunInput {
     CreateRunInput {
         workflow: WorkflowInput::Bundled(prepared.workflow_input),
-        settings: prepared.settings_layer,
+        settings: prepared.settings,
         cwd: prepared.cwd,
         workflow_slug: None,
         workflow_path: Some(prepared.target_path),
@@ -383,13 +381,12 @@ async fn build_preflight_report(
 
     let configured_providers = state.provider_credentials.configured_providers().await;
     let materialized = materialize_run(
-        prepared.settings_layer.clone(),
+        prepared.settings.clone(),
         graph,
         Catalog::builtin(),
         &configured_providers,
     );
-    let resolved_run =
-        RunSettingsBuilder::from_layer(&materialized).map_err(anyhow::Error::from)?;
+    let resolved_run = materialized.run;
     let server_settings = state.server_settings();
     let github_integration = &server_settings.server.integrations.github;
     let sandbox_provider = resolve_sandbox_provider(&resolved_run)?;
