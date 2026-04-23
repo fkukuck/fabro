@@ -6,8 +6,8 @@
 use fabro_test::test_context;
 
 use super::{
-    completed_nodes, find_run_dir, fixture, read_conclusion, run_id_for, sandbox_tests,
-    store_dump_export, timeout_for,
+    completed_nodes, dump_export, find_run_dir, fixture, read_conclusion, run_id_for,
+    sandbox_tests, timeout_for,
 };
 
 sandbox_tests!(command_pipeline);
@@ -47,7 +47,7 @@ fn scenario_command_pipeline(sandbox: &str) {
         "step2 should be completed"
     );
 
-    let export_dir = store_dump_export(&context, &run_id_for(&run_dir));
+    let export_dir = dump_export(&context, &run_id_for(&run_dir));
     let stdout1 = std::fs::read_to_string(export_dir.join("stages/step1@1/stdout.log"))
         .expect("step1 stdout.log should exist");
     assert!(

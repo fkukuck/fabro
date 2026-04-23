@@ -1,6 +1,6 @@
 #![expect(
     clippy::disallowed_methods,
-    reason = "CLI `store dump` command: sync file I/O for dump outputs"
+    reason = "CLI `dump` command: sync file I/O for dump outputs"
 )]
 
 use std::io::ErrorKind;
@@ -21,13 +21,13 @@ use serde::de::DeserializeOwned;
 use tokio::task::spawn_blocking;
 
 use super::run_export::StoreRunExport;
-use crate::args::StoreDumpArgs;
+use crate::args::DumpArgs;
 use crate::command_context::CommandContext;
 use crate::server_client::Client;
 use crate::shared::{absolute_or_current, print_json_pretty};
 
 pub(crate) async fn dump_command(
-    args: &StoreDumpArgs,
+    args: &DumpArgs,
     cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,

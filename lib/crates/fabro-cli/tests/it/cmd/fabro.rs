@@ -25,7 +25,7 @@ fn help() {
       validate    Validate a workflow
       graph       Render a workflow graph as SVG
       artifact    Inspect and copy run artifacts (screenshots, reports, traces)
-      store       Export store-backed run state for debugging
+      dump        Export a run's durable state to a directory
       rm          Remove one or more workflow runs
       inspect     Show detailed information about a workflow run
       archive     Mark terminal runs as archived (reviewed, no further action needed). Archived runs are hidden from default listings

@@ -59,17 +59,16 @@ pub(super) fn has_event(run_dir: &Path, event_name: &str) -> bool {
         .any(|event| event.event.event_name() == event_name)
 }
 
-pub(super) fn store_dump_export(context: &TestContext, run_id: &str) -> PathBuf {
-    let output_dir = context.temp_dir.join(format!("store-dump-{run_id}"));
+pub(super) fn dump_export(context: &TestContext, run_id: &str) -> PathBuf {
+    let output_dir = context.temp_dir.join(format!("dump-{run_id}"));
     context
         .command()
         .args([
-            "store",
             "dump",
             "--output",
             output_dir
                 .to_str()
-                .expect("store dump output path should be valid UTF-8"),
+                .expect("dump output path should be valid UTF-8"),
             run_id,
         ])
         .assert()

@@ -247,8 +247,9 @@ async fn main_inner() -> (String, Result<()>) {
             Commands::Artifact(ns) => {
                 commands::artifact::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
             }
-            Commands::Store(ns) => {
-                commands::store::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+            Commands::Dump(args) => {
+                commands::store::dump::dump_command(&args, &cli_settings, &cli_layer, printer)
+                    .await?;
             }
             Commands::RunsCmd(cmd) => {
                 commands::runs::dispatch(cmd, &cli_settings, &cli_layer, printer).await?;
@@ -505,7 +506,7 @@ async fn prepare_server_bootstrap(
 mod tests {
     use args::{
         AuthCommand, AuthNamespace, Commands, InstallGitHubStrategyArg, ModelsCommand,
-        ProviderCommand, ProviderNamespace, StoreCommand, StoreNamespace,
+        ProviderCommand, ProviderNamespace,
     };
     use tokio::runtime::Runtime;
 
@@ -940,13 +941,11 @@ level = "warn"
     }
 
     #[test]
-    fn parse_store_dump_command() {
-        let cli = Cli::try_parse_from(["fabro", "store", "dump", "ABC123", "-o", "./out"])
-            .expect("should parse");
+    fn parse_dump_command() {
+        let cli =
+            Cli::try_parse_from(["fabro", "dump", "ABC123", "-o", "./out"]).expect("should parse");
         match *cli.command.unwrap() {
-            Commands::Store(StoreNamespace {
-                command: StoreCommand::Dump(args),
-            }) => {
+            Commands::Dump(args) => {
                 assert_eq!(args.run, "ABC123");
                 assert_eq!(args.output, std::path::PathBuf::from("./out"));
             }
