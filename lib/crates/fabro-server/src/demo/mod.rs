@@ -1554,9 +1554,14 @@ mod insights {
 }
 
 mod settings {
+    use std::sync::OnceLock;
+
     pub(super) fn server_settings() -> serde_json::Value {
-        let settings = fabro_config::parse_settings_layer(
-            r#"
+        static CACHED: OnceLock<serde_json::Value> = OnceLock::new();
+        CACHED
+            .get_or_init(|| {
+                let settings = fabro_config::parse_settings_layer(
+                    r#"
 _version = 1
 
 [server.listen]
@@ -1592,13 +1597,15 @@ slug = "fabro-dev"
 [features]
 session_sandboxes = false
 "#,
-        )
-        .expect("demo settings fixture should parse");
+                )
+                .expect("demo settings fixture should parse");
 
-        serde_json::to_value(
-            fabro_config::ServerSettings::from_layer(&settings)
-                .expect("demo settings fixture should resolve"),
-        )
-        .expect("demo settings should serialize")
+                serde_json::to_value(
+                    fabro_config::ServerSettings::from_layer(&settings)
+                        .expect("demo settings fixture should resolve"),
+                )
+                .expect("demo settings should serialize")
+            })
+            .clone()
     }
 }

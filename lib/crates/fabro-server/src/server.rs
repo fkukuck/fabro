@@ -1316,7 +1316,11 @@ async fn get_system_info(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let settings = state.settings.read().unwrap().clone();
+    let settings = state
+        .settings
+        .read()
+        .expect("settings lock poisoned")
+        .clone();
     let (total_runs, active_runs) = {
         let runs = state.runs.lock().expect("runs lock poisoned");
         let active = runs
@@ -3996,7 +4000,10 @@ async fn create_run(
         Ok(req) => req,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
     };
-    let prepared = match run_manifest::prepare_manifest(&state.settings.read().unwrap(), &req) {
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
+        &req,
+    ) {
         Ok(prepared) => prepared,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
     };
@@ -4098,7 +4105,10 @@ async fn run_preflight(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RunManifest>,
 ) -> Response {
-    let prepared = match run_manifest::prepare_manifest(&state.settings.read().unwrap(), &req) {
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
+        &req,
+    ) {
         Ok(prepared) => prepared,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
     };
@@ -4124,11 +4134,13 @@ async fn render_graph_from_manifest(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RenderWorkflowGraphRequest>,
 ) -> Response {
-    let prepared =
-        match run_manifest::prepare_manifest(&state.settings.read().unwrap(), &req.manifest) {
-            Ok(prepared) => prepared,
-            Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
-        };
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
+        &req.manifest,
+    ) {
+        Ok(prepared) => prepared,
+        Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
+    };
     let validated = match run_manifest::validate_prepared_manifest(&prepared) {
         Ok(validated) => validated,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),

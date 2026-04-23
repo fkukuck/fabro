@@ -7,7 +7,7 @@ use anyhow::Context;
 use clap::Args;
 use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::merge::combine_files;
-use fabro_config::user::load_settings_config;
+use fabro_config::user::{apply_storage_dir_override, load_settings_config};
 use fabro_config::{ServerSettings, Storage};
 use fabro_install::{OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV};
 use fabro_sandbox::SandboxProvider;
@@ -159,12 +159,7 @@ pub struct ServeArgs {
     pub watch_web: bool,
 }
 
-fn load_settings(path: Option<&Path>) -> anyhow::Result<SettingsLayer> {
-    Ok(load_settings_config(path)?)
-}
-
 fn apply_serve_overrides(base: &SettingsLayer, args: &ServeArgs) -> SettingsLayer {
-    use fabro_types::settings::cli::CliLayer;
     use fabro_types::settings::interp::InterpString;
     use fabro_types::settings::run::{RunLayer, RunModelLayer, RunSandboxLayer};
     use fabro_types::settings::server::{ServerLayer, ServerWebLayer};
@@ -189,8 +184,6 @@ fn apply_serve_overrides(base: &SettingsLayer, args: &ServeArgs) -> SettingsLaye
         let sandbox_layer = run.sandbox.get_or_insert_with(RunSandboxLayer::default);
         sandbox_layer.provider = Some(sandbox.to_string());
     }
-    // CliLayer is namespaced; nothing to populate from flag overrides today.
-    let _ = CliLayer::default();
     settings
 }
 
@@ -199,19 +192,7 @@ fn apply_runtime_settings(
     args: &ServeArgs,
     data_dir: &Path,
 ) -> SettingsLayer {
-    use fabro_types::settings::interp::InterpString;
-    use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-    let mut settings = apply_serve_overrides(base, args);
-    let server = settings.server.get_or_insert_with(ServerLayer::default);
-    let storage = server
-        .storage
-        .get_or_insert_with(ServerStorageLayer::default);
-    storage.root = Some(InterpString::parse(&data_dir.to_string_lossy()));
-    settings
-}
-
-fn router_web_enabled(settings: &ServerNamespace) -> bool {
-    settings.web.enabled
+    apply_storage_dir_override(apply_serve_overrides(base, args), Some(data_dir))
 }
 
 async fn resolve_github_webhook_ip_allowlist(
@@ -625,7 +606,7 @@ where
     #[cfg(debug_assertions)]
     let watch_web = args.watch_web;
     let config_path = args.config.clone();
-    let disk_settings = load_settings(config_path.as_deref())?;
+    let disk_settings = load_settings_config(config_path.as_deref())?;
     let disk_server_settings = resolve_server_settings(&disk_settings)?;
     let data_dir = match storage_dir_override {
         Some(path) => path,
@@ -652,7 +633,7 @@ where
         let max_concurrent_runs = resolved_server_settings.scheduler.max_concurrent_runs;
         (auth_mode, max_concurrent_runs)
     };
-    let web_enabled = router_web_enabled(&resolved_server_settings);
+    let web_enabled = resolved_server_settings.web.enabled;
     let github_meta_resolver = GitHubMetaResolver::from_cache_dir(&storage.cache_dir())?;
 
     let (object_store, slatedb_prefix, flush_interval, disk_cache) =
@@ -759,7 +740,7 @@ where
         interval.tick().await; // skip first immediate tick
         loop {
             interval.tick().await;
-            match load_settings(config_path_for_poll.as_deref()) {
+            match load_settings_config(config_path_for_poll.as_deref()) {
                 Ok(new_disk_settings) => {
                     let effective = apply_runtime_settings(
                         &new_disk_settings,
@@ -1073,8 +1054,8 @@ mod tests {
         bind_tcp_host_with_fallback, build_local_object_store_with_preference,
         build_object_store_from_settings_with_lookup, build_slatedb_store,
         resolve_bind_request_from_settings, resolve_github_webhook_ip_allowlist,
-        resolve_server_settings, resolve_startup_github_webhook_ip_allowlist, router_web_enabled,
-        server_bind_title, server_title,
+        resolve_server_settings, resolve_startup_github_webhook_ip_allowlist, server_bind_title,
+        server_title,
     };
     use crate::server::create_app_state_with_options;
 
@@ -1278,7 +1259,7 @@ strategy = "token"
 
         let resolved = resolve_server_settings(&base).expect("settings should resolve");
 
-        assert!(router_web_enabled(&resolved));
+        assert!(resolved.web.enabled);
     }
 
     #[test]

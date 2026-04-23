@@ -63,6 +63,26 @@ fn load_v2_layer_from_path(path: &Path) -> Result<SettingsLayer> {
     load_settings_path(path)
 }
 
+/// Override the resolved storage root in a settings layer with a runtime path.
+///
+/// Used at server startup and by CLI commands that accept `--storage-dir`.
+pub fn apply_storage_dir_override(
+    mut layer: SettingsLayer,
+    storage_dir: Option<&Path>,
+) -> SettingsLayer {
+    use fabro_types::settings::interp::InterpString;
+    use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
+    if let Some(dir) = storage_dir {
+        let server = layer.server.get_or_insert_with(ServerLayer::default);
+        let storage = server
+            .storage
+            .get_or_insert_with(ServerStorageLayer::default);
+        storage.root = Some(InterpString::parse(&dir.display().to_string()));
+    }
+
+    layer
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

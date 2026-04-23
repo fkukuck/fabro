@@ -30,23 +30,6 @@ pub(crate) fn load_settings_with_config_and_storage_dir(
     Ok(apply_storage_dir_override(layer, storage_dir))
 }
 
-pub(crate) fn apply_storage_dir_override(
-    mut layer: SettingsLayer,
-    storage_dir: Option<&Path>,
-) -> SettingsLayer {
-    use fabro_types::settings::interp::InterpString;
-    use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-    if let Some(dir) = storage_dir {
-        let server = layer.server.get_or_insert_with(ServerLayer::default);
-        let storage = server
-            .storage
-            .get_or_insert_with(ServerStorageLayer::default);
-        storage.root = Some(InterpString::parse(&dir.display().to_string()));
-    }
-
-    layer
-}
-
 /// Pull the resolved CLI target configuration out of `[cli.target]`.
 /// Returns either an http(s) URL or a unix socket path.
 fn cli_target_from_settings(settings: &CliNamespace) -> Option<String> {
