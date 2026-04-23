@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use fabro_util::terminal::Styles;
 
 use crate::args::{AttachArgs, RunCommands, RunWorkerArgs, StartArgs};
@@ -23,7 +23,11 @@ pub(crate) mod ssh;
 pub(crate) mod start;
 pub(crate) mod wait;
 
-pub(crate) async fn dispatch(cmd: RunCommands, base_ctx: &CommandContext) -> Result<()> {
+pub(crate) async fn dispatch(
+    cmd: RunCommands,
+    base_ctx: &CommandContext,
+    worker_token: Option<String>,
+) -> Result<()> {
     let printer = base_ctx.printer();
 
     match cmd {
@@ -76,7 +80,22 @@ pub(crate) async fn dispatch(cmd: RunCommands, base_ctx: &CommandContext) -> Res
             run_dir,
             run_id,
             mode,
-        }) => Box::pin(runner::execute(run_id, server, storage_dir, run_dir, mode)).await,
+        }) => {
+            let worker_token = worker_token
+                .filter(|token| !token.trim().is_empty())
+                .ok_or_else(|| {
+                    anyhow!("FABRO_WORKER_TOKEN is required for worker subprocess auth")
+                })?;
+            Box::pin(runner::execute(
+                run_id,
+                server,
+                storage_dir,
+                run_dir,
+                mode,
+                &worker_token,
+            ))
+            .await
+        }
         RunCommands::Diff(args) => diff::run(args, base_ctx).await,
         RunCommands::Logs(args) => {
             let styles = Styles::detect_stdout();

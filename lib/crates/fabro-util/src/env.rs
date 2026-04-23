@@ -1,18 +1,3 @@
-/// Server-managed secret env vars that must never leak into subprocesses
-/// (hook executors, local sandbox). A suffix filter (`_secret`, `_token`,
-/// `_api_key`, `_password`, `_credential`) catches many secrets by convention,
-/// but these names don't match those suffixes and are explicitly named to
-/// eliminate ambiguity when the list is inspected.
-pub const WORKER_SECRET_ENV_DENYLIST: &[&str] = &[
-    "FABRO_WORKER_TOKEN",
-    "SESSION_SECRET",
-    "FABRO_JWT_PRIVATE_KEY",
-    "FABRO_JWT_PUBLIC_KEY",
-    "GITHUB_APP_PRIVATE_KEY",
-    "GITHUB_APP_CLIENT_SECRET",
-    "GITHUB_APP_WEBHOOK_SECRET",
-];
-
 /// Abstraction over environment variable lookup.
 ///
 /// Production code uses [`SystemEnv`] which delegates to [`std::env::var`].

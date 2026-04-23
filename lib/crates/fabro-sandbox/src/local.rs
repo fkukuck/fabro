@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use fabro_util::env::WORKER_SECRET_ENV_DENYLIST;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::task::spawn_blocking;
@@ -57,9 +56,6 @@ impl LocalSandbox {
     fn should_filter_env_var(key: &str) -> bool {
         if Self::ENV_SAFELIST.contains(&key) {
             return false;
-        }
-        if WORKER_SECRET_ENV_DENYLIST.contains(&key) {
-            return true;
         }
         let lower = key.to_lowercase();
         lower.ends_with("_api_key")
@@ -740,9 +736,6 @@ mod tests {
         assert!(LocalSandbox::should_filter_env_var("MY_CREDENTIAL"));
         assert!(LocalSandbox::should_filter_env_var("FABRO_WORKER_TOKEN"));
         assert!(LocalSandbox::should_filter_env_var("SESSION_SECRET"));
-        assert!(LocalSandbox::should_filter_env_var(
-            "GITHUB_APP_PRIVATE_KEY"
-        ));
         // Case insensitive
         assert!(LocalSandbox::should_filter_env_var("my_api_key"));
         assert!(LocalSandbox::should_filter_env_var("Some_Secret"));

@@ -1983,7 +1983,6 @@ dependencies = [
  "fabro-github",
  "fabro-proc",
  "fabro-types",
- "fabro-util",
  "futures",
  "git2",
  "glob",

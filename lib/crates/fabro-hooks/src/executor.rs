@@ -13,7 +13,7 @@ use fabro_llm::generate::{GenerateParams, generate_object};
 use fabro_llm::types::{Message, Request, ToolResult};
 use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::settings::InterpString;
-use fabro_util::env::{Env, SystemEnv, WORKER_SECRET_ENV_DENYLIST};
+use fabro_util::env::{Env, SystemEnv};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout as tokio_timeout;
 use tokio_util::sync::CancellationToken;
@@ -77,12 +77,6 @@ where
 pub struct HookExecutorImpl;
 
 impl HookExecutorImpl {
-    fn scrub_worker_secret_env(cmd: &mut TokioCommand) {
-        for key in WORKER_SECRET_ENV_DENYLIST {
-            cmd.env_remove(key);
-        }
-    }
-
     /// Parse a hook decision from JSON stdout and exit code.
     fn parse_decision(exit_code: i32, stdout: &str) -> HookDecision {
         if exit_code == 0 {
@@ -195,7 +189,6 @@ impl HookExecutorImpl {
             if let Some(wd) = work_dir {
                 cmd.current_dir(wd);
             }
-            Self::scrub_worker_secret_env(&mut cmd);
             for (k, v) in &env_vars {
                 cmd.env(k, v);
             }
@@ -845,23 +838,6 @@ mod tests {
         let sandbox = make_sandbox();
         let result = executor.execute(&def, &ctx, sandbox, None).await;
         assert_eq!(result.decision, HookDecision::Proceed);
-    }
-
-    #[test]
-    fn host_command_scrubs_worker_secret_env() {
-        let mut cmd = TokioCommand::new("sh");
-        HookExecutorImpl::scrub_worker_secret_env(&mut cmd);
-
-        let removed = cmd
-            .as_std()
-            .get_envs()
-            .filter(|(_, value)| value.is_none())
-            .map(|(name, _)| name.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-
-        for key in WORKER_SECRET_ENV_DENYLIST {
-            assert!(removed.iter().any(|name| name == key));
-        }
     }
 
     #[tokio::test]

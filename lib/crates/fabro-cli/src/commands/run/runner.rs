@@ -59,19 +59,13 @@ pub(crate) async fn execute(
     storage_dir: Option<PathBuf>,
     run_dir: PathBuf,
     mode: RunWorkerMode,
+    worker_token: &str,
 ) -> Result<()> {
     let _ = fabro_proc::title_init();
     set_worker_title(&run_id, initial_worker_title_phase(mode));
 
-    let worker_token = std::env::var("FABRO_WORKER_TOKEN")
-        .map_err(|_| anyhow!("FABRO_WORKER_TOKEN is required for worker subprocess auth"))?;
-    if worker_token.trim().is_empty() {
-        return Err(anyhow!(
-            "FABRO_WORKER_TOKEN is required for worker subprocess auth"
-        ));
-    }
     let target = server.parse::<fabro_client::ServerTarget>()?;
-    let client = server_client::connect_server_target_with_bearer(&target, &worker_token).await?;
+    let client = server_client::connect_server_target_with_bearer(&target, worker_token).await?;
     let run_store = HttpRunStore::connect(run_id, client.clone_for_reuse()).await?;
     let run_state = run_store
         .state()
@@ -84,7 +78,7 @@ pub(crate) async fn execute(
     let artifact_sink = Some(ArtifactSink::Uploader(build_artifact_uploader(
         run_id,
         client.clone_for_reuse(),
-        worker_token,
+        worker_token.to_owned(),
     )));
     let interviewer = Arc::new(ControlInterviewer::new());
     let cancel_token = Arc::new(AtomicBool::new(false));

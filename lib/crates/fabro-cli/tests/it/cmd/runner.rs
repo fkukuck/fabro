@@ -184,6 +184,7 @@ fn assert_no_worker_env_leak(scope: &str, content: &str) {
     for needle in [
         "MY_API_TOKEN=",
         "NEW_RELIC_LICENSE_KEY=",
+        "FABRO_WORKER_TOKEN=",
         LEAKED_WORKER_PARENT_TOKEN,
         LEAKED_NEW_RELIC_LICENSE,
     ] {
@@ -522,7 +523,7 @@ methods = ["dev-token"]
   graph [goal="Verify worker subprocess env isolation", default_max_retries=0]
   start [shape=Mdiamond, label="Start"]
   exit  [shape=Msquare, label="Exit"]
-  probe [shape=parallelogram, label="Probe", script="echo probe-ran; for key in $(printf 'MY%s NEW%s' '_API_TOKEN' '_RELIC_LICENSE_KEY'); do value=$(printenv \"$key\" || true); if [ -n \"$value\" ]; then echo \"$key=$value\"; fi; done"]
+  probe [shape=parallelogram, label="Probe", script="echo probe-ran; for key in $(printf 'MY%s NEW%s FABRO%s' '_API_TOKEN' '_RELIC_LICENSE_KEY' '_WORKER_TOKEN'); do value=$(printenv \"$key\" || true); if [ -n \"$value\" ]; then echo \"$key=$value\"; fi; done"]
   start -> probe -> exit
 }
 "#,
