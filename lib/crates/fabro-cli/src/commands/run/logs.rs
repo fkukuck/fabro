@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::json::normalize_json_value;
 use fabro_util::printer::Printer;
@@ -32,11 +32,11 @@ const FOLLOW_TERMINAL_GRACE: Duration = Duration::from_millis(500);
 pub(crate) async fn run(
     args: &LogsArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
     info!(run_id = %run_id, "Showing logs");

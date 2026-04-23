@@ -173,9 +173,9 @@ async fn main_inner() -> (String, Result<()>) {
         cli: Some(cli_layer.clone()),
         ..SettingsLayer::default()
     });
-    let cli_settings = match user_config::resolve_cli_settings(&combined_settings) {
-        Ok(cli_settings) => cli_settings,
-        Err(err) => return (command_name, Err(err)),
+    let cli_settings = match fabro_config::UserSettings::from_layer(&combined_settings) {
+        Ok(settings) => settings.cli,
+        Err(err) => return (command_name, Err(err.into())),
     };
     let printer = printer_from_verbosity(cli_settings.output.verbosity);
 
@@ -247,8 +247,8 @@ async fn main_inner() -> (String, Result<()>) {
             Commands::Artifact(ns) => {
                 commands::artifact::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
             }
-            Commands::Store(ns) => {
-                commands::store::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+            Commands::Dump(args) => {
+                commands::dump::run(&args, &cli_settings, &cli_layer, printer).await?;
             }
             Commands::RunsCmd(cmd) => {
                 commands::runs::dispatch(cmd, &cli_settings, &cli_layer, printer).await?;
@@ -318,14 +318,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::uninstall::run_uninstall(&args, &cli_settings, printer).await?;
             }
             Commands::Auth(ns) => {
-                commands::auth::dispatch(
-                    ns,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::auth::dispatch(ns, &cli_layer, process_local_json, printer).await?;
             }
             Commands::Pr(ns) => {
                 Box::pin(commands::pr::dispatch(
@@ -353,14 +346,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::upgrade::run_upgrade(args, &cli_settings, printer).await?;
             }
             Commands::Provider(ns) => {
-                commands::provider::dispatch(
-                    ns,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::provider::dispatch(ns, &cli_layer, process_local_json, printer).await?;
             }
             Commands::Sandbox { command } => {
                 commands::sandbox::dispatch(
@@ -519,7 +505,7 @@ async fn prepare_server_bootstrap(
 mod tests {
     use args::{
         AuthCommand, AuthNamespace, Commands, InstallGitHubStrategyArg, ModelsCommand,
-        ProviderCommand, ProviderNamespace, StoreCommand, StoreNamespace,
+        ProviderCommand, ProviderNamespace,
     };
     use tokio::runtime::Runtime;
 
@@ -954,13 +940,11 @@ level = "warn"
     }
 
     #[test]
-    fn parse_store_dump_command() {
-        let cli = Cli::try_parse_from(["fabro", "store", "dump", "ABC123", "-o", "./out"])
-            .expect("should parse");
+    fn parse_dump_command() {
+        let cli =
+            Cli::try_parse_from(["fabro", "dump", "ABC123", "-o", "./out"]).expect("should parse");
         match *cli.command.unwrap() {
-            Commands::Store(StoreNamespace {
-                command: StoreCommand::Dump(args),
-            }) => {
+            Commands::Dump(args) => {
                 assert_eq!(args.run, "ABC123");
                 assert_eq!(args.output, std::path::PathBuf::from("./out"));
             }
@@ -1077,36 +1061,22 @@ level = "warn"
         assert_eq!(cli.command.as_ref().unwrap().name(), "settings");
         match *cli.command.unwrap() {
             Commands::Settings(args) => {
-                assert!(!args.local);
                 assert!(args.target.server.is_none());
-                assert!(args.workflow.is_none());
             }
             _ => panic!("unexpected command variant"),
         }
     }
 
     #[test]
-    fn parse_settings_with_workflow() {
-        let cli = Cli::try_parse_from(["fabro", "settings", "demo"]).expect("should parse");
-        match *cli.command.unwrap() {
-            Commands::Settings(args) => {
-                assert_eq!(args.workflow, Some(std::path::PathBuf::from("demo")));
-            }
-            _ => panic!("unexpected command variant"),
-        }
+    fn parse_settings_rejects_workflow_argument() {
+        let result = Cli::try_parse_from(["fabro", "settings", "demo"]);
+        assert!(result.is_err(), "should reject settings workflow argument");
     }
 
     #[test]
-    fn parse_settings_local_mode() {
-        let cli =
-            Cli::try_parse_from(["fabro", "settings", "--local", "demo"]).expect("should parse");
-        match *cli.command.unwrap() {
-            Commands::Settings(args) => {
-                assert!(args.local);
-                assert_eq!(args.workflow, Some(std::path::PathBuf::from("demo")));
-            }
-            _ => panic!("unexpected command variant"),
-        }
+    fn parse_settings_rejects_local_flag() {
+        let result = Cli::try_parse_from(["fabro", "settings", "--local"]);
+        assert!(result.is_err(), "should reject settings --local");
     }
 
     #[test]

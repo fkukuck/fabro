@@ -3,7 +3,7 @@ use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
 use fabro_checkpoint::git::Store;
 use fabro_types::run_event::{CheckpointCompletedProps, RunRewoundProps, RunSubmittedProps};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::{EventBody, RunEvent};
 use fabro_util::printer::Printer;
@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::args::RewindArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::server_client::Client;
 use crate::shared::repo::ensure_matching_repo_origin;
 use crate::shared::{color_if, print_json_pretty};
@@ -33,12 +33,12 @@ pub(crate) struct TimelineEntryJson {
 pub(crate) async fn run(
     args: &RewindArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
     let repo = Repository::discover(".").context("not in a git repository")?;
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let state = client.get_run_state(&run_id).await?;

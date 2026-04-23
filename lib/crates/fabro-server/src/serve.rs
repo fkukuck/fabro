@@ -7,8 +7,8 @@ use anyhow::Context;
 use clap::Args;
 use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::merge::combine_files;
-use fabro_config::user::load_settings_config;
-use fabro_config::{Storage, resolve_server_from_file};
+use fabro_config::user::{apply_storage_dir_override, load_settings_config};
+use fabro_config::{ServerSettings, Storage};
 use fabro_install::{OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV};
 use fabro_sandbox::SandboxProvider;
 use fabro_types::settings::server::{
@@ -16,10 +16,11 @@ use fabro_types::settings::server::{
 };
 use fabro_types::settings::{
     GithubIntegrationSettings, InterpString, ObjectStoreSettings, ServerListenSettings,
-    ServerSettings as ResolvedServerSettings, SettingsLayer,
+    ServerNamespace, SettingsLayer,
 };
 use fabro_util::terminal::Styles;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::client::{HttpClient, HttpConnector};
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::{ClientOptions, ObjectStore, RetryConfig};
@@ -56,6 +57,56 @@ impl Default for ObjectStoreBuildOptions {
             retry_config:   RetryConfig::default(),
         }
     }
+}
+
+/// `HttpConnector` that builds a `reqwest::Client` with `.no_proxy()`.
+///
+/// The object_store default `ReqwestConnector` calls `reqwest::Client::new()`,
+/// which on macOS probes `SystemConfiguration` for proxies every time it runs.
+/// That probe can stall long enough to blow past test timeouts. S3/MinIO
+/// traffic goes directly to the configured endpoint, so skipping proxy
+/// discovery is safe and keeps startup predictable.
+#[derive(Debug)]
+struct NoProxyReqwestConnector;
+
+impl HttpConnector for NoProxyReqwestConnector {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "object_store pins reqwest 0.12 and object_store::HttpClient::new requires \
+                  that exact version; we can't route through fabro_http (reqwest 0.13)"
+    )]
+    fn connect(&self, options: &ClientOptions) -> object_store::Result<HttpClient> {
+        let mut builder = object_store_reqwest::Client::builder().no_proxy();
+        if let Some(raw) = options.get_config_value(&object_store::ClientConfigKey::Timeout) {
+            if let Some(duration) = parse_config_duration(&raw) {
+                builder = builder.timeout(duration);
+            }
+        }
+        if let Some(raw) = options.get_config_value(&object_store::ClientConfigKey::ConnectTimeout)
+        {
+            if let Some(duration) = parse_config_duration(&raw) {
+                builder = builder.connect_timeout(duration);
+            }
+        }
+        let client = builder
+            .build()
+            .map_err(|err| object_store::Error::Generic {
+                store:  "object_store",
+                source: Box::new(err),
+            })?;
+        Ok(HttpClient::new(client))
+    }
+}
+
+fn parse_config_duration(raw: &str) -> Option<Duration> {
+    let raw = raw.trim();
+    if let Some(ms) = raw.strip_suffix("ms") {
+        return ms.trim().parse::<u64>().ok().map(Duration::from_millis);
+    }
+    if let Some(s) = raw.strip_suffix('s') {
+        return s.trim().parse::<u64>().ok().map(Duration::from_secs);
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -108,12 +159,7 @@ pub struct ServeArgs {
     pub watch_web: bool,
 }
 
-fn load_settings(path: Option<&Path>) -> anyhow::Result<SettingsLayer> {
-    Ok(load_settings_config(path)?)
-}
-
 fn apply_serve_overrides(base: &SettingsLayer, args: &ServeArgs) -> SettingsLayer {
-    use fabro_types::settings::cli::CliLayer;
     use fabro_types::settings::interp::InterpString;
     use fabro_types::settings::run::{RunLayer, RunModelLayer, RunSandboxLayer};
     use fabro_types::settings::server::{ServerLayer, ServerWebLayer};
@@ -138,8 +184,6 @@ fn apply_serve_overrides(base: &SettingsLayer, args: &ServeArgs) -> SettingsLaye
         let sandbox_layer = run.sandbox.get_or_insert_with(RunSandboxLayer::default);
         sandbox_layer.provider = Some(sandbox.to_string());
     }
-    // CliLayer is namespaced; nothing to populate from flag overrides today.
-    let _ = CliLayer::default();
     settings
 }
 
@@ -148,23 +192,11 @@ fn apply_runtime_settings(
     args: &ServeArgs,
     data_dir: &Path,
 ) -> SettingsLayer {
-    use fabro_types::settings::interp::InterpString;
-    use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-    let mut settings = apply_serve_overrides(base, args);
-    let server = settings.server.get_or_insert_with(ServerLayer::default);
-    let storage = server
-        .storage
-        .get_or_insert_with(ServerStorageLayer::default);
-    storage.root = Some(InterpString::parse(&data_dir.to_string_lossy()));
-    settings
-}
-
-fn router_web_enabled(settings: &ResolvedServerSettings) -> bool {
-    settings.web.enabled
+    apply_storage_dir_override(apply_serve_overrides(base, args), Some(data_dir))
 }
 
 async fn resolve_github_webhook_ip_allowlist(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     github_meta_resolver: &GitHubMetaResolver,
 ) -> anyhow::Result<Arc<IpAllowlistConfig>> {
     let config = resolve_ip_allowlist_config(
@@ -184,7 +216,7 @@ async fn resolve_github_webhook_ip_allowlist(
 }
 
 async fn resolve_startup_github_webhook_ip_allowlist(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     github_meta_resolver: &GitHubMetaResolver,
     webhook_secret_present: bool,
 ) -> anyhow::Result<Option<Arc<IpAllowlistConfig>>> {
@@ -245,7 +277,7 @@ fn resolve_webhook_preconditions(
 }
 
 async fn start_webhook_strategy(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     state: &Arc<AppState>,
     bind_addr: &Bind,
     webhook_secret_present: bool,
@@ -424,6 +456,7 @@ where
             path_style,
         } => {
             let mut builder = AmazonS3Builder::new()
+                .with_http_connector(NoProxyReqwestConnector)
                 .with_bucket_name(resolve_interp(bucket)?)
                 .with_region(resolve_interp(region)?)
                 .with_virtual_hosted_style_request(!*path_style);
@@ -436,24 +469,17 @@ where
     }
 }
 
-fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ResolvedServerSettings> {
-    resolve_server_from_file(file).map_err(|errors| {
-        anyhow::anyhow!(
-            "failed to resolve server settings:\n{}",
-            errors
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    })
+fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ServerNamespace> {
+    ServerSettings::from_layer(file)
+        .map(|settings| settings.server)
+        .map_err(anyhow::Error::from)
 }
 
 pub fn resolve_runtime_server_settings_for_start(
     args: &ServeArgs,
     data_dir: &Path,
-) -> anyhow::Result<ResolvedServerSettings> {
-    let disk_settings = load_settings(args.config.as_deref())?;
+) -> anyhow::Result<ServerNamespace> {
+    let disk_settings = load_settings_config(args.config.as_deref())?;
     let effective_settings = apply_runtime_settings(&disk_settings, args, data_dir);
     resolve_server_settings(&effective_settings)
 }
@@ -494,7 +520,7 @@ fn bind_override_layer(bind: BindRequest) -> SettingsLayer {
 }
 
 fn resolved_bind_request(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
 ) -> anyhow::Result<BindRequest> {
     match &resolved_server_settings.listen {
         ServerListenSettings::Unix { path } => Ok(BindRequest::Unix(resolve_interp_path(path)?)),
@@ -513,16 +539,14 @@ fn resolve_interp_path(value: &InterpString) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(resolve_interp(value)?))
 }
 
-fn load_server_secrets_for_settings(
-    settings: &ResolvedServerSettings,
-) -> anyhow::Result<ServerSecrets> {
+fn load_server_secrets_for_settings(settings: &ServerNamespace) -> anyhow::Result<ServerSecrets> {
     let storage_root = resolve_interp_path(&settings.storage.root)?;
     let server_env_path = Storage::new(&storage_root).runtime_directory().env_path();
     ServerSecrets::load(server_env_path, process_env_snapshot()).map_err(anyhow::Error::from)
 }
 
 pub(crate) fn build_artifact_object_store_with_server_secrets(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
     server_secrets: &ServerSecrets,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String)> {
     let prefix = resolve_interp(&settings.artifacts.prefix)?;
@@ -535,14 +559,14 @@ pub(crate) fn build_artifact_object_store_with_server_secrets(
 }
 
 pub fn build_artifact_object_store(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String)> {
     let server_secrets = load_server_secrets_for_settings(settings)?;
     build_artifact_object_store_with_server_secrets(settings, &server_secrets)
 }
 
 fn build_slatedb_store_with_server_secrets(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
     server_secrets: &ServerSecrets,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String, Duration, bool)> {
     let prefix = resolve_interp(&settings.slatedb.prefix)?;
@@ -561,7 +585,7 @@ fn build_slatedb_store_with_server_secrets(
 
 #[cfg(test)]
 fn build_slatedb_store(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String, Duration, bool)> {
     let server_secrets = load_server_secrets_for_settings(settings)?;
     build_slatedb_store_with_server_secrets(settings, &server_secrets)
@@ -591,7 +615,7 @@ where
     #[cfg(debug_assertions)]
     let watch_web = args.watch_web;
     let config_path = args.config.clone();
-    let disk_settings = load_settings(config_path.as_deref())?;
+    let disk_settings = load_settings_config(config_path.as_deref())?;
     let disk_server_settings = resolve_server_settings(&disk_settings)?;
     let data_dir = match storage_dir_override {
         Some(path) => path,
@@ -615,7 +639,7 @@ where
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("creating data directory {}", data_dir.display()))?;
     let max_concurrent_runs = resolved_server_settings.scheduler.max_concurrent_runs;
-    let web_enabled = router_web_enabled(&resolved_server_settings);
+    let web_enabled = resolved_server_settings.web.enabled;
     let github_meta_resolver = GitHubMetaResolver::from_cache_dir(&storage.cache_dir())?;
 
     let (object_store, slatedb_prefix, flush_interval, disk_cache) =
@@ -648,7 +672,6 @@ where
         artifact_store,
         vault_path,
         server_secrets,
-        local_daemon_mode: true,
         env_lookup,
         http_client: None,
     })?;
@@ -723,7 +746,7 @@ where
         interval.tick().await; // skip first immediate tick
         loop {
             interval.tick().await;
-            match load_settings(config_path_for_poll.as_deref()) {
+            match load_settings_config(config_path_for_poll.as_deref()) {
                 Ok(new_disk_settings) => {
                     let effective = apply_runtime_settings(
                         &new_disk_settings,
@@ -1037,9 +1060,10 @@ mod tests {
         bind_tcp_host_with_fallback, build_local_object_store_with_preference,
         build_object_store_from_settings_with_lookup, build_slatedb_store,
         resolve_bind_request_from_settings, resolve_github_webhook_ip_allowlist,
-        resolve_server_settings, resolve_startup_github_webhook_ip_allowlist, router_web_enabled,
-        server_bind_title, server_title,
+        resolve_server_settings, resolve_startup_github_webhook_ip_allowlist, server_bind_title,
+        server_title,
     };
+    use crate::server::create_app_state_with_options;
 
     fn parse_settings(source: &str) -> SettingsLayer {
         let mut layer = parse_settings_layer(source).expect("v2 fixture should parse");
@@ -1072,6 +1096,42 @@ mod tests {
             .and_then(|storage| storage.root.as_ref())
             .map(fabro_types::settings::InterpString::as_source);
         assert_eq!(storage_root.as_deref(), Some("/srv/fabro-storage"));
+    }
+
+    #[test]
+    fn app_state_server_settings_use_effective_runtime_layer_storage_override() {
+        let base = parse_settings(
+            r#"
+_version = 1
+
+[server.storage]
+root = "/srv/from-disk"
+"#,
+        );
+        let args = ServeArgs {
+            bind: None,
+            model: None,
+            provider: None,
+            sandbox: None,
+            web: false,
+            no_web: false,
+            max_concurrent_runs: None,
+            config: None,
+            #[cfg(debug_assertions)]
+            watch_web: false,
+        };
+
+        let effective = apply_runtime_settings(&base, &args, &PathBuf::from("/srv/from-runtime"));
+        let state = create_app_state_with_options(effective, 5);
+
+        assert_eq!(
+            state.server_settings().server.storage.root.as_source(),
+            "/srv/from-runtime"
+        );
+        assert_eq!(
+            state.server_storage_dir(),
+            PathBuf::from("/srv/from-runtime")
+        );
     }
 
     #[test]
@@ -1205,7 +1265,7 @@ strategy = "token"
 
         let resolved = resolve_server_settings(&base).expect("settings should resolve");
 
-        assert!(router_web_enabled(&resolved));
+        assert!(resolved.web.enabled);
     }
 
     #[test]

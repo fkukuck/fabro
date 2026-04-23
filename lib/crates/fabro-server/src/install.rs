@@ -13,9 +13,9 @@ use axum::{Json, Router, middleware};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use fabro_auth::{AuthCredential, AuthDetails, credential_id_for};
+use fabro_config::Storage;
 use fabro_config::bind::{Bind, BindRequest};
 use fabro_config::envfile::EnvFileUpdate;
-use fabro_config::{Storage, resolve_server_from_file};
 use fabro_install::{
     InstallListenConfig, OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV,
     PendingSettingsWrite, VaultSecretWrite, merge_server_settings, persist_install_outputs_direct,
@@ -107,7 +107,23 @@ impl InstallAppState {
     }
 
     #[must_use]
+    #[expect(
+        unsafe_code,
+        reason = "test-only: set FABRO_TEST_IN_MEMORY_STORE to a constant so install tests \
+                  don't hang on real S3; parallel tests race on the same value"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test-only: forces the in-memory object store for install tests so they \
+                  don't contact real S3"
+    )]
     pub fn for_test_with_paths(token: &str, storage_dir: &Path, config_path: &Path) -> Self {
+        // Install-flow tests verify persistence and redaction, not S3
+        // reachability. Force the in-memory object store shortcut so
+        // /install/finish can't hang on an unreachable bucket.
+        unsafe {
+            std::env::set_var("FABRO_TEST_IN_MEMORY_STORE", "1");
+        }
         Self {
             install_token:      Arc::from(token),
             pending_install:    Arc::new(Mutex::new(PendingInstall::default())),
@@ -1885,17 +1901,9 @@ async fn write_artifact_store_metadata(
         .get_or_insert_with(ServerStorageLayer::default);
     storage.root = Some(InterpString::parse(&storage_dir.display().to_string()));
 
-    let resolved = resolve_server_from_file(&settings).map_err(|errors| {
-        anyhow::anyhow!(
-            "failed to resolve server settings:\n{}",
-            errors
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    })?;
-    let (object_store, prefix) = serve::build_artifact_object_store(&resolved)?;
+    let resolved =
+        fabro_config::ServerSettings::from_layer(&settings).map_err(anyhow::Error::from)?;
+    let (object_store, prefix) = serve::build_artifact_object_store(&resolved.server)?;
     let artifact_store = ArtifactStore::new(object_store, prefix);
     artifact_store.write_metadata(FABRO_VERSION).await?;
     Ok(())

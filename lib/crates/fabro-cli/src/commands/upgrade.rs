@@ -13,7 +13,7 @@ use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 use semver::Version;
@@ -436,7 +436,7 @@ impl UpgradeCheckState {
 
 pub(crate) async fn run_upgrade(
     args: UpgradeArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let current_exe = std::env::current_exe()
@@ -599,7 +599,7 @@ pub(crate) async fn run_upgrade(
 
 fn run_upgrade_brew(
     args: &UpgradeArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
     channel: BrewChannel,
 ) -> Result<()> {
@@ -1153,7 +1153,7 @@ mod tests {
 
     #[test]
     fn run_upgrade_brew_refuses_by_default() {
-        let cli = CliSettings::default();
+        let cli = CliNamespace::default();
         let err = run_upgrade_brew(
             &brew_args(None, false, false, false),
             &cli,
@@ -1169,7 +1169,7 @@ mod tests {
 
     #[test]
     fn run_upgrade_brew_dry_run_returns_ok() {
-        let cli = CliSettings::default();
+        let cli = CliNamespace::default();
         let result = run_upgrade_brew(
             &brew_args(None, false, false, true),
             &cli,
@@ -1181,7 +1181,7 @@ mod tests {
 
     #[test]
     fn run_upgrade_brew_rejects_version_flag() {
-        let cli = CliSettings::default();
+        let cli = CliNamespace::default();
         let err = run_upgrade_brew(
             &brew_args(Some("0.1.0"), false, false, false),
             &cli,
@@ -1194,7 +1194,7 @@ mod tests {
 
     #[test]
     fn run_upgrade_brew_rejects_prerelease_flag() {
-        let cli = CliSettings::default();
+        let cli = CliNamespace::default();
         let err = run_upgrade_brew(
             &brew_args(None, true, false, false),
             &cli,
@@ -1207,7 +1207,7 @@ mod tests {
 
     #[test]
     fn run_upgrade_brew_rejects_force_flag() {
-        let cli = CliSettings::default();
+        let cli = CliNamespace::default();
         let err = run_upgrade_brew(
             &brew_args(None, false, true, false),
             &cli,

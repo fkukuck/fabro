@@ -1,7 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use fabro_client::{AuthEntry, AuthStore};
-use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::dev_token::{read_dev_token_file, validate_dev_token_format};
 use fabro_util::printer::Printer;
@@ -43,12 +42,11 @@ struct StatusOutput {
 
 pub(super) fn status_command(
     args: &AuthStatusArgs,
-    cli: &CliSettings,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::base(printer, cli_layer)?;
     let store = AuthStore::default();
     let now = Utc::now();
     let rows = if args.server.as_deref().is_some() {

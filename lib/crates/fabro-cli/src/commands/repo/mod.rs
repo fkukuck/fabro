@@ -2,7 +2,7 @@ pub(crate) mod deinit;
 pub(crate) mod init;
 
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 
@@ -11,7 +11,7 @@ use crate::shared::print_json_pretty;
 
 pub(crate) async fn dispatch(
     ns: RepoNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

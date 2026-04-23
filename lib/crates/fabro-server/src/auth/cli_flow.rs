@@ -1013,6 +1013,7 @@ fn pkce_challenge(verifier: &str) -> String {
 fn login_allowed(state: &AppState, login: &str) -> bool {
     state
         .server_settings()
+        .server
         .auth
         .github
         .allowed_usernames
@@ -1372,7 +1373,6 @@ mod tests {
         let state = server::create_test_app_state_with_session_key(
             settings,
             Some("cli-flow-test-key-material-0123456789"),
-            false,
         );
         let app = axum::Router::new()
             .nest("/auth", web_routes())

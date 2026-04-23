@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tokio::fs;
@@ -28,7 +28,7 @@ enum CopyDirection {
 
 pub(crate) async fn cp_command(
     args: CpArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -41,8 +41,7 @@ pub(crate) async fn cp_command(
             local_path,
         } => {
             let (client, run_id) =
-                resolve_client_and_run_id(&args.server, &run_prefix, cli, cli_layer, printer)
-                    .await?;
+                resolve_client_and_run_id(&args.server, &run_prefix, cli_layer, printer).await?;
 
             let file_count = if args.recursive {
                 Some(download_recursive(&client, &run_id, &remote_path, &local_path).await?)
@@ -73,8 +72,7 @@ pub(crate) async fn cp_command(
             remote_path,
         } => {
             let (client, run_id) =
-                resolve_client_and_run_id(&args.server, &run_prefix, cli, cli_layer, printer)
-                    .await?;
+                resolve_client_and_run_id(&args.server, &run_prefix, cli_layer, printer).await?;
 
             let file_count = if args.recursive {
                 Some(upload_recursive(&client, &run_id, &local_path, &remote_path).await?)
@@ -128,11 +126,10 @@ fn parse_direction(src: &str, dst: &str) -> Result<CopyDirection> {
 async fn resolve_client_and_run_id(
     server: &ServerTargetArgs,
     run_prefix: &str,
-    cli: &CliSettings,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(Client, fabro_types::RunId)> {
-    let ctx = CommandContext::for_target(server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(run_prefix).await?.run_id;
     Ok((client.clone_for_reuse(), run_id))

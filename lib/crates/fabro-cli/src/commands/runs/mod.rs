@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -13,7 +13,7 @@ pub(crate) mod rm;
 
 pub(crate) async fn dispatch(
     cmd: RunsCommands,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -23,7 +23,7 @@ pub(crate) async fn dispatch(
             list::list_command(&args, &styles, cli, cli_layer, printer).await
         }
         RunsCommands::Rm(args) => rm::remove_command(&args, cli, cli_layer, printer).await,
-        RunsCommands::Inspect(args) => inspect::run(&args, cli, cli_layer, printer).await,
+        RunsCommands::Inspect(args) => inspect::run(&args, cli_layer, printer).await,
         RunsCommands::Archive(args) => {
             archive::archive_command(&args, cli, cli_layer, printer).await
         }

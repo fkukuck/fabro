@@ -5,7 +5,7 @@ use anyhow::Result;
 pub(crate) use fabro_client::ServerTarget;
 pub(crate) use fabro_config::user::*;
 use fabro_types::settings::cli::CliTargetSettings;
-use fabro_types::settings::{CliSettings, SettingsLayer};
+use fabro_types::settings::{CliNamespace, SettingsLayer};
 use fabro_util::version::FABRO_VERSION;
 use tracing::debug;
 
@@ -30,41 +30,9 @@ pub(crate) fn load_settings_with_config_and_storage_dir(
     Ok(apply_storage_dir_override(layer, storage_dir))
 }
 
-fn render_resolve_errors(errors: Vec<fabro_config::ResolveError>) -> anyhow::Error {
-    anyhow::anyhow!(
-        "failed to resolve cli settings:\n{}",
-        errors
-            .into_iter()
-            .map(|error| error.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-}
-
-pub(crate) fn resolve_cli_settings(file: &SettingsLayer) -> anyhow::Result<CliSettings> {
-    fabro_config::resolve_cli_from_file(file).map_err(render_resolve_errors)
-}
-
-pub(crate) fn apply_storage_dir_override(
-    mut layer: SettingsLayer,
-    storage_dir: Option<&Path>,
-) -> SettingsLayer {
-    use fabro_types::settings::interp::InterpString;
-    use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-    if let Some(dir) = storage_dir {
-        let server = layer.server.get_or_insert_with(ServerLayer::default);
-        let storage = server
-            .storage
-            .get_or_insert_with(ServerStorageLayer::default);
-        storage.root = Some(InterpString::parse(&dir.display().to_string()));
-    }
-
-    layer
-}
-
 /// Pull the resolved CLI target configuration out of `[cli.target]`.
 /// Returns either an http(s) URL or a unix socket path.
-fn cli_target_from_settings(settings: &CliSettings) -> Option<String> {
+fn cli_target_from_settings(settings: &CliNamespace) -> Option<String> {
     let target = settings.target.as_ref()?;
     match target {
         CliTargetSettings::Http { url } => Some(url.as_source()),
@@ -73,8 +41,8 @@ fn cli_target_from_settings(settings: &CliSettings) -> Option<String> {
 }
 
 fn configured_server_target(settings: &SettingsLayer) -> Result<Option<ServerTarget>> {
-    let cli_settings = resolve_cli_settings(settings)?;
-    let Some(value) = cli_target_from_settings(&cli_settings) else {
+    let user_settings = fabro_config::UserSettings::from_layer(settings)?;
+    let Some(value) = cli_target_from_settings(&user_settings.cli) else {
         return Ok(None);
     };
     parse_server_target(&value).map(Some)

@@ -177,8 +177,8 @@ async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> Result<()
 
 async fn check_github_app(state: &AppState) -> CheckResult {
     let settings = state.server_settings();
-    if settings.integrations.github.strategy == GithubIntegrationStrategy::Token {
-        let token = match state.github_credentials(&settings.integrations.github) {
+    if settings.server.integrations.github.strategy == GithubIntegrationStrategy::Token {
+        let token = match state.github_credentials(&settings.server.integrations.github) {
             Ok(Some(fabro_github::GitHubCredentials::Token(token))) => token,
             Ok(Some(_)) => unreachable!("token strategy should not return app credentials"),
             Ok(None) => {
@@ -263,19 +263,21 @@ async fn check_github_app(state: &AppState) -> CheckResult {
     }
 
     let app_id = settings
+        .server
         .integrations
         .github
         .app_id
         .as_ref()
         .map(InterpString::as_source);
     let slug = settings
+        .server
         .integrations
         .github
         .slug
         .as_ref()
         .map(InterpString::as_source);
     let private_key_raw = state.server_secret("GITHUB_APP_PRIVATE_KEY");
-    let client_id = settings.integrations.github.client_id.is_some();
+    let client_id = settings.server.integrations.github.client_id.is_some();
     let client_secret = state.server_secret("GITHUB_APP_CLIENT_SECRET").is_some();
     let webhook_secret = state.server_secret("GITHUB_APP_WEBHOOK_SECRET").is_some();
 
@@ -504,7 +506,7 @@ fn check_crypto(state: &AppState) -> CheckResult {
     let mut details = Vec::new();
     let mut errors = Vec::new();
 
-    if resolved_server_settings.web.enabled {
+    if resolved_server_settings.server.web.enabled {
         match state.server_secret("SESSION_SECRET") {
             Some(secret) => {
                 if let Err(err) = validate_session_secret(&secret) {
@@ -515,7 +517,7 @@ fn check_crypto(state: &AppState) -> CheckResult {
         }
     }
 
-    let methods = &resolved_server_settings.auth.methods;
+    let methods = &resolved_server_settings.server.auth.methods;
     if methods.contains(&ServerAuthMethod::DevToken) {
         match state.server_secret("FABRO_DEV_TOKEN") {
             Some(token) if validate_dev_token_format(&token) => {}
@@ -525,6 +527,7 @@ fn check_crypto(state: &AppState) -> CheckResult {
     }
     if methods.contains(&ServerAuthMethod::Github) {
         if resolved_server_settings
+            .server
             .integrations
             .github
             .client_id

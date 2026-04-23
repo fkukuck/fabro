@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use fabro_types::settings::ServerSettings as ResolvedServerSettings;
+use fabro_types::settings::ServerNamespace;
 
 use crate::jwt_auth::{AuthMode, resolve_auth_mode_with_lookup};
 use crate::server_secrets::ServerSecrets;
@@ -9,7 +9,7 @@ use crate::server_secrets::ServerSecrets;
 pub(crate) fn resolve_startup(
     env_path: &Path,
     env_entries: HashMap<String, String>,
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<(AuthMode, ServerSecrets)> {
     let server_secrets = ServerSecrets::load(env_path, env_entries)?;
     let auth_mode = resolve_auth_mode_with_lookup(settings, |name| server_secrets.get(name))?;
@@ -19,7 +19,7 @@ pub(crate) fn resolve_startup(
 pub fn validate_startup(
     env_path: &Path,
     env_entries: HashMap<String, String>,
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<()> {
     resolve_startup(env_path, env_entries, settings).map(|_| ())
 }
@@ -29,11 +29,11 @@ mod tests {
     use std::collections::HashMap;
 
     use fabro_config::parse_settings_layer;
-    use fabro_types::settings::ServerSettings as ResolvedServerSettings;
+    use fabro_types::settings::ServerNamespace;
 
     use super::validate_startup;
 
-    fn resolved_settings(auth_methods: &[&str]) -> ResolvedServerSettings {
+    fn resolved_settings(auth_methods: &[&str]) -> ServerNamespace {
         let settings = parse_settings_layer(&format!(
             r"
 _version = 1

@@ -514,7 +514,7 @@ pub(crate) struct InspectArgs {
 }
 
 #[derive(Args)]
-pub(crate) struct StoreDumpArgs {
+pub(crate) struct DumpArgs {
     #[command(flatten)]
     pub(crate) server: ServerTargetArgs,
 
@@ -712,13 +712,6 @@ pub(crate) struct SystemEventsArgs {
 pub(crate) struct SettingsArgs {
     #[command(flatten)]
     pub(crate) target: ServerTargetArgs,
-
-    /// Show only locally resolved settings and skip the server call
-    #[arg(long, conflicts_with = "server")]
-    pub(crate) local: bool,
-
-    /// Optional workflow name, .fabro path, or .toml run config to overlay
-    pub(crate) workflow: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -1008,8 +1001,8 @@ pub(crate) enum Commands {
     Parse(ParseArgs),
     /// Inspect and copy run artifacts (screenshots, reports, traces)
     Artifact(ArtifactNamespace),
-    /// Export store-backed run state for debugging
-    Store(StoreNamespace),
+    /// Export a run's durable state to a directory
+    Dump(DumpArgs),
     #[command(flatten)]
     RunsCmd(RunsCommands),
     /// List and test LLM models
@@ -1092,9 +1085,7 @@ impl Commands {
                 ArtifactCommand::List(_) => "artifact list",
                 ArtifactCommand::Cp(_) => "artifact cp",
             },
-            Self::Store(ns) => match &ns.command {
-                StoreCommand::Dump(_) => "store dump",
-            },
+            Self::Dump(_) => "dump",
             Self::Exec(_) => "exec",
             Self::RunCmd(cmd) => cmd.name(),
             Self::Preflight(_) => "preflight",
@@ -1204,18 +1195,6 @@ pub(crate) enum ArtifactCommand {
     List(ArtifactListArgs),
     /// Copy artifacts from a workflow run
     Cp(ArtifactCpArgs),
-}
-
-#[derive(Args)]
-pub(crate) struct StoreNamespace {
-    #[command(subcommand)]
-    pub(crate) command: StoreCommand,
-}
-
-#[derive(Subcommand)]
-pub(crate) enum StoreCommand {
-    /// Export a run's durable state to a directory
-    Dump(StoreDumpArgs),
 }
 
 #[derive(Args)]

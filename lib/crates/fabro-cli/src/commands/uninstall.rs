@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use fabro_config::Storage;
 use fabro_config::daemon::ServerDaemon;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::Home;
 use fabro_util::printer::Printer;
@@ -45,7 +45,7 @@ struct Inventory {
 )]
 pub(crate) async fn run_uninstall(
     args: &UninstallArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let json = cli.output.format == OutputFormat::Json;

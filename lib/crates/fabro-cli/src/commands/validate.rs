@@ -2,7 +2,7 @@ use anyhow::bail;
 use fabro_config::load::load_settings_user;
 use fabro_config::user::active_settings_path;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
-use fabro_types::settings::{CliSettings, SettingsLayer};
+use fabro_types::settings::{CliNamespace, SettingsLayer};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
@@ -15,11 +15,11 @@ use crate::shared::{print_diagnostics, print_json_pretty, relative_path};
 pub(crate) async fn run(
     args: &ValidateArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     let built = build_run_manifest(ManifestBuildInput {
         workflow:           args.workflow.clone(),
         cwd:                ctx.cwd().to_path_buf(),

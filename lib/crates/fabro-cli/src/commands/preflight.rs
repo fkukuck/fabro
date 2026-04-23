@@ -1,7 +1,7 @@
 use anyhow::bail;
 use fabro_config::load::load_settings_user;
 use fabro_config::user::active_settings_path;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -17,12 +17,12 @@ use crate::shared::print_json_pretty;
 
 pub(crate) async fn execute(
     mut args: PreflightArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     args.verbose = args.verbose || cli.output.verbosity == OutputVerbosity::Verbose;
 
     let manifest = build_run_manifest(ManifestBuildInput {

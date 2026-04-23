@@ -490,26 +490,16 @@ impl Client {
         }
     }
 
-    pub async fn retrieve_resolved_server_settings(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/api/v1/settings?view=resolved", self.base_url());
+    pub async fn retrieve_resolved_server_settings(&self) -> Result<types::ServerSettings> {
+        let url = format!("{}/api/v1/settings", self.base_url());
         let response = self
             .send_http(|http_client| async move { http_client.get(&url).send().await })
             .await?;
 
-        let marker = response
-            .headers()
-            .get("x-fabro-settings-view")
-            .and_then(|value| value.to_str().ok());
-        if marker != Some("resolved") {
-            bail!(
-                "server does not support resolved settings view; upgrade the server or use --local"
-            );
-        }
-
         response
-            .json::<serde_json::Value>()
+            .json::<types::ServerSettings>()
             .await
-            .context("server returned invalid JSON for the resolved settings view")
+            .context("server returned invalid JSON for server settings")
     }
 
     pub async fn create_run_from_manifest(&self, manifest: types::RunManifest) -> Result<RunId> {

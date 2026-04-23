@@ -6,8 +6,8 @@
 use fabro_test::test_context;
 
 use super::{
-    completed_nodes, find_run_dir, fixture, has_event, read_conclusion, read_run_spec, run_id_for,
-    sandbox_tests, store_dump_export, timeout_for,
+    completed_nodes, dump_export, find_run_dir, fixture, has_event, read_conclusion, read_run_spec,
+    run_id_for, sandbox_tests, timeout_for,
 };
 
 sandbox_tests!(full_stack, keys = ["ANTHROPIC_API_KEY"]);
@@ -73,7 +73,7 @@ fn scenario_full_stack(sandbox: &str) {
     }
 
     // Verify node stdout should contain PASS
-    let export_dir = store_dump_export(&context, &run_id_for(&run_dir));
+    let export_dir = dump_export(&context, &run_id_for(&run_dir));
     let stdout = std::fs::read_to_string(export_dir.join("stages/verify@1/stdout.log"))
         .expect("verify stdout.log should exist");
     assert!(

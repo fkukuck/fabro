@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 
@@ -7,7 +7,7 @@ use crate::args::SandboxCommand;
 
 pub(crate) async fn dispatch(
     command: SandboxCommand,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,

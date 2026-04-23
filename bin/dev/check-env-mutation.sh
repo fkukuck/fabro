@@ -20,7 +20,8 @@ while IFS= read -r match; do
 
   case "$path:$line" in
     "lib/crates/fabro-telemetry/src/spawn.rs:std::env::set_var(key, value);" | \
-    "lib/crates/fabro-telemetry/src/spawn.rs:std::env::remove_var(key);")
+    "lib/crates/fabro-telemetry/src/spawn.rs:std::env::remove_var(key);" | \
+    'lib/crates/fabro-server/src/install.rs:std::env::set_var("FABRO_TEST_IN_MEMORY_STORE", "1");')
       continue
       ;;
   esac

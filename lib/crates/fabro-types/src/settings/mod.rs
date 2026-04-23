@@ -16,7 +16,6 @@ pub mod interp;
 pub mod layer;
 pub mod model_ref;
 pub mod project;
-pub mod resolved;
 pub mod run;
 pub mod server;
 pub mod size;
@@ -25,24 +24,23 @@ pub mod workflow;
 
 pub use cli::{
     CliAuthSettings, CliExecAgentSettings, CliExecModelSettings, CliExecSettings, CliLayer,
-    CliLoggingSettings, CliOutputSettings, CliSettings, CliTargetSettings, CliUpdatesSettings,
+    CliLoggingSettings, CliNamespace, CliOutputSettings, CliTargetSettings, CliUpdatesSettings,
 };
 pub use duration::{Duration, ParseDurationError};
-pub use features::{FeaturesLayer, FeaturesSettings};
+pub use features::{FeaturesLayer, FeaturesNamespace};
 pub use interp::{InterpString, Provenance, ResolveEnvError, Resolved};
 pub use layer::SettingsLayer;
 pub use model_ref::{
     AmbiguousModelRef, ModelRef, ModelRegistry, ParseModelRefError, ResolvedModelRef,
 };
-pub use project::{ProjectLayer, ProjectSettings};
-pub use resolved::Settings;
+pub use project::{ProjectLayer, ProjectNamespace};
 pub use run::{
     ArtifactsSettings, DaytonaSettings, DaytonaSnapshotSettings, DockerfileSource,
     GitAuthorSettings, HookDefinition, HookType, InterviewProviderSettings, McpServerSettings,
     McpTransport, NotificationProviderSettings, NotificationRouteSettings, PullRequestSettings,
     RunAgentSettings, RunCheckpointSettings, RunExecutionSettings, RunGitSettings, RunGoal,
-    RunInterviewsSettings, RunLayer, RunModelSettings, RunPrepareSettings, RunSandboxSettings,
-    RunScmSettings, RunSettings, ScmGitHubSettings, TlsMode,
+    RunInterviewsSettings, RunLayer, RunModelSettings, RunNamespace, RunPrepareSettings,
+    RunSandboxSettings, RunScmSettings, ScmGitHubSettings, TlsMode,
 };
 pub use server::{
     DiscordIntegrationSettings, GithubIntegrationSettings, IntegrationWebhooksSettings,
@@ -50,9 +48,9 @@ pub use server::{
     ServerAuthGithubSettings, ServerAuthMethod, ServerAuthSettings, ServerIntegrationsSettings,
     ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerIpAllowlistOverrideSettings,
     ServerIpAllowlistSettings, ServerLayer, ServerListenSettings, ServerLoggingSettings,
-    ServerSchedulerSettings, ServerSettings, ServerSlateDbSettings, ServerStorageSettings,
+    ServerNamespace, ServerSchedulerSettings, ServerSlateDbSettings, ServerStorageSettings,
     ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
 };
 pub use size::{ParseSizeError, Size};
 pub use splice_array::{SPLICE_MARKER, SpliceArray, SpliceArrayError};
-pub use workflow::{WorkflowLayer, WorkflowSettings};
+pub use workflow::{WorkflowLayer, WorkflowNamespace};

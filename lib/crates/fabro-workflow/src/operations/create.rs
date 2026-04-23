@@ -16,7 +16,9 @@ use fabro_sandbox::daytona::detect_repo_info;
 use fabro_store::Database;
 use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::settings::run::RunMode;
-use fabro_types::settings::{Settings, SettingsLayer};
+use fabro_types::settings::{
+    InterpString, ProjectNamespace, RunNamespace, SettingsLayer, WorkflowNamespace,
+};
 use fabro_types::{RunId, RunProvenance};
 use fabro_util::json::normalize_json_value;
 use tokio::task::spawn_blocking;
@@ -56,6 +58,13 @@ pub struct CreatedRun {
     pub run_id:    RunId,
     pub run_dir:   PathBuf,
     pub dot_path:  Option<PathBuf>,
+}
+
+struct ResolvedSettingsTree {
+    server_storage_root: InterpString,
+    project:             ProjectNamespace,
+    workflow:            WorkflowNamespace,
+    run:                 RunNamespace,
 }
 
 struct PersistCreateOptions {
@@ -107,14 +116,12 @@ pub async fn create(store: &Database, request: CreateRunInput) -> Result<Created
     let resolved_settings = resolve_settings_tree(&settings)?;
     let run_id = run_id.unwrap_or_else(RunId::new);
     let storage_root = resolved_settings
-        .server
-        .storage
-        .root
+        .server_storage_root
         .resolve(|name| std::env::var(name).ok())
         .map_err(|err| {
             Error::Precondition(format!(
                 "failed to resolve {}: {err}",
-                resolved_settings.server.storage.root.as_source()
+                resolved_settings.server_storage_root.as_source()
             ))
         })?;
     let storage = Storage::new(storage_root.value);
@@ -277,20 +284,19 @@ fn store_error(err: impl std::fmt::Display) -> Error {
     Error::engine(err.to_string())
 }
 
-fn render_resolve_errors(errors: &[fabro_config::ResolveError]) -> String {
-    errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("; ")
+fn resolve_settings_tree(settings: &SettingsLayer) -> Result<ResolvedSettingsTree, Error> {
+    let resolver = fabro_config::Resolver::from_layer(settings);
+    let to_error =
+        |errors: Vec<_>| Error::Precondition(fabro_config::render_resolve_errors(&errors));
+    Ok(ResolvedSettingsTree {
+        server_storage_root: resolver.storage_root(),
+        project:             resolver.project().map_err(to_error)?,
+        workflow:            resolver.workflow().map_err(to_error)?,
+        run:                 resolver.run().map_err(to_error)?,
+    })
 }
 
-fn resolve_settings_tree(settings: &SettingsLayer) -> Result<Settings, Error> {
-    fabro_config::resolve(settings)
-        .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))
-}
-
-fn combined_labels(settings: &Settings) -> HashMap<String, String> {
+fn combined_labels(settings: &ResolvedSettingsTree) -> HashMap<String, String> {
     let mut labels = settings.project.metadata.clone();
     labels.extend(settings.workflow.metadata.clone());
     labels.extend(settings.run.metadata.clone());
@@ -299,7 +305,7 @@ fn combined_labels(settings: &Settings) -> HashMap<String, String> {
 
 fn validate_sandbox_provider(settings: &SettingsLayer) -> Result<(), Error> {
     let resolved = fabro_config::resolve_run_from_file(settings)
-        .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
+        .map_err(|errors| Error::Precondition(fabro_config::render_resolve_errors(&errors)))?;
     resolved
         .sandbox
         .provider

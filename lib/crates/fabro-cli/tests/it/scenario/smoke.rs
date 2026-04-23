@@ -134,16 +134,12 @@ fn help_smoke_covers_high_cost_commands() {
     ----- stdout -----
     Inspect effective settings
 
-    Usage: fabro settings [OPTIONS] [WORKFLOW]
-
-    Arguments:
-      [WORKFLOW]  Optional workflow name, .fabro path, or .toml run config to overlay
+    Usage: fabro settings [OPTIONS]
 
     Options:
           --json              Output as JSON [env: FABRO_JSON=]
           --server <SERVER>   Fabro server target: http(s) URL or absolute Unix socket path [env: FABRO_SERVER=]
           --debug             Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
-          --local             Show only locally resolved settings and skip the server call
           --no-upgrade-check  Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
           --quiet             Suppress non-essential output [env: FABRO_QUIET=]
           --verbose           Enable verbose output [env: FABRO_VERBOSE=]

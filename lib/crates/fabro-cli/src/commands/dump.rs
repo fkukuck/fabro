@@ -1,6 +1,6 @@
 #![expect(
     clippy::disallowed_methods,
-    reason = "CLI `store dump` command: sync file I/O for dump outputs"
+    reason = "CLI `dump` command: sync file I/O for dump outputs"
 )]
 
 use std::io::ErrorKind;
@@ -11,28 +11,28 @@ use bytes::Bytes;
 #[cfg(test)]
 use fabro_store::{ArtifactStore, RunDatabase};
 use fabro_store::{EventEnvelope, RunProjection, StageId};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::{RunBlobId, RunId};
 use fabro_util::printer::Printer;
+use fabro_workflow::run_dump::RunDump;
 use futures::future::BoxFuture;
 #[cfg(test)]
 use serde::de::DeserializeOwned;
 use tokio::task::spawn_blocking;
 
-use super::run_export::StoreRunExport;
-use crate::args::StoreDumpArgs;
+use crate::args::DumpArgs;
 use crate::command_context::CommandContext;
 use crate::server_client::Client;
 use crate::shared::{absolute_or_current, print_json_pretty};
 
-pub(crate) async fn dump_command(
-    args: &StoreDumpArgs,
-    cli: &CliSettings,
+pub(crate) async fn run(
+    args: &DumpArgs,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
     let state = client.get_run_state(&run_id).await?;
@@ -222,7 +222,7 @@ async fn export_run_from_source(
         .with_context(|| format!("failed to create {}", staging_parent.display()))?;
 
     let staging_dir = tempfile::Builder::new()
-        .prefix(".fabro-store-dump-")
+        .prefix(".fabro-dump-")
         .tempdir_in(staging_parent)
         .with_context(|| {
             format!(
@@ -248,7 +248,7 @@ async fn write_run_dump(
     output_dir: &Path,
 ) -> Result<usize> {
     let events = source.list_events().await?;
-    let mut dump = StoreRunExport::from_store_state_and_events(state, &events)?;
+    let mut dump = RunDump::from_store_state_and_events(state, &events)?;
 
     dump.hydrate_referenced_blobs_with_reader(|blob_id| source.read_blob(blob_id))
         .await?;

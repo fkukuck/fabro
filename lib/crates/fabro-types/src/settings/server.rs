@@ -10,20 +10,21 @@ use std::net::SocketAddr;
 use std::time::Duration as StdDuration;
 
 use ipnet::IpNet;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::duration::Duration as DurationLayer;
 use super::interp::InterpString;
 
 /// A structurally resolved `[server]` view for consumers.
 ///
-/// `Default` is intentionally not derived: any "default" `ServerSettings`
+/// `Default` is intentionally not derived: any "default" `ServerNamespace`
 /// would have empty `auth.methods`, which the resolver rejects. Construct
 /// real values via `fabro_config::resolve_server` (production), or
-/// `ServerSettings::test_default()` behind the `test-support` feature
+/// `ServerNamespace::test_default()` behind the `test-support` feature
 /// (tests).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ServerSettings {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerNamespace {
     pub listen:       ServerListenSettings,
     pub api:          ServerApiSettings,
     pub web:          ServerWebSettings,
@@ -38,8 +39,8 @@ pub struct ServerSettings {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-impl ServerSettings {
-    /// A trivial `ServerSettings` value suitable for serialization or
+impl ServerNamespace {
+    /// A trivial `ServerNamespace` value suitable for serialization or
     /// destructuring tests. Auth methods are empty (would not pass
     /// `resolve_server`); use this only when the resolver is not in play.
     #[must_use]
@@ -60,11 +61,14 @@ impl ServerSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ServerListenSettings {
     Tcp {
-        #[serde(serialize_with = "serialize_socket_addr")]
+        #[serde(
+            serialize_with = "serialize_socket_addr",
+            deserialize_with = "deserialize_socket_addr"
+        )]
         address: SocketAddr,
     },
     Unix {
@@ -80,12 +84,12 @@ impl Default for ServerListenSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerApiSettings {
     pub url: Option<InterpString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerWebSettings {
     pub enabled: bool,
     pub url:     InterpString,
@@ -100,7 +104,7 @@ impl Default for ServerWebSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerAuthSettings {
     pub methods: Vec<ServerAuthMethod>,
     pub github:  ServerAuthGithubSettings,
@@ -113,24 +117,24 @@ pub enum ServerAuthMethod {
     Github,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerAuthGithubSettings {
     pub allowed_usernames: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerIpAllowlistSettings {
     pub entries:             Vec<IpAllowEntry>,
     pub trusted_proxy_count: u32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerIpAllowlistOverrideSettings {
     pub entries:             Option<Vec<IpAllowEntry>>,
     pub trusted_proxy_count: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IpAllowEntry {
     Literal(IpNet),
     GitHubMetaHooks,
@@ -148,7 +152,7 @@ impl IpAllowEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerStorageSettings {
     pub root: InterpString,
 }
@@ -161,7 +165,7 @@ impl Default for ServerStorageSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerArtifactsSettings {
     pub prefix: InterpString,
     pub store:  ObjectStoreSettings,
@@ -176,11 +180,14 @@ impl Default for ServerArtifactsSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerSlateDbSettings {
     pub prefix:         InterpString,
     pub store:          ObjectStoreSettings,
-    #[serde(serialize_with = "serialize_std_duration")]
+    #[serde(
+        serialize_with = "serialize_std_duration",
+        deserialize_with = "deserialize_std_duration"
+    )]
     pub flush_interval: StdDuration,
     pub disk_cache:     bool,
 }
@@ -196,7 +203,7 @@ impl Default for ServerSlateDbSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ObjectStoreSettings {
     Local {
@@ -218,17 +225,17 @@ impl Default for ObjectStoreSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerSchedulerSettings {
     pub max_concurrent_runs: usize,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerLoggingSettings {
     pub level: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerIntegrationsSettings {
     pub github:  GithubIntegrationSettings,
     pub slack:   SlackIntegrationSettings,
@@ -236,7 +243,7 @@ pub struct ServerIntegrationsSettings {
     pub teams:   TeamsIntegrationSettings,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubIntegrationSettings {
     pub enabled:     bool,
     pub strategy:    GithubIntegrationStrategy,
@@ -247,23 +254,23 @@ pub struct GithubIntegrationSettings {
     pub webhooks:    Option<IntegrationWebhooksSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlackIntegrationSettings {
     pub enabled:         bool,
     pub default_channel: Option<InterpString>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscordIntegrationSettings {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamsIntegrationSettings {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntegrationWebhooksSettings {
     pub strategy:     Option<WebhookStrategy>,
     pub ip_allowlist: Option<ServerIpAllowlistOverrideSettings>,
@@ -276,11 +283,26 @@ where
     serializer.serialize_str(&value.to_string())
 }
 
+fn deserialize_socket_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    value.parse().map_err(D::Error::custom)
+}
+
 fn serialize_std_duration<S>(value: &StdDuration, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     serializer.serialize_str(&DurationLayer::from_std(*value).to_string())
+}
+
+fn deserialize_std_duration<'de, D>(deserializer: D) -> Result<StdDuration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(DurationLayer::deserialize(deserializer)?.as_std())
 }
 
 /// A sparse `[server]` layer as it appears in a single settings file.

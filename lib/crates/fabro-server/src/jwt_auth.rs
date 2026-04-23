@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use axum::extract::FromRequestParts;
 use axum::http::header;
 use axum::http::request::Parts;
-use fabro_types::settings::{ServerAuthMethod, ServerSettings as ResolvedServerSettings};
+use fabro_types::settings::{ServerAuthMethod, ServerNamespace};
 use fabro_types::{IdpIdentity, RunAuthMethod};
 use fabro_util::dev_token::validate_dev_token_format;
 use hmac::{Hmac, Mac};
@@ -51,14 +51,11 @@ pub enum AuthMode {
     Disabled,
 }
 
-pub fn resolve_auth_mode(settings: &ResolvedServerSettings) -> Result<AuthMode> {
+pub fn resolve_auth_mode(settings: &ServerNamespace) -> Result<AuthMode> {
     resolve_auth_mode_with_lookup(settings, |name| std::env::var(name).ok())
 }
 
-pub fn resolve_auth_mode_with_lookup<F>(
-    settings: &ResolvedServerSettings,
-    lookup: F,
-) -> Result<AuthMode>
+pub fn resolve_auth_mode_with_lookup<F>(settings: &ServerNamespace, lookup: F) -> Result<AuthMode>
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -124,7 +121,7 @@ where
     }))
 }
 
-fn resolve_jwt_issuer<F>(settings: &ResolvedServerSettings, lookup: &F) -> String
+fn resolve_jwt_issuer<F>(settings: &ServerNamespace, lookup: &F) -> String
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -389,7 +386,7 @@ mod tests {
     use tracing_subscriber::{Layer, Registry};
 
     use super::*;
-    fn settings(source: &str) -> ResolvedServerSettings {
+    fn settings(source: &str) -> ServerNamespace {
         let file = parse_settings_layer(source).expect("fixture should parse");
         resolve_server_from_file(&file).expect("fixture should resolve")
     }
@@ -563,7 +560,7 @@ methods = []
         let errors = resolve_server_from_file(&file).expect_err("empty auth methods should fail");
         assert!(errors.iter().any(|err| matches!(
             err,
-            fabro_config::resolve::ResolveError::Invalid { path, reason }
+            fabro_config::ResolveError::Invalid { path, reason }
                 if path == "server.auth.methods" && reason.contains("must not be empty")
         )));
     }

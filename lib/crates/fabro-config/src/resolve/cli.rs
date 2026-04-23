@@ -1,13 +1,13 @@
 use fabro_types::settings::cli::{
     CliAuthSettings, CliExecAgentSettings, CliExecLayer, CliExecModelSettings, CliExecSettings,
-    CliLayer, CliLoggingSettings, CliOutputSettings, CliSettings, CliTargetLayer,
+    CliLayer, CliLoggingSettings, CliNamespace, CliOutputSettings, CliTargetLayer,
     CliTargetSettings, CliUpdatesSettings,
 };
 
 use super::{ResolveError, require_interp};
 
-pub fn resolve_cli(layer: &CliLayer, errors: &mut Vec<ResolveError>) -> CliSettings {
-    CliSettings {
+pub fn resolve_cli(layer: &CliLayer, errors: &mut Vec<ResolveError>) -> CliNamespace {
+    CliNamespace {
         target:  resolve_target(layer.target.as_ref(), errors),
         auth:    CliAuthSettings {
             strategy: layer.auth.as_ref().and_then(|auth| auth.strategy),

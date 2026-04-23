@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tokio::process::Command as TokioCommand;
@@ -36,7 +36,7 @@ pub(super) fn git_repo_root() -> Result<PathBuf> {
 
 pub(crate) async fn run_init(
     args: &RepoInitArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<Vec<String>> {
@@ -151,7 +151,7 @@ draft = true
     }
 
     if cli.output.format != OutputFormat::Json {
-        check_github_app_installation(&args.target, cli, cli_layer, printer).await;
+        check_github_app_installation(&args.target, cli_layer, printer).await;
     }
 
     Ok(created)
@@ -159,7 +159,6 @@ draft = true
 
 async fn check_github_app_installation(
     target: &ServerTargetArgs,
-    cli: &CliSettings,
     cli_layer: &CliLayer,
     printer: Printer,
 ) {
@@ -200,7 +199,7 @@ async fn check_github_app_installation(
         return; // Not a GitHub repo — skip silently
     };
 
-    let ctx = match CommandContext::for_target(target, printer, cli.clone(), cli_layer) {
+    let ctx = match CommandContext::for_target(target, printer, cli_layer) {
         Ok(ctx) => ctx,
         Err(err) => {
             fabro_util::printerr!(

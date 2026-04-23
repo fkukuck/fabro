@@ -24,7 +24,7 @@ use fabro_auth::{AuthCredential, AuthMethod, codex_oauth_config, credential_id_f
 use fabro_config::bind::Bind;
 use fabro_config::daemon::ServerDaemon;
 use fabro_config::user::{SETTINGS_CONFIG_FILENAME, default_storage_dir};
-use fabro_config::{ResolveError, Storage, envfile};
+use fabro_config::{Storage, envfile};
 use fabro_install::{
     InstallListenConfig, PendingSettingsWrite, merge_server_settings as merge_server_settings_impl,
     persist_install_outputs_direct, write_github_app_settings, write_token_settings,
@@ -34,7 +34,7 @@ use fabro_server::serve;
 use fabro_store::ArtifactStore;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::settings::server::ServerAuthMethod;
-use fabro_types::settings::{CliSettings, SettingsLayer};
+use fabro_types::settings::{CliNamespace, SettingsLayer};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_util::version::FABRO_VERSION;
@@ -1262,24 +1262,12 @@ fn persist_github_install_changes(
     Ok(())
 }
 
-fn render_server_resolve_errors(errors: Vec<ResolveError>) -> anyhow::Error {
-    anyhow::anyhow!(
-        "failed to resolve server settings:\n{}",
-        errors
-            .into_iter()
-            .map(|error| error.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-}
-
 async fn write_artifact_store_metadata(
     settings: &SettingsLayer,
     fabro_version: &str,
 ) -> Result<()> {
-    let resolved =
-        fabro_config::resolve_server_from_file(settings).map_err(render_server_resolve_errors)?;
-    let (object_store, prefix) = serve::build_artifact_object_store(&resolved)?;
+    let resolved = fabro_config::ServerSettings::from_layer(settings)?;
+    let (object_store, prefix) = serve::build_artifact_object_store(&resolved.server)?;
     let artifact_store = ArtifactStore::new(object_store, prefix);
     artifact_store.write_metadata(fabro_version).await?;
     Ok(())
@@ -1421,7 +1409,7 @@ where
 pub(crate) async fn execute(
     args: &InstallArgs,
     command: Option<InstallCommand>,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,
@@ -1437,7 +1425,7 @@ pub(crate) async fn execute(
 async fn run_install_github_command(
     args: &InstallArgs,
     github_args: &InstallGithubArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     process_local_json: bool,
     printer: Printer,
 ) -> Result<()> {
@@ -1600,7 +1588,7 @@ async fn run_install_github_inner(
 
 pub(crate) async fn run_install(
     args: &InstallArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,
@@ -1626,7 +1614,7 @@ pub(crate) async fn run_install(
 
 async fn run_install_inner(
     args: &InstallArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -1802,8 +1790,7 @@ async fn run_install_inner(
             .context("failed to parse generated settings.toml")?,
         args.storage_dir.as_deref(),
     );
-    fabro_config::resolve_server_from_file(&install_settings)
-        .map_err(render_server_resolve_errors)?;
+    fabro_config::ServerSettings::from_layer(&install_settings)?;
 
     // Secrets and auth material
     {

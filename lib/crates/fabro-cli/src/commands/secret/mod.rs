@@ -3,7 +3,7 @@ mod rm;
 mod set;
 
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 
@@ -12,11 +12,11 @@ use crate::command_context::CommandContext;
 
 pub(crate) async fn dispatch(
     ns: SecretNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&ns.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&ns.target, printer, cli_layer)?;
     let server = ctx.server().await?;
     match ns.command {
         SecretCommand::List(args) => list::list_command(&server, &args, cli, printer).await,

@@ -1,5 +1,5 @@
-use fabro_types::settings::CliSettings;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
+use fabro_types::settings::CliNamespace;
+use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
@@ -15,11 +15,11 @@ use crate::shared::print_json_pretty;
 pub(crate) async fn resume_command(
     args: ResumeArgs,
     styles: &'static Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
 
@@ -39,6 +39,7 @@ pub(crate) async fn resume_command(
             true,
             styles,
             json,
+            ctx.user_settings().cli.output.verbosity == OutputVerbosity::Verbose,
             printer,
         ))
         .await?;

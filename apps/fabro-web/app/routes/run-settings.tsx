@@ -6,14 +6,14 @@ import { apiJson } from "../api";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
 import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
-import type { RunSettings } from "../lib/workflow-api";
+import type { RunSettingsLayer } from "../lib/workflow-api";
 
 export const handle = { wide: true };
 
 export async function loader({ request, params }: any) {
   const [{ data: apiStages }, settings] = await Promise.all([
     apiJson<PaginatedRunStageList>(`/runs/${params.id}/stages`, { request }),
-    apiJson<RunSettings>(`/runs/${params.id}/settings`, { request }),
+    apiJson<RunSettingsLayer>(`/runs/${params.id}/settings`, { request }),
   ]);
   const stages: Stage[] = apiStages.filter((s) => isVisibleStage(s.id)).map((s) => ({
     id: s.id,

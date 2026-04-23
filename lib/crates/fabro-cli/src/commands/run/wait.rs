@@ -11,7 +11,7 @@ use std::io::Write;
 
 use anyhow::{Result, bail};
 use fabro_types::RunId;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -27,11 +27,11 @@ use crate::shared::{format_duration_ms, format_usd_micros, run_status_kind};
 pub(crate) async fn run(
     args: &WaitArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
     info!(run_id = %run_id, "Waiting for run to complete");

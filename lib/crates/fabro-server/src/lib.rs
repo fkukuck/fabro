@@ -31,7 +31,6 @@ pub mod security_headers;
 pub mod serve;
 pub mod server;
 mod server_secrets;
-mod settings_view;
 mod spawn_env;
 mod startup;
 pub mod static_files;

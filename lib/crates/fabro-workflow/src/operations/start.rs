@@ -24,7 +24,7 @@ use fabro_types::settings::run::{
     HookEvent as ResolvedHookEvent, HookType as ResolvedHookType,
     McpServerSettings as ResolvedMcpServerSettings, McpTransport as ResolvedMcpTransport,
     PullRequestSettings, RunMode, RunModelSettings as ResolvedRunModelSettings,
-    RunSettings as ResolvedRunSettings, TlsMode as ResolvedTlsMode,
+    RunNamespace as ResolvedRunSettings, TlsMode as ResolvedTlsMode,
 };
 use fabro_vault::Vault;
 use tokio::runtime::Handle;
@@ -83,18 +83,21 @@ struct RunSession {
 }
 
 pub struct StartServices {
-    pub run_id:            RunId,
-    pub cancel_token:      Option<Arc<AtomicBool>>,
-    pub emitter:           Arc<Emitter>,
-    pub interviewer:       Arc<dyn Interviewer>,
-    pub run_store:         RunStoreHandle,
-    pub event_sink:        RunEventSink,
-    pub artifact_sink:     Option<ArtifactSink>,
-    pub run_control:       Option<Arc<RunControlState>>,
-    pub github_app:        Option<fabro_github::GitHubCredentials>,
-    pub vault:             Option<Arc<AsyncRwLock<Vault>>>,
-    pub on_node:           crate::OnNodeCallback,
-    pub registry_override: Option<Arc<HandlerRegistry>>,
+    pub run_id:             RunId,
+    pub cancel_token:       Option<Arc<AtomicBool>>,
+    pub emitter:            Arc<Emitter>,
+    pub interviewer:        Arc<dyn Interviewer>,
+    pub run_store:          RunStoreHandle,
+    pub event_sink:         RunEventSink,
+    pub artifact_sink:      Option<ArtifactSink>,
+    pub run_control:        Option<Arc<RunControlState>>,
+    pub github_app:         Option<fabro_github::GitHubCredentials>,
+    /// Server-resolved GitHub integration permissions to inject into the
+    /// sandbox env. Empty when github integration has no permissions.
+    pub github_permissions: HashMap<String, String>,
+    pub vault:              Option<Arc<AsyncRwLock<Vault>>>,
+    pub on_node:            crate::OnNodeCallback,
+    pub registry_override:  Option<Arc<HandlerRegistry>>,
 }
 
 pub struct Started {
@@ -307,7 +310,7 @@ impl RunSession {
             .map_or((None, None), |(url, branch)| (Some(url), branch));
 
         let resolved = fabro_config::resolve_run_from_file(settings)
-            .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
+            .map_err(|errors| Error::Precondition(fabro_config::render_resolve_errors(&errors)))?;
 
         let sandbox_provider = resolve_sandbox_provider(&resolved)?;
         let sandbox_provider =
@@ -379,18 +382,8 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let resolved_server = fabro_config::resolve_server_from_file(settings)
-            .map_err(|errors| Error::Precondition(render_resolve_errors(&errors)))?;
         let github_permissions: Option<HashMap<String, String>> =
-            (!resolved_server.integrations.github.permissions.is_empty()).then(|| {
-                resolved_server
-                    .integrations
-                    .github
-                    .permissions
-                    .iter()
-                    .map(|(k, v)| (k.clone(), resolve_interp(v)))
-                    .collect()
-            });
+            (!services.github_permissions.is_empty()).then(|| services.github_permissions.clone());
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,
@@ -523,14 +516,6 @@ fn resolve_fallback_chain(
             .push(model_ref.to_string());
     }
     Catalog::builtin().build_fallback_chain(provider, model, &by_provider)
-}
-
-fn render_resolve_errors(errors: &[fabro_config::ResolveError]) -> String {
-    errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("; ")
 }
 
 fn runtime_mcp_server(settings: &ResolvedMcpServerSettings) -> McpServerSettings {
@@ -1083,6 +1068,7 @@ mod tests {
             artifact_sink: None,
             run_control: None,
             github_app: None,
+            github_permissions: HashMap::new(),
             vault: None,
             on_node: None,
             registry_override: Some(registry),

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -25,11 +25,11 @@ struct PrRow {
 
 pub(super) async fn list_command(
     args: PrListArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
 
     let mut entries = Vec::new();
@@ -50,7 +50,7 @@ pub(super) async fn list_command(
         return Ok(());
     }
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     let futures: Vec<_> = entries
         .iter()

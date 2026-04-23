@@ -12,7 +12,7 @@ use axum::body::Body;
 use axum::body::to_bytes;
 use axum::extract::{self as axum_extract, DefaultBodyLimit, Path, Query, State};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::{self};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -34,13 +34,13 @@ pub use fabro_api::types::{
     RenderWorkflowGraphDirection, RenderWorkflowGraphRequest, RunArtifactEntry,
     RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals, RunError, RunManifest,
     RunStage, RunStatusResponse, SandboxFileEntry, SandboxFileListResponse,
-    SecretType as ApiSecretType, ServerSettings, SshAccessRequest, SshAccessResponse,
+    SecretType as ApiSecretType, SshAccessRequest, SshAccessResponse,
     StageStatus as ApiStageStatus, StartRunRequest, SubmitAnswerRequest, SystemFeatures,
     SystemInfoResponse, SystemRunCounts, WriteBlobResponse,
 };
 use fabro_auth::parse_credential_secret;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{Storage, resolve_server_from_file};
+use fabro_config::{ServerSettings, Storage};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
 };
@@ -69,9 +69,7 @@ use fabro_types::settings::server::{
     GithubIntegrationSettings, GithubIntegrationStrategy, ServerAuthLayer, ServerAuthMethod,
     ServerLayer,
 };
-use fabro_types::settings::{
-    InterpString, ServerSettings as ResolvedServerSettings, SettingsLayer,
-};
+use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_types::{
     ActorRef, EventBody, InterviewQuestionRecord, InterviewQuestionType, RunBlobId,
     RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance, RunServerProvenance,
@@ -128,9 +126,7 @@ use crate::server_secrets::{
     LlmClientResult, ProviderCredentials, ServerSecrets, auth_issue_message,
 };
 use crate::spawn_env::{apply_render_graph_env, apply_worker_env};
-use crate::{
-    demo, diagnostics, run_manifest, security_headers, settings_view, static_files, web_auth,
-};
+use crate::{demo, diagnostics, run_manifest, security_headers, static_files, web_auth};
 
 pub(crate) type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
@@ -580,8 +576,7 @@ pub struct AppState {
     pub(super) server_secrets:       ServerSecrets,
     pub(crate) provider_credentials: ProviderCredentials,
     pub(crate) settings:             Arc<RwLock<SettingsLayer>>,
-    pub(crate) server_settings:      RwLock<Arc<ResolvedServerSettings>>,
-    pub(crate) local_daemon_mode:    bool,
+    pub(crate) server_settings:      RwLock<Arc<ServerSettings>>,
     pub(crate) env_lookup:           EnvLookup,
     http_client:                     Option<fabro_http::HttpClient>,
     shutting_down:                   AtomicBool,
@@ -598,7 +593,6 @@ pub(crate) struct AppStateConfig {
     pub(crate) artifact_store:            ArtifactStore,
     pub(crate) vault_path:                PathBuf,
     pub(crate) server_secrets:            ServerSecrets,
-    pub(crate) local_daemon_mode:         bool,
     pub(crate) env_lookup:                EnvLookup,
     pub(crate) http_client:               Option<fabro_http::HttpClient>,
 }
@@ -647,7 +641,7 @@ fn accumulate_model_billing(entry: &mut ModelBillingTotals, usage: &BilledModelU
 }
 
 impl AppState {
-    pub(crate) fn server_settings(&self) -> Arc<ResolvedServerSettings> {
+    pub(crate) fn server_settings(&self) -> Arc<ServerSettings> {
         Arc::clone(
             &self
                 .server_settings
@@ -665,7 +659,7 @@ impl AppState {
 
     pub(crate) fn server_storage_dir(&self) -> PathBuf {
         PathBuf::from(
-            resolve_interp_string(&self.server_settings().storage.root)
+            resolve_interp_string(&self.server_settings().server.storage.root)
                 .expect("server storage root should be resolved at startup"),
         )
     }
@@ -707,7 +701,7 @@ impl AppState {
     }
 
     pub(crate) fn canonical_origin(&self) -> Result<String, String> {
-        resolve_canonical_origin(&self.server_settings(), &self.env_lookup)
+        resolve_canonical_origin(&self.server_settings().server, &self.env_lookup)
     }
 
     pub(crate) fn session_key(&self) -> Option<Key> {
@@ -789,17 +783,8 @@ impl AppState {
     }
 
     pub(crate) fn replace_settings(&self, settings: SettingsLayer) -> anyhow::Result<()> {
-        let resolved = Arc::new(resolve_server_from_file(&settings).map_err(|errors| {
-            anyhow::anyhow!(
-                "failed to resolve server settings:\n{}",
-                errors
-                    .into_iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        })?);
-        resolve_canonical_origin(&resolved, &self.env_lookup).map_err(anyhow::Error::msg)?;
+        let resolved = Arc::new(ServerSettings::from_layer(&settings)?);
+        resolve_canonical_origin(&resolved.server, &self.env_lookup).map_err(anyhow::Error::msg)?;
 
         *self.settings.write().expect("settings lock poisoned") = settings;
         *self
@@ -1320,60 +1305,23 @@ async fn health() -> Response {
 async fn get_server_settings(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
-    Query(query): Query<settings_view::SettingsQuery>,
 ) -> Response {
-    let settings = state.settings.read().unwrap().clone();
-    match query.view {
-        settings_view::SettingsApiView::Layer => {
-            let redacted = settings_view::redact_for_api(&settings);
-            let mut value = match serde_json::to_value(&redacted) {
-                Ok(value) => value,
-                Err(err) => {
-                    return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-                        .into_response();
-                }
-            };
-            strip_nulls(&mut value);
-            (StatusCode::OK, Json(value)).into_response()
-        }
-        settings_view::SettingsApiView::Resolved => {
-            let resolved = match fabro_config::resolve(&settings) {
-                Ok(settings) => settings,
-                Err(err) => {
-                    return ApiError::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("failed to resolve settings: {err:?}"),
-                    )
-                    .into_response();
-                }
-            };
-            let mut value = match settings_view::redact_resolved_value(&resolved) {
-                Ok(value) => value,
-                Err(err) => {
-                    return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-                        .into_response();
-                }
-            };
-            strip_nulls(&mut value);
-            let mut response = (StatusCode::OK, Json(value)).into_response();
-            response.headers_mut().insert(
-                settings_view::RESOLVED_VIEW_HEADER_NAME,
-                HeaderValue::from_static(settings_view::RESOLVED_VIEW_HEADER_VALUE),
-            );
-            response
-        }
-    }
-}
-
-fn strip_nulls(value: &mut serde_json::Value) {
-    settings_view::strip_nulls(value);
+    (
+        StatusCode::OK,
+        Json(state.server_settings().as_ref().clone()),
+    )
+        .into_response()
 }
 
 async fn get_system_info(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let settings = state.settings.read().unwrap().clone();
+    let settings = state
+        .settings
+        .read()
+        .expect("settings lock poisoned")
+        .clone();
     let (total_runs, active_runs) = {
         let runs = state.runs.lock().expect("runs lock poisoned");
         let active = runs
@@ -1714,36 +1662,6 @@ fn system_sandbox_provider(settings: &SettingsLayer) -> String {
     )
 }
 
-fn render_resolve_errors(errors: &[fabro_config::ResolveError]) -> String {
-    errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
-fn resolved_storage_dir(settings: &SettingsLayer) -> Result<PathBuf, String> {
-    let resolved =
-        resolve_server_from_file(settings).map_err(|errors| render_resolve_errors(&errors))?;
-    resolved
-        .storage
-        .root
-        .resolve(|name| std::env::var(name).ok())
-        .map(|value| PathBuf::from(value.value))
-        .map_err(|err| {
-            format!(
-                "failed to resolve {}: {err}",
-                resolved.storage.root.as_source()
-            )
-        })
-}
-
-fn resolved_github_settings(settings: &SettingsLayer) -> Result<GithubIntegrationSettings, String> {
-    let resolved =
-        resolve_server_from_file(settings).map_err(|errors| render_resolve_errors(&errors))?;
-    Ok(resolved.integrations.github)
-}
-
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
     let raw = raw.trim();
     anyhow::ensure!(!raw.is_empty(), "empty duration string");
@@ -1958,7 +1876,7 @@ async fn get_github_repo(
         return response;
     }
     let settings = state.server_settings();
-    let github_settings = &settings.integrations.github;
+    let github_settings = &settings.server.integrations.github;
     let base_url = fabro_github::github_api_base_url();
     let mut client: Option<fabro_http::HttpClient> = None;
     let token = match github_settings.strategy {
@@ -2462,11 +2380,9 @@ pub fn create_app_state_with_options_and_registry_factory(
     registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
     let env_lookup = default_env_lookup();
-    let mut config = default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
-        max_concurrent_runs,
-        env_lookup,
-    );
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
+    let mut config = default_test_app_state_config(settings, max_concurrent_runs, env_lookup);
     config.registry_factory_override = Some(Box::new(registry_factory_override));
     build_app_state(config).expect("test app state should build")
 }
@@ -2476,9 +2392,11 @@ pub fn create_app_state_with_options(
     settings: SettingsLayer,
     max_concurrent_runs: usize,
 ) -> Arc<AppState> {
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
     let env_lookup = default_env_lookup();
     build_app_state(default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
+        settings,
         max_concurrent_runs,
         env_lookup,
     ))
@@ -2508,11 +2426,9 @@ pub fn create_app_state_with_env_lookup_and_server_secret_env(
 ) -> Arc<AppState> {
     let (store, artifact_store) = test_store_bundle();
     let env_lookup: EnvLookup = Arc::new(env_lookup);
-    let mut config = default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
-        max_concurrent_runs,
-        env_lookup,
-    );
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
+    let mut config = default_test_app_state_config(settings, max_concurrent_runs, env_lookup);
     config.store = store;
     config.artifact_store = artifact_store;
     let server_env_path = config.vault_path.with_file_name("server.env");
@@ -2528,7 +2444,6 @@ pub fn create_app_state_with_env_lookup_and_server_secret_env(
 pub(crate) fn create_test_app_state_with_session_key(
     settings: SettingsLayer,
     session_secret: Option<&str>,
-    local_daemon_mode: bool,
 ) -> Arc<AppState> {
     let vault_path = test_secret_store_path();
     let server_env_path = vault_path
@@ -2554,7 +2469,6 @@ pub(crate) fn create_test_app_state_with_session_key(
         artifact_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-        local_daemon_mode,
         env_lookup,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
     })
@@ -2590,7 +2504,6 @@ fn default_test_app_state_config(
         artifact_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-        local_daemon_mode: false,
         env_lookup,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
     }
@@ -2635,6 +2548,7 @@ fn create_app_state_with_store_and_env_lookup(
     artifact_store: ArtifactStore,
     env_lookup: &EnvLookup,
 ) -> Arc<AppState> {
+    ensure_test_auth_methods(&settings);
     let mut config =
         default_test_app_state_config(settings, max_concurrent_runs, Arc::clone(env_lookup));
     config.store = store;
@@ -2659,7 +2573,6 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         artifact_store,
         vault_path,
         server_secrets,
-        local_daemon_mode,
         env_lookup,
         http_client,
     } = config;
@@ -2670,21 +2583,13 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         move |name| env_lookup(name)
     });
     let (global_event_tx, _) = broadcast::channel(4096);
-    let resolved_server_settings = {
+    let current_server_settings = {
         let settings = settings.read().expect("settings lock poisoned");
-        Arc::new(resolve_server_from_file(&settings).map_err(|errors| {
-            anyhow::anyhow!(
-                "failed to resolve server settings:\n{}",
-                errors
-                    .into_iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        })?)
+        Arc::new(ServerSettings::from_layer(&settings)?)
     };
     let slack_service = {
-        resolved_server_settings
+        current_server_settings
+            .server
             .integrations
             .slack
             .default_channel
@@ -2721,8 +2626,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         server_secrets,
         provider_credentials,
         settings,
-        server_settings: RwLock::new(resolved_server_settings),
-        local_daemon_mode,
+        server_settings: RwLock::new(current_server_settings),
         env_lookup: Arc::clone(&env_lookup),
         http_client,
         shutting_down: AtomicBool::new(false),
@@ -3835,6 +3739,7 @@ fn worker_command(
     apply_worker_env(&mut cmd);
     if state
         .server_settings()
+        .server
         .auth
         .methods
         .contains(&ServerAuthMethod::DevToken)
@@ -4112,10 +4017,9 @@ async fn create_run(
         Ok(req) => req,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
     };
-    let prepared = match run_manifest::prepare_manifest_with_mode(
-        &state.settings.read().unwrap(),
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
         &req,
-        state.local_daemon_mode,
     ) {
         Ok(prepared) => prepared,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
@@ -4218,10 +4122,9 @@ async fn run_preflight(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RunManifest>,
 ) -> Response {
-    let prepared = match run_manifest::prepare_manifest_with_mode(
-        &state.settings.read().unwrap(),
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
         &req,
-        state.local_daemon_mode,
     ) {
         Ok(prepared) => prepared,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
@@ -4248,10 +4151,9 @@ async fn render_graph_from_manifest(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RenderWorkflowGraphRequest>,
 ) -> Response {
-    let prepared = match run_manifest::prepare_manifest_with_mode(
-        &state.settings.read().unwrap(),
+    let prepared = match run_manifest::prepare_manifest(
+        &state.settings.read().expect("settings lock poisoned"),
         &req.manifest,
-        state.local_daemon_mode,
     ) {
         Ok(prepared) => prepared,
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
@@ -4343,26 +4245,17 @@ async fn start_run(
         }
     }
 
-    let Some(run_spec) = run_state.spec.as_ref() else {
+    if run_state.spec.is_none() {
         return ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "run spec missing from store",
         )
         .into_response();
-    };
-    let run_dir = match resolved_storage_dir(&run_spec.settings) {
-        Ok(storage_dir) => Storage::new(storage_dir)
-            .run_scratch(&id)
-            .root()
-            .to_path_buf(),
-        Err(err) => {
-            return ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("invalid persisted server storage settings: {err}"),
-            )
-            .into_response();
-        }
-    };
+    }
+    let run_dir = Storage::new(state.server_storage_dir())
+        .run_scratch(&id)
+        .root()
+        .to_path_buf();
     let dot_source = run_state.graph_source.unwrap_or_default();
     if let Err(err) =
         workflow_event::append_event(&run_store, &id, &workflow_event::Event::RunQueued).await
@@ -4529,22 +4422,8 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             return;
         }
     };
-    let github_settings = match resolved_github_settings(&persisted.run_spec().settings) {
-        Ok(settings) => settings,
-        Err(err) => {
-            tracing::error!(run_id = %run_id, error = %err, "Invalid GitHub integration config");
-            let mut runs = state.runs.lock().expect("runs lock poisoned");
-            if let Some(managed_run) = runs.get_mut(&run_id) {
-                managed_run.status = RunStatus::Failed {
-                    reason: FailureReason::WorkflowError,
-                };
-                managed_run.error = Some(format!("Invalid GitHub integration config: {err}"));
-                clear_live_run_state(managed_run);
-            }
-            state.scheduler_notify.notify_one();
-            return;
-        }
-    };
+    let server_settings = state.server_settings();
+    let github_settings = &server_settings.server.integrations.github;
     let github_app_result = match fabro_config::resolve_run_from_file(
         &persisted.run_spec().settings,
     ) {
@@ -4553,10 +4432,10 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
                 && settings.sandbox.provider == "daytona")
                 || !github_settings.permissions.is_empty();
             if required_github_credentials {
-                state.github_credentials(&github_settings)
+                state.github_credentials(github_settings)
             } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some()
             {
-                match state.github_credentials(&github_settings) {
+                match state.github_credentials(github_settings) {
                     Ok(github_app) => Ok(github_app),
                     Err(err) => {
                         tracing::warn!(
@@ -4589,6 +4468,16 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             return;
         }
     };
+    let github_permissions = github_settings
+        .permissions
+        .iter()
+        .map(|(name, value)| {
+            let resolved = value
+                .resolve(|env| std::env::var(env).ok())
+                .map_or_else(|_| value.as_source(), |resolved| resolved.value);
+            (name.clone(), resolved)
+        })
+        .collect();
     let services = operations::StartServices {
         run_id,
         cancel_token: Some(Arc::clone(&cancel_token)),
@@ -4599,6 +4488,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         artifact_sink: Some(ArtifactSink::Store(state.artifact_store.clone())),
         run_control: None,
         github_app,
+        github_permissions,
         vault: Some(Arc::clone(&state.vault)),
         on_node: None,
         registry_override,
@@ -5105,16 +4995,7 @@ async fn get_run_settings(
     let Some(run_spec) = run_state.spec else {
         return ApiError::not_found("Run not found.").into_response();
     };
-    let redacted = settings_view::redact_for_api(&run_spec.settings);
-    let mut value = match serde_json::to_value(&redacted) {
-        Ok(value) => value,
-        Err(err) => {
-            return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-                .into_response();
-        }
-    };
-    strip_nulls(&mut value);
-    (StatusCode::OK, Json(value)).into_response()
+    (StatusCode::OK, Json(run_spec.settings)).into_response()
 }
 
 async fn get_questions(
@@ -7535,34 +7416,6 @@ url = "{url}"
         .expect("settings fixture should parse")
     }
 
-    #[tokio::test]
-    async fn resolved_settings_view_returns_internal_error_when_runtime_settings_stop_resolving() {
-        let state = create_app_state();
-        *state.settings.write().unwrap() = fabro_config::parse_settings_layer(
-            r#"
-_version = 1
-
-[cli.target]
-type = "http"
-"#,
-        )
-        .expect("settings fixture should parse");
-        let app = build_router(state, AuthMode::Disabled);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri(api("/settings?view=resolved"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_status!(response, StatusCode::INTERNAL_SERVER_ERROR).await;
-    }
-
     #[test]
     fn replace_settings_rejects_invalid_canonical_origin_and_keeps_previous_settings() {
         for invalid in ["", "/relative/path", "ftp://fabro.example.com"] {
@@ -7588,6 +7441,65 @@ type = "http"
                 "http://valid.example.com".to_string()
             );
         }
+    }
+
+    #[test]
+    fn replace_settings_updates_layer_and_typed_server_settings() {
+        let state = create_app_state_with_options(
+            fabro_config::parse_settings_layer(
+                r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = "http://old.example.com"
+
+[server.storage]
+root = "/srv/old"
+"#,
+            )
+            .expect("settings fixture should parse"),
+            5,
+        );
+
+        let updated = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+url = "http://new.example.com"
+
+[server.storage]
+root = "/srv/new"
+"#,
+        )
+        .expect("settings fixture should parse");
+
+        state
+            .replace_settings(updated)
+            .expect("valid settings should replace current state");
+
+        assert_eq!(state.canonical_origin().unwrap(), "http://new.example.com");
+        assert_eq!(
+            state.server_settings().server.storage.root.as_source(),
+            "/srv/new"
+        );
+
+        let layer_root = state
+            .settings
+            .read()
+            .expect("settings lock poisoned")
+            .server
+            .as_ref()
+            .and_then(|server| server.storage.as_ref())
+            .and_then(|storage| storage.root.as_ref())
+            .map(InterpString::as_source);
+        assert_eq!(layer_root.as_deref(), Some("/srv/new"));
     }
 
     #[tokio::test]
@@ -8355,7 +8267,6 @@ slug = "fabro"
             create_test_app_state_with_session_key(
                 settings,
                 Some("github-redirect-test-key-0123456789"),
-                false,
             ),
             AuthMode::Enabled(ConfiguredAuth {
                 methods:    vec![ServerAuthMethod::Github],
@@ -8866,7 +8777,6 @@ slug = "fabro"
         let state = create_test_app_state_with_session_key(
             SettingsLayer::default(),
             Some("server-test-session-key-0123456789"),
-            false,
         );
         let app = build_router(
             Arc::clone(&state),
@@ -10071,7 +9981,6 @@ level = "debug"
             .spec
             .expect("run spec should exist");
         let resolved_run = fabro_config::resolve_run_from_file(&run_spec.settings).unwrap();
-        let resolved_server = fabro_config::resolve_server_from_file(&run_spec.settings).unwrap();
 
         // Verify a sampling of the persisted v2 settings, including inherited
         // run execution mode from server settings.
@@ -10097,16 +10006,18 @@ level = "debug"
                 .as_deref(),
             Some("claude-sonnet-4-5"),
         );
-        assert_eq!(
-            resolved_server
+
+        // Server-operational fields (auth, integrations, etc.) deliberately
+        // do not flow into the run's persisted settings — they live on the
+        // server and are read via AppState::server_settings().
+        assert!(run_spec.settings.server.as_ref().is_none_or(|server| {
+            server
                 .integrations
-                .github
-                .app_id
                 .as_ref()
-                .map(fabro_types::settings::InterpString::as_source)
-                .as_deref(),
-            Some("12345"),
-        );
+                .and_then(|integrations| integrations.github.as_ref())
+                .and_then(|github| github.app_id.as_ref())
+                .is_none()
+        }));
     }
 
     #[tokio::test]

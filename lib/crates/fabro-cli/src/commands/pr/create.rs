@@ -5,7 +5,7 @@ use fabro_auth::configured_providers_from_process_env;
 use fabro_config::Storage;
 use fabro_model::Catalog;
 use fabro_sandbox::daytona::detect_repo_info;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_vault::Vault;
@@ -16,7 +16,7 @@ use tracing::info;
 
 use crate::args::PrCreateArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::shared::print_json_pretty;
 use crate::shared::repo::ensure_matching_repo_origin;
 use crate::user_config;
@@ -27,11 +27,11 @@ use crate::user_config;
 )]
 pub(super) async fn create_command(
     args: PrCreateArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let events = client.list_run_events(&run_id, None, None).await?;
@@ -86,7 +86,7 @@ pub(super) async fn create_command(
     let (owner, repo) = fabro_github::parse_github_owner_repo(&https_url)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     let branch_found = fabro_github::branch_exists(
         &creds,

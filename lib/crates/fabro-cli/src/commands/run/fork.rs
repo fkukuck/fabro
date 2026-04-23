@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use fabro_checkpoint::git::Store;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -9,19 +9,19 @@ use git2::Repository;
 
 use crate::args::ForkArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::shared::print_json_pretty;
 use crate::shared::repo::ensure_matching_repo_origin;
 
 pub(crate) async fn run(
     args: &ForkArgs,
     styles: &Styles,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
     let repo = Repository::discover(".").context("not in a git repository")?;
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let state = client.get_run_state(&run_id).await?;

@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 
@@ -11,18 +11,18 @@ use crate::shared::print_json_pretty;
 
 pub(crate) async fn remove_command(
     args: &RunsRemoveArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     remove_from(args, ctx.server().await?.as_ref(), cli, printer).await
 }
 
 async fn remove_from(
     args: &RunsRemoveArgs,
     client: &server_client::Client,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let json = cli.output.format == OutputFormat::Json;

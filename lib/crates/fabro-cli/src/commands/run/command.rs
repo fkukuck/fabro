@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -11,17 +11,17 @@ use crate::user_config::load_settings_with_storage_dir;
 
 pub(crate) async fn execute(
     mut args: RunArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     let cli_defaults = load_settings_with_storage_dir(None)?;
     args.verbose = args.verbose || cli.output.verbosity == OutputVerbosity::Verbose;
 
     let quiet = args.detach;
-    let prevent_idle_sleep = ctx.cli_settings().exec.prevent_idle_sleep;
+    let prevent_idle_sleep = ctx.user_settings().cli.exec.prevent_idle_sleep;
     let created_run = Box::pin(super::create::create_run(
         &ctx,
         &args,
@@ -64,6 +64,7 @@ pub(crate) async fn execute(
             true,
             styles,
             json,
+            ctx.user_settings().cli.output.verbosity == OutputVerbosity::Verbose,
             printer,
         ))
         .await?;

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use cli_table::format::{Border, Justify, Separator};
 use cli_table::{Cell, CellStruct, Style, Table};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -10,7 +10,7 @@ use crate::args::ArtifactListArgs;
 
 pub(super) async fn list_command(
     args: &ArtifactListArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
@@ -19,7 +19,6 @@ pub(super) async fn list_command(
         &args.run_id,
         args.node.as_deref(),
         args.retry,
-        cli,
         cli_layer,
         printer,
     )

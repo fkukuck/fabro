@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
 use tracing::info;
@@ -9,14 +9,14 @@ use crate::shared::print_json_pretty;
 
 pub(super) async fn close_command(
     args: PrCloseArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
     let (record, _run_id) =
-        super::load_pr_record(&args.server, &args.run_id, cli, cli_layer, printer).await?;
+        super::load_pr_record(&args.server, &args.run_id, cli_layer, printer).await?;
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     fabro_github::close_pull_request(
         &creds,

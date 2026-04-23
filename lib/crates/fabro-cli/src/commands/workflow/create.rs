@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use fabro_config::project::{discover_project_config, resolve_fabro_root};
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::OutputFormat;
 use fabro_util::printer::Printer;
 
@@ -16,7 +16,7 @@ use crate::shared::{print_json_pretty, relative_path};
 
 pub(super) fn create_command(
     args: &WorkflowCreateArgs,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     printer: Printer,
 ) -> Result<()> {
     let cwd = std::env::current_dir()?;

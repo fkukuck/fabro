@@ -1,5 +1,4 @@
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 use fabro_workflow::run_status::RunStatus;
@@ -21,13 +20,8 @@ pub(crate) struct InspectOutput {
     pub sandbox:      Option<serde_json::Value>,
 }
 
-pub(crate) async fn run(
-    args: &InspectArgs,
-    cli: &CliSettings,
-    cli_layer: &CliLayer,
-    printer: Printer,
-) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+pub(crate) async fn run(args: &InspectArgs, cli_layer: &CliLayer, printer: Printer) -> Result<()> {
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run = ServerRunSummaryInfo::from_summary(client.resolve_run(&args.run).await?);
     let run_id = run.run_id();

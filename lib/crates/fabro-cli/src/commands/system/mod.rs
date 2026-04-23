@@ -4,7 +4,7 @@ mod info;
 mod prune;
 
 use anyhow::Result;
-use fabro_types::settings::CliSettings;
+use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 pub(crate) use prune::parse_duration;
@@ -13,7 +13,7 @@ use crate::args::{SystemCommand, SystemNamespace};
 
 pub(crate) async fn dispatch(
     ns: SystemNamespace,
-    cli: &CliSettings,
+    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {

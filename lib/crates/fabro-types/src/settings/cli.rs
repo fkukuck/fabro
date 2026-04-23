@@ -14,7 +14,7 @@ use super::run::{AgentPermissions, McpEntryLayer, McpServerSettings};
 
 /// A structurally resolved `[cli]` view for consumers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct CliSettings {
+pub struct CliNamespace {
     pub target:  Option<CliTargetSettings>,
     pub auth:    CliAuthSettings,
     pub exec:    CliExecSettings,

@@ -1,12 +1,6 @@
+import type { ServerSettings } from "@qltysh/fabro-api-client";
 import { apiJson } from "../api";
 import { CollapsibleFile } from "../components/collapsible-file";
-
-/**
- * Opaque server settings payload returned by `/api/v1/settings`. Mirrors the
- * v2 `SettingsFile` shape with secret-bearing subtrees dropped before
- * serialization. The UI only renders it as JSON.
- */
-type ServerSettings = Record<string, unknown>;
 
 export function meta({}: any) {
   return [{ title: "Settings — Fabro" }];

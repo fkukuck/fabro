@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "sync test fixture setup; not on a Tokio path"
+)]
+
 use fabro_config::parse_settings_layer;
 use fabro_config::user::default_storage_dir;
 use fabro_types::settings::server::{
@@ -5,6 +10,7 @@ use fabro_types::settings::server::{
 };
 use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_util::Home;
+use temp_env::with_var;
 
 fn parse(source: &str) -> SettingsLayer {
     let mut layer = parse_settings_layer(source).expect("fixture should parse");
@@ -67,6 +73,64 @@ fn resolves_server_defaults_from_empty_settings() {
     }
 
     assert!(!settings.slatedb.disk_cache);
+}
+
+#[test]
+fn server_settings_from_layer_matches_namespace_resolvers() {
+    let settings = parse(
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.storage]
+root = "/srv/fabro"
+
+[features]
+session_sandboxes = true
+"#,
+    );
+
+    let context =
+        fabro_config::ServerSettings::from_layer(&settings).expect("settings should resolve");
+
+    assert_eq!(
+        context.server,
+        fabro_config::resolve_server_from_file(&settings).expect("server namespace should resolve")
+    );
+    assert_eq!(
+        context.features,
+        fabro_config::resolve_features_from_file(&settings)
+            .expect("features namespace should resolve")
+    );
+}
+
+#[test]
+fn server_settings_resolve_reads_default_settings_from_fabro_home() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join("settings.toml"),
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.storage]
+root = "/srv/from-home"
+
+[features]
+session_sandboxes = true
+"#,
+    )
+    .unwrap();
+
+    with_var("FABRO_HOME", Some(home.path()), || {
+        let settings = fabro_config::ServerSettings::resolve().expect("settings should resolve");
+        assert_eq!(settings.server.storage.root.as_source(), "/srv/from-home");
+        assert!(settings.features.session_sandboxes);
+    });
 }
 
 #[test]

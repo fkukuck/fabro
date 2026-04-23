@@ -67,6 +67,10 @@ rand.workspace = true
 bytes = "1"
 tempfile = "3"
 object_store.workspace = true
+# reqwest 0.12 is a direct dep only so `NoProxyReqwestConnector` can build a
+# `reqwest::Client` of the version object_store accepts. Rest of the crate
+# talks to HTTP via fabro-http (reqwest 0.13).
+object_store_reqwest = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 mime_guess.workspace = true
 regex.workspace = true
 semver.workspace = true
