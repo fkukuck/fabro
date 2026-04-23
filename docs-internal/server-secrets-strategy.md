@@ -9,7 +9,7 @@ This document defines how Fabro handles server-level secrets.
 - Resolution is snapshot-based: env and file are read once at construction, then treated as immutable for the life of the process.
 - `process env` wins over `server.env` on conflicts.
 - `fabro server start` never generates secrets. Missing required secrets are a startup error.
-- `std::env::set_var` and `std::env::remove_var` are banned workspace-wide. Tests are not exempt. CI enforces this with `bin/dev/check-env-mutation.sh` so broad clippy suppressions cannot bypass it.
+- `std::env::set_var` and `std::env::remove_var` are banned workspace-wide. Tests are not exempt. Enforced by clippy via `disallowed_methods` in `clippy.toml`; intentional exceptions must be annotated with a scoped `#[expect(clippy::disallowed_methods, reason = "...")]` at the call site.
 
 ## Active Server Secrets
 
