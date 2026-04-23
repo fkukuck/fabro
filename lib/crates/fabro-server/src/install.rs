@@ -108,7 +108,18 @@ impl InstallAppState {
     }
 
     #[must_use]
+    #[expect(
+        unsafe_code,
+        reason = "test-only: set FABRO_TEST_IN_MEMORY_STORE to a constant so install tests \
+                  don't hang on real S3; parallel tests race on the same value"
+    )]
     pub fn for_test_with_paths(token: &str, storage_dir: &Path, config_path: &Path) -> Self {
+        // Install-flow tests verify persistence and redaction, not S3
+        // reachability. Force the in-memory object store shortcut so
+        // /install/finish can't hang on an unreachable bucket.
+        unsafe {
+            std::env::set_var("FABRO_TEST_IN_MEMORY_STORE", "1");
+        }
         Self {
             install_token:      Arc::from(token),
             pending_install:    Arc::new(Mutex::new(PendingInstall::default())),

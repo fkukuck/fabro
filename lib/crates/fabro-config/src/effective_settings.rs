@@ -43,6 +43,25 @@ impl EffectiveSettingsLayers {
 
 /// Materialize layered configuration down to a single effective
 /// [`SettingsLayer`].
+///
+/// Precedence, lowest to highest:
+///
+/// 1. `server_settings.run` / `server_settings.features` — the server's
+///    `~/.fabro/settings.toml` contributes its run-level defaults (for example,
+///    a server-wide `run.execution.mode = "dry_run"`). Client layers win when
+///    they set the same field.
+/// 2. `user` — the manifest's `User` configs.
+/// 3. `project` — the manifest's `Project` configs, with `cli`/`server`
+///    stripped.
+/// 4. `workflow` — the manifest's workflow config, with `cli`/`server`
+///    stripped.
+/// 5. `args` — process-local CLI overrides.
+/// 6. A small subset of `server_settings.server` (storage, scheduler,
+///    artifacts, web, api) plus `server_settings.features` are applied
+///    authoritatively on top. The remaining server-ops fields (listen, auth,
+///    ip_allowlist, slatedb, logging, integrations) stay on the server and do
+///    not flow into the run's persisted settings — callers that need them
+///    should consult the server's resolved settings directly.
 pub fn materialize_settings_layer(
     layers: EffectiveSettingsLayers,
     server_settings: Option<&SettingsLayer>,
@@ -61,20 +80,20 @@ pub fn materialize_settings_layer(
     strip_owner_domains(&mut workflow);
     strip_owner_domains(&mut project);
 
-    let combined = combine_files(combine_files(combine_files(user, project), workflow), args);
-    let mut settings = enforce_server_authority(combined, server_settings);
+    // Server's run/features stanzas act as base defaults; client layers win.
+    // Server's server/cli stanzas are handled authoritatively below.
+    let mut server_defaults = server_settings.clone();
+    server_defaults.cli = None;
+    server_defaults.server = None;
 
-    // Storage root always comes from the server's local ~/.fabro/settings.toml,
-    // never from the client.
-    if let Some(server_root) = server_settings
-        .server
-        .as_ref()
-        .and_then(|server| server.storage.as_ref())
-        .cloned()
-    {
-        let server = settings.server.get_or_insert_with(ServerLayer::default);
-        server.storage = Some(server_root);
-    }
+    let combined = combine_files(
+        combine_files(
+            combine_files(combine_files(server_defaults, user), project),
+            workflow,
+        ),
+        args,
+    );
+    let settings = enforce_server_authority(combined, server_settings);
 
     Ok(apply_builtin_defaults(settings))
 }
@@ -84,10 +103,13 @@ fn strip_owner_domains(file: &mut SettingsLayer) {
     file.server = None;
 }
 
-/// Enforce server-owned fields on a client-layered [`SettingsLayer`].
+/// Apply server-owned fields on top of a client-combined [`SettingsLayer`].
 ///
-/// A subset of server-owned fields unconditionally override any client-side
-/// values. Client-controlled run-level fields are left alone.
+/// Only the fields runs genuinely need are copied from the server:
+/// `storage`, `scheduler`, `artifacts`, `web`, `api`. Operational config
+/// (`listen`, `auth`, `ip_allowlist`, `slatedb`, `logging`, `integrations`)
+/// stays on the server — callers that need those fields should read
+/// `AppState::server_settings()` rather than re-resolving from run settings.
 fn enforce_server_authority(mut settings: SettingsLayer, server: &SettingsLayer) -> SettingsLayer {
     if let Some(server_layer) = server.server.clone() {
         let client = settings.server.get_or_insert_with(ServerLayer::default);

@@ -20,6 +20,7 @@ use fabro_types::settings::{
 };
 use fabro_util::terminal::Styles;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::client::{HttpClient, HttpConnector};
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::{ClientOptions, ObjectStore, RetryConfig};
@@ -56,6 +57,56 @@ impl Default for ObjectStoreBuildOptions {
             retry_config:   RetryConfig::default(),
         }
     }
+}
+
+/// `HttpConnector` that builds a `reqwest::Client` with `.no_proxy()`.
+///
+/// The object_store default `ReqwestConnector` calls `reqwest::Client::new()`,
+/// which on macOS probes `SystemConfiguration` for proxies every time it runs.
+/// That probe can stall long enough to blow past test timeouts. S3/MinIO
+/// traffic goes directly to the configured endpoint, so skipping proxy
+/// discovery is safe and keeps startup predictable.
+#[derive(Debug)]
+struct NoProxyReqwestConnector;
+
+impl HttpConnector for NoProxyReqwestConnector {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "object_store pins reqwest 0.12 and object_store::HttpClient::new requires \
+                  that exact version; we can't route through fabro_http (reqwest 0.13)"
+    )]
+    fn connect(&self, options: &ClientOptions) -> object_store::Result<HttpClient> {
+        let mut builder = object_store_reqwest::Client::builder().no_proxy();
+        if let Some(raw) = options.get_config_value(&object_store::ClientConfigKey::Timeout) {
+            if let Some(duration) = parse_config_duration(&raw) {
+                builder = builder.timeout(duration);
+            }
+        }
+        if let Some(raw) = options.get_config_value(&object_store::ClientConfigKey::ConnectTimeout)
+        {
+            if let Some(duration) = parse_config_duration(&raw) {
+                builder = builder.connect_timeout(duration);
+            }
+        }
+        let client = builder
+            .build()
+            .map_err(|err| object_store::Error::Generic {
+                store:  "object_store",
+                source: Box::new(err),
+            })?;
+        Ok(HttpClient::new(client))
+    }
+}
+
+fn parse_config_duration(raw: &str) -> Option<Duration> {
+    let raw = raw.trim();
+    if let Some(ms) = raw.strip_suffix("ms") {
+        return ms.trim().parse::<u64>().ok().map(Duration::from_millis);
+    }
+    if let Some(s) = raw.strip_suffix('s') {
+        return s.trim().parse::<u64>().ok().map(Duration::from_secs);
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -424,6 +475,7 @@ where
             path_style,
         } => {
             let mut builder = AmazonS3Builder::new()
+                .with_http_connector(NoProxyReqwestConnector)
                 .with_bucket_name(resolve_interp(bucket)?)
                 .with_region(resolve_interp(region)?)
                 .with_virtual_hosted_style_request(!*path_style);

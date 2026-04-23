@@ -4,6 +4,7 @@
               std::io::BufReader; not on a Tokio path"
 )]
 
+use std::collections::HashMap;
 use std::io::{BufRead as StdBufRead, BufReader as StdBufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -107,6 +108,7 @@ pub(crate) async fn execute(
         artifact_sink,
         run_control: Some(run_control),
         github_app,
+        github_permissions: HashMap::new(),
         vault,
         on_node: None,
         registry_override: None,

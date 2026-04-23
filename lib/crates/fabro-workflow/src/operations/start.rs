@@ -83,18 +83,21 @@ struct RunSession {
 }
 
 pub struct StartServices {
-    pub run_id:            RunId,
-    pub cancel_token:      Option<Arc<AtomicBool>>,
-    pub emitter:           Arc<Emitter>,
-    pub interviewer:       Arc<dyn Interviewer>,
-    pub run_store:         RunStoreHandle,
-    pub event_sink:        RunEventSink,
-    pub artifact_sink:     Option<ArtifactSink>,
-    pub run_control:       Option<Arc<RunControlState>>,
-    pub github_app:        Option<fabro_github::GitHubCredentials>,
-    pub vault:             Option<Arc<AsyncRwLock<Vault>>>,
-    pub on_node:           crate::OnNodeCallback,
-    pub registry_override: Option<Arc<HandlerRegistry>>,
+    pub run_id:             RunId,
+    pub cancel_token:       Option<Arc<AtomicBool>>,
+    pub emitter:            Arc<Emitter>,
+    pub interviewer:        Arc<dyn Interviewer>,
+    pub run_store:          RunStoreHandle,
+    pub event_sink:         RunEventSink,
+    pub artifact_sink:      Option<ArtifactSink>,
+    pub run_control:        Option<Arc<RunControlState>>,
+    pub github_app:         Option<fabro_github::GitHubCredentials>,
+    /// Server-resolved GitHub integration permissions to inject into the
+    /// sandbox env. Empty when github integration has no permissions.
+    pub github_permissions: HashMap<String, String>,
+    pub vault:              Option<Arc<AsyncRwLock<Vault>>>,
+    pub on_node:            crate::OnNodeCallback,
+    pub registry_override:  Option<Arc<HandlerRegistry>>,
 }
 
 pub struct Started {
@@ -379,24 +382,8 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let resolved_server = fabro_config::ServerSettings::from_layer(settings)
-            .map_err(|err| Error::Precondition(err.to_string()))?;
-        let github_permissions: Option<HashMap<String, String>> = (!resolved_server
-            .server
-            .integrations
-            .github
-            .permissions
-            .is_empty())
-        .then(|| {
-            resolved_server
-                .server
-                .integrations
-                .github
-                .permissions
-                .iter()
-                .map(|(k, v)| (k.clone(), resolve_interp(v)))
-                .collect()
-        });
+        let github_permissions: Option<HashMap<String, String>> =
+            (!services.github_permissions.is_empty()).then(|| services.github_permissions.clone());
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,
@@ -1089,6 +1076,7 @@ mod tests {
             artifact_sink: None,
             run_control: None,
             github_app: None,
+            github_permissions: HashMap::new(),
             vault: None,
             on_node: None,
             registry_override: Some(registry),

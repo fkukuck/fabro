@@ -362,8 +362,8 @@ async fn build_preflight_report(
     );
     let resolved_run = fabro_config::resolve_run_from_file(&materialized)
         .map_err(|errors| anyhow!(render_resolve_errors(&errors)))?;
-    let resolved_server = fabro_config::resolve_server_from_file(settings)
-        .map_err(|errors| anyhow!(render_resolve_errors(&errors)))?;
+    let server_settings = state.server_settings();
+    let github_integration = &server_settings.server.integrations.github;
     let sandbox_provider = resolve_sandbox_provider(&resolved_run)?;
     let sandbox_provider =
         if resolved_run.execution.mode == RunMode::DryRun && !sandbox_provider.is_local() {
@@ -371,11 +371,11 @@ async fn build_preflight_report(
         } else {
             sandbox_provider
         };
-    let needs_github_credentials = sandbox_provider == SandboxProvider::Daytona
-        || !resolved_server.integrations.github.permissions.is_empty();
+    let needs_github_credentials =
+        sandbox_provider == SandboxProvider::Daytona || !github_integration.permissions.is_empty();
     let github_app = if needs_github_credentials {
         state
-            .github_credentials(&resolved_server.integrations.github)
+            .github_credentials(github_integration)
             .unwrap_or_default()
     } else {
         None
@@ -399,7 +399,7 @@ async fn build_preflight_report(
         &configured_providers,
     )
     .await;
-    run_github_token_check(&mut checks, prepared, &resolved_server, github_app).await;
+    run_github_token_check(&mut checks, prepared, &server_settings.server, github_app).await;
 
     let checks_ok = sandbox_ok && llm_ok;
 

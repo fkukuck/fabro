@@ -1657,27 +1657,6 @@ fn system_sandbox_provider(settings: &SettingsLayer) -> String {
     )
 }
 
-fn resolved_storage_dir(settings: &SettingsLayer) -> Result<PathBuf, String> {
-    let resolved = ServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
-    resolved
-        .server
-        .storage
-        .root
-        .resolve(|name| std::env::var(name).ok())
-        .map(|value| PathBuf::from(value.value))
-        .map_err(|err| {
-            format!(
-                "failed to resolve {}: {err}",
-                resolved.server.storage.root.as_source()
-            )
-        })
-}
-
-fn resolved_github_settings(settings: &SettingsLayer) -> Result<GithubIntegrationSettings, String> {
-    let resolved = ServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
-    Ok(resolved.server.integrations.github)
-}
-
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
     let raw = raw.trim();
     anyhow::ensure!(!raw.is_empty(), "empty duration string");
@@ -2396,11 +2375,9 @@ pub fn create_app_state_with_options_and_registry_factory(
     registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
     let env_lookup = default_env_lookup();
-    let mut config = default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
-        max_concurrent_runs,
-        env_lookup,
-    );
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
+    let mut config = default_test_app_state_config(settings, max_concurrent_runs, env_lookup);
     config.registry_factory_override = Some(Box::new(registry_factory_override));
     build_app_state(config).expect("test app state should build")
 }
@@ -2410,9 +2387,11 @@ pub fn create_app_state_with_options(
     settings: SettingsLayer,
     max_concurrent_runs: usize,
 ) -> Arc<AppState> {
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
     let env_lookup = default_env_lookup();
     build_app_state(default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
+        settings,
         max_concurrent_runs,
         env_lookup,
     ))
@@ -2427,11 +2406,9 @@ pub fn create_app_state_with_env_lookup(
 ) -> Arc<AppState> {
     let (store, artifact_store) = test_store_bundle();
     let env_lookup: EnvLookup = Arc::new(env_lookup);
-    let mut config = default_test_app_state_config(
-        Arc::new(RwLock::new(settings)),
-        max_concurrent_runs,
-        env_lookup,
-    );
+    let settings = Arc::new(RwLock::new(settings));
+    ensure_test_auth_methods(&settings);
+    let mut config = default_test_app_state_config(settings, max_concurrent_runs, env_lookup);
     config.store = store;
     config.artifact_store = artifact_store;
     build_app_state(config).expect("test app state should build")
@@ -2549,6 +2526,7 @@ fn create_app_state_with_store_and_env_lookup(
     artifact_store: ArtifactStore,
     env_lookup: &EnvLookup,
 ) -> Arc<AppState> {
+    ensure_test_auth_methods(&settings);
     let mut config =
         default_test_app_state_config(settings, max_concurrent_runs, Arc::clone(env_lookup));
     config.store = store;
@@ -4238,26 +4216,17 @@ async fn start_run(
         }
     }
 
-    let Some(run_spec) = run_state.spec.as_ref() else {
+    if run_state.spec.is_none() {
         return ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "run spec missing from store",
         )
         .into_response();
-    };
-    let run_dir = match resolved_storage_dir(&run_spec.settings) {
-        Ok(storage_dir) => Storage::new(storage_dir)
-            .run_scratch(&id)
-            .root()
-            .to_path_buf(),
-        Err(err) => {
-            return ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("invalid persisted server storage settings: {err}"),
-            )
-            .into_response();
-        }
-    };
+    }
+    let run_dir = Storage::new(state.server_storage_dir())
+        .run_scratch(&id)
+        .root()
+        .to_path_buf();
     let dot_source = run_state.graph_source.unwrap_or_default();
     if let Err(err) =
         workflow_event::append_event(&run_store, &id, &workflow_event::Event::RunQueued).await
@@ -4424,22 +4393,8 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             return;
         }
     };
-    let github_settings = match resolved_github_settings(&persisted.run_spec().settings) {
-        Ok(settings) => settings,
-        Err(err) => {
-            tracing::error!(run_id = %run_id, error = %err, "Invalid GitHub integration config");
-            let mut runs = state.runs.lock().expect("runs lock poisoned");
-            if let Some(managed_run) = runs.get_mut(&run_id) {
-                managed_run.status = RunStatus::Failed {
-                    reason: FailureReason::WorkflowError,
-                };
-                managed_run.error = Some(format!("Invalid GitHub integration config: {err}"));
-                clear_live_run_state(managed_run);
-            }
-            state.scheduler_notify.notify_one();
-            return;
-        }
-    };
+    let server_settings = state.server_settings();
+    let github_settings = &server_settings.server.integrations.github;
     let github_app_result = match fabro_config::resolve_run_from_file(
         &persisted.run_spec().settings,
     ) {
@@ -4448,10 +4403,10 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
                 && settings.sandbox.provider == "daytona")
                 || !github_settings.permissions.is_empty();
             if required_github_credentials {
-                state.github_credentials(&github_settings)
+                state.github_credentials(github_settings)
             } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some()
             {
-                match state.github_credentials(&github_settings) {
+                match state.github_credentials(github_settings) {
                     Ok(github_app) => Ok(github_app),
                     Err(err) => {
                         tracing::warn!(
@@ -4484,6 +4439,16 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             return;
         }
     };
+    let github_permissions = github_settings
+        .permissions
+        .iter()
+        .map(|(name, value)| {
+            let resolved = value
+                .resolve(|env| std::env::var(env).ok())
+                .map_or_else(|_| value.as_source(), |resolved| resolved.value);
+            (name.clone(), resolved)
+        })
+        .collect();
     let services = operations::StartServices {
         run_id,
         cancel_token: Some(Arc::clone(&cancel_token)),
@@ -4494,6 +4459,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         artifact_sink: Some(ArtifactSink::Store(state.artifact_store.clone())),
         run_control: None,
         github_app,
+        github_permissions,
         vault: Some(Arc::clone(&state.vault)),
         on_node: None,
         registry_override,
@@ -9979,7 +9945,6 @@ level = "debug"
             .spec
             .expect("run spec should exist");
         let resolved_run = fabro_config::resolve_run_from_file(&run_spec.settings).unwrap();
-        let resolved_server = fabro_config::resolve_server_from_file(&run_spec.settings).unwrap();
 
         // Verify a sampling of the persisted v2 settings, including inherited
         // run execution mode from server settings.
@@ -10005,16 +9970,18 @@ level = "debug"
                 .as_deref(),
             Some("claude-sonnet-4-5"),
         );
-        assert_eq!(
-            resolved_server
+
+        // Server-operational fields (auth, integrations, etc.) deliberately
+        // do not flow into the run's persisted settings — they live on the
+        // server and are read via AppState::server_settings().
+        assert!(run_spec.settings.server.as_ref().is_none_or(|server| {
+            server
                 .integrations
-                .github
-                .app_id
                 .as_ref()
-                .map(fabro_types::settings::InterpString::as_source)
-                .as_deref(),
-            Some("12345"),
-        );
+                .and_then(|integrations| integrations.github.as_ref())
+                .and_then(|github| github.app_id.as_ref())
+                .is_none()
+        }));
     }
 
     #[tokio::test]
