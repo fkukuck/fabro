@@ -30,18 +30,18 @@ These paths are local runtime state and caches, not the canonical run state.
 - **`runtime/`** — Local runtime files. Today this is mainly materialized blob payloads under `runtime/blobs/`.
 - **`nodes/{manager_node}_{visit}/child/`** — Nested scratch directories for manager-loop child workflows.
 
-Large durable values, event streams, checkpoints, diffs, conclusions, and retros are no longer projected into live scratch by default. Use `fabro logs`, `fabro inspect`, the API, or `fabro store dump` for those surfaces.
+Large durable values, event streams, checkpoints, diffs, conclusions, and retros are no longer projected into live scratch by default. Use `fabro logs`, `fabro inspect`, the API, or `fabro dump` for those surfaces.
 
 ## Reconstructed and export-only layouts
 
-Reconstructed metadata branches and `fabro store dump` exports now use the same core layout:
+Reconstructed metadata branches and `fabro dump` exports now use the same core layout:
 
 - `run.json` for the current projection snapshot, including the current checkpoint
 - `graph.fabro` for workflow source
 - `stages/retro/*.md` for retro prompt/response text
 - `stages/{node_id}@{visit}/...` for per-stage prompt, response, status, diff, stdout, and stderr files
 
-`fabro store dump` adds export-only history surfaces on top of that shared layout:
+`fabro dump` adds export-only history surfaces on top of that shared layout:
 
 - `events.jsonl` for the durable event stream
 - `checkpoints/*.json` for checkpoint history snapshots

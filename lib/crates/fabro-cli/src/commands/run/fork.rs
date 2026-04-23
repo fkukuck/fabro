@@ -9,7 +9,7 @@ use git2::Repository;
 
 use crate::args::ForkArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::shared::print_json_pretty;
 use crate::shared::repo::ensure_matching_repo_origin;
 

@@ -81,7 +81,7 @@ jq '{from: .properties.from_node, to: .properties.to_node, label: .properties.la
   <(fabro logs 01JKXYZ...) | head
 ```
 
-If you need files on disk for offline analysis, `fabro store dump` exports `events.jsonl` plus run-state projections.
+If you need files on disk for offline analysis, `fabro dump` exports `events.jsonl` plus run-state projections.
 
 ## Event categories
 
@@ -132,6 +132,6 @@ Post-run analysis surfaces include:
 |---|---|
 | `fabro logs <RUN>` | Full event envelope stream as NDJSON |
 | `fabro inspect <RUN>` | Current durable run state, including run/start/checkpoint/conclusion records |
-| `fabro store dump --output <DIR> <RUN>` | Exported `events.jsonl` plus reconstructed JSON and node files |
+| `fabro dump --output <DIR> <RUN>` | Exported `events.jsonl` plus reconstructed JSON and node files |
 
 See [retros](/execution/retros), [stages](/api-reference/run-internals/list-run-stages), and [turns](/api-reference/run-internals/list-stage-turns) for higher-level analysis views built on top of this event stream.

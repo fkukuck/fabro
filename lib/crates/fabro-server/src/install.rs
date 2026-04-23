@@ -18,9 +18,8 @@ use fabro_config::bind::{Bind, BindRequest};
 use fabro_config::envfile::EnvFileUpdate;
 use fabro_install::{
     InstallListenConfig, OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV,
-    PendingSettingsWrite, VaultSecretWrite, generate_jwt_keypair, merge_server_settings,
-    persist_install_outputs_direct, write_github_app_settings, write_object_store_settings,
-    write_token_settings,
+    PendingSettingsWrite, VaultSecretWrite, merge_server_settings, persist_install_outputs_direct,
+    write_github_app_settings, write_object_store_settings, write_token_settings,
 };
 use fabro_model::Provider;
 use fabro_store::ArtifactStore;
@@ -43,7 +42,7 @@ use zeroize::Zeroizing;
 
 use crate::error::ApiError;
 use crate::serve::{self, DEFAULT_TCP_PORT};
-use crate::server_secrets::ServerSecrets;
+use crate::server_secrets::{ServerSecrets, process_env_snapshot};
 use crate::{security_headers, static_files};
 
 #[derive(Clone)]
@@ -112,6 +111,11 @@ impl InstallAppState {
         unsafe_code,
         reason = "test-only: set FABRO_TEST_IN_MEMORY_STORE to a constant so install tests \
                   don't hang on real S3; parallel tests race on the same value"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test-only: forces the in-memory object store for install tests so they \
+                  don't contact real S3"
     )]
     pub fn for_test_with_paths(token: &str, storage_dir: &Path, config_path: &Path) -> Self {
         // Install-flow tests verify persistence and redaction, not S3
@@ -973,7 +977,8 @@ async fn validate_install_object_store_selection(
     let server_env_path = Storage::new(state.storage_dir.as_ref())
         .runtime_directory()
         .env_path();
-    let server_secrets = ServerSecrets::load(server_env_path).map_err(|err| err.to_string())?;
+    let server_secrets = ServerSecrets::load(server_env_path, process_env_snapshot())
+        .map_err(|err| err.to_string())?;
     let build_options = serve::ObjectStoreBuildOptions {
         client_options,
         retry_config: RetryConfig {
@@ -1373,23 +1378,7 @@ async fn post_install_finish(
     };
 
     let session_secret = session_secret::generate_session_secret();
-    let (jwt_private_pem, jwt_public_pem) = match generate_jwt_keypair() {
-        Ok(value) => value,
-        Err(err) => {
-            return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
-        }
-    };
-    server_env_writes.extend([
-        make_env_write(
-            "FABRO_JWT_PRIVATE_KEY",
-            BASE64_STANDARD.encode(jwt_private_pem.as_bytes()),
-        ),
-        make_env_write(
-            "FABRO_JWT_PUBLIC_KEY",
-            BASE64_STANDARD.encode(jwt_public_pem.as_bytes()),
-        ),
-        make_env_write("SESSION_SECRET", session_secret),
-    ]);
+    server_env_writes.push(make_env_write("SESSION_SECRET", session_secret));
     if let Some(token) = dev_token.as_ref() {
         server_env_writes.push(make_env_write("FABRO_DEV_TOKEN", token.clone()));
     }
@@ -1968,6 +1957,7 @@ async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
@@ -2108,7 +2098,7 @@ AWS_SESSION_TOKEN=ambient-session\n\
 AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/fabro-web-identity-token\n",
         )
         .unwrap();
-        let server_secrets = ServerSecrets::with_env_lookup(env_path.clone(), |_| None).unwrap();
+        let server_secrets = ServerSecrets::load(env_path.clone(), HashMap::new()).unwrap();
         let manual_credentials =
             InstallAwsCredentialPair::new("submitted-access", "submitted-secret");
 
