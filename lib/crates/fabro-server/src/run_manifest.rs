@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
-use fabro_config::{WorkflowSettingsBuilder, parse_settings_layer};
+use fabro_config::{RunSettingsBuilder, WorkflowSettingsBuilder, parse_settings_layer};
 use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
@@ -389,12 +389,12 @@ async fn build_preflight_report(
         &configured_providers,
     );
     let resolved_run =
-        WorkflowSettingsBuilder::from_layer(&materialized).map_err(|errors| anyhow!(errors))?;
+        RunSettingsBuilder::from_layer(&materialized).map_err(anyhow::Error::from)?;
     let server_settings = state.server_settings();
     let github_integration = &server_settings.server.integrations.github;
-    let sandbox_provider = resolve_sandbox_provider(&resolved_run.run)?;
+    let sandbox_provider = resolve_sandbox_provider(&resolved_run)?;
     let sandbox_provider =
-        if resolved_run.run.execution.mode == RunMode::DryRun && !sandbox_provider.is_local() {
+        if resolved_run.execution.mode == RunMode::DryRun && !sandbox_provider.is_local() {
             SandboxProvider::Local
         } else {
             sandbox_provider
@@ -414,7 +414,7 @@ async fn build_preflight_report(
         &mut checks,
         sandbox_provider,
         prepared,
-        &resolved_run.run,
+        &resolved_run,
         github_app.clone(),
         daytona_api_key,
     )
@@ -423,7 +423,7 @@ async fn build_preflight_report(
         state,
         &mut checks,
         graph,
-        &resolved_run.run,
+        &resolved_run,
         &configured_providers,
     )
     .await;
