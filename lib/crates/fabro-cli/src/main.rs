@@ -168,11 +168,10 @@ async fn main_inner() -> (String, Result<()>) {
         Ok(resolved) => resolved,
         Err(err) => return (command_name, Err(err)),
     };
-    let cli_settings = resolved_base.user_settings().cli.clone();
     let printer = resolved_base.printer();
 
     let config_log_level = match &pre_tracing_bootstrap.sink {
-        logging::InternalLogSink::Cli => cli_settings.logging.level.clone(),
+        logging::InternalLogSink::Cli => resolved_base.user_settings().cli.logging.level.clone(),
         logging::InternalLogSink::Server { .. } => pre_tracing_bootstrap.config_log_level.clone(),
     };
     if let Err(err) = logging::init_tracing(
@@ -196,16 +195,20 @@ async fn main_inner() -> (String, Result<()>) {
             | Commands::Repo(_)
             | Commands::Install { .. }
     ) {
-        commands::upgrade::spawn_upgrade_check(cli_settings.updates.check, printer)
+        commands::upgrade::spawn_upgrade_check(
+            resolved_base.user_settings().cli.updates.check,
+            printer,
+        )
     } else {
         None
     };
 
     let result = Box::pin(async move {
+        let cli_settings = &resolved_base.user_settings().cli;
         let build_base_ctx = || resolved_base.to_context();
 
         match *command {
-            Commands::Exec(args) => commands::exec::execute(args, &cli_settings, printer).await?,
+            Commands::Exec(args) => commands::exec::execute(args, cli_settings, printer).await?,
             Commands::RunCmd(cmd) => {
                 let base_ctx = build_base_ctx()?;
                 Box::pin(commands::run::dispatch(cmd, &base_ctx)).await?;
@@ -225,7 +228,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::graph::run(&args, &styles, &base_ctx).await?;
             }
             Commands::Parse(args) => {
-                commands::parse::run(&args, &cli_settings, printer)?;
+                commands::parse::run(&args, cli_settings, printer)?;
             }
             Commands::Artifact(ns) => {
                 let base_ctx = build_base_ctx()?;
@@ -287,7 +290,7 @@ async fn main_inner() -> (String, Result<()>) {
                 Box::pin(commands::install::execute(
                     &args,
                     command,
-                    &cli_settings,
+                    cli_settings,
                     &cli_layer,
                     process_local_json,
                     printer,
@@ -295,7 +298,7 @@ async fn main_inner() -> (String, Result<()>) {
                 .await?;
             }
             Commands::Uninstall(args) => {
-                commands::uninstall::run_uninstall(&args, &cli_settings, printer).await?;
+                commands::uninstall::run_uninstall(&args, cli_settings, printer).await?;
             }
             Commands::Auth(ns) => {
                 let base_ctx = build_base_ctx()?;
@@ -313,9 +316,9 @@ async fn main_inner() -> (String, Result<()>) {
                 let base_ctx = build_base_ctx()?;
                 Box::pin(commands::config::execute(&args, &base_ctx)).await?;
             }
-            Commands::Workflow(ns) => commands::workflow::dispatch(ns, &cli_settings, printer)?,
+            Commands::Workflow(ns) => commands::workflow::dispatch(ns, cli_settings, printer)?,
             Commands::Upgrade(args) => {
-                commands::upgrade::run_upgrade(args, &cli_settings, printer).await?;
+                commands::upgrade::run_upgrade(args, cli_settings, printer).await?;
             }
             Commands::Provider(ns) => {
                 let base_ctx = build_base_ctx()?;
