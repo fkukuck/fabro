@@ -406,10 +406,13 @@ mod tests {
     use std::time::Duration;
 
     use chrono::{Local, TimeZone, Utc};
-    use fabro_config::WorkflowSettingsBuilder;
+    use fabro_config::{
+        ReplaceMap, RunExecutionLayer, RunGoalLayer, RunLayer, RunModelLayer, RunPullRequestLayer,
+        WorkflowSettingsBuilder,
+    };
     use fabro_graphviz::graph::AttrValue;
     use fabro_store::Database;
-    use fabro_types::settings::{InterpString, SettingsLayer};
+    use fabro_types::settings::{InterpString, run::RunMode};
     use fabro_types::{WorkflowSettings, fixtures};
     use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
@@ -426,13 +429,17 @@ mod tests {
         ))
     }
 
-    fn settings_from_layer(mut layer: SettingsLayer) -> WorkflowSettings {
-        layer.ensure_test_auth_methods();
-        WorkflowSettingsBuilder::from_layer(&layer).expect("settings should resolve")
+    fn settings_from_run_layer(run: RunLayer) -> WorkflowSettings {
+        WorkflowSettingsBuilder::new()
+            .run_overrides(run)
+            .build()
+            .expect("settings should resolve")
     }
 
     fn test_default_settings() -> WorkflowSettings {
-        settings_from_layer(SettingsLayer::test_default())
+        WorkflowSettingsBuilder::new()
+            .build()
+            .expect("default settings should resolve")
     }
 
     fn validate_dot(dot_source: &str, settings: WorkflowSettings) -> Validated {
@@ -532,17 +539,13 @@ mod tests {
         }"#;
         let validated = validate_dot(
             dot,
-            settings_from_layer({
-                use fabro_types::settings::run::{RunGoalLayer, RunLayer};
+            settings_from_run_layer({
                 let mut inputs = std::collections::HashMap::new();
                 inputs.insert("who".to_string(), toml::Value::String("agent".to_string()));
-                SettingsLayer {
-                    run: Some(RunLayer {
-                        goal: Some(RunGoalLayer::Inline(InterpString::parse("override"))),
-                        inputs: Some(inputs),
-                        ..RunLayer::default()
-                    }),
-                    ..SettingsLayer::default()
+                RunLayer {
+                    goal: Some(RunGoalLayer::Inline(InterpString::parse("override"))),
+                    inputs: Some(inputs),
+                    ..RunLayer::default()
                 }
             }),
         );
@@ -793,35 +796,26 @@ mod tests {
                     source:   MINIMAL_DOT.to_string(),
                     base_dir: None,
                 },
-                settings: settings_from_layer({
-                    use fabro_types::settings::ReplaceMap;
-                    use fabro_types::settings::run::{
-                        RunExecutionLayer, RunGoalLayer, RunLayer, RunMode, RunModelLayer,
-                        RunPullRequestLayer,
-                    };
+                settings: settings_from_run_layer({
                     let mut metadata = HashMap::new();
                     metadata.insert("env".to_string(), "test".to_string());
-                    let layer = SettingsLayer {
-                        run: Some(RunLayer {
-                            goal: Some(RunGoalLayer::Inline(InterpString::parse("override goal"))),
-                            metadata: ReplaceMap::from(metadata),
-                            model: Some(RunModelLayer {
-                                name: Some(InterpString::parse("sonnet")),
-                                ..RunModelLayer::default()
-                            }),
-                            pull_request: Some(RunPullRequestLayer {
-                                enabled: Some(false),
-                                ..RunPullRequestLayer::default()
-                            }),
-                            execution: Some(RunExecutionLayer {
-                                mode: Some(RunMode::DryRun),
-                                ..RunExecutionLayer::default()
-                            }),
-                            ..RunLayer::default()
+                    RunLayer {
+                        goal: Some(RunGoalLayer::Inline(InterpString::parse("override goal"))),
+                        metadata: ReplaceMap::from(metadata),
+                        model: Some(RunModelLayer {
+                            name: Some(InterpString::parse("sonnet")),
+                            ..RunModelLayer::default()
                         }),
-                        ..SettingsLayer::default()
-                    };
-                    layer
+                        pull_request: Some(RunPullRequestLayer {
+                            enabled: Some(false),
+                            ..RunPullRequestLayer::default()
+                        }),
+                        execution: Some(RunExecutionLayer {
+                            mode: Some(RunMode::DryRun),
+                            ..RunExecutionLayer::default()
+                        }),
+                        ..RunLayer::default()
+                    }
                 }),
                 cwd: dir.path().to_path_buf(),
                 workflow_slug: Some("slug".to_string()),
@@ -921,20 +915,15 @@ mod tests {
                     source:   MINIMAL_DOT.to_string(),
                     base_dir: None,
                 },
-                settings: settings_from_layer({
-                    use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-                    let layer = SettingsLayer {
-                        run: Some(RunLayer {
-                            working_dir: Some(InterpString::parse("workspace")),
-                            execution: Some(RunExecutionLayer {
-                                mode: Some(RunMode::DryRun),
-                                ..RunExecutionLayer::default()
-                            }),
-                            ..RunLayer::default()
+                settings: settings_from_run_layer({
+                    RunLayer {
+                        working_dir: Some(InterpString::parse("workspace")),
+                        execution: Some(RunExecutionLayer {
+                            mode: Some(RunMode::DryRun),
+                            ..RunExecutionLayer::default()
                         }),
-                        ..SettingsLayer::default()
-                    };
-                    layer
+                        ..RunLayer::default()
+                    }
                 }),
                 cwd: dir.path().to_path_buf(),
                 workflow_slug: None,
@@ -1004,37 +993,22 @@ mod tests {
     }
 
     fn dry_run_only_settings() -> WorkflowSettings {
-        use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-        settings_from_layer(SettingsLayer {
-            run: Some(RunLayer {
-                execution: Some(RunExecutionLayer {
-                    mode: Some(RunMode::DryRun),
-                    ..RunExecutionLayer::default()
-                }),
-                ..RunLayer::default()
+        settings_from_run_layer(RunLayer {
+            execution: Some(RunExecutionLayer {
+                mode: Some(RunMode::DryRun),
+                ..RunExecutionLayer::default()
             }),
-            ..SettingsLayer::default()
+            ..RunLayer::default()
         })
     }
 
-    fn dry_run_with_storage(storage_dir: &Path) -> WorkflowSettings {
-        use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-        use fabro_types::settings::server::{ServerLayer, ServerStorageLayer};
-        settings_from_layer(SettingsLayer {
-            run: Some(RunLayer {
-                execution: Some(RunExecutionLayer {
-                    mode: Some(RunMode::DryRun),
-                    ..RunExecutionLayer::default()
-                }),
-                ..RunLayer::default()
+    fn dry_run_with_storage(_storage_dir: &Path) -> WorkflowSettings {
+        settings_from_run_layer(RunLayer {
+            execution: Some(RunExecutionLayer {
+                mode: Some(RunMode::DryRun),
+                ..RunExecutionLayer::default()
             }),
-            server: Some(ServerLayer {
-                storage: Some(ServerStorageLayer {
-                    root: Some(InterpString::parse(&storage_dir.to_string_lossy())),
-                }),
-                ..ServerLayer::default()
-            }),
-            ..SettingsLayer::default()
+            ..RunLayer::default()
         })
     }
 

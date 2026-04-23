@@ -969,11 +969,10 @@ mod tests {
     use std::time::Duration;
 
     use chrono::Utc;
-    use fabro_config::WorkflowSettingsBuilder;
+    use fabro_config::{RunExecutionLayer, RunLayer, WorkflowSettingsBuilder};
     use fabro_store::Database;
-    use fabro_types::settings::SettingsLayer;
-    use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
     use fabro_types::{WorkflowSettings, fixtures};
+    use fabro_types::settings::run::RunMode;
     use object_store::memory::InMemory;
 
     use super::*;
@@ -1012,9 +1011,11 @@ mod tests {
         (storage_root, run_dir)
     }
 
-    fn settings_from_layer(mut layer: SettingsLayer) -> WorkflowSettings {
-        layer.ensure_test_auth_methods();
-        WorkflowSettingsBuilder::from_layer(&layer).expect("settings should resolve")
+    fn settings_from_run_layer(run: RunLayer) -> WorkflowSettings {
+        WorkflowSettingsBuilder::new()
+            .run_overrides(run)
+            .build()
+            .expect("settings should resolve")
     }
 
     async fn persisted_workflow(dot: &str, storage_root: &Path) -> (Persisted, Arc<Database>) {
@@ -1026,18 +1027,12 @@ mod tests {
                     source:   dot.to_string(),
                     base_dir: None,
                 },
-                settings: settings_from_layer({
-                    let layer = SettingsLayer {
-                        run: Some(RunLayer {
-                            execution: Some(RunExecutionLayer {
-                                mode: Some(RunMode::DryRun),
-                                ..RunExecutionLayer::default()
-                            }),
-                            ..RunLayer::default()
-                        }),
-                        ..SettingsLayer::default()
-                    };
-                    layer
+                settings: settings_from_run_layer(RunLayer {
+                    execution: Some(RunExecutionLayer {
+                        mode: Some(RunMode::DryRun),
+                        ..RunExecutionLayer::default()
+                    }),
+                    ..RunLayer::default()
                 }),
                 cwd: storage_root
                     .parent()
@@ -1213,18 +1208,12 @@ mod tests {
                         .unwrap()
                         .clone(),
                 ),
-                settings: settings_from_layer({
-                    let layer = SettingsLayer {
-                        run: Some(RunLayer {
-                            execution: Some(RunExecutionLayer {
-                                mode: Some(RunMode::DryRun),
-                                ..RunExecutionLayer::default()
-                            }),
-                            ..RunLayer::default()
-                        }),
-                        ..SettingsLayer::default()
-                    };
-                    layer
+                settings: settings_from_run_layer(RunLayer {
+                    execution: Some(RunExecutionLayer {
+                        mode: Some(RunMode::DryRun),
+                        ..RunExecutionLayer::default()
+                    }),
+                    ..RunLayer::default()
                 }),
                 cwd: temp.path().to_path_buf(),
                 workflow_slug: Some("bundle-child".to_string()),
