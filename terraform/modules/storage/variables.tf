@@ -25,15 +25,6 @@ variable "enable_large_file_share" {
   default = true
 }
 
-variable "workspace_share_name" {
-  type = string
-}
-
-variable "workspace_share_quota_gb" {
-  type    = number
-  default = 100
-}
-
 variable "server_storage_share_name" {
   type = string
 }
