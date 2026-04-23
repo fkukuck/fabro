@@ -6,10 +6,10 @@ use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
 
 pub(super) async fn close_command(args: PrCloseArgs, base_ctx: &CommandContext) -> Result<()> {
-    let printer = base_ctx.printer();
-    let (record, _run_id) = super::load_pr_record(&args.server, &args.run_id, base_ctx).await?;
+    let (ctx, record, _run_id) =
+        super::load_pr_record(&args.server, &args.run_id, base_ctx).await?;
 
-    let creds = super::load_github_credentials_required(base_ctx)?;
+    let creds = super::load_github_credentials_required(&ctx)?;
 
     fabro_github::close_pull_request(
         &creds,
@@ -22,13 +22,18 @@ pub(super) async fn close_command(args: PrCloseArgs, base_ctx: &CommandContext) 
     .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     info!(number = record.number, owner = %record.owner, repo = %record.repo, "Closed pull request");
-    if base_ctx.json_output() {
+    if ctx.json_output() {
         print_json_pretty(&serde_json::json!({
             "number": record.number,
             "html_url": record.html_url,
         }))?;
     } else {
-        fabro_util::printout!(printer, "Closed #{} ({})", record.number, record.html_url);
+        fabro_util::printout!(
+            ctx.printer(),
+            "Closed #{} ({})",
+            record.number,
+            record.html_url
+        );
     }
 
     Ok(())

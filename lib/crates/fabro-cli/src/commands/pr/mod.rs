@@ -58,7 +58,7 @@ pub(crate) async fn load_pr_record(
     server: &ServerTargetArgs,
     run_id: &str,
     base_ctx: &CommandContext,
-) -> Result<(PullRequestRecord, fabro_types::RunId)> {
+) -> Result<(CommandContext, PullRequestRecord, fabro_types::RunId)> {
     let ctx = base_ctx.with_target(server)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(run_id).await?.run_id;
@@ -66,5 +66,5 @@ pub(crate) async fn load_pr_record(
     let record = state.pull_request.with_context(|| {
         format!("No pull request found in store. Create one first with: fabro pr create {run_id}")
     })?;
-    Ok((record, run_id))
+    Ok((ctx, record, run_id))
 }
