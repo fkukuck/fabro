@@ -101,12 +101,21 @@ fn build_conclusion_from_parts(
     run_duration_ms: u64,
     final_git_commit_sha: Option<String>,
 ) -> Conclusion {
-    let (stages, billing, total_retries) = if let Some(cp) = checkpoint {
+    // Dedupe by node id: looping workflows push a duplicate into
+    // `completed_nodes` on every revisit, but `node_outcomes`,
+    // `node_retries`, and `stage_durations` are all keyed by node_id with
+    // overwrite semantics, so duplicate rows would carry identical
+    // (latest-visit) values. One row per unique node keeps the table
+    // consistent with the deduped `billing` total below.
+    let (stages, total_retries) = if let Some(cp) = checkpoint {
         let mut stages = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         let mut retries_sum: u32 = 0;
-        let mut billed_usage = Vec::new();
 
         for node_id in &cp.completed_nodes {
+            if !seen.insert(node_id.as_str()) {
+                continue;
+            }
             let outcome = cp.node_outcomes.get(node_id);
             let retries = cp
                 .node_retries
@@ -115,10 +124,6 @@ fn build_conclusion_from_parts(
                 .unwrap_or(1)
                 .saturating_sub(1);
             retries_sum += retries;
-
-            if let Some(usage) = outcome.and_then(|o| o.usage.as_ref()) {
-                billed_usage.push(usage.clone());
-            }
 
             stages.push(StageSummary {
                 stage_id: node_id.clone(),
@@ -130,13 +135,9 @@ fn build_conclusion_from_parts(
                 retries,
             });
         }
-        (
-            stages,
-            (!billed_usage.is_empty()).then(|| BilledTokenCounts::from_billed_usage(&billed_usage)),
-            retries_sum,
-        )
+        (stages, retries_sum)
     } else {
-        (vec![], None, 0)
+        (vec![], 0)
     };
 
     Conclusion {
@@ -146,7 +147,7 @@ fn build_conclusion_from_parts(
         failure_reason,
         final_git_commit_sha,
         stages,
-        billing,
+        billing: checkpoint.and_then(billing_from_checkpoint),
         total_retries,
     }
 }
@@ -199,9 +200,10 @@ pub async fn write_finalize_commit(
 
 /// Compute the diff between the run's base sha and the workspace head.
 ///
-/// Failed runs use a shorter timeout: a corrupted workspace must not stall
-/// the terminal event downstream consumers (Slack, SSE, CI hooks) are waiting
-/// for.
+/// Failed and cancelled runs use a shorter timeout: a corrupted workspace
+/// must not stall the terminal event downstream consumers (Slack, SSE, CI
+/// hooks) are waiting for. The diff is still captured for cancelled runs so
+/// partial work stays visible after sandbox cleanup.
 async fn compute_final_patch(
     run_options: &RunOptions,
     sandbox: &dyn fabro_agent::Sandbox,
@@ -228,47 +230,31 @@ async fn compute_final_patch(
     }
 }
 
-/// Build the terminal `WorkflowRunCompleted`/`WorkflowRunFailed` event.
+/// Billing aggregate for the run. Iterates `node_outcomes.values()` to give
+/// one entry per unique node — `completed_nodes` contains duplicates for
+/// looping workflows and would over-count the last visit's usage.
+///
+/// Used by both `build_conclusion_from_parts` (persisted into
+/// `Conclusion.billing`) and `build_terminal_event` so the metadata snapshot
+/// and the emitted `run.completed`/`run.failed` event can never disagree.
+pub(crate) fn billing_from_checkpoint(cp: &Checkpoint) -> Option<BilledTokenCounts> {
+    let usage: Vec<_> = cp
+        .node_outcomes
+        .values()
+        .filter_map(|o| o.usage.clone())
+        .collect();
+    (!usage.is_empty()).then(|| BilledTokenCounts::from_billed_usage(&usage))
+}
+
 pub(crate) fn build_terminal_event(
     outcome: &Result<Outcome, Error>,
     duration_ms: u64,
     artifact_count: usize,
     final_git_commit_sha: Option<String>,
     final_patch: Option<String>,
-    state: Option<&fabro_store::RunProjection>,
+    billing: Option<BilledTokenCounts>,
 ) -> Event {
-    let cancelled = matches!(outcome, Err(Error::Cancelled));
-    let outcome_status = outcome
-        .as_ref()
-        .map_or(StageStatus::Fail, |o| o.status.clone());
-
-    let billed_usage: Vec<_> = state
-        .and_then(|s| s.checkpoint.as_ref())
-        .map(|cp| {
-            cp.node_outcomes
-                .values()
-                .filter_map(|o| o.usage.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-    let billing =
-        (!billed_usage.is_empty()).then(|| BilledTokenCounts::from_billed_usage(&billed_usage));
-    let total_usd_micros = billing
-        .as_ref()
-        .and_then(|b| b.total_usd_micros)
-        .or_else(|| {
-            let mut total = 0_i64;
-            let mut has_total = false;
-            for usage in &billed_usage {
-                if let Some(value) = usage.total_usd_micros {
-                    total += value;
-                    has_total = true;
-                }
-            }
-            has_total.then_some(total)
-        });
-
-    if cancelled {
+    if matches!(outcome, Err(Error::Cancelled)) {
         return Event::WorkflowRunFailed {
             error: Error::Cancelled,
             duration_ms,
@@ -278,8 +264,13 @@ pub(crate) fn build_terminal_event(
         };
     }
 
+    let outcome_status = outcome
+        .as_ref()
+        .map_or(StageStatus::Fail, |o| o.status.clone());
+
     if outcome_status == StageStatus::Success || outcome_status == StageStatus::PartialSuccess {
-        Event::WorkflowRunCompleted {
+        let total_usd_micros = billing.as_ref().and_then(|b| b.total_usd_micros);
+        return Event::WorkflowRunCompleted {
             duration_ms,
             artifact_count,
             status: outcome_status.to_string(),
@@ -291,26 +282,26 @@ pub(crate) fn build_terminal_event(
             final_git_commit_sha,
             final_patch,
             billing,
-        }
-    } else {
-        let error_msg = outcome
-            .as_ref()
-            .err()
-            .map(ToString::to_string)
-            .or_else(|| {
-                outcome
-                    .as_ref()
-                    .ok()
-                    .and_then(|o| o.failure.as_ref().map(|f| f.message.clone()))
-            })
-            .unwrap_or_else(|| "run failed".to_string());
-        Event::WorkflowRunFailed {
-            error: Error::engine(error_msg),
-            duration_ms,
-            reason: FailureReason::WorkflowError,
-            git_commit_sha: final_git_commit_sha,
-            final_patch,
-        }
+        };
+    }
+
+    // Err(Cancelled) was handled above, so Err here is a real failure: surface
+    // it directly without re-wrapping in Error::engine, which would double the
+    // "Engine error: " prefix.
+    let error = match outcome {
+        Err(err) => err.clone(),
+        Ok(o) => Error::engine(
+            o.failure
+                .as_ref()
+                .map_or_else(|| "run failed".to_string(), |f| f.message.clone()),
+        ),
+    };
+    Event::WorkflowRunFailed {
+        error,
+        duration_ms,
+        reason: FailureReason::WorkflowError,
+        git_commit_sha: final_git_commit_sha,
+        final_patch,
     }
 }
 
@@ -383,20 +374,21 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
 
     write_finalize_commit(&run_options, &options.run_store, &conclusion).await;
 
-    let events = options.run_store.list_events().await.unwrap_or_default();
-    let artifact_count = events
+    let artifact_count = options
+        .run_store
+        .list_events()
+        .await
+        .unwrap_or_default()
         .iter()
         .filter(|envelope| matches!(envelope.event.body, EventBody::ArtifactCaptured(_)))
         .count();
-    let state_for_event = options.run_store.state().await.ok();
-
     let terminal_event = build_terminal_event(
         &outcome,
         duration_ms,
         artifact_count,
         options.last_git_sha.clone(),
         final_patch,
-        state_for_event.as_ref(),
+        conclusion.billing.clone(),
     );
     emitter.emit(&terminal_event);
 
