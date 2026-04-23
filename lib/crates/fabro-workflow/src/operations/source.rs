@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
-use fabro_config::project as project_config;
 use fabro_config::run::resolve_run_goal;
+use fabro_config::{WorkflowSettingsBuilder, project as project_config};
+use fabro_types::WorkflowSettings;
 use fabro_types::settings::SettingsLayer;
 
 use crate::file_resolver::{FileResolver, FilesystemFileResolver};
@@ -35,6 +36,7 @@ pub(crate) struct ResolveWorkflowInput {
 pub(crate) struct ResolvedWorkflow {
     pub raw_source:         String,
     pub settings:           SettingsLayer,
+    workflow_settings:      std::result::Result<WorkflowSettings, String>,
     pub workflow_slug:      Option<String>,
     pub workflow_toml_path: Option<PathBuf>,
     pub dot_path:           Option<PathBuf>,
@@ -42,6 +44,12 @@ pub(crate) struct ResolvedWorkflow {
     pub file_resolver:      Option<Arc<dyn FileResolver>>,
     pub goal_override:      Option<String>,
     pub working_directory:  PathBuf,
+}
+
+impl ResolvedWorkflow {
+    pub(crate) fn workflow_settings(&self) -> std::result::Result<&WorkflowSettings, String> {
+        self.workflow_settings.as_ref().map_err(Clone::clone)
+    }
 }
 
 fn workflow_slug_from_path(workflow_path: &Path) -> Option<String> {
@@ -67,6 +75,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
         WorkflowInput::Path(workflow_path) => {
             let resolution = project_config::resolve_workflow_path(&workflow_path, &request.cwd)?;
             let settings = request.settings;
+            let workflow_settings = resolve_dense_workflow_settings(&settings);
             let raw_source = std::fs::read_to_string(&resolution.dot_path)
                 .with_context(|| format!("Failed to read {}", resolution.dot_path.display()))?;
             let working_directory =
@@ -81,6 +90,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
             Ok(ResolvedWorkflow {
                 raw_source,
                 settings,
+                workflow_settings,
                 workflow_slug: resolution.workflow_slug,
                 workflow_toml_path: resolution.workflow_toml_path,
                 dot_path: Some(resolution.dot_path.clone()),
@@ -94,6 +104,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
         }
         WorkflowInput::DotSource { source, base_dir } => {
             let settings = request.settings;
+            let workflow_settings = resolve_dense_workflow_settings(&settings);
             let working_directory =
                 project_config::resolve_working_directory(&settings, &request.cwd);
             let goal_override = resolve_goal_override(&settings, &working_directory)?;
@@ -101,6 +112,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
             Ok(ResolvedWorkflow {
                 raw_source: source,
                 settings,
+                workflow_settings,
                 workflow_slug: None,
                 workflow_toml_path: None,
                 dot_path: None,
@@ -116,6 +128,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
         }
         WorkflowInput::Bundled(workflow) => {
             let settings = request.settings;
+            let workflow_settings = resolve_dense_workflow_settings(&settings);
             let working_directory =
                 project_config::resolve_working_directory(&settings, &request.cwd);
             let goal_override = resolve_goal_override(&settings, &working_directory)?;
@@ -123,6 +136,7 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
             Ok(ResolvedWorkflow {
                 raw_source: workflow.source.clone(),
                 settings,
+                workflow_settings,
                 workflow_slug: workflow_slug_from_path(&workflow.logical_path),
                 workflow_toml_path: None,
                 dot_path: Some(workflow.logical_path.clone()),
@@ -133,6 +147,12 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
             })
         }
     }
+}
+
+fn resolve_dense_workflow_settings(
+    settings: &SettingsLayer,
+) -> std::result::Result<WorkflowSettings, String> {
+    WorkflowSettingsBuilder::from_layer(settings).map_err(|err| err.to_string())
 }
 
 /// Resolve the `run.goal` override for a direct (non-manifest) workflow
@@ -204,5 +224,32 @@ mod tests {
         .unwrap();
 
         assert_eq!(resolved.goal_override.as_deref(), Some("dense goal"));
+    }
+
+    #[test]
+    fn resolve_workflow_keeps_invalid_workflow_settings_tolerant() {
+        use fabro_types::settings::run::{RunLayer, RunSandboxLayer};
+
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = resolve_workflow(ResolveWorkflowInput {
+            workflow: WorkflowInput::DotSource {
+                source:   "digraph Test { start -> exit }".to_string(),
+                base_dir: None,
+            },
+            settings: SettingsLayer {
+                run: Some(RunLayer {
+                    sandbox: Some(RunSandboxLayer {
+                        provider: Some("not-a-provider".to_string()),
+                        ..RunSandboxLayer::default()
+                    }),
+                    ..RunLayer::default()
+                }),
+                ..SettingsLayer::default()
+            },
+            cwd:      dir.path().to_path_buf(),
+        })
+        .unwrap();
+
+        assert!(resolved.workflow_settings().is_err());
     }
 }

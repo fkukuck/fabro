@@ -84,13 +84,14 @@ pub async fn create(
         cwd:      request.cwd,
     })
     .map_err(|err| Error::Parse(err.to_string()))?;
+    let labels = {
+        let resolved_settings = resolved.workflow_settings().map_err(Error::Precondition)?;
+        if resolved_settings.run.execution.mode != RunMode::DryRun {
+            validate_sandbox_provider(&resolved_settings.run)?;
+        }
+        resolved_settings.combined_labels()
+    };
     let settings = resolved.settings.clone();
-    let resolved_settings = WorkflowSettingsBuilder::from_layer(&settings)
-        .map_err(|errors| Error::Precondition(errors.to_string()))?;
-
-    if resolved_settings.run.execution.mode != RunMode::DryRun {
-        validate_sandbox_provider(&resolved_settings.run)?;
-    }
 
     let CreateRunInput {
         workflow: _,
@@ -148,7 +149,7 @@ pub async fn create(
                 run_id: Some(run_id),
                 run_dir: Some(persisted_run_dir),
                 workflow_slug: workflow_slug.or(resolved_workflow_slug),
-                labels: resolved_settings.combined_labels(),
+                labels,
                 base_branch,
                 working_directory,
                 host_repo_path,
