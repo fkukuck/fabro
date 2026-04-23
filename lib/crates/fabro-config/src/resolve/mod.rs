@@ -8,23 +8,12 @@ mod workflow;
 
 pub use cli::resolve_cli;
 pub use error::ResolveError;
-use fabro_types::settings::{InterpString, ServerNamespace, SettingsLayer};
+use fabro_types::settings::InterpString;
 pub use features::resolve_features;
 pub use project::resolve_project;
 pub use run::resolve_run;
 pub use server::{dev_token_auth_enabled, resolve_server};
 pub use workflow::resolve_workflow;
-
-use crate::apply_builtin_defaults;
-
-pub fn resolve_server_from_file(
-    file: &SettingsLayer,
-) -> Result<ServerNamespace, Vec<ResolveError>> {
-    let layer = apply_builtin_defaults(file.clone());
-    let mut errors = Vec::new();
-    let value = resolve_server(&layer.server.clone().unwrap_or_default(), &mut errors);
-    finish(value, errors)
-}
 
 pub(crate) fn require_interp(
     value: Option<&InterpString>,
@@ -59,14 +48,6 @@ pub(crate) fn parse_socket_addr(
 
 pub(crate) fn default_interp(path: impl AsRef<std::path::Path>) -> InterpString {
     InterpString::parse(&path.as_ref().to_string_lossy())
-}
-
-fn finish<T>(value: T, errors: Vec<ResolveError>) -> Result<T, Vec<ResolveError>> {
-    if errors.is_empty() {
-        Ok(value)
-    } else {
-        Err(errors)
-    }
 }
 
 #[cfg(test)]

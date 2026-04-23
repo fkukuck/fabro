@@ -8,15 +8,19 @@ fn parse(source: &str) -> SettingsLayer {
 
 #[test]
 fn resolves_root_settings_require_explicit_server_auth_methods() {
-    let errors = fabro_config::resolve_server_from_file(&SettingsLayer::default())
+    let errors = ServerSettingsBuilder::from_layer(&SettingsLayer::default())
         .expect_err("empty server settings should fail");
 
-    assert!(errors.iter().any(|error| {
-        matches!(
-            error,
-            fabro_config::ResolveError::Missing { path } if path == "server.auth.methods"
-        )
-    }));
+    assert!(matches!(
+        errors,
+        fabro_config::Error::Resolve { errors, .. }
+            if errors.iter().any(|error| {
+                matches!(
+                    error,
+                    fabro_config::ResolveError::Missing { path } if path == "server.auth.methods"
+                )
+            })
+    ));
 }
 
 #[test]
@@ -42,10 +46,14 @@ provider = "not-a-provider"
 
     let mut rendered = Vec::new();
     rendered.extend(
-        fabro_config::resolve_server_from_file(&settings)
+        match ServerSettingsBuilder::from_layer(&settings)
             .expect_err("invalid server settings should fail")
-            .into_iter()
-            .map(|error| error.to_string()),
+        {
+            fabro_config::Error::Resolve { errors, .. } => errors,
+            other => panic!("expected resolve error, got {other:#}"),
+        }
+        .into_iter()
+        .map(|error| error.to_string()),
     );
     rendered.extend(
         fabro_config::WorkflowSettingsBuilder::from_layer(&settings)

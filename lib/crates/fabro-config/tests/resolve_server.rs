@@ -22,10 +22,30 @@ fn empty_settings_with_auth_methods() -> SettingsLayer {
     SettingsLayer::test_default()
 }
 
+fn resolve_server(file: &SettingsLayer) -> fabro_types::settings::ServerNamespace {
+    ServerSettingsBuilder::from_layer(file)
+        .expect("server settings should resolve")
+        .server
+}
+
+fn resolve_errors(error: fabro_config::Error) -> Vec<fabro_config::ResolveError> {
+    match error {
+        fabro_config::Error::Resolve { errors, .. } => errors,
+        other => panic!("expected resolve error, got {other:#}"),
+    }
+}
+
+fn render_resolve_errors(error: fabro_config::Error) -> String {
+    resolve_errors(error)
+        .into_iter()
+        .map(|error| error.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn resolves_server_defaults_from_empty_settings() {
-    let settings = fabro_config::resolve_server_from_file(&empty_settings_with_auth_methods())
-        .expect("server settings should resolve");
+    let settings = resolve_server(&empty_settings_with_auth_methods());
 
     assert_eq!(
         settings.storage.root.as_source(),
@@ -163,13 +183,10 @@ endpoint = "{{ env.S3_ENDPOINT }}"
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("s3 config without bucket/region should fail");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("s3 config without bucket/region should fail"),
+    );
 
     assert!(rendered.contains("server.artifacts.s3.bucket"));
     assert!(rendered.contains("server.artifacts.s3.region"));
@@ -192,8 +209,7 @@ slug = "fabro-app"
 "#,
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
 
     match settings.listen {
         ServerListenSettings::Unix { path } => {
@@ -227,8 +243,7 @@ strategy = "app"
 "#,
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
 
     assert_eq!(
         settings.integrations.github.strategy,
@@ -247,8 +262,7 @@ enabled = true
 ",
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
 
     assert_eq!(
         settings.integrations.github.strategy,
@@ -267,15 +281,14 @@ disk_cache = true
 ",
     );
 
-    let settings = fabro_config::resolve_server_from_file(&file).expect("settings should resolve");
+    let settings = resolve_server(&file);
 
     assert!(settings.slatedb.disk_cache);
 }
 
 #[test]
 fn resolves_empty_ip_allowlist_by_default() {
-    let settings = fabro_config::resolve_server_from_file(&empty_settings_with_auth_methods())
-        .expect("server settings should resolve");
+    let settings = resolve_server(&empty_settings_with_auth_methods());
 
     assert!(settings.ip_allowlist.entries.is_empty());
     assert_eq!(settings.ip_allowlist.trusted_proxy_count, 0);
@@ -293,8 +306,7 @@ trusted_proxy_count = 2
 "#,
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
 
     assert_eq!(settings.ip_allowlist.entries, vec![
         IpAllowEntry::parse_literal("10.0.0.0/8").unwrap(),
@@ -319,8 +331,7 @@ entries = ["github_meta_hooks"]
 "#,
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
     let webhook_allowlist = settings
         .integrations
         .github
@@ -351,8 +362,7 @@ trusted_proxy_count = 3
 "#,
     );
 
-    let settings =
-        fabro_config::resolve_server_from_file(&file).expect("server settings should resolve");
+    let settings = resolve_server(&file);
     let webhook_allowlist = settings
         .integrations
         .github
@@ -379,13 +389,10 @@ strategy = "server_url"
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("server_url webhook strategy should require server.api.url");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("server_url webhook strategy should require server.api.url"),
+    );
 
     assert!(rendered.contains("server.api.url"));
 }
@@ -404,13 +411,9 @@ strategy = "tailscale_funnel"
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("configured webhook strategy should require server.integrations.github.app_id");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(ServerSettingsBuilder::from_layer(&file).expect_err(
+        "configured webhook strategy should require server.integrations.github.app_id",
+    ));
 
     assert!(rendered.contains("server.integrations.github.app_id"));
 }
@@ -426,13 +429,9 @@ entries = ["10.0.0.0/33"]
 "#,
     );
 
-    let errors =
-        fabro_config::resolve_server_from_file(&file).expect_err("invalid CIDR should fail");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file).expect_err("invalid CIDR should fail"),
+    );
 
     assert!(rendered.contains("server.ip_allowlist.entries[0]"));
 }
@@ -448,13 +447,10 @@ entries = ["github_meta_hooks"]
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("github_meta_hooks should be rejected outside github webhooks");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("github_meta_hooks should be rejected outside github webhooks"),
+    );
 
     assert!(rendered.contains("server.ip_allowlist.entries[0]"));
 }
@@ -474,13 +470,10 @@ entries = ["10.0.0.0/8"]
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("unix allowlist without trusted proxies should fail");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("unix allowlist without trusted proxies should fail"),
+    );
 
     assert!(rendered.contains("server.ip_allowlist.trusted_proxy_count"));
 }
@@ -500,13 +493,10 @@ entries = ["github_meta_hooks"]
 "#,
     );
 
-    let errors = fabro_config::resolve_server_from_file(&file)
-        .expect_err("unix github webhook allowlist without trusted proxies should fail");
-    let rendered = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = render_resolve_errors(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("unix github webhook allowlist without trusted proxies should fail"),
+    );
 
     assert!(
         rendered.contains("server.integrations.github.webhooks.ip_allowlist.trusted_proxy_count")
