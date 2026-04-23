@@ -26,7 +26,6 @@ pub(super) async fn cp_command(
         run_id_selector,
         args.node.as_deref(),
         args.retry,
-        cli,
         cli_layer,
         printer,
     )

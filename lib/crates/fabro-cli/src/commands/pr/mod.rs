@@ -42,11 +42,10 @@ pub(crate) async fn dispatch(
     reason = "boundary-exempt(pr-api): remove with follow-up #1 when PR ops move server-side"
 )]
 fn load_github_credentials_required(
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<GitHubCredentials> {
-    let ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::base(printer, cli_layer)?;
     let server_settings = fabro_config::ServerSettings::from_layer(ctx.machine_settings())
         .map_err(anyhow::Error::from)?;
     let vault = user_config::storage_dir(ctx.machine_settings())
@@ -71,11 +70,10 @@ fn load_github_credentials_required(
 pub(crate) async fn load_pr_record(
     server: &ServerTargetArgs,
     run_id: &str,
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(PullRequestRecord, fabro_types::RunId)> {
-    let ctx = CommandContext::for_target(server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(run_id).await?.run_id;
     let state = client.get_run_state(&run_id).await?;

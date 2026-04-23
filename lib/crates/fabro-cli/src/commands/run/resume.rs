@@ -19,7 +19,7 @@ pub(crate) async fn resume_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
 

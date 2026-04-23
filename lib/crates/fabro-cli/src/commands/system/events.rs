@@ -14,7 +14,7 @@ pub(super) async fn events_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_connection(&args.connection, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_connection(&args.connection, printer, cli_layer)?;
     let server = ctx.server().await?;
     let mut stream = server.attach_events(&args.run_ids).await?;
     let mut pending = Vec::new();

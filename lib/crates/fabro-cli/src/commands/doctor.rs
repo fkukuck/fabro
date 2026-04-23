@@ -179,7 +179,7 @@ pub(crate) async fn run_doctor(
         }],
     };
 
-    let ctx = match CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer) {
+    let ctx = match CommandContext::for_target(&args.target, printer, cli_layer) {
         Ok(ctx) => ctx,
         Err(err) => {
             report.sections.push(CheckSection {

@@ -26,11 +26,10 @@ struct RenderedConfig {
 
 async fn rendered_config(
     args: &SettingsArgs,
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<serde_json::Value> {
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     let user = fabro_config::UserSettings::resolve()?;
     let server = ctx
         .server()
@@ -46,7 +45,7 @@ pub(crate) async fn execute(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
-    let config = Box::pin(rendered_config(args, cli, cli_layer, printer)).await?;
+    let config = Box::pin(rendered_config(args, cli_layer, printer)).await?;
     if cli.output.format == OutputFormat::Json {
         print_json_pretty(&config)?;
         return Ok(());

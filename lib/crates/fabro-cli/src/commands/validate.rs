@@ -19,7 +19,7 @@ pub(crate) async fn run(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> anyhow::Result<()> {
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     let built = build_run_manifest(ManifestBuildInput {
         workflow:           args.workflow.clone(),
         cwd:                ctx.cwd().to_path_buf(),

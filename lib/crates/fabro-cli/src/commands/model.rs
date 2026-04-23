@@ -51,7 +51,7 @@ pub(crate) async fn execute(
         ModelsCommand::List(args) => &args.target,
         ModelsCommand::Test(args) => &args.target,
     };
-    let ctx = CommandContext::for_target(target_args, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(target_args, printer, cli_layer)?;
     let server = ctx.server().await?;
 
     run_models(command, &server, cli.output.format == OutputFormat::Json).await

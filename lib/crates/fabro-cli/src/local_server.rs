@@ -26,12 +26,8 @@ pub(crate) fn bind_request(
     resolve_bind_request_from_settings(settings, cli_override)
 }
 
-pub(crate) fn server_settings(settings: &SettingsLayer) -> Result<fabro_config::ServerSettings> {
-    fabro_config::ServerSettings::from_layer(settings).map_err(anyhow::Error::from)
-}
-
 pub(crate) fn auth_methods(settings: &SettingsLayer) -> Vec<ServerAuthMethod> {
-    server_settings(settings)
+    fabro_config::ServerSettings::from_layer(settings)
         .map(|resolved| resolved.server.auth.methods)
         .unwrap_or_default()
 }

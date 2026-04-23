@@ -173,9 +173,9 @@ async fn main_inner() -> (String, Result<()>) {
         cli: Some(cli_layer.clone()),
         ..SettingsLayer::default()
     });
-    let cli_settings = match user_config::resolve_cli_settings(&combined_settings) {
-        Ok(cli_settings) => cli_settings,
-        Err(err) => return (command_name, Err(err)),
+    let cli_settings = match fabro_config::UserSettings::from_layer(&combined_settings) {
+        Ok(settings) => settings.cli,
+        Err(err) => return (command_name, Err(err.into())),
     };
     let printer = printer_from_verbosity(cli_settings.output.verbosity);
 
@@ -318,14 +318,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::uninstall::run_uninstall(&args, &cli_settings, printer).await?;
             }
             Commands::Auth(ns) => {
-                commands::auth::dispatch(
-                    ns,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::auth::dispatch(ns, &cli_layer, process_local_json, printer).await?;
             }
             Commands::Pr(ns) => {
                 Box::pin(commands::pr::dispatch(
@@ -353,14 +346,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::upgrade::run_upgrade(args, &cli_settings, printer).await?;
             }
             Commands::Provider(ns) => {
-                commands::provider::dispatch(
-                    ns,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::provider::dispatch(ns, &cli_layer, process_local_json, printer).await?;
             }
             Commands::Sandbox { command } => {
                 commands::sandbox::dispatch(

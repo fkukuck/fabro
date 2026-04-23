@@ -8,14 +8,14 @@ use clap::Args;
 use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::merge::combine_files;
 use fabro_config::user::load_settings_config;
-use fabro_config::{ServerSettings as CurrentServerSettings, Storage};
+use fabro_config::{ServerSettings, Storage};
 use fabro_sandbox::SandboxProvider;
 use fabro_types::settings::server::{
     GithubIntegrationStrategy, ServerLayer, ServerListenLayer, WebhookStrategy,
 };
 use fabro_types::settings::{
     GithubIntegrationSettings, InterpString, ObjectStoreSettings, ServerListenSettings,
-    ServerNamespace as ResolvedServerSettings, SettingsLayer,
+    ServerNamespace, SettingsLayer,
 };
 use fabro_util::terminal::Styles;
 use object_store::ObjectStore;
@@ -142,12 +142,12 @@ fn apply_runtime_settings(
     settings
 }
 
-fn router_web_enabled(settings: &ResolvedServerSettings) -> bool {
+fn router_web_enabled(settings: &ServerNamespace) -> bool {
     settings.web.enabled
 }
 
 async fn resolve_github_webhook_ip_allowlist(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     github_meta_resolver: &GitHubMetaResolver,
 ) -> anyhow::Result<Arc<IpAllowlistConfig>> {
     let config = resolve_ip_allowlist_config(
@@ -167,7 +167,7 @@ async fn resolve_github_webhook_ip_allowlist(
 }
 
 async fn resolve_startup_github_webhook_ip_allowlist(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     github_meta_resolver: &GitHubMetaResolver,
     webhook_secret_present: bool,
 ) -> anyhow::Result<Option<Arc<IpAllowlistConfig>>> {
@@ -228,7 +228,7 @@ fn resolve_webhook_preconditions(
 }
 
 async fn start_webhook_strategy(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
     state: &Arc<AppState>,
     bind_addr: &Bind,
     webhook_secret_present: bool,
@@ -349,8 +349,8 @@ fn build_object_store_from_settings(
     }
 }
 
-fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ResolvedServerSettings> {
-    CurrentServerSettings::from_layer(file)
+fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ServerNamespace> {
+    ServerSettings::from_layer(file)
         .map(|settings| settings.server)
         .map_err(anyhow::Error::from)
 }
@@ -391,7 +391,7 @@ fn bind_override_layer(bind: BindRequest) -> SettingsLayer {
 }
 
 fn resolved_bind_request(
-    resolved_server_settings: &ResolvedServerSettings,
+    resolved_server_settings: &ServerNamespace,
 ) -> anyhow::Result<BindRequest> {
     match &resolved_server_settings.listen {
         ServerListenSettings::Unix { path } => Ok(BindRequest::Unix(resolve_interp_path(path)?)),
@@ -411,7 +411,7 @@ fn resolve_interp_path(value: &InterpString) -> anyhow::Result<PathBuf> {
 }
 
 pub fn build_artifact_object_store(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String)> {
     let prefix = resolve_interp(&settings.artifacts.prefix)?;
     let object_store = build_object_store_from_settings(&settings.artifacts.store)?;
@@ -419,7 +419,7 @@ pub fn build_artifact_object_store(
 }
 
 fn build_slatedb_store(
-    settings: &ResolvedServerSettings,
+    settings: &ServerNamespace,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, String, Duration, bool)> {
     let prefix = resolve_interp(&settings.slatedb.prefix)?;
     let object_store = build_object_store_from_settings(&settings.slatedb.store)?;

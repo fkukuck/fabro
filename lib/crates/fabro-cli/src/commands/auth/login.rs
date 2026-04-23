@@ -4,7 +4,6 @@ use anyhow::{Context as _, Result, bail};
 use chrono::{DateTime, Utc};
 use fabro_client::{AuthEntry, AuthStore, StoredSubject};
 use fabro_http::header::CONTENT_TYPE;
-use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::browser;
 use fabro_util::printer::Printer;
@@ -36,7 +35,6 @@ struct CliTokenSubject {
 
 pub(super) async fn login_command(
     args: AuthLoginArgs,
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,
@@ -45,7 +43,7 @@ pub(super) async fn login_command(
 
     #[cfg(not(unix))]
     {
-        let _ = (args, cli, cli_layer, printer);
+        let _ = (args, cli_layer, printer);
         bail!(
             "CLI OAuth login is not supported on Windows in this release. Use WSL, or use a dev-token server."
         );
@@ -53,7 +51,7 @@ pub(super) async fn login_command(
 
     #[cfg(unix)]
     {
-        let ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
+        let ctx = CommandContext::base(printer, cli_layer)?;
         let target = user_config::resolve_server_target(&args.server, ctx.machine_settings())?;
         let web_url = browser_origin(&target)?;
         let pkce = fabro_oauth::generate_pkce();

@@ -1,10 +1,10 @@
-use fabro_types::settings::ServerNamespace as ResolvedServerSettings;
+use fabro_types::settings::ServerNamespace;
 use url::Url;
 
 use crate::server::EnvLookup;
 
 pub(crate) fn resolve_canonical_origin(
-    resolved: &ResolvedServerSettings,
+    resolved: &ServerNamespace,
     env_lookup: &EnvLookup,
 ) -> Result<String, String> {
     let value = resolved

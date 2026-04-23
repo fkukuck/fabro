@@ -14,9 +14,9 @@ pub(super) async fn close_command(
     printer: Printer,
 ) -> Result<()> {
     let (record, _run_id) =
-        super::load_pr_record(&args.server, &args.run_id, cli, cli_layer, printer).await?;
+        super::load_pr_record(&args.server, &args.run_id, cli_layer, printer).await?;
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     fabro_github::close_pull_request(
         &creds,

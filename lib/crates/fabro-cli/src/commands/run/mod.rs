@@ -39,7 +39,7 @@ pub(crate) async fn dispatch(
         RunCommands::Create(args) => {
             let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
             let cli_defaults = load_settings_with_storage_dir(None)?;
-            let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+            let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
             let created_run = Box::pin(create::create_run(
                 &ctx,
                 &args,
@@ -57,7 +57,7 @@ pub(crate) async fn dispatch(
             Ok(())
         }
         RunCommands::Start(StartArgs { server, run }) => {
-            let ctx = CommandContext::for_target(&server, printer, cli.clone(), cli_layer)?;
+            let ctx = CommandContext::for_target(&server, printer, cli_layer)?;
             let client = ctx.server().await?;
             let run_id = client.resolve_run(&run).await?.run_id;
             start::start_run_with_client(client.as_ref(), &run_id, false).await?;
@@ -68,7 +68,7 @@ pub(crate) async fn dispatch(
         }
         RunCommands::Attach(AttachArgs { server, run }) => {
             let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-            let ctx = CommandContext::for_target(&server, printer, cli.clone(), cli_layer)?;
+            let ctx = CommandContext::for_target(&server, printer, cli_layer)?;
             let client = ctx.server().await?;
             let run_id = client.resolve_run(&run).await?.run_id;
             let exit_code = Box::pin(attach::attach_run_with_client(
@@ -113,9 +113,8 @@ pub(crate) async fn dispatch(
             let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
             #[cfg(feature = "sleep_inhibitor")]
             let _sleep_guard = {
-                let ctx =
-                    CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
-                crate::sleep_inhibitor::guard(ctx.cli_settings().exec.prevent_idle_sleep)
+                let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
+                crate::sleep_inhibitor::guard(ctx.user_settings().cli.exec.prevent_idle_sleep)
             };
             Box::pin(resume::resume_command(
                 args, styles, cli, cli_layer, printer,

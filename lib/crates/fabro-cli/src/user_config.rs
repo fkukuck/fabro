@@ -30,16 +30,6 @@ pub(crate) fn load_settings_with_config_and_storage_dir(
     Ok(apply_storage_dir_override(layer, storage_dir))
 }
 
-pub(crate) fn resolve_user_settings(
-    file: &SettingsLayer,
-) -> anyhow::Result<fabro_config::UserSettings> {
-    fabro_config::UserSettings::from_layer(file).map_err(anyhow::Error::from)
-}
-
-pub(crate) fn resolve_cli_settings(file: &SettingsLayer) -> anyhow::Result<CliNamespace> {
-    resolve_user_settings(file).map(|settings| settings.cli)
-}
-
 pub(crate) fn apply_storage_dir_override(
     mut layer: SettingsLayer,
     storage_dir: Option<&Path>,
@@ -68,7 +58,7 @@ fn cli_target_from_settings(settings: &CliNamespace) -> Option<String> {
 }
 
 fn configured_server_target(settings: &SettingsLayer) -> Result<Option<ServerTarget>> {
-    let user_settings = resolve_user_settings(settings)?;
+    let user_settings = fabro_config::UserSettings::from_layer(settings)?;
     let Some(value) = cli_target_from_settings(&user_settings.cli) else {
         return Ok(None);
     };

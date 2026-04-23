@@ -24,7 +24,7 @@ pub(crate) async fn list_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
     let label_filters = parse_label_filters(&args.filter.label);
     let filtered = filter_server_runs(

@@ -15,7 +15,7 @@ pub(crate) async fn archive_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     run_bulk(
         Action::Archive,
         &args.runs,
@@ -32,7 +32,7 @@ pub(crate) async fn unarchive_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     run_bulk(
         Action::Unarchive,
         &args.runs,

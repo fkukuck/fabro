@@ -23,7 +23,7 @@ pub(crate) async fn dispatch(
             list::list_command(&args, &styles, cli, cli_layer, printer).await
         }
         RunsCommands::Rm(args) => rm::remove_command(&args, cli, cli_layer, printer).await,
-        RunsCommands::Inspect(args) => inspect::run(&args, cli, cli_layer, printer).await,
+        RunsCommands::Inspect(args) => inspect::run(&args, cli_layer, printer).await,
         RunsCommands::Archive(args) => {
             archive::archive_command(&args, cli, cli_layer, printer).await
         }

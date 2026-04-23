@@ -19,7 +19,6 @@ pub(super) async fn list_command(
         &args.run_id,
         args.node.as_deref(),
         args.retry,
-        cli,
         cli_layer,
         printer,
     )

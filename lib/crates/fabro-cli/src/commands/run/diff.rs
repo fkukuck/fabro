@@ -27,7 +27,7 @@ pub(crate) async fn run(
     printer: Printer,
 ) -> Result<()> {
     info!(run_id = %args.run, "Showing diff");
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
     let state = client.get_run_state(&run_id).await?;

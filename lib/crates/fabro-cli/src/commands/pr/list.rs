@@ -29,7 +29,7 @@ pub(super) async fn list_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
 
     let mut entries = Vec::new();
@@ -50,7 +50,7 @@ pub(super) async fn list_command(
         return Ok(());
     }
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     let futures: Vec<_> = entries
         .iter()

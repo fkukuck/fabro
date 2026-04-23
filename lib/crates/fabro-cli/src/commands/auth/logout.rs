@@ -1,7 +1,6 @@
 use anyhow::{Result, bail};
 use fabro_client::{AuthEntry, AuthStore};
 use fabro_http::header::AUTHORIZATION;
-use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::CliLayer;
 use fabro_util::printer::Printer;
 
@@ -12,14 +11,13 @@ use crate::user_config::ServerTarget;
 
 pub(super) async fn logout_command(
     args: AuthLogoutArgs,
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     process_local_json: bool,
     printer: Printer,
 ) -> Result<()> {
     require_no_json_override(process_local_json)?;
 
-    let ctx = CommandContext::base(printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::base(printer, cli_layer)?;
     let store = AuthStore::default();
     if args.all {
         let entries = store.list()?;

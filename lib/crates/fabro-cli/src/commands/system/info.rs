@@ -13,7 +13,7 @@ pub(super) async fn info_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_connection(&args.connection, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_connection(&args.connection, printer, cli_layer)?;
     let server = ctx.server().await?;
     let response = server.get_system_info().await?;
 

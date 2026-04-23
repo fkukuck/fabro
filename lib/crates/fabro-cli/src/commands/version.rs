@@ -23,7 +23,7 @@ pub(crate) async fn version_command(
     printer: Printer,
 ) -> Result<()> {
     let client = client_info();
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     let server_target = user_config::resolve_server_target(&args.target, ctx.machine_settings())?;
     let server_address = format_server_target(&server_target);
     let server_info = match ctx.server().await {

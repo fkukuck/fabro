@@ -26,11 +26,10 @@ pub(super) async fn resolve_artifacts(
     run_selector: &str,
     node: Option<&str>,
     retry: Option<u32>,
-    cli: &CliNamespace,
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<(RunId, Client, Vec<ArtifactEntry>)> {
-    let ctx = CommandContext::for_target(server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(run_selector).await?.run_id;
     let mut entries = Vec::new();

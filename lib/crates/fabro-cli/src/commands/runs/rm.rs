@@ -15,7 +15,7 @@ pub(crate) async fn remove_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     remove_from(args, ctx.server().await?.as_ref(), cli, printer).await
 }
 

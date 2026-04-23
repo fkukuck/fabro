@@ -21,7 +21,7 @@ pub(crate) async fn run(
     printer: Printer,
 ) -> Result<()> {
     let repo = Repository::discover(".").context("not in a git repository")?;
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let state = client.get_run_state(&run_id).await?;

@@ -22,7 +22,7 @@ pub(crate) async fn execute(
     printer: Printer,
 ) -> anyhow::Result<()> {
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-    let ctx = CommandContext::for_target(&args.target, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.target, printer, cli_layer)?;
     args.verbose = args.verbose || cli.output.verbosity == OutputVerbosity::Verbose;
 
     let manifest = build_run_manifest(ManifestBuildInput {

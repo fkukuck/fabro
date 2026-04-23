@@ -40,7 +40,7 @@ pub use fabro_api::types::{
 };
 use fabro_auth::parse_credential_secret;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{ServerSettings as CurrentServerSettings, Storage};
+use fabro_config::{ServerSettings, Storage};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
 };
@@ -573,7 +573,7 @@ pub struct AppState {
     pub(crate) server_secrets:       ServerSecrets,
     pub(crate) provider_credentials: ProviderCredentials,
     pub(crate) settings:             Arc<RwLock<SettingsLayer>>,
-    pub(crate) server_settings:      RwLock<Arc<CurrentServerSettings>>,
+    pub(crate) server_settings:      RwLock<Arc<ServerSettings>>,
     pub(crate) env_lookup:           EnvLookup,
     http_client:                     Option<fabro_http::HttpClient>,
     shutting_down:                   AtomicBool,
@@ -638,7 +638,7 @@ fn accumulate_model_billing(entry: &mut ModelBillingTotals, usage: &BilledModelU
 }
 
 impl AppState {
-    pub(crate) fn server_settings(&self) -> Arc<CurrentServerSettings> {
+    pub(crate) fn server_settings(&self) -> Arc<ServerSettings> {
         Arc::clone(
             &self
                 .server_settings
@@ -780,7 +780,7 @@ impl AppState {
     }
 
     pub(crate) fn replace_settings(&self, settings: SettingsLayer) -> anyhow::Result<()> {
-        let resolved = Arc::new(CurrentServerSettings::from_layer(&settings)?);
+        let resolved = Arc::new(ServerSettings::from_layer(&settings)?);
         resolve_canonical_origin(&resolved.server, &self.env_lookup).map_err(anyhow::Error::msg)?;
 
         *self.settings.write().expect("settings lock poisoned") = settings;
@@ -1656,7 +1656,7 @@ fn system_sandbox_provider(settings: &SettingsLayer) -> String {
 }
 
 fn resolved_storage_dir(settings: &SettingsLayer) -> Result<PathBuf, String> {
-    let resolved = CurrentServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
+    let resolved = ServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
     resolved
         .server
         .storage
@@ -1672,7 +1672,7 @@ fn resolved_storage_dir(settings: &SettingsLayer) -> Result<PathBuf, String> {
 }
 
 fn resolved_github_settings(settings: &SettingsLayer) -> Result<GithubIntegrationSettings, String> {
-    let resolved = CurrentServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
+    let resolved = ServerSettings::from_layer(settings).map_err(|err| err.to_string())?;
     Ok(resolved.server.integrations.github)
 }
 
@@ -2589,7 +2589,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
     let (global_event_tx, _) = broadcast::channel(4096);
     let current_server_settings = {
         let settings = settings.read().expect("settings lock poisoned");
-        Arc::new(CurrentServerSettings::from_layer(&settings)?)
+        Arc::new(ServerSettings::from_layer(&settings)?)
     };
     let slack_service = {
         current_server_settings

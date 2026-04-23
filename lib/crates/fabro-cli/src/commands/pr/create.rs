@@ -31,7 +31,7 @@ pub(super) async fn create_command(
     cli_layer: &CliLayer,
     printer: Printer,
 ) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli.clone(), cli_layer)?;
+    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let events = client.list_run_events(&run_id, None, None).await?;
@@ -86,7 +86,7 @@ pub(super) async fn create_command(
     let (owner, repo) = fabro_github::parse_github_owner_repo(&https_url)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-    let creds = super::load_github_credentials_required(cli, cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(cli_layer, printer)?;
 
     let branch_found = fabro_github::branch_exists(
         &creds,

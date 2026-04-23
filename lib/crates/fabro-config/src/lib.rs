@@ -2,10 +2,8 @@
     clippy::disallowed_methods,
     reason = "sync config loading utilities used at startup; not on a Tokio path"
 )]
-//! Settings resolution entrypoints are owner-first context types:
-//! [`ServerSettings`] for current server/runtime config and [`UserSettings`]
-//! for current CLI/user config. Stored `SettingsLayer` artifacts still use the
-//! per-namespace `resolve_*_from_file` helpers.
+//! Resolved settings entrypoints: [`ServerSettings`] for the running server and
+//! [`UserSettings`] for the CLI/user perspective.
 
 extern crate self as fabro_config;
 
