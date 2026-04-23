@@ -1,6 +1,31 @@
 use fabro_test::{fabro_snapshot, test_context};
+use httpmock::MockServer;
+use serde_json::{Value, json};
 
 use super::support::setup_local_sandbox_run;
+use crate::support::unique_run_id;
+
+fn remote_run_summary(run_id: &str) -> serde_json::Value {
+    json!({
+        "run_id": run_id,
+        "workflow_name": "Preview Test",
+        "workflow_slug": "preview-test",
+        "goal": "Preview test",
+        "title": "Preview test",
+        "labels": {},
+        "host_repo_path": "/srv/repo",
+        "repository": { "name": "repo" },
+        "start_time": "2026-04-19T12:00:00Z",
+        "created_at": "2026-04-19T12:00:00Z",
+        "status": {
+            "kind": "running"
+        },
+        "pending_control": null,
+        "duration_ms": null,
+        "elapsed_secs": null,
+        "total_usd_micros": null
+    })
+}
 
 #[test]
 fn help() {
@@ -48,4 +73,56 @@ fn sandbox_preview_rejects_non_daytona_run() {
     ----- stderr -----
     error: Sandbox provider does not support this capability.
     ");
+}
+
+#[test]
+fn sandbox_preview_open_is_suppressed_by_json_output_format_from_home_config() {
+    let context = test_context!();
+    context.write_home(
+        ".fabro/settings.toml",
+        "_version = 1\n\n[cli.output]\nformat = \"json\"\n",
+    );
+    let server = MockServer::start();
+    let run_id = unique_run_id();
+    let resolve_run = server.mock(|when, then| {
+        when.method("GET")
+            .path("/api/v1/runs/resolve")
+            .query_param("selector", run_id.as_str());
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(remote_run_summary(&run_id).to_string());
+    });
+    let preview = server.mock(|when, then| {
+        when.method("POST")
+            .path(format!("/api/v1/runs/{run_id}/preview"))
+            .json_body(json!({
+                "port": 3000,
+                "expires_in_secs": 3600,
+                "signed": true,
+            }));
+        then.status(201)
+            .header("content-type", "application/json")
+            .body(json!({ "url": "https://preview.example.test/app" }).to_string());
+    });
+
+    let mut cmd = context.preview();
+    cmd.args([
+        "--server",
+        &format!("{}/api/v1", server.base_url()),
+        "--open",
+        run_id.as_str(),
+        "3000",
+    ]);
+    let output = cmd.output().expect("command should run");
+
+    assert!(output.status.success(), "sandbox preview should succeed");
+    let value: Value = serde_json::from_slice(&output.stdout).expect("preview JSON should parse");
+    assert_eq!(
+        value,
+        json!({
+            "url": "https://preview.example.test/app"
+        })
+    );
+    resolve_run.assert();
+    preview.assert();
 }

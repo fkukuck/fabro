@@ -1,9 +1,6 @@
 use anyhow::Result;
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
-use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use futures::future::join_all;
 use serde::Serialize;
@@ -23,13 +20,9 @@ struct PrRow {
     url:    String,
 }
 
-pub(super) async fn list_command(
-    args: PrListArgs,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    printer: Printer,
-) -> Result<()> {
-    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
+pub(super) async fn list_command(args: PrListArgs, base_ctx: &CommandContext) -> Result<()> {
+    let ctx = base_ctx.with_target(&args.server)?;
+    let printer = ctx.printer();
     let lookup = ServerSummaryLookup::from_client(ctx.server().await?).await?;
 
     let mut entries = Vec::new();
@@ -42,7 +35,7 @@ pub(super) async fn list_command(
     }
 
     if entries.is_empty() {
-        if cli.output.format == OutputFormat::Json {
+        if ctx.json_output() {
             print_json_pretty(&Vec::<PrRow>::new())?;
             return Ok(());
         }
@@ -50,7 +43,7 @@ pub(super) async fn list_command(
         return Ok(());
     }
 
-    let creds = super::load_github_credentials_required(cli_layer, printer)?;
+    let creds = super::load_github_credentials_required(base_ctx)?;
 
     let futures: Vec<_> = entries
         .iter()
@@ -104,7 +97,7 @@ pub(super) async fn list_command(
             .collect()
     };
 
-    if cli.output.format == OutputFormat::Json {
+    if ctx.json_output() {
         print_json_pretty(&rows)?;
         return Ok(());
     }

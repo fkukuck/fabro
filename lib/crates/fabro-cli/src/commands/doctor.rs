@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use fabro_api::types as api_types;
 use fabro_config::user::active_settings_path;
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
 pub(crate) use fabro_util::check_report::{
     CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus,
 };
@@ -142,13 +140,12 @@ fn render_report(report: &CheckReport, styles: &Styles, verbose: bool, printer: 
 
 pub(crate) async fn run_doctor(
     args: &DoctorArgs,
-    verbose: bool,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    printer: Printer,
+    base_ctx: &CommandContext,
 ) -> Result<i32, anyhow::Error> {
+    let verbose = args.verbose || base_ctx.verbose();
+    let printer = base_ctx.printer();
     let styles = Styles::detect_stdout();
-    let json = cli.output.format == OutputFormat::Json;
+    let json = base_ctx.json_output();
     let spinner = if json {
         None
     } else {
@@ -179,7 +176,7 @@ pub(crate) async fn run_doctor(
         }],
     };
 
-    let ctx = match CommandContext::for_target(&args.target, printer, cli_layer) {
+    let ctx = match base_ctx.with_target(&args.target) {
         Ok(ctx) => ctx,
         Err(err) => {
             report.sections.push(CheckSection {

@@ -5,6 +5,7 @@ use sha2::Sha256;
 
 const COOKIE_KEY_INFO: &[u8] = b"fabro-cookie-v1";
 const JWT_KEY_INFO: &[u8] = b"fabro-jwt-hs256-v1";
+const WORKER_JWT_KEY_INFO: &[u8] = b"fabro-worker-jwt-v1";
 const MIN_MASTER_BYTES: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +43,10 @@ pub(crate) fn derive_jwt_key(master: &[u8]) -> Result<JwtSigningKey, KeyDeriveEr
     Ok(JwtSigningKey(derive_bytes::<32>(master, JWT_KEY_INFO)?))
 }
 
+pub(crate) fn derive_worker_jwt_key(master: &[u8]) -> Result<[u8; 32], KeyDeriveError> {
+    derive_bytes::<32>(master, WORKER_JWT_KEY_INFO)
+}
+
 fn derive_bytes<const N: usize>(master: &[u8], info: &[u8]) -> Result<[u8; N], KeyDeriveError> {
     validate_master(master)?;
 
@@ -69,7 +74,7 @@ fn validate_master(master: &[u8]) -> Result<(), KeyDeriveError> {
 mod tests {
     use cookie::{Cookie, CookieJar};
 
-    use super::{KeyDeriveError, derive_cookie_key, derive_jwt_key};
+    use super::{KeyDeriveError, derive_cookie_key, derive_jwt_key, derive_worker_jwt_key};
 
     #[test]
     fn derives_same_cookie_key_for_same_master() {
@@ -94,6 +99,18 @@ mod tests {
     }
 
     #[test]
+    fn derives_different_worker_and_user_jwt_subkeys() {
+        let master = [0x61; 32];
+
+        let user_key = derive_jwt_key(&master).expect("jwt derivation should succeed");
+        let worker_key =
+            derive_worker_jwt_key(&master).expect("worker jwt derivation should succeed");
+
+        assert_ne!(user_key.as_bytes(), worker_key);
+        assert_eq!(worker_key.len(), 32);
+    }
+
+    #[test]
     fn rejects_empty_master_secret() {
         let err = derive_cookie_key(&[]).expect_err("empty secret should fail");
         assert_eq!(err, KeyDeriveError::Empty);
@@ -102,6 +119,21 @@ mod tests {
     #[test]
     fn rejects_short_master_secret() {
         let err = derive_jwt_key(&[0x61; 31]).expect_err("short secret should fail");
+        assert_eq!(err, KeyDeriveError::TooShort {
+            got_bytes: 31,
+            min_bytes: 32,
+        });
+    }
+
+    #[test]
+    fn worker_derivation_rejects_empty_master_secret() {
+        let err = derive_worker_jwt_key(&[]).expect_err("empty secret should fail");
+        assert_eq!(err, KeyDeriveError::Empty);
+    }
+
+    #[test]
+    fn worker_derivation_rejects_short_master_secret() {
+        let err = derive_worker_jwt_key(&[0x61; 31]).expect_err("short secret should fail");
         assert_eq!(err, KeyDeriveError::TooShort {
             got_bytes: 31,
             min_bytes: 32,

@@ -3,8 +3,6 @@ use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
 use fabro_checkpoint::git::Store;
 use fabro_types::run_event::{CheckpointCompletedProps, RunRewoundProps, RunSubmittedProps};
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_types::{EventBody, RunEvent};
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -17,7 +15,7 @@ use serde::Serialize;
 
 use crate::args::RewindArgs;
 use crate::command_context::CommandContext;
-use crate::commands::store::rebuild::rebuild_run_store;
+use crate::commands::rebuild::rebuild_run_store;
 use crate::server_client::Client;
 use crate::shared::repo::ensure_matching_repo_origin;
 use crate::shared::{color_if, print_json_pretty};
@@ -33,12 +31,11 @@ pub(crate) struct TimelineEntryJson {
 pub(crate) async fn run(
     args: &RewindArgs,
     styles: &Styles,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    printer: Printer,
+    base_ctx: &CommandContext,
 ) -> Result<()> {
     let repo = Repository::discover(".").context("not in a git repository")?;
-    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
+    let printer = base_ctx.printer();
+    let ctx = base_ctx.with_target(&args.server)?;
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let state = client.get_run_state(&run_id).await?;
@@ -54,7 +51,7 @@ pub(crate) async fn run(
     let timeline = build_timeline_or_rebuild(&store, Some(&run_store), &run_id).await?;
 
     if args.list || args.target.is_none() {
-        if cli.output.format == OutputFormat::Json {
+        if ctx.json_output() {
             print_json_pretty(&timeline_entries_json(&timeline))?;
             return Ok(());
         }
@@ -79,7 +76,7 @@ pub(crate) async fn run(
 
     let run_id_string = run_id.to_string();
 
-    if cli.output.format == OutputFormat::Json {
+    if ctx.json_output() {
         print_json_pretty(&serde_json::json!({
             "run_id": run_id_string,
             "target": target_arg,

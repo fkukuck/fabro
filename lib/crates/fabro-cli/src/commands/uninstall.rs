@@ -15,14 +15,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use fabro_config::Storage;
 use fabro_config::daemon::ServerDaemon;
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::OutputFormat;
 use fabro_util::Home;
 use fabro_util::printer::Printer;
 use serde::Serialize;
 use tracing::warn;
 
 use crate::args::UninstallArgs;
+use crate::command_context::CommandContext;
 use crate::commands::server::stop;
 use crate::shared::{format_size, print_json_pretty, tilde_path};
 use crate::{local_server, user_config};
@@ -43,12 +42,9 @@ struct Inventory {
     clippy::unused_async,
     reason = "The shared command dispatch path expects an async handler."
 )]
-pub(crate) async fn run_uninstall(
-    args: &UninstallArgs,
-    cli: &CliNamespace,
-    printer: Printer,
-) -> Result<()> {
-    let json = cli.output.format == OutputFormat::Json;
+pub(crate) async fn run_uninstall(args: &UninstallArgs, ctx: &CommandContext) -> Result<()> {
+    let json = ctx.json_output();
+    let printer = ctx.printer();
     let home = Home::from_env();
     let home_root = home.root().to_path_buf();
 

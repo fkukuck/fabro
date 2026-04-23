@@ -34,7 +34,7 @@
 
 | Path | Direct dependency | Why it still exists | Suggested handling |
 | --- | --- | --- | --- |
-| `lib/crates/fabro-cli/src/commands/store/dump.rs` test module | `event::{Event, append_event}` | Unit tests synthesize workflow events directly. | Low priority; keep until a lighter-weight event fixture helper exists. |
+| `lib/crates/fabro-cli/src/commands/dump.rs` test module | `event::{Event, append_event}` | Unit tests synthesize workflow events directly. | Low priority; keep until a lighter-weight event fixture helper exists. |
 | `lib/crates/fabro-cli/src/commands/run/wait.rs` test module | `outcome::StageStatus`, `records::Conclusion`, `run_status::RunStatusRecord` | Output tests construct workflow-owned records directly. | Replace with shared fixture builders once status/conclusion DTOs move out. |
 | `lib/crates/fabro-cli/src/commands/run/run_progress/mod.rs` test module | `event::{Event, RunNoticeLevel, to_run_event, to_run_event_at}`, `outcome::billed_model_usage_from_llm` | Progress tests build engine events directly. | Replace with shared event fixture helpers after event DTO extraction. |
 | `lib/crates/fabro-cli/src/commands/run/run_progress/event.rs` test module | `event::{Event, to_run_event}` | Event rendering tests depend on engine event constructors. | Replace with shared event fixture helpers after event DTO extraction. |

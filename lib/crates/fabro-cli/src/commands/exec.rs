@@ -13,15 +13,15 @@ use fabro_llm::types::{
     FinishReason, Message, Request, Response as LlmResponse, StreamEvent, TokenCounts,
 };
 use fabro_mcp::config::{McpServerSettings, McpTransport};
+use fabro_types::settings::InterpString;
 use fabro_types::settings::cli::OutputFormat as SettingsOutputFormat;
 use fabro_types::settings::run::McpEntryLayer;
-use fabro_types::settings::{CliNamespace, InterpString};
 use fabro_util::exit::{ErrorExt, ExitClass};
-use fabro_util::printer::Printer;
 use futures::stream;
 use serde::Deserialize;
 
 use crate::args::ExecArgs;
+use crate::command_context::CommandContext;
 use crate::{server_client, user_config};
 
 fn runtime_mcp_server(name: &str, entry: &McpEntryLayer) -> McpServerSettings {
@@ -356,14 +356,11 @@ impl ProviderAdapter for AuthenticatedFabroServerAdapter {
     }
 }
 
-pub(crate) async fn execute(
-    mut args: ExecArgs,
-    cli: &CliNamespace,
-    _printer: Printer,
-) -> AnyResult<()> {
+pub(crate) async fn execute(mut args: ExecArgs, ctx: &CommandContext) -> AnyResult<()> {
     use fabro_agent::cli::PermissionLevel as AgentPermissionLevel;
     use fabro_types::settings::run::AgentPermissions;
 
+    let cli = &ctx.user_settings().cli;
     let raw_settings = user_config::load_settings()?;
     #[cfg(feature = "sleep_inhibitor")]
     let _sleep_guard = crate::sleep_inhibitor::guard(cli.exec.prevent_idle_sleep);

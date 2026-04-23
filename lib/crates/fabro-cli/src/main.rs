@@ -24,19 +24,18 @@ use std::ffi::OsString;
 use anyhow::Result;
 use args::{
     Commands, GlobalArgs, LONG_VERSION, RunCommands, ServerCommand, ServerNamespace,
-    global_args_cli_layer, printer_from_verbosity, require_no_json_override,
+    global_args_cli_layer, require_no_json_override,
 };
 use clap::{CommandFactory, Parser};
-use fabro_config::merge::combine_files;
 use fabro_telemetry::{git, panic as tel_panic, sanitize, sender};
-use fabro_types::settings::SettingsLayer;
-use fabro_types::settings::cli::OutputVerbosity;
 use fabro_util::exit::ExitClass;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_util::{browser, exit};
 use rustls::crypto::ring::default_provider;
 use tracing::debug;
+
+use crate::command_context::CommandContext;
 
 #[derive(Parser)]
 #[command(name = "fabro", version, long_version = LONG_VERSION)]
@@ -73,12 +72,33 @@ async fn main() {
         std::process::exit(commands::render_graph::execute());
     }
 
+    // Capture the worker bearer token immediately and scrub it from the process
+    // env before any subprocess can be spawned. Every descendant of the worker
+    // (hooks, sandbox commands, devcontainer setup, MCP stdio, etc.) therefore
+    // inherits a process env that no longer contains FABRO_WORKER_TOKEN, so an
+    // unscrubbed spawn site cannot leak it. The token flows to `runner::execute`
+    // through an explicit function argument instead of the environment.
+    let worker_token = if subcommand == Some("__run-worker") {
+        let token = std::env::var("FABRO_WORKER_TOKEN").ok();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "Scrub the worker bearer from this process's env before any \
+                      child process is spawned, so no descendant can inherit it."
+        )]
+        {
+            std::env::remove_var("FABRO_WORKER_TOKEN");
+        }
+        token
+    } else {
+        None
+    };
+
     tel_panic::install_panic_hook();
     fabro_telemetry::init_cli();
 
     let start = std::time::Instant::now();
 
-    let (command_name, result) = Box::pin(main_inner()).await;
+    let (command_name, result) = Box::pin(main_inner(worker_token)).await;
     let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
     let exit_code = result.as_ref().err().map_or(0, exit::exit_code_for);
 
@@ -146,7 +166,7 @@ async fn main() {
     }
 }
 
-async fn main_inner() -> (String, Result<()>) {
+async fn main_inner(worker_token: Option<String>) -> (String, Result<()>) {
     let _ = default_provider().install_default();
 
     let cli = Cli::parse();
@@ -165,22 +185,14 @@ async fn main_inner() -> (String, Result<()>) {
         Err(err) => return (command_name, Err(err)),
     };
 
-    let user_settings = match user_config::load_settings() {
-        Ok(settings) => settings,
+    let base_ctx = match CommandContext::from_disk(&cli_layer, process_local_json) {
+        Ok(ctx) => ctx,
         Err(err) => return (command_name, Err(err)),
     };
-    let combined_settings = combine_files(user_settings, SettingsLayer {
-        cli: Some(cli_layer.clone()),
-        ..SettingsLayer::default()
-    });
-    let cli_settings = match fabro_config::UserSettings::from_layer(&combined_settings) {
-        Ok(settings) => settings.cli,
-        Err(err) => return (command_name, Err(err.into())),
-    };
-    let printer = printer_from_verbosity(cli_settings.output.verbosity);
+    let printer = base_ctx.printer();
 
     let config_log_level = match &pre_tracing_bootstrap.sink {
-        logging::InternalLogSink::Cli => cli_settings.logging.level.clone(),
+        logging::InternalLogSink::Cli => base_ctx.user_settings().cli.logging.level.clone(),
         logging::InternalLogSink::Server { .. } => pre_tracing_bootstrap.config_log_level.clone(),
     };
     if let Err(err) = logging::init_tracing(
@@ -204,57 +216,44 @@ async fn main_inner() -> (String, Result<()>) {
             | Commands::Repo(_)
             | Commands::Install { .. }
     ) {
-        commands::upgrade::spawn_upgrade_check(cli_settings.updates.check, printer)
+        commands::upgrade::spawn_upgrade_check(base_ctx.user_settings().cli.updates.check, printer)
     } else {
         None
     };
 
     let result = Box::pin(async move {
         match *command {
-            Commands::Exec(args) => commands::exec::execute(args, &cli_settings, printer).await?,
+            Commands::Exec(args) => {
+                commands::exec::execute(args, &base_ctx).await?;
+            }
             Commands::RunCmd(cmd) => {
-                Box::pin(commands::run::dispatch(
-                    cmd,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                ))
-                .await?;
+                Box::pin(commands::run::dispatch(cmd, &base_ctx, worker_token)).await?;
             }
             Commands::Preflight(args) => {
-                commands::preflight::execute(args, &cli_settings, &cli_layer, printer).await?;
+                commands::preflight::execute(args, &base_ctx).await?;
             }
             Commands::Validate(args) => {
                 let styles = Styles::detect_stderr();
-                commands::validate::run(&args, &styles, &cli_settings, &cli_layer, printer).await?;
+                commands::validate::run(&args, &styles, &base_ctx).await?;
             }
             Commands::Graph(args) => {
                 let styles = Styles::detect_stderr();
-                commands::graph::run(
-                    &args,
-                    &styles,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::graph::run(&args, &styles, &base_ctx).await?;
             }
             Commands::Parse(args) => {
-                commands::parse::run(&args, &cli_settings, printer)?;
+                commands::parse::run(&args)?;
             }
             Commands::Artifact(ns) => {
-                commands::artifact::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+                commands::artifact::dispatch(ns, &base_ctx).await?;
             }
-            Commands::Store(ns) => {
-                commands::store::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+            Commands::Dump(args) => {
+                commands::dump::run(&args, &base_ctx).await?;
             }
             Commands::RunsCmd(cmd) => {
-                commands::runs::dispatch(cmd, &cli_settings, &cli_layer, printer).await?;
+                commands::runs::dispatch(cmd, &base_ctx).await?;
             }
             Commands::Model { command } => {
-                commands::model::execute(command, &cli_settings, &cli_layer, printer).await?;
+                commands::model::execute(command, &base_ctx).await?;
             }
             Commands::Server(ns) => {
                 Box::pin(commands::server::dispatch(
@@ -266,21 +265,11 @@ async fn main_inner() -> (String, Result<()>) {
                 .await?;
             }
             Commands::Doctor(args) => {
-                let verbose =
-                    args.verbose || cli_settings.output.verbosity == OutputVerbosity::Verbose;
-                let exit_code = Box::pin(commands::doctor::run_doctor(
-                    &args,
-                    verbose,
-                    &cli_settings,
-                    &cli_layer,
-                    printer,
-                ))
-                .await?;
+                let exit_code = Box::pin(commands::doctor::run_doctor(&args, &base_ctx)).await?;
                 std::process::exit(exit_code);
             }
             Commands::Version(args) => {
-                commands::version::version_command(&args, &cli_settings, &cli_layer, printer)
-                    .await?;
+                commands::version::version_command(&args, &base_ctx).await?;
             }
             Commands::Discord => {
                 if process_local_json {
@@ -301,65 +290,40 @@ async fn main_inner() -> (String, Result<()>) {
                 }
             }
             Commands::Repo(ns) => {
-                commands::repo::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+                commands::repo::dispatch(ns, &base_ctx).await?;
             }
             Commands::Install { args, command } => {
-                Box::pin(commands::install::execute(
-                    &args,
-                    command,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                ))
-                .await?;
+                Box::pin(commands::install::execute(&args, command, &base_ctx)).await?;
             }
             Commands::Uninstall(args) => {
-                commands::uninstall::run_uninstall(&args, &cli_settings, printer).await?;
+                commands::uninstall::run_uninstall(&args, &base_ctx).await?;
             }
             Commands::Auth(ns) => {
-                commands::auth::dispatch(ns, &cli_layer, process_local_json, printer).await?;
+                commands::auth::dispatch(ns, &base_ctx).await?;
             }
             Commands::Pr(ns) => {
-                Box::pin(commands::pr::dispatch(
-                    ns,
-                    &cli_settings,
-                    &cli_layer,
-                    printer,
-                ))
-                .await?;
+                Box::pin(commands::pr::dispatch(ns, &base_ctx)).await?;
             }
             Commands::Secret(ns) => {
-                commands::secret::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+                commands::secret::dispatch(ns, &base_ctx).await?;
             }
             Commands::Settings(args) => {
-                Box::pin(commands::config::execute(
-                    &args,
-                    &cli_settings,
-                    &cli_layer,
-                    printer,
-                ))
-                .await?;
+                Box::pin(commands::config::execute(&args, &base_ctx)).await?;
             }
-            Commands::Workflow(ns) => commands::workflow::dispatch(ns, &cli_settings, printer)?,
+            Commands::Workflow(ns) => {
+                commands::workflow::dispatch(ns, &base_ctx)?;
+            }
             Commands::Upgrade(args) => {
-                commands::upgrade::run_upgrade(args, &cli_settings, printer).await?;
+                commands::upgrade::run_upgrade(args, &base_ctx).await?;
             }
             Commands::Provider(ns) => {
-                commands::provider::dispatch(ns, &cli_layer, process_local_json, printer).await?;
+                commands::provider::dispatch(ns, &base_ctx).await?;
             }
             Commands::Sandbox { command } => {
-                commands::sandbox::dispatch(
-                    command,
-                    &cli_settings,
-                    &cli_layer,
-                    process_local_json,
-                    printer,
-                )
-                .await?;
+                commands::sandbox::dispatch(command, &base_ctx).await?;
             }
             Commands::System(ns) => {
-                commands::system::dispatch(ns, &cli_settings, &cli_layer, printer).await?;
+                commands::system::dispatch(ns, &base_ctx).await?;
             }
             Commands::Completion(args) => {
                 require_no_json_override(process_local_json)?;
@@ -505,7 +469,7 @@ async fn prepare_server_bootstrap(
 mod tests {
     use args::{
         AuthCommand, AuthNamespace, Commands, InstallGitHubStrategyArg, ModelsCommand,
-        ProviderCommand, ProviderNamespace, StoreCommand, StoreNamespace,
+        ProviderCommand, ProviderNamespace,
     };
     use tokio::runtime::Runtime;
 
@@ -940,13 +904,11 @@ level = "warn"
     }
 
     #[test]
-    fn parse_store_dump_command() {
-        let cli = Cli::try_parse_from(["fabro", "store", "dump", "ABC123", "-o", "./out"])
-            .expect("should parse");
+    fn parse_dump_command() {
+        let cli =
+            Cli::try_parse_from(["fabro", "dump", "ABC123", "-o", "./out"]).expect("should parse");
         match *cli.command.unwrap() {
-            Commands::Store(StoreNamespace {
-                command: StoreCommand::Dump(args),
-            }) => {
+            Commands::Dump(args) => {
                 assert_eq!(args.run, "ABC123");
                 assert_eq!(args.output, std::path::PathBuf::from("./out"));
             }
@@ -999,8 +961,6 @@ level = "warn"
             "__run-worker",
             "--server",
             "/tmp/fabro.sock",
-            "--artifact-upload-token",
-            "token-123",
             "--run-dir",
             "/tmp/run",
             "--run-id",
@@ -1012,7 +972,6 @@ level = "warn"
         match *cli.command.unwrap() {
             Commands::RunCmd(RunCommands::RunWorker(args)) => {
                 assert_eq!(args.server, "/tmp/fabro.sock");
-                assert_eq!(args.artifact_upload_token.as_deref(), Some("token-123"));
                 assert_eq!(args.run_dir, std::path::PathBuf::from("/tmp/run"));
                 assert_eq!(args.run_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap());
                 assert!(matches!(args.mode, args::RunWorkerMode::Start));
@@ -1039,7 +998,6 @@ level = "warn"
         match *cli.command.unwrap() {
             Commands::RunCmd(RunCommands::RunWorker(args)) => {
                 assert_eq!(args.server, "http://127.0.0.1:3000");
-                assert!(args.artifact_upload_token.is_none());
                 assert_eq!(args.run_dir, std::path::PathBuf::from("/tmp/run"));
                 assert_eq!(args.run_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap());
                 assert!(matches!(args.mode, args::RunWorkerMode::Resume));

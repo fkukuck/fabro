@@ -16,14 +16,14 @@ use crate::support::{LightweightCli, unique_run_id};
 fn help() {
     let context = test_context!();
     let mut cmd = context.command();
-    cmd.args(["store", "dump", "--help"]);
+    cmd.args(["dump", "--help"]);
     fabro_snapshot!(context.filters(), cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
     Export a run's durable state to a directory
 
-    Usage: fabro store dump [OPTIONS] --output <OUTPUT> <RUN>
+    Usage: fabro dump [OPTIONS] --output <OUTPUT> <RUN>
 
     Arguments:
       <RUN>  Run ID prefix or workflow name
@@ -42,7 +42,7 @@ fn help() {
 }
 
 #[test]
-fn store_dump_accepts_server_target_from_separate_home() {
+fn dump_accepts_server_target_from_separate_home() {
     let context = test_context!();
     let run = setup_completed_dry_run(&context);
     let cli = LightweightCli::new();
@@ -51,7 +51,6 @@ fn store_dump_accepts_server_target_from_separate_home() {
 
     let mut cmd = cli.command();
     cmd.args([
-        "store",
         "dump",
         "--server",
         &server,
@@ -63,10 +62,10 @@ fn store_dump_accepts_server_target_from_separate_home() {
         cmd.env("FABRO_DEV_TOKEN", dev_token);
     }
 
-    let output = cmd.output().expect("store dump should execute");
+    let output = cmd.output().expect("dump should execute");
     assert!(
         output.status.success(),
-        "store dump via remote server target failed\nstdout:\n{}\nstderr:\n{}",
+        "dump via remote server target failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -74,7 +73,7 @@ fn store_dump_accepts_server_target_from_separate_home() {
 }
 
 #[test]
-fn store_dump_exports_large_command_output_backed_by_blob_refs() {
+fn dump_exports_large_command_output_backed_by_blob_refs() {
     let context = test_context!();
     let workflow = context.temp_dir.join("large-output.fabro");
     fs::write(
@@ -130,17 +129,11 @@ fn store_dump_exports_large_command_output_backed_by_blob_refs() {
 
     let output_dir = context.temp_dir.join("export");
     let mut dump_cmd = context.command();
-    dump_cmd.args([
-        "store",
-        "dump",
-        "--output",
-        output_dir.to_str().unwrap(),
-        &run_id,
-    ]);
-    let dump_output = dump_cmd.output().expect("store dump should execute");
+    dump_cmd.args(["dump", "--output", output_dir.to_str().unwrap(), &run_id]);
+    let dump_output = dump_cmd.output().expect("dump should execute");
     assert!(
         dump_output.status.success(),
-        "store dump failed\nstdout:\n{}\nstderr:\n{}",
+        "dump failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&dump_output.stdout),
         String::from_utf8_lossy(&dump_output.stderr)
     );
@@ -153,7 +146,7 @@ fn store_dump_exports_large_command_output_backed_by_blob_refs() {
 }
 
 #[test]
-fn store_dump_exports_blob_refs_and_artifacts_together() {
+fn dump_exports_blob_refs_and_artifacts_together() {
     let context = test_context!();
     let workspace_dir = context.temp_dir.join("mixed-export");
     fs::create_dir_all(&workspace_dir).unwrap();
@@ -233,17 +226,11 @@ include = ["assets/**"]
 
     let output_dir = context.temp_dir.join("export-mixed");
     let mut dump_cmd = context.command();
-    dump_cmd.args([
-        "store",
-        "dump",
-        "--output",
-        output_dir.to_str().unwrap(),
-        &run_id,
-    ]);
-    let dump_output = dump_cmd.output().expect("store dump should execute");
+    dump_cmd.args(["dump", "--output", output_dir.to_str().unwrap(), &run_id]);
+    let dump_output = dump_cmd.output().expect("dump should execute");
     assert!(
         dump_output.status.success(),
-        "store dump failed\nstdout:\n{}\nstderr:\n{}",
+        "dump failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&dump_output.stdout),
         String::from_utf8_lossy(&dump_output.stderr)
     );
@@ -260,14 +247,13 @@ include = ["assets/**"]
 }
 
 #[test]
-fn store_dump_exports_completed_run_snapshot() {
+fn dump_exports_completed_run_snapshot() {
     let context = test_context!();
     let run = setup_completed_dry_run(&context);
     let output_dir = context.temp_dir.join("export");
 
     let mut cmd = context.command();
     cmd.args([
-        "store",
         "dump",
         "--output",
         output_dir.to_str().unwrap(),
@@ -298,7 +284,7 @@ fn store_dump_exports_completed_run_snapshot() {
 }
 
 #[test]
-fn store_dump_rejects_non_empty_output_dir() {
+fn dump_rejects_non_empty_output_dir() {
     let context = test_context!();
     let run = setup_completed_dry_run(&context);
     let output_dir = context.temp_dir.join("nonempty");
@@ -307,7 +293,6 @@ fn store_dump_rejects_non_empty_output_dir() {
 
     let mut cmd = context.command();
     cmd.args([
-        "store",
         "dump",
         "--output",
         output_dir.to_str().unwrap(),

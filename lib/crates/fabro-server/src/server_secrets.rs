@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use fabro_auth::{CredentialResolver, CredentialUsage, ResolveError, ResolvedCredential};
@@ -11,6 +11,10 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+pub fn process_env_snapshot() -> HashMap<String, String> {
+    std::env::vars().collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(transparent)]
@@ -18,36 +22,33 @@ pub(crate) enum Error {
 }
 
 pub(crate) struct ServerSecrets {
-    path:         PathBuf,
+    env_entries:  HashMap<String, String>,
     file_entries: HashMap<String, String>,
-    env_lookup:   EnvLookup,
 }
 
 impl ServerSecrets {
-    pub(crate) fn load(path: PathBuf) -> Result<Self, Error> {
-        Self::with_env_lookup(path, |name| std::env::var(name).ok())
-    }
-
-    pub(crate) fn with_env_lookup<F>(path: PathBuf, env_lookup: F) -> Result<Self, Error>
-    where
-        F: Fn(&str) -> Option<String> + Send + Sync + 'static,
-    {
+    pub(crate) fn load(
+        path: impl AsRef<Path>,
+        env_entries: HashMap<String, String>,
+    ) -> Result<Self, Error> {
         Ok(Self {
-            file_entries: envfile::read_env_file(&path)?,
-            path,
-            env_lookup: Arc::new(env_lookup),
+            env_entries,
+            file_entries: envfile::read_env_file(path.as_ref())?,
         })
     }
 
     pub(crate) fn get(&self, name: &str) -> Option<String> {
-        (self.env_lookup)(name).or_else(|| self.file_entries.get(name).cloned())
+        self.env_entries
+            .get(name)
+            .cloned()
+            .or_else(|| self.file_entries.get(name).cloned())
     }
 }
 
 impl std::fmt::Debug for ServerSecrets {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServerSecrets")
-            .field("path", &self.path)
+            .field("env_entries", &self.env_entries.keys().collect::<Vec<_>>())
             .field(
                 "file_entries",
                 &self.file_entries.keys().collect::<Vec<_>>(),
@@ -149,13 +150,15 @@ impl std::fmt::Debug for ProviderCredentials {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     use fabro_auth::{AuthCredential, AuthDetails};
+    use fabro_config::envfile;
     use fabro_vault::{SecretType, Vault};
     use tokio::sync::RwLock as AsyncRwLock;
 
-    use super::ProviderCredentials;
+    use super::{ProviderCredentials, ServerSecrets};
     use crate::server_secrets::Provider;
 
     #[tokio::test]
@@ -197,5 +200,34 @@ mod tests {
         assert_eq!(credentials.configured_providers().await, vec![
             Provider::Anthropic
         ]);
+    }
+
+    #[test]
+    fn server_secrets_snapshot_prefers_env_over_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join("server.env");
+        envfile::write_env_file(
+            &env_path,
+            &HashMap::from([
+                ("SESSION_SECRET".to_string(), "file-value".to_string()),
+                (
+                    "GITHUB_APP_CLIENT_SECRET".to_string(),
+                    "file-client".to_string(),
+                ),
+            ]),
+        )
+        .unwrap();
+
+        let secrets = ServerSecrets::load(
+            env_path,
+            HashMap::from([("SESSION_SECRET".to_string(), "env-value".to_string())]),
+        )
+        .unwrap();
+
+        assert_eq!(secrets.get("SESSION_SECRET").as_deref(), Some("env-value"));
+        assert_eq!(
+            secrets.get("GITHUB_APP_CLIENT_SECRET").as_deref(),
+            Some("file-client")
+        );
     }
 }

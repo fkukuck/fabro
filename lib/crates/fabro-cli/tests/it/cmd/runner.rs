@@ -8,21 +8,31 @@
 )]
 
 use std::io::Read;
+use std::path::Path;
 use std::process::{Child, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use fabro_config::{Storage, envfile};
 use fabro_store::EventEnvelope;
 use fabro_test::{assert_reqwest_status, expect_reqwest_json, fabro_snapshot, test_context};
-use fabro_types::{EventBody, FailureReason, RunEvent};
+use fabro_types::{EventBody, FailureReason, RunEvent, StageId};
+use hkdf::Hkdf;
 use httpmock::MockServer;
+use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use sha2::Sha256;
 
 use super::support::{
-    local_dev_token, output_stderr, run_events, run_state, server_endpoint, server_target,
-    wait_for_event_names, wait_for_status, write_gated_workflow,
+    find_run_dir, local_dev_token, output_stderr, run_events, run_state, server_endpoint,
+    server_target, wait_for_event_names, wait_for_status, write_gated_workflow,
 };
 use crate::support::{fabro_json_snapshot, unique_run_id};
 
 const SHARED_DAEMON_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const LEAKED_WORKER_PARENT_TOKEN: &str = "leak-worker-parent-token";
+const LEAKED_NEW_RELIC_LICENSE: &str = "leak-new-relic-license";
+const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
+const WORKER_TOKEN_SCOPE: &str = "run:worker";
+const WORKER_TOKEN_TTL_SECS: u64 = 72 * 60 * 60;
 
 fn auth_context() -> fabro_test::TestContext {
     let context = test_context!();
@@ -50,6 +60,48 @@ fn assert_worker_succeeded(run_dir: &std::path::Path, stdout: &[u8]) {
     )));
 }
 
+#[derive(serde::Serialize)]
+struct WorkerTokenClaims {
+    iss:    String,
+    iat:    u64,
+    exp:    u64,
+    run_id: String,
+    scope:  String,
+    jti:    String,
+}
+
+fn worker_token_for_run(storage_dir: &Path, run_id: &str) -> String {
+    let runtime_directory = Storage::new(storage_dir).runtime_directory();
+    let session_secret = envfile::read_env_file(&runtime_directory.env_path())
+        .expect("server env should load")
+        .get("SESSION_SECRET")
+        .cloned()
+        .expect("server env should include SESSION_SECRET");
+    let hkdf = Hkdf::<Sha256>::new(None, session_secret.as_bytes());
+    let mut key = [0_u8; 32];
+    hkdf.expand(b"fabro-worker-jwt-v1", &mut key)
+        .expect("worker jwt hkdf output should fit");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let claims = WorkerTokenClaims {
+        iss:    WORKER_TOKEN_ISSUER.to_string(),
+        iat:    now,
+        exp:    now + WORKER_TOKEN_TTL_SECS,
+        run_id: run_id.to_string(),
+        scope:  WORKER_TOKEN_SCOPE.to_string(),
+        jti:    format!("{:032x}", rand::random::<u128>()),
+    };
+
+    jsonwebtoken::encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(&key),
+    )
+    .expect("worker token should encode")
+}
+
 fn spawn_worker_process(
     context: &fabro_test::TestContext,
     server: &str,
@@ -60,9 +112,10 @@ fn spawn_worker_process(
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_fabro"));
     fabro_test::apply_test_isolation(&mut cmd, &context.home_dir);
     cmd.current_dir(&context.temp_dir);
-    if let Some(token) = local_dev_token(&context.storage_dir) {
-        cmd.env("FABRO_DEV_TOKEN", token);
-    }
+    cmd.env(
+        "FABRO_WORKER_TOKEN",
+        worker_token_for_run(&context.storage_dir, run_id),
+    );
     cmd.args([
         "__run-worker",
         "--server",
@@ -118,12 +171,28 @@ fn child_output(mut child: Child, status: ExitStatus) -> Output {
     }
 }
 
-fn worker_command(context: &fabro_test::TestContext) -> assert_cmd::Command {
+fn worker_command(context: &fabro_test::TestContext, run_id: &str) -> assert_cmd::Command {
     let mut cmd = context.command();
-    if let Some(token) = local_dev_token(&context.storage_dir) {
-        cmd.env("FABRO_DEV_TOKEN", token);
-    }
+    cmd.env(
+        "FABRO_WORKER_TOKEN",
+        worker_token_for_run(&context.storage_dir, run_id),
+    );
     cmd
+}
+
+fn assert_no_worker_env_leak(scope: &str, content: &str) {
+    for needle in [
+        "MY_API_TOKEN=",
+        "NEW_RELIC_LICENSE_KEY=",
+        "FABRO_WORKER_TOKEN=",
+        LEAKED_WORKER_PARENT_TOKEN,
+        LEAKED_NEW_RELIC_LICENSE,
+    ] {
+        assert!(
+            !content.contains(needle),
+            "{scope} leaked {needle:?}:\n{content}"
+        );
+    }
 }
 
 async fn wait_for_server_question(
@@ -174,14 +243,44 @@ fn help() {
           --server <SERVER>    Fabro server target: http(s) URL or absolute Unix socket path
           --debug              Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
           --no-upgrade-check   Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
-          --quiet              Suppress non-essential output [env: FABRO_QUIET=]
           --run-dir <RUN_DIR>  Run scratch directory
+          --quiet              Suppress non-essential output [env: FABRO_QUIET=]
           --run-id <RUN_ID>    Run ID
-          --verbose            Enable verbose output [env: FABRO_VERBOSE=]
           --mode <MODE>        Worker mode [possible values: start, resume]
+          --verbose            Enable verbose output [env: FABRO_VERBOSE=]
       -h, --help               Print help
     ----- stderr -----
     ");
+}
+
+#[test]
+fn worker_requires_fabro_worker_token_env() {
+    let context = auth_context();
+    let run_dir = tempfile::tempdir().unwrap();
+    let run_id = unique_run_id();
+    let output = context
+        .command()
+        .args([
+            "__run-worker",
+            "--server",
+            "http://127.0.0.1:32276",
+            "--run-dir",
+            run_dir.path().to_str().unwrap(),
+            "--run-id",
+            &run_id,
+            "--mode",
+            "start",
+        ])
+        .timeout(SHARED_DAEMON_TIMEOUT)
+        .output()
+        .expect("worker should execute");
+
+    assert!(!output.status.success());
+    assert!(
+        output_stderr(&output).contains("FABRO_WORKER_TOKEN"),
+        "{}",
+        output_stderr(&output)
+    );
 }
 
 #[test]
@@ -218,7 +317,7 @@ digraph CachedGraph {
     let server = server_target(&context.storage_dir);
     std::fs::remove_file(&workflow_path).unwrap();
 
-    let output = worker_command(&context)
+    let output = worker_command(&context, run_id.as_str())
         .args([
             "__run-worker",
             "--server",
@@ -301,7 +400,7 @@ digraph GitHubApp {
     context.write_home(".fabro/settings.toml", "_version = 1\n");
 
     let server = server_target(&context.storage_dir);
-    let mut cmd = worker_command(&context);
+    let mut cmd = worker_command(&context, run_id.as_str());
     cmd.env("GITHUB_APP_PRIVATE_KEY", "%%%not-base64%%%");
     cmd.args([
         "__run-worker",
@@ -351,7 +450,7 @@ digraph DetachedStoreOnly {
 
     let run_dir = context.find_run_dir(&run_id);
     let server = server_target(&context.storage_dir);
-    let output = worker_command(&context)
+    let output = worker_command(&context, run_id.as_str())
         .args([
             "__run-worker",
             "--server",
@@ -371,6 +470,120 @@ digraph DetachedStoreOnly {
         .clone();
 
     assert_worker_succeeded(&run_dir, &output);
+}
+
+#[test]
+fn server_dispatched_worker_does_not_inherit_parent_secret_env() {
+    let mut context = test_context!();
+    let server_root = tempfile::tempdir_in("/tmp").unwrap();
+    let storage_dir = server_root.path().join("storage");
+    let socket_path = server_root.path().join("fabro.sock");
+    let config_path = server_root.path().join("settings.toml");
+    context.manage_storage_dir(&storage_dir);
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"_version = 1
+
+[server.storage]
+root = "{}"
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+            storage_dir.display()
+        ),
+    )
+    .expect("writing leak-probe server settings");
+
+    let start_output = context
+        .command()
+        .env("MY_API_TOKEN", LEAKED_WORKER_PARENT_TOKEN)
+        .env("NEW_RELIC_LICENSE_KEY", LEAKED_NEW_RELIC_LICENSE)
+        .args(["server", "start"])
+        .arg("--storage-dir")
+        .arg(&storage_dir)
+        .arg("--bind")
+        .arg(&socket_path)
+        .arg("--config")
+        .arg(&config_path)
+        .output()
+        .expect("server start should execute");
+    assert!(
+        start_output.status.success(),
+        "server start failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&start_output.stdout),
+        String::from_utf8_lossy(&start_output.stderr)
+    );
+
+    let workflow_path = context.temp_dir.join("worker-leak-probe.fabro");
+    std::fs::write(
+        &workflow_path,
+        r#"digraph WorkerLeakProbe {
+  graph [goal="Verify worker subprocess env isolation", default_max_retries=0]
+  start [shape=Mdiamond, label="Start"]
+  exit  [shape=Msquare, label="Exit"]
+  probe [shape=parallelogram, label="Probe", script="echo probe-ran; for key in $(printf 'MY%s NEW%s FABRO%s' '_API_TOKEN' '_RELIC_LICENSE_KEY' '_WORKER_TOKEN'); do value=$(printenv \"$key\" || true); if [ -n \"$value\" ]; then echo \"$key=$value\"; fi; done"]
+  start -> probe -> exit
+}
+"#,
+    )
+    .expect("writing leak-probe workflow");
+
+    let run_id = unique_run_id();
+    let dev_token = local_dev_token(&storage_dir).expect("managed server should have a dev token");
+    let run_output = context
+        .run_cmd()
+        .env("FABRO_DEV_TOKEN", dev_token)
+        .args([
+            "--server",
+            socket_path.to_str().expect("socket path should be UTF-8"),
+            "--run-id",
+            run_id.as_str(),
+            "--detach",
+            "--auto-approve",
+            "--no-retro",
+            "--sandbox",
+            "local",
+            workflow_path
+                .to_str()
+                .expect("workflow path should be UTF-8"),
+        ])
+        .output()
+        .expect("detached leak-probe run should execute");
+    assert!(
+        run_output.status.success(),
+        "detached run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let run_dir = find_run_dir(&storage_dir, &run_id).expect("leak-probe run dir should exist");
+    wait_for_status(&run_dir, &["succeeded"]);
+
+    let state = run_state(&run_dir);
+    let _probe = state
+        .node(&StageId::new("probe", 1))
+        .expect("probe node state should exist");
+    let stdout = state
+        .checkpoint
+        .as_ref()
+        .and_then(|checkpoint| checkpoint.context_values.get("command.output"))
+        .and_then(serde_json::Value::as_str)
+        .expect("probe command output should exist");
+    assert!(
+        stdout.contains("probe-ran"),
+        "probe stage should have executed, got stdout:\n{stdout}"
+    );
+    assert_no_worker_env_leak("probe stdout", stdout);
+    assert_no_worker_env_leak(
+        "run state",
+        &serde_json::to_string(&state).expect("run state should serialize"),
+    );
+
+    let server_log =
+        std::fs::read_to_string(storage_dir.join("logs/server.log")).unwrap_or_default();
+    assert_no_worker_env_leak("server log", &server_log);
 }
 
 #[test]
@@ -435,7 +648,7 @@ digraph Test {
     }
     "#);
 
-    let mut cmd = worker_command(&context);
+    let mut cmd = worker_command(&context, &run_id);
     cmd.args([
         "__run-worker",
         "--server",
@@ -513,8 +726,7 @@ fn runner_reports_missing_run_spec_without_prefetching_events() {
             .body(r#"{"data":[],"meta":{"has_more":false}}"#);
     });
 
-    let output = context
-        .command()
+    let output = worker_command(&context, &run_id)
         .args([
             "__run-worker",
             "--server",

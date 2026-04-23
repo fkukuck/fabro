@@ -43,7 +43,7 @@ use tokio::sync::{Mutex, watch};
 use crate::error::ApiError;
 use crate::jwt_auth::AuthenticatedService;
 use crate::run_files_security::{RunFilesMetrics, is_sensitive};
-use crate::server::{AppState, parse_run_id_path_pub};
+use crate::server::{AppState, parse_run_id_path};
 
 /// Per-file cap: 256 KiB OR 20k lines (whichever comes first).
 pub(crate) const PER_FILE_BYTES_CAP: u64 = 256 * 1024;
@@ -190,7 +190,7 @@ pub async fn list_run_files(
     Query(params): Query<ListRunFilesParams>,
 ) -> Response {
     // 1. Parse run_id.
-    let id = match parse_run_id_path_pub(&id) {
+    let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(resp) => return resp,
     };

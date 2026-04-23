@@ -48,3 +48,41 @@ fn system_info_json_reports_runtime_fields() {
     assert!(value["uptime_secs"].is_number());
     assert!(value["runs"]["total"].is_number());
 }
+
+#[test]
+fn system_info_uses_explicit_storage_dir_override() {
+    let mut context = test_context!();
+    let storage_dir = context.temp_dir.join("alternate-storage");
+    std::fs::create_dir_all(&storage_dir).unwrap();
+    context.write_home(
+        ".fabro/settings.toml",
+        format!(
+            "_version = 1\n\n[server.storage]\nroot = {:?}\n",
+            context.storage_dir.display().to_string()
+        ),
+    );
+    context.ensure_home_server_auth_methods();
+    context.manage_storage_dir(&storage_dir);
+
+    let output = context
+        .command()
+        .args([
+            "--json",
+            "system",
+            "info",
+            "--storage-dir",
+            storage_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("command should run");
+
+    assert!(
+        output.status.success(),
+        "system info failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("system info JSON should parse");
+    assert_eq!(value["storage_dir"], storage_dir.display().to_string());
+}

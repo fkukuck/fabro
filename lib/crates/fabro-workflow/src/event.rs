@@ -2649,11 +2649,16 @@ pub enum RunEventSink {
     Store(RunStoreHandle),
     JsonLines(Arc<AsyncMutex<Pin<Box<dyn AsyncWrite + Send>>>>),
     Callback(Arc<RunEventSinkCallback>),
+    Map {
+        transform: Arc<RunEventTransform>,
+        inner:     Box<Self>,
+    },
     Composite(Vec<Self>),
 }
 
 type RunEventSinkFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
 type RunEventSinkCallback = dyn Fn(RunEvent) -> RunEventSinkFuture + Send + Sync + 'static;
+type RunEventTransform = dyn Fn(RunEvent) -> RunEvent + Send + Sync + 'static;
 
 impl RunEventSink {
     #[must_use]
@@ -2695,23 +2700,39 @@ impl RunEventSink {
         Self::Composite(flattened)
     }
 
+    #[must_use]
+    pub fn map<F>(transform: F, inner: Self) -> Self
+    where
+        F: Fn(RunEvent) -> RunEvent + Send + Sync + 'static,
+    {
+        Self::Map {
+            transform: Arc::new(transform),
+            inner:     Box::new(inner),
+        }
+    }
+
     pub async fn write_run_event(&self, event: &RunEvent) -> Result<()> {
-        let mut pending = vec![self];
-        while let Some(sink) = pending.pop() {
+        let mut pending = vec![(self, event.clone())];
+        while let Some((sink, event)) = pending.pop() {
             match sink {
                 Self::Store(run_store) => {
-                    run_store.append_run_event(event).await?;
+                    run_store.append_run_event(&event).await?;
                 }
                 Self::JsonLines(writer) => {
-                    let line = redacted_event_json(event)?;
+                    let line = redacted_event_json(&event)?;
                     let mut writer = writer.lock().await;
                     writer.write_all(line.as_bytes()).await?;
                     writer.write_all(b"\n").await?;
                     writer.flush().await?;
                 }
-                Self::Callback(callback) => callback(event.clone()).await?,
+                Self::Callback(callback) => callback(event).await?,
+                Self::Map { transform, inner } => {
+                    pending.push((inner.as_ref(), transform(event)));
+                }
                 Self::Composite(sinks) => {
-                    pending.extend(sinks.iter().rev());
+                    for sink in sinks.iter().rev() {
+                        pending.push((sink, event.clone()));
+                    }
                 }
             }
         }
@@ -3172,6 +3193,46 @@ mod tests {
         let payload = event_payload_from_redacted_json(line.trim_end(), &fixtures::RUN_7).unwrap();
         assert_eq!(payload.as_value()["event"], "run.pause.requested");
         assert_eq!(payload.as_value()["properties"]["action"], "pause");
+    }
+
+    #[tokio::test]
+    async fn run_event_sink_map_applies_transform_before_fanout() {
+        let first = Arc::new(AsyncMutex::new(Vec::new()));
+        let second = Arc::new(AsyncMutex::new(Vec::new()));
+        let first_events = Arc::clone(&first);
+        let second_events = Arc::clone(&second);
+        let sink = RunEventSink::map(
+            |mut event| {
+                event.actor = Some(ActorRef::user("alice".to_string()));
+                event
+            },
+            RunEventSink::fanout(vec![
+                RunEventSink::callback(move |event| {
+                    let first_events = Arc::clone(&first_events);
+                    async move {
+                        first_events.lock().await.push(event);
+                        Ok(())
+                    }
+                }),
+                RunEventSink::callback(move |event| {
+                    let second_events = Arc::clone(&second_events);
+                    async move {
+                        second_events.lock().await.push(event);
+                        Ok(())
+                    }
+                }),
+            ]),
+        );
+        let event = to_run_event(&fixtures::RUN_7, &Event::RunPauseRequested { actor: None });
+
+        sink.write_run_event(&event).await.unwrap();
+
+        let first = first.lock().await;
+        let second = second.lock().await;
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert_eq!(first[0].actor, Some(ActorRef::user("alice".to_string())));
+        assert_eq!(second[0].actor, Some(ActorRef::user("alice".to_string())));
     }
 
     #[tokio::test]

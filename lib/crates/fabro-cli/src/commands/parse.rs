@@ -11,13 +11,11 @@ use std::io::Write;
 
 use fabro_config::project::resolve_workflow;
 use fabro_graphviz::parser::parse_ast;
-use fabro_types::settings::CliNamespace;
-use fabro_util::printer::Printer;
 
 use crate::args::ParseArgs;
 use crate::shared::read_workflow_file;
 
-pub(crate) fn run(args: &ParseArgs, _cli: &CliNamespace, _printer: Printer) -> anyhow::Result<()> {
+pub(crate) fn run(args: &ParseArgs) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     run_to(args, stdout.lock())
 }

@@ -832,6 +832,11 @@ fn dry_run_persists_event_history_in_store() {
         .expect("tail logs should include the latest event");
     fabro_json_snapshot!(context, &live_content, @r#"
     {
+      "actor": {
+        "display": "system:worker",
+        "id": "worker",
+        "kind": "system"
+      },
       "event": "sandbox.cleanup.completed",
       "id": "[EVENT_ID]",
       "properties": {

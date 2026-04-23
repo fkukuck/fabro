@@ -514,7 +514,7 @@ pub(crate) struct InspectArgs {
 }
 
 #[derive(Args)]
-pub(crate) struct StoreDumpArgs {
+pub(crate) struct DumpArgs {
     #[command(flatten)]
     pub(crate) server: ServerTargetArgs,
 
@@ -803,10 +803,6 @@ pub(crate) struct RunWorkerArgs {
     #[arg(long, hide = true)]
     pub(crate) storage_dir: Option<PathBuf>,
 
-    /// Short-lived bearer token for artifact uploads
-    #[arg(long, hide = true)]
-    pub(crate) artifact_upload_token: Option<String>,
-
     /// Run scratch directory
     #[arg(long)]
     pub(crate) run_dir: PathBuf,
@@ -1001,8 +997,8 @@ pub(crate) enum Commands {
     Parse(ParseArgs),
     /// Inspect and copy run artifacts (screenshots, reports, traces)
     Artifact(ArtifactNamespace),
-    /// Export store-backed run state for debugging
-    Store(StoreNamespace),
+    /// Export a run's durable state to a directory
+    Dump(DumpArgs),
     #[command(flatten)]
     RunsCmd(RunsCommands),
     /// List and test LLM models
@@ -1085,9 +1081,7 @@ impl Commands {
                 ArtifactCommand::List(_) => "artifact list",
                 ArtifactCommand::Cp(_) => "artifact cp",
             },
-            Self::Store(ns) => match &ns.command {
-                StoreCommand::Dump(_) => "store dump",
-            },
+            Self::Dump(_) => "dump",
             Self::Exec(_) => "exec",
             Self::RunCmd(cmd) => cmd.name(),
             Self::Preflight(_) => "preflight",
@@ -1197,18 +1191,6 @@ pub(crate) enum ArtifactCommand {
     List(ArtifactListArgs),
     /// Copy artifacts from a workflow run
     Cp(ArtifactCpArgs),
-}
-
-#[derive(Args)]
-pub(crate) struct StoreNamespace {
-    #[command(subcommand)]
-    pub(crate) command: StoreCommand,
-}
-
-#[derive(Subcommand)]
-pub(crate) enum StoreCommand {
-    /// Export a run's durable state to a directory
-    Dump(StoreDumpArgs),
 }
 
 #[derive(Args)]

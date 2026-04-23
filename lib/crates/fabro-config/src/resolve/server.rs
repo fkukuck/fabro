@@ -29,7 +29,7 @@ pub fn dev_token_auth_enabled(layer: &SettingsLayer) -> bool {
 pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerNamespace {
     let storage = resolve_storage(layer.storage.as_ref());
     let listen = resolve_listen(layer.listen.as_ref(), errors);
-    let web = resolve_web(layer.api.as_ref(), layer.web.as_ref());
+    let web = resolve_web(layer.web.as_ref());
     let auth = resolve_auth(layer.auth.as_ref(), errors);
     let ip_allowlist = resolve_ip_allowlist(layer.ip_allowlist.as_ref(), errors);
     let integrations = resolve_integrations(layer.integrations.as_ref(), errors);
@@ -97,7 +97,7 @@ fn resolve_listen(
     }
 }
 
-fn resolve_web(_api: Option<&ServerApiLayer>, layer: Option<&ServerWebLayer>) -> ServerWebSettings {
+fn resolve_web(layer: Option<&ServerWebLayer>) -> ServerWebSettings {
     let layer = layer.expect("defaults.toml should provide server.web defaults");
 
     ServerWebSettings {
@@ -463,7 +463,7 @@ fn resolve_integrations(
                 app_id:      github.app_id.clone(),
                 client_id:   github.client_id.clone(),
                 slug:        github.slug.clone(),
-                permissions: github.permissions.clone(),
+                permissions: github.permissions.clone().into_inner(),
                 webhooks:    github.webhooks.as_ref().map(|webhooks| {
                     resolve_github_webhooks(webhooks, "server.integrations.github.webhooks", errors)
                 }),

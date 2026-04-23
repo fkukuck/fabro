@@ -23,6 +23,7 @@ use tokio::task::JoinHandle;
 use tracing::debug;
 
 use crate::args::UpgradeArgs;
+use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
 
 // ── Download backend abstraction ───────────────────────────────────────────
@@ -434,11 +435,9 @@ impl UpgradeCheckState {
 
 // ── Main upgrade command ───────────────────────────────────────────────────
 
-pub(crate) async fn run_upgrade(
-    args: UpgradeArgs,
-    cli: &CliNamespace,
-    printer: Printer,
-) -> Result<()> {
+pub(crate) async fn run_upgrade(args: UpgradeArgs, ctx: &CommandContext) -> Result<()> {
+    let cli = &ctx.user_settings().cli;
+    let printer = ctx.printer();
     let current_exe = std::env::current_exe()
         .context("resolving current fabro executable path")?
         .canonicalize()

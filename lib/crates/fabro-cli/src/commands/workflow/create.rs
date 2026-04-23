@@ -7,18 +7,13 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use fabro_config::project::{discover_project_config, resolve_fabro_root};
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::OutputFormat;
-use fabro_util::printer::Printer;
 
 use crate::args::WorkflowCreateArgs;
+use crate::command_context::CommandContext;
 use crate::shared::{print_json_pretty, relative_path};
 
-pub(super) fn create_command(
-    args: &WorkflowCreateArgs,
-    cli: &CliNamespace,
-    printer: Printer,
-) -> Result<()> {
+pub(super) fn create_command(args: &WorkflowCreateArgs, base_ctx: &CommandContext) -> Result<()> {
+    let printer = base_ctx.printer();
     let cwd = std::env::current_dir()?;
 
     let Some((config_path, config)) = discover_project_config(&cwd)? else {
@@ -31,7 +26,7 @@ pub(super) fn create_command(
     let fabro_root = resolve_fabro_root(&config_path, &config);
     let created = write_workflow_scaffold(args, &fabro_root)?;
 
-    if cli.output.format == OutputFormat::Json {
+    if base_ctx.json_output() {
         let created: Vec<_> = created.iter().map(|path| relative_path(path)).collect();
         print_json_pretty(&serde_json::json!({
             "name": args.name,

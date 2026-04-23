@@ -643,6 +643,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "run.starting",
         "id": "[EVENT_ID]",
         "properties": {},
@@ -650,6 +655,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "sandbox.initializing",
         "id": "[EVENT_ID]",
         "properties": {
@@ -659,6 +669,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "sandbox.ready",
         "id": "[EVENT_ID]",
         "properties": {
@@ -669,6 +684,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "sandbox.initialized",
         "id": "[EVENT_ID]",
         "properties": {
@@ -679,6 +699,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "run.started",
         "id": "[EVENT_ID]",
         "properties": {
@@ -689,6 +714,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "run.running",
         "id": "[EVENT_ID]",
         "properties": {},
@@ -696,6 +726,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "stage.started",
         "id": "[EVENT_ID]",
         "node_id": "start",
@@ -711,6 +746,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "stage.completed",
         "id": "[EVENT_ID]",
         "node_id": "start",
@@ -739,6 +779,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "edge.selected",
         "id": "[EVENT_ID]",
         "properties": {
@@ -752,6 +797,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "checkpoint.completed",
         "id": "[EVENT_ID]",
         "node_id": "start",
@@ -790,6 +840,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "stage.started",
         "id": "[EVENT_ID]",
         "node_id": "approve",
@@ -805,6 +860,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "interview.started",
         "id": "[EVENT_ID]",
         "node_id": "approve",
@@ -831,6 +891,11 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "ts": "[TIMESTAMP]"
       },
       {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
         "event": "run.blocked",
         "id": "[EVENT_ID]",
         "properties": {

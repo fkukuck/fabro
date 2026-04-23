@@ -1,25 +1,17 @@
 use anyhow::{Result, bail};
-use fabro_types::settings::CliNamespace;
-use fabro_types::settings::cli::{CliLayer, OutputFormat};
-use fabro_util::printer::Printer;
 use tracing::info;
 
-use crate::args::{SshArgs, require_no_json_override};
+use crate::args::SshArgs;
 use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
 
-pub(crate) async fn run(
-    args: SshArgs,
-    cli: &CliNamespace,
-    cli_layer: &CliLayer,
-    process_local_json: bool,
-    printer: Printer,
-) -> Result<()> {
-    if process_local_json && !args.print {
-        require_no_json_override(process_local_json)?;
+pub(crate) async fn run(args: SshArgs, base_ctx: &CommandContext) -> Result<()> {
+    if !args.print {
+        base_ctx.require_no_json_override()?;
     }
 
-    let ctx = CommandContext::for_target(&args.server, printer, cli_layer)?;
+    let ctx = base_ctx.with_target(&args.server)?;
+    let printer = ctx.printer();
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run).await?.run_id;
     let ssh = client.create_run_ssh_access(&run_id, args.ttl).await?;
@@ -27,7 +19,7 @@ pub(crate) async fn run(
     info!(run_id = %args.run, ttl_minutes = args.ttl, "Creating SSH access");
 
     if args.print {
-        if cli.output.format == OutputFormat::Json {
+        if ctx.json_output() {
             print_json_pretty(&serde_json::json!({ "command": ssh.command }))?;
         } else {
             {

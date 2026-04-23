@@ -1,4 +1,5 @@
 use fabro_test::{fabro_snapshot, test_context};
+use httpmock::MockServer;
 
 #[test]
 fn help() {
@@ -25,4 +26,88 @@ fn help() {
       -h, --help                       Print help
     ----- stderr -----
     ");
+}
+
+#[test]
+fn system_events_renders_text_lines_from_sse_payloads() {
+    let context = test_context!();
+    let server = MockServer::start();
+    let run_id = crate::support::unique_run_id();
+    let payload = serde_json::json!({
+        "payload": {
+            "ts": "2026-04-05T12:00:00Z",
+            "run_id": run_id,
+            "event": "run.completed",
+        }
+    });
+    let attach_mock = server.mock(|when, then| {
+        when.method("GET")
+            .path("/api/v1/attach")
+            .query_param("run_id", run_id.as_str());
+        then.status(200)
+            .header("Content-Type", "text/event-stream")
+            .body(format!("data: {payload}\n\n"));
+    });
+
+    let output = context
+        .command()
+        .args([
+            "system",
+            "events",
+            "--server",
+            &format!("{}/api/v1", server.base_url()),
+            "--run-id",
+            &run_id,
+        ])
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success(), "system events failed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    assert_eq!(
+        stdout.trim(),
+        format!("2026-04-05T12:00:00Z {} run.completed", &run_id[..12])
+    );
+    attach_mock.assert();
+}
+
+#[test]
+fn system_events_json_emits_raw_sse_payloads() {
+    let context = test_context!();
+    let server = MockServer::start();
+    let run_id = crate::support::unique_run_id();
+    let payload = serde_json::json!({
+        "payload": {
+            "ts": "2026-04-05T12:00:00Z",
+            "run_id": run_id,
+            "event": "run.completed",
+        }
+    });
+    let attach_mock = server.mock(|when, then| {
+        when.method("GET")
+            .path("/api/v1/attach")
+            .query_param("run_id", run_id.as_str());
+        then.status(200)
+            .header("Content-Type", "text/event-stream")
+            .body(format!("data: {payload}\n\n"));
+    });
+
+    let output = context
+        .command()
+        .args([
+            "--json",
+            "system",
+            "events",
+            "--server",
+            &format!("{}/api/v1", server.base_url()),
+            "--run-id",
+            &run_id,
+        ])
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success(), "system events failed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    assert_eq!(stdout.trim(), payload.to_string());
+    attach_mock.assert();
 }

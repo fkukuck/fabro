@@ -227,7 +227,9 @@ impl Sandbox for LocalSandbox {
 
         if let Some(extra) = env_vars {
             for (k, v) in extra {
-                filtered_env.push((k.clone(), v.clone()));
+                if !Self::should_filter_env_var(k) {
+                    filtered_env.push((k.clone(), v.clone()));
+                }
             }
         }
 
@@ -547,6 +549,7 @@ async fn sigterm_then_kill(child: &mut Child) {
     reason = "sandbox tests stage fixtures with sync std::fs writes/reads"
 )]
 mod tests {
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     use super::*;
@@ -705,6 +708,24 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[tokio::test]
+    async fn exec_command_filters_sensitive_explicit_env_vars() {
+        let dir = temp_dir();
+        let env = LocalSandbox::new(dir.clone());
+        let extra = HashMap::from([
+            ("FABRO_WORKER_TOKEN".to_string(), "leaked".to_string()),
+            ("MY_VAR".to_string(), "ok".to_string()),
+        ]);
+        let result = env
+            .exec_command("env", 5000, None, Some(&extra), None)
+            .await
+            .unwrap();
+
+        assert!(!result.stdout.contains("FABRO_WORKER_TOKEN=leaked"));
+        assert!(result.stdout.contains("MY_VAR=ok"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn env_var_filtering() {
         assert!(LocalSandbox::should_filter_env_var("OPENAI_API_KEY"));
@@ -713,6 +734,8 @@ mod tests {
         assert!(LocalSandbox::should_filter_env_var("AWS_SECRET"));
         assert!(LocalSandbox::should_filter_env_var("AUTH_TOKEN"));
         assert!(LocalSandbox::should_filter_env_var("MY_CREDENTIAL"));
+        assert!(LocalSandbox::should_filter_env_var("FABRO_WORKER_TOKEN"));
+        assert!(LocalSandbox::should_filter_env_var("SESSION_SECRET"));
         // Case insensitive
         assert!(LocalSandbox::should_filter_env_var("my_api_key"));
         assert!(LocalSandbox::should_filter_env_var("Some_Secret"));
