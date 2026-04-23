@@ -18,9 +18,7 @@ use fabro_interview::{ControlInterviewer, WorkerControlEnvelope, WorkerControlMe
 use fabro_store::{EventEnvelope, RunProjection, RunProjectionReducer};
 use fabro_types::settings::run::RunMode;
 use fabro_types::settings::{InterpString, SettingsLayer};
-use fabro_types::{
-    ActorKind, ActorRef, ArtifactUpload, EventBody, FailureReason, RunBlobId, RunEvent, RunId,
-};
+use fabro_types::{ActorRef, ArtifactUpload, EventBody, FailureReason, RunBlobId, RunEvent, RunId};
 use fabro_vault::Vault;
 use fabro_workflow::artifact_upload::{ArtifactSink, StageArtifactUploader};
 use fabro_workflow::event::{Emitter, RunEventSink};
@@ -492,17 +490,9 @@ fn update_worker_title_from_event(event: &RunEvent) {
     }
 }
 
-fn system_worker_actor() -> ActorRef {
-    ActorRef {
-        kind:    ActorKind::System,
-        id:      Some("worker".to_string()),
-        display: Some("system:worker".to_string()),
-    }
-}
-
 fn stamp_system_worker(mut event: RunEvent) -> RunEvent {
     if event.actor.is_none() {
-        event.actor = Some(system_worker_actor());
+        event.actor = Some(ActorRef::system_worker());
     }
     event
 }
@@ -608,8 +598,8 @@ mod tests {
     use super::{
         WorkerControlStreamEvent, WorkerTitlePhase, apply_worker_control_line,
         handle_worker_control_stream_events, initial_worker_title_phase, load_worker_vault,
-        read_worker_control_stream_blocking, stamp_system_worker, system_worker_actor,
-        worker_title, worker_title_phase_for_event,
+        read_worker_control_stream_blocking, stamp_system_worker, worker_title,
+        worker_title_phase_for_event,
     };
     use crate::args::RunWorkerMode;
 
@@ -727,7 +717,7 @@ mod tests {
     fn stamp_system_worker_fills_missing_actor_only() {
         let stamped = stamp_system_worker(running_event(None));
 
-        assert_eq!(stamped.actor, Some(system_worker_actor()));
+        assert_eq!(stamped.actor, Some(ActorRef::system_worker()));
 
         let existing_actor = ActorRef::user("octocat".to_string());
         let stamped = stamp_system_worker(running_event(Some(existing_actor.clone())));
@@ -765,8 +755,8 @@ mod tests {
 
         let first = first.lock().await;
         let second = second.lock().await;
-        assert_eq!(first[0].actor, Some(system_worker_actor()));
-        assert_eq!(second[0].actor, Some(system_worker_actor()));
+        assert_eq!(first[0].actor, Some(ActorRef::system_worker()));
+        assert_eq!(second[0].actor, Some(ActorRef::system_worker()));
     }
 
     #[tokio::test]

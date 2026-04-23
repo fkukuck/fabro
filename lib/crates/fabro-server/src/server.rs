@@ -113,7 +113,7 @@ use crate::github_webhooks::{
     WEBHOOK_ROUTE, WEBHOOK_SECRET_ENV, parse_event_metadata, verify_signature,
 };
 use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
-use crate::jwt_auth::{AuthMode, AuthenticatedService, AuthenticatedSubject};
+use crate::jwt_auth::{self, AuthMode, AuthenticatedService, AuthenticatedSubject};
 use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
 use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::server_secrets::{
@@ -730,10 +730,6 @@ impl AppState {
                 }
             }
         }
-    }
-
-    fn issue_worker_token(&self, run_id: &RunId) -> Result<String, ApiError> {
-        issue_worker_token(&self.worker_tokens, run_id)
     }
 
     fn begin_shutdown(&self) {
@@ -2481,26 +2477,11 @@ fn load_test_server_secrets(path: PathBuf, env: HashMap<String, String>) -> Serv
 fn worker_token_keys_from_server_secrets(
     server_secrets: &ServerSecrets,
 ) -> anyhow::Result<WorkerTokenKeys> {
-    let session_secret = server_secrets.get("SESSION_SECRET").ok_or_else(|| {
-        anyhow::anyhow!(
-            "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
-        )
-    })?;
-    WorkerTokenKeys::from_master_secret(session_secret.as_bytes()).map_err(
-        |err| match err {
-            auth::KeyDeriveError::Empty => {
-                anyhow::anyhow!(
-                    "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
-                )
-            }
-            auth::KeyDeriveError::TooShort {
-                got_bytes,
-                min_bytes,
-            } => anyhow::anyhow!(
-                "Fabro server refuses to start: SESSION_SECRET must be at least {min_bytes} bytes (64 hex characters) when auth is configured. Current length: {got_bytes} bytes."
-            ),
-        },
-    )
+    let session_secret = server_secrets
+        .get("SESSION_SECRET")
+        .ok_or_else(|| jwt_auth::session_secret_key_error(&auth::KeyDeriveError::Empty))?;
+    WorkerTokenKeys::from_master_secret(session_secret.as_bytes())
+        .map_err(|err| jwt_auth::session_secret_key_error(&err))
 }
 
 pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppState>> {
@@ -2853,7 +2834,6 @@ async fn delete_run(
     Query(query): Query<DeleteRunQuery>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -3058,53 +3038,27 @@ fn compute_queue_positions(runs: &HashMap<RunId, ManagedRun>) -> HashMap<RunId, 
     clippy::result_large_err,
     reason = "Run ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_run_id_path(id: &str) -> Result<RunId, Response> {
+pub(crate) fn parse_run_id_path(id: &str) -> Result<RunId, Response> {
     id.parse::<RunId>()
         .map_err(|_| ApiError::bad_request("Invalid run ID.").into_response())
-}
-
-/// Public re-export so sibling modules (e.g. `run_files`) can share the same
-/// 400-on-invalid-ULID parse behavior without duplicating the helper.
-#[allow(
-    clippy::result_large_err,
-    reason = "This shared run ID parser returns HTTP 400 responses directly."
-)]
-pub(crate) fn parse_run_id_path_pub(id: &str) -> Result<RunId, Response> {
-    parse_run_id_path(id)
 }
 
 #[allow(
     clippy::result_large_err,
     reason = "Stage ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
+pub(crate) fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
     StageId::from_str(stage_id)
         .map_err(|_| ApiError::bad_request("Invalid stage ID.").into_response())
 }
 
 #[allow(
     clippy::result_large_err,
-    reason = "This shared stage ID parser returns HTTP 400 responses directly."
-)]
-pub(crate) fn parse_stage_id_path_pub(stage_id: &str) -> Result<StageId, Response> {
-    parse_stage_id_path(stage_id)
-}
-
-#[allow(
-    clippy::result_large_err,
     reason = "Blob ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_blob_id_path(blob_id: &str) -> Result<RunBlobId, Response> {
+pub(crate) fn parse_blob_id_path(blob_id: &str) -> Result<RunBlobId, Response> {
     RunBlobId::from_str(blob_id)
         .map_err(|_| ApiError::bad_request("Invalid blob ID.").into_response())
-}
-
-#[allow(
-    clippy::result_large_err,
-    reason = "This shared blob ID parser returns HTTP 400 responses directly."
-)]
-pub(crate) fn parse_blob_id_path_pub(blob_id: &str) -> Result<RunBlobId, Response> {
-    parse_blob_id_path(blob_id)
 }
 
 #[allow(
@@ -3672,8 +3626,7 @@ fn worker_command(
         )
     })?;
     let server_target = daemon.bind.to_target();
-    let worker_token = state
-        .issue_worker_token(&run_id)
+    let worker_token = issue_worker_token(state.worker_token_keys(), &run_id)
         .map_err(|_| anyhow::anyhow!("failed to sign worker token"))?;
     let mut cmd = Command::new(exe);
     cmd.arg("__run-worker")
@@ -4142,7 +4095,6 @@ async fn start_run(
     Path(id): Path<String>,
     body: Option<Json<StartRunRequest>>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -4999,7 +4951,6 @@ async fn submit_answer(
     Path((id, qid)): Path<(String, String)>,
     Json(req): Json<SubmitAnswerRequest>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -5124,7 +5075,6 @@ async fn attach_run_events(
     Path(id): Path<String>,
     Query(params): Query<AttachParams>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     const ATTACH_REPLAY_BATCH_LIMIT: usize = 256;
 
     let id = match parse_run_id_path(&id) {
@@ -6137,7 +6087,6 @@ async fn cancel_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -6294,7 +6243,6 @@ async fn pause_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -6397,7 +6345,6 @@ async fn unpause_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     let id = match parse_run_id_path(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -6503,7 +6450,6 @@ async fn archive_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     run_archive_action(state, subject, id, ArchiveAction::Archive).await
 }
 
@@ -6512,7 +6458,6 @@ async fn unarchive_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Worker token intentionally not accepted; this is a user/admin action.
     run_archive_action(state, subject, id, ArchiveAction::Unarchive).await
 }
 

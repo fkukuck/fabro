@@ -61,6 +61,15 @@ impl ActorRef {
             display,
         }
     }
+
+    #[must_use]
+    pub fn system_worker() -> Self {
+        Self {
+            kind:    ActorKind::System,
+            id:      Some("worker".to_string()),
+            display: Some("system:worker".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

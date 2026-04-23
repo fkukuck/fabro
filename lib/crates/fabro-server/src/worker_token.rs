@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{FromRequestParts, Path};
-use axum::http::header;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use fabro_types::{RunBlobId, RunId, StageId};
@@ -12,10 +11,8 @@ use uuid::Uuid;
 
 use crate::ApiError;
 use crate::auth::{self, KeyDeriveError};
-use crate::jwt_auth::authenticate_service_parts;
-use crate::server::{
-    AppState, parse_blob_id_path_pub, parse_run_id_path_pub, parse_stage_id_path_pub,
-};
+use crate::jwt_auth::{authenticate_service_parts, bearer_token};
+use crate::server::{AppState, parse_blob_id_path, parse_run_id_path, parse_stage_id_path};
 
 pub(crate) const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
 pub(crate) const WORKER_TOKEN_SCOPE: &str = "run:worker";
@@ -92,14 +89,7 @@ pub(crate) fn authorize_worker_token(
     run_id: &RunId,
     keys: &WorkerTokenKeys,
 ) -> Result<bool, ApiError> {
-    let Some(header) = parts
-        .headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return Ok(false);
-    };
-    let Some(token) = header.strip_prefix("Bearer ") else {
+    let Some(Ok(token)) = bearer_token(parts) else {
         return Ok(false);
     };
 
@@ -159,7 +149,7 @@ impl FromRequestParts<Arc<AppState>> for AuthorizeRunScoped {
         let Path(id): Path<String> = Path::from_request_parts(parts, state)
             .await
             .map_err(IntoResponse::into_response)?;
-        let run_id = parse_run_id_path_pub(&id)?;
+        let run_id = parse_run_id_path(&id)?;
         authorize_run_scoped(parts, state.as_ref(), &run_id)
             .map_err(IntoResponse::into_response)?;
         Ok(Self(run_id))
@@ -178,8 +168,8 @@ impl FromRequestParts<Arc<AppState>> for AuthorizeRunBlob {
         let Path((id, blob_id)): Path<(String, String)> = Path::from_request_parts(parts, state)
             .await
             .map_err(IntoResponse::into_response)?;
-        let run_id = parse_run_id_path_pub(&id)?;
-        let blob_id = parse_blob_id_path_pub(&blob_id)?;
+        let run_id = parse_run_id_path(&id)?;
+        let blob_id = parse_blob_id_path(&blob_id)?;
         authorize_run_scoped(parts, state.as_ref(), &run_id)
             .map_err(IntoResponse::into_response)?;
         Ok(Self(run_id, blob_id))
@@ -198,8 +188,8 @@ impl FromRequestParts<Arc<AppState>> for AuthorizeStageArtifact {
         let Path((id, stage_id)): Path<(String, String)> = Path::from_request_parts(parts, state)
             .await
             .map_err(IntoResponse::into_response)?;
-        let run_id = parse_run_id_path_pub(&id)?;
-        let stage_id = parse_stage_id_path_pub(&stage_id)?;
+        let run_id = parse_run_id_path(&id)?;
+        let stage_id = parse_stage_id_path(&stage_id)?;
         authorize_run_scoped(parts, state.as_ref(), &run_id)
             .map_err(IntoResponse::into_response)?;
         Ok(Self(run_id, stage_id))

@@ -53,21 +53,11 @@ impl LocalSandbox {
         "NVM_DIR",
     ];
 
-    const EXPLICIT_ENV_DENYLIST: &'static [&'static str] = &[
-        "FABRO_WORKER_TOKEN",
-        "SESSION_SECRET",
-        "FABRO_JWT_PRIVATE_KEY",
-        "FABRO_JWT_PUBLIC_KEY",
-        "GITHUB_APP_PRIVATE_KEY",
-        "GITHUB_APP_CLIENT_SECRET",
-        "GITHUB_APP_WEBHOOK_SECRET",
-    ];
-
     fn should_filter_env_var(key: &str) -> bool {
         if Self::ENV_SAFELIST.contains(&key) {
             return false;
         }
-        if Self::EXPLICIT_ENV_DENYLIST.contains(&key) {
+        if fabro_util::env::WORKER_SECRET_ENV_DENYLIST.contains(&key) {
             return true;
         }
         let lower = key.to_lowercase();

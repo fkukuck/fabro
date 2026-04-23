@@ -13,7 +13,7 @@ use fabro_llm::generate::{GenerateParams, generate_object};
 use fabro_llm::types::{Message, Request, ToolResult};
 use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::settings::InterpString;
-use fabro_util::env::{Env, SystemEnv};
+use fabro_util::env::{Env, SystemEnv, WORKER_SECRET_ENV_DENYLIST};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout as tokio_timeout;
 use tokio_util::sync::CancellationToken;
@@ -34,16 +34,6 @@ static HOOK_RESPONSE_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(|| {
         "additionalProperties": false
     })
 });
-
-const WORKER_SECRET_ENV_DENYLIST: &[&str] = &[
-    "FABRO_WORKER_TOKEN",
-    "SESSION_SECRET",
-    "FABRO_JWT_PRIVATE_KEY",
-    "FABRO_JWT_PUBLIC_KEY",
-    "GITHUB_APP_PRIVATE_KEY",
-    "GITHUB_APP_CLIENT_SECRET",
-    "GITHUB_APP_WEBHOOK_SECRET",
-];
 
 fn duration_ms(duration: std::time::Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
