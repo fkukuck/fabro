@@ -17,17 +17,16 @@ use fabro_client::{AuthEntry, AuthStore, ServerTarget, StoredSubject};
 use fabro_config::{Storage, envfile};
 use fabro_store::EventEnvelope;
 use fabro_test::{apply_test_isolation, expect_reqwest_json, isolated_storage_dir, test_context};
-use fabro_types::{IdpIdentity, RunAuthMethod};
 use hkdf::Hkdf;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use sha2::Sha256;
 
 use super::support::{find_run_dir, output_stderr, output_stdout};
-use crate::support::{parse_event_envelopes, unique_run_id};
+use crate::support::{
+    TEST_SESSION_SECRET, issue_test_github_jwt, parse_event_envelopes, unique_run_id,
+};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-const TEST_SESSION_SECRET: &str =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TEST_GITHUB_CLIENT_SECRET: &str = "github-client-secret";
 const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
 const WORKER_TOKEN_SCOPE: &str = "run:worker";
@@ -164,72 +163,12 @@ struct WorkerTokenClaims {
     jti:    String,
 }
 
-#[derive(serde::Serialize)]
-struct TestJwtClaims {
-    iss:         String,
-    aud:         String,
-    sub:         String,
-    exp:         u64,
-    iat:         u64,
-    jti:         String,
-    idp_issuer:  String,
-    idp_subject: String,
-    login:       String,
-    name:        String,
-    email:       String,
-    avatar_url:  String,
-    user_url:    String,
-    auth_method: RunAuthMethod,
-}
-
 fn reserve_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
         .unwrap()
         .port()
-}
-
-fn issue_test_github_jwt(issuer: &str) -> String {
-    let key = derived_jwt_key();
-    let identity = IdpIdentity::new("https://github.com", "12345").unwrap();
-    let now = Utc::now();
-    let claims = TestJwtClaims {
-        iss:         issuer.to_string(),
-        aud:         "fabro-cli".to_string(),
-        sub:         identity.subject().to_string(),
-        exp:         (now + ChronoDuration::minutes(10))
-            .timestamp()
-            .try_into()
-            .expect("expiration time should be positive"),
-        iat:         now
-            .timestamp()
-            .try_into()
-            .expect("issued-at time should be positive"),
-        jti:         format!("{:032x}", rand::random::<u128>()),
-        idp_issuer:  identity.issuer().to_string(),
-        idp_subject: identity.subject().to_string(),
-        login:       "octocat".to_string(),
-        name:        "The Octocat".to_string(),
-        email:       "octocat@example.com".to_string(),
-        avatar_url:  "https://example.com/octocat.png".to_string(),
-        user_url:    "https://github.com/octocat".to_string(),
-        auth_method: RunAuthMethod::Github,
-    };
-    jsonwebtoken::encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(&key),
-    )
-    .unwrap()
-}
-
-fn derived_jwt_key() -> [u8; 32] {
-    let hkdf = Hkdf::<Sha256>::new(None, TEST_SESSION_SECRET.as_bytes());
-    let mut key = [0_u8; 32];
-    hkdf.expand(b"fabro-jwt-hs256-v1", &mut key)
-        .expect("jwt hkdf output should fit");
-    key
 }
 
 fn write_submitter_auth(home_dir: &Path, target: &str, access_token: &str) {

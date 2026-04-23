@@ -26,19 +26,16 @@ use fabro_server::server::{
     create_app_state_with_env_lookup_and_server_secret_env,
 };
 use fabro_test::{GitHubAppState, TestContext, apply_test_isolation};
-use fabro_types::RunAuthMethod;
-use hkdf::Hkdf;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::Value;
-use sha2::Sha256;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use ulid::Ulid;
+
+use super::auth_tokens::{
+    TEST_SESSION_SECRET, TestGithubJwtSubject, issue_expired_test_github_jwt,
+};
 
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10);
-const TEST_SESSION_SECRET: &str =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 pub(crate) const TEST_DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
 
@@ -325,22 +322,6 @@ async fn record_request(
     next.run(req).await
 }
 
-#[derive(serde::Serialize)]
-struct TestJwtClaims {
-    iss:         String,
-    aud:         String,
-    sub:         String,
-    exp:         u64,
-    iat:         u64,
-    jti:         String,
-    idp_issuer:  String,
-    idp_subject: String,
-    login:       String,
-    name:        String,
-    email:       String,
-    auth_method: RunAuthMethod,
-}
-
 async fn bind_listener() -> (TcpListener, String) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -479,43 +460,15 @@ fn auth_store_path(context: &TestContext) -> std::path::PathBuf {
 }
 
 fn expired_access_token(issuer: &str, subject: &serde_json::Map<String, Value>) -> String {
-    let key = derived_jwt_key();
-    let now = Utc::now();
-    let claims = TestJwtClaims {
-        iss:         issuer.to_string(),
-        aud:         "fabro-cli".to_string(),
-        sub:         subject_value(subject, "idp_subject"),
-        exp:         (now - ChronoDuration::minutes(10))
-            .timestamp()
-            .try_into()
-            .expect("expired timestamp should be positive"),
-        iat:         (now - ChronoDuration::minutes(20))
-            .timestamp()
-            .try_into()
-            .expect("issued-at timestamp should be positive"),
-        jti:         Ulid::new().to_string(),
+    issue_expired_test_github_jwt(issuer, TestGithubJwtSubject {
         idp_issuer:  subject_value(subject, "idp_issuer"),
         idp_subject: subject_value(subject, "idp_subject"),
         login:       subject_value(subject, "login"),
         name:        subject_value(subject, "name"),
         email:       subject_value(subject, "email"),
-        auth_method: RunAuthMethod::Github,
-    };
-
-    jsonwebtoken::encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(&key),
-    )
-    .expect("expired JWT should encode")
-}
-
-fn derived_jwt_key() -> [u8; 32] {
-    let hkdf = Hkdf::<Sha256>::new(None, TEST_SESSION_SECRET.as_bytes());
-    let mut key = [0_u8; 32];
-    hkdf.expand(b"fabro-jwt-hs256-v1", &mut key)
-        .expect("HKDF should derive the fixed-size JWT key");
-    key
+        avatar_url:  String::new(),
+        user_url:    String::new(),
+    })
 }
 
 fn read_stderr_and_capture_url(
