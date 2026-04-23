@@ -6,11 +6,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, anyhow};
-use fabro_config::run::resolve_run_goal_from_namespace;
-use fabro_config::{WorkflowSettingsBuilder, project as project_config};
+use anyhow::Context;
+use fabro_config::project as project_config;
+use fabro_config::run::resolve_run_goal;
 use fabro_types::settings::SettingsLayer;
-use fabro_types::settings::run::RunNamespace;
 
 use crate::file_resolver::{FileResolver, FilesystemFileResolver};
 use crate::workflow_bundle::BundledWorkflow;
@@ -70,8 +69,9 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
             let settings = request.settings;
             let raw_source = std::fs::read_to_string(&resolution.dot_path)
                 .with_context(|| format!("Failed to read {}", resolution.dot_path.display()))?;
-            let (_run_settings, working_directory, goal_override) =
-                resolve_runtime_run_settings(&settings, &request.cwd)?;
+            let working_directory =
+                project_config::resolve_working_directory(&settings, &request.cwd);
+            let goal_override = resolve_goal_override(&settings, &working_directory)?;
             let current_dir = resolution
                 .dot_path
                 .parent()
@@ -94,8 +94,9 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
         }
         WorkflowInput::DotSource { source, base_dir } => {
             let settings = request.settings;
-            let (_run_settings, working_directory, goal_override) =
-                resolve_runtime_run_settings(&settings, &request.cwd)?;
+            let working_directory =
+                project_config::resolve_working_directory(&settings, &request.cwd);
+            let goal_override = resolve_goal_override(&settings, &working_directory)?;
             let has_base_dir = base_dir.is_some();
             Ok(ResolvedWorkflow {
                 raw_source: source,
@@ -115,8 +116,9 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
         }
         WorkflowInput::Bundled(workflow) => {
             let settings = request.settings;
-            let (_run_settings, working_directory, goal_override) =
-                resolve_runtime_run_settings(&settings, &request.cwd)?;
+            let working_directory =
+                project_config::resolve_working_directory(&settings, &request.cwd);
+            let goal_override = resolve_goal_override(&settings, &working_directory)?;
 
             Ok(ResolvedWorkflow {
                 raw_source: workflow.source.clone(),
@@ -133,27 +135,15 @@ pub(crate) fn resolve_workflow(request: ResolveWorkflowInput) -> anyhow::Result<
     }
 }
 
-fn resolve_runtime_run_settings(
-    settings: &SettingsLayer,
-    cwd: &Path,
-) -> anyhow::Result<(RunNamespace, PathBuf, Option<String>)> {
-    let run_settings = WorkflowSettingsBuilder::from_layer(settings)
-        .map_err(|errors| anyhow!("failed to resolve workflow settings: {errors}"))?
-        .run;
-    let working_directory = project_config::resolve_working_directory_from_run(&run_settings, cwd);
-    let goal_override = resolve_goal_override(&run_settings, &working_directory)?;
-    Ok((run_settings, working_directory, goal_override))
-}
-
 /// Resolve the `run.goal` override for a direct (non-manifest) workflow
 /// run. Reads the file from disk if the goal layer is the `file` variant.
 /// Relative paths that survived config load (e.g. env-interpolated ones)
 /// are anchored at `working_directory`.
 fn resolve_goal_override(
-    run_settings: &RunNamespace,
+    settings: &SettingsLayer,
     working_directory: &Path,
 ) -> anyhow::Result<Option<String>> {
-    resolve_run_goal_from_namespace(run_settings, working_directory)
+    resolve_run_goal(settings, working_directory)
         .map(|opt| opt.map(|resolved| resolved.text))
         .map_err(anyhow::Error::from)
 }
