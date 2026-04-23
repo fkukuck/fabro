@@ -64,8 +64,6 @@ fn load_v2_layer_from_path(path: &Path) -> Result<SettingsLayer> {
 }
 
 /// Override the resolved storage root in a settings layer with a runtime path.
-///
-/// Used at server startup and by CLI commands that accept `--storage-dir`.
 pub fn apply_storage_dir_override(
     mut layer: SettingsLayer,
     storage_dir: Option<&Path>,

@@ -13,7 +13,7 @@ pub struct ServerSettings {
 
 impl ServerSettings {
     pub fn from_layer(layer: &SettingsLayer) -> Result<Self> {
-        let resolver = Resolver::from_file(layer);
+        let resolver = Resolver::from_layer(layer);
         let mut errors = Vec::new();
         let server = resolver.server_into(&mut errors);
         let features = resolver.features_into(&mut errors);
@@ -38,7 +38,7 @@ pub struct UserSettings {
 
 impl UserSettings {
     pub fn from_layer(layer: &SettingsLayer) -> Result<Self> {
-        let resolver = Resolver::from_file(layer);
+        let resolver = Resolver::from_layer(layer);
         let mut errors = Vec::new();
         let cli = resolver.cli_into(&mut errors);
         let features = resolver.features_into(&mut errors);

@@ -28,9 +28,9 @@ pub struct Resolver {
 
 impl Resolver {
     #[must_use]
-    pub fn from_file(file: &SettingsLayer) -> Self {
+    pub fn from_layer(layer: &SettingsLayer) -> Self {
         Self {
-            layer: apply_builtin_defaults(file.clone()),
+            layer: apply_builtin_defaults(layer.clone()),
         }
     }
 

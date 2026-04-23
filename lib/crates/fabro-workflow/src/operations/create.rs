@@ -285,7 +285,7 @@ fn store_error(err: impl std::fmt::Display) -> Error {
 }
 
 fn resolve_settings_tree(settings: &SettingsLayer) -> Result<ResolvedSettingsTree, Error> {
-    let resolver = fabro_config::Resolver::from_file(settings);
+    let resolver = fabro_config::Resolver::from_layer(settings);
     let to_error =
         |errors: Vec<_>| Error::Precondition(fabro_config::render_resolve_errors(&errors));
     Ok(ResolvedSettingsTree {

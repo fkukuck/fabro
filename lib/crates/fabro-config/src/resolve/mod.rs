@@ -21,44 +21,43 @@ pub use server::{dev_token_auth_enabled, resolve_server};
 pub use workflow::resolve_workflow;
 
 pub fn resolve_storage_root(file: &SettingsLayer) -> InterpString {
-    Resolver::from_file(file).storage_root()
+    Resolver::from_layer(file).storage_root()
 }
 
 pub fn resolve_cli_from_file(file: &SettingsLayer) -> Result<CliNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).cli()
+    Resolver::from_layer(file).cli()
 }
 
 pub fn resolve_server_from_file(
     file: &SettingsLayer,
 ) -> Result<ServerNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).server()
+    Resolver::from_layer(file).server()
 }
 
 pub fn resolve_project_from_file(
     file: &SettingsLayer,
 ) -> Result<ProjectNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).project()
+    Resolver::from_layer(file).project()
 }
 
 pub fn resolve_features_from_file(
     file: &SettingsLayer,
 ) -> Result<FeaturesNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).features()
+    Resolver::from_layer(file).features()
 }
 
 pub fn resolve_run_from_file(file: &SettingsLayer) -> Result<RunNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).run()
+    Resolver::from_layer(file).run()
 }
 
 pub fn resolve_workflow_from_file(
     file: &SettingsLayer,
 ) -> Result<WorkflowNamespace, Vec<ResolveError>> {
-    Resolver::from_file(file).workflow()
+    Resolver::from_layer(file).workflow()
 }
 
 /// Render a list of [`ResolveError`]s as a single semicolon-separated message
-/// suitable for surfacing through `anyhow!` / `Error::Precondition` / similar
-/// human-facing error envelopes.
+/// for human-facing error envelopes.
 pub fn render_resolve_errors(errors: &[ResolveError]) -> String {
     errors
         .iter()
