@@ -6,6 +6,7 @@ use fabro_types::settings::{
 };
 use fabro_types::{ServerSettings, UserSettings, WorkflowSettings};
 
+use crate::defaults::DEFAULTS_LAYER;
 use crate::load::load_settings_path;
 use crate::parse::parse_settings_layer;
 use crate::resolve::{
@@ -13,7 +14,7 @@ use crate::resolve::{
     resolve_workflow,
 };
 use crate::user::load_settings_config;
-use crate::{Error, Result, apply_builtin_defaults};
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveErrors(pub Vec<ResolveError>);
@@ -80,7 +81,7 @@ impl ServerSettingsBuilder {
     }
 
     pub fn from_layer(layer: &SettingsLayer) -> Result<ServerSettings> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let server = resolve_server(&layer.server.clone().unwrap_or_default(), &mut errors);
         let features = resolve_features(&layer.features.clone().unwrap_or_default(), &mut errors);
@@ -112,7 +113,7 @@ impl UserSettingsBuilder {
     }
 
     pub fn from_layer(layer: &SettingsLayer) -> Result<UserSettings> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let cli = resolve_cli(&layer.cli.clone().unwrap_or_default(), &mut errors);
         let features = resolve_features(&layer.features.clone().unwrap_or_default(), &mut errors);
@@ -198,7 +199,7 @@ impl WorkflowSettingsBuilder {
             .combine(self.project)
             .combine(self.user)
             .combine(server_defaults);
-        layer = apply_builtin_defaults(layer);
+        layer = layer.combine(DEFAULTS_LAYER.clone());
         layer.server = None;
         layer.cli = None;
         layer.features = None;
@@ -212,7 +213,7 @@ impl WorkflowSettingsBuilder {
     pub fn from_layer(
         layer: &SettingsLayer,
     ) -> std::result::Result<WorkflowSettings, ResolveErrors> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let project = resolve_project(&layer.project.clone().unwrap_or_default(), &mut errors);
         let workflow = resolve_workflow(&layer.workflow.clone().unwrap_or_default(), &mut errors);
@@ -230,7 +231,7 @@ impl WorkflowSettingsBuilder {
     pub(crate) fn project_from_layer(
         layer: &SettingsLayer,
     ) -> std::result::Result<ProjectNamespace, ResolveErrors> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let project = resolve_project(&layer.project.clone().unwrap_or_default(), &mut errors);
         finish_dense_result(project, errors)
@@ -239,7 +240,7 @@ impl WorkflowSettingsBuilder {
     pub(crate) fn workflow_from_layer(
         layer: &SettingsLayer,
     ) -> std::result::Result<WorkflowNamespace, ResolveErrors> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let workflow = resolve_workflow(&layer.workflow.clone().unwrap_or_default(), &mut errors);
         finish_dense_result(workflow, errors)
@@ -248,7 +249,7 @@ impl WorkflowSettingsBuilder {
     pub(crate) fn run_from_layer(
         layer: &SettingsLayer,
     ) -> std::result::Result<RunNamespace, ResolveErrors> {
-        let layer = apply_builtin_defaults(layer.clone());
+        let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let run = resolve_run(&layer.run.clone().unwrap_or_default(), &mut errors);
         finish_dense_result(run, errors)

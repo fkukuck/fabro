@@ -27,7 +27,6 @@ use std::path::Path;
 pub use builders::{
     ResolveErrors, ServerSettingsBuilder, UserSettingsBuilder, WorkflowSettingsBuilder,
 };
-pub(crate) use defaults::apply_builtin_defaults;
 pub use error::{Error, Result};
 pub use fabro_util::path::expand_tilde;
 pub use home::Home;
