@@ -135,15 +135,27 @@ impl Combine for RunCheckpointLayer {
     }
 }
 
-impl Combine for Vec<ModelRefOrSplice> {
-    fn combine(self, other: Self) -> Self {
-        splice_model_fallbacks(other, self)
+/// An element of a splice-aware sequence: either a regular value or the
+/// `...` marker that asks the combiner to expand the fallback list inline.
+pub trait SpliceMarker {
+    fn is_splice(&self) -> bool;
+}
+
+impl SpliceMarker for ModelRefOrSplice {
+    fn is_splice(&self) -> bool {
+        matches!(self, Self::Splice)
     }
 }
 
-impl Combine for Vec<StringOrSplice> {
+impl SpliceMarker for StringOrSplice {
+    fn is_splice(&self) -> bool {
+        matches!(self, Self::Splice)
+    }
+}
+
+impl<T: SpliceMarker + Clone> Combine for Vec<T> {
     fn combine(self, other: Self) -> Self {
-        splice_events(other, self)
+        splice_combine(other, self)
     }
 }
 
@@ -153,58 +165,18 @@ impl Combine for Vec<HookEntry> {
     }
 }
 
-fn splice_model_fallbacks(
-    fallback: Vec<ModelRefOrSplice>,
-    current: Vec<ModelRefOrSplice>,
-) -> Vec<ModelRefOrSplice> {
+fn splice_combine<T: SpliceMarker + Clone>(fallback: Vec<T>, current: Vec<T>) -> Vec<T> {
     if current.is_empty() {
         return fallback;
     }
-    let splice_pos = current
-        .iter()
-        .position(|entry| matches!(entry, ModelRefOrSplice::Splice));
-    let Some(pos) = splice_pos else {
+    let Some(pos) = current.iter().position(T::is_splice) else {
         return current;
     };
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(current.len() - 1 + fallback.len());
     for (index, entry) in current.into_iter().enumerate() {
         if index == pos {
-            out.extend(
-                fallback
-                    .iter()
-                    .filter(|entry| !matches!(entry, ModelRefOrSplice::Splice))
-                    .cloned(),
-            );
-        } else if !matches!(entry, ModelRefOrSplice::Splice) {
-            out.push(entry);
-        }
-    }
-    out
-}
-
-fn splice_events(
-    fallback: Vec<StringOrSplice>,
-    current: Vec<StringOrSplice>,
-) -> Vec<StringOrSplice> {
-    if current.is_empty() {
-        return fallback;
-    }
-    let splice_pos = current
-        .iter()
-        .position(|entry| matches!(entry, StringOrSplice::Splice));
-    let Some(pos) = splice_pos else {
-        return current;
-    };
-    let mut out = Vec::new();
-    for (index, entry) in current.into_iter().enumerate() {
-        if index == pos {
-            out.extend(
-                fallback
-                    .iter()
-                    .filter(|entry| !matches!(entry, StringOrSplice::Splice))
-                    .cloned(),
-            );
-        } else if !matches!(entry, StringOrSplice::Splice) {
+            out.extend(fallback.iter().filter(|entry| !entry.is_splice()).cloned());
+        } else if !entry.is_splice() {
             out.push(entry);
         }
     }

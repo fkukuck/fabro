@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::collections::hash_map::{IntoIter, Iter, IterMut};
+use std::collections::hash_map::IntoIter;
 use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Serialize};
@@ -30,14 +30,6 @@ macro_rules! impl_map_wrapper {
             pub fn into_inner(self) -> HashMap<String, V> {
                 self.0
             }
-
-            pub fn iter(&self) -> Iter<'_, String, V> {
-                self.0.iter()
-            }
-
-            pub fn iter_mut(&mut self) -> IterMut<'_, String, V> {
-                self.0.iter_mut()
-            }
         }
 
         impl<V> Deref for $name<V> {
@@ -66,42 +58,12 @@ macro_rules! impl_map_wrapper {
             }
         }
 
-        impl<V> AsRef<HashMap<String, V>> for $name<V> {
-            fn as_ref(&self) -> &HashMap<String, V> {
-                &self.0
-            }
-        }
-
-        impl<V> AsMut<HashMap<String, V>> for $name<V> {
-            fn as_mut(&mut self) -> &mut HashMap<String, V> {
-                &mut self.0
-            }
-        }
-
         impl<V> IntoIterator for $name<V> {
             type IntoIter = IntoIter<String, V>;
             type Item = (String, V);
 
             fn into_iter(self) -> Self::IntoIter {
                 self.0.into_iter()
-            }
-        }
-
-        impl<'a, V> IntoIterator for &'a $name<V> {
-            type IntoIter = Iter<'a, String, V>;
-            type Item = (&'a String, &'a V);
-
-            fn into_iter(self) -> Self::IntoIter {
-                self.0.iter()
-            }
-        }
-
-        impl<'a, V> IntoIterator for &'a mut $name<V> {
-            type IntoIter = IterMut<'a, String, V>;
-            type Item = (&'a String, &'a mut V);
-
-            fn into_iter(self) -> Self::IntoIter {
-                self.0.iter_mut()
             }
         }
     };
