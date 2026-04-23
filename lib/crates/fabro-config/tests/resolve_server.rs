@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "sync test fixture setup; not on a Tokio path"
+)]
+
 use fabro_config::parse_settings_layer;
 use fabro_config::user::default_storage_dir;
 use fabro_types::settings::server::{

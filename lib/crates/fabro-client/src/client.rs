@@ -490,16 +490,14 @@ impl Client {
         }
     }
 
-    pub async fn retrieve_resolved_server_settings(
-        &self,
-    ) -> Result<fabro_api::types::ServerSettings> {
+    pub async fn retrieve_resolved_server_settings(&self) -> Result<types::ServerSettings> {
         let url = format!("{}/api/v1/settings", self.base_url());
         let response = self
             .send_http(|http_client| async move { http_client.get(&url).send().await })
             .await?;
 
         response
-            .json::<fabro_api::types::ServerSettings>()
+            .json::<types::ServerSettings>()
             .await
             .context("server returned invalid JSON for server settings")
     }

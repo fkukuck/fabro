@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::time::Duration as StdDuration;
 
 use ipnet::IpNet;
+use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::duration::Duration as DurationLayer;
@@ -287,7 +288,7 @@ where
     D: Deserializer<'de>,
 {
     let value = String::deserialize(deserializer)?;
-    value.parse().map_err(serde::de::Error::custom)
+    value.parse().map_err(D::Error::custom)
 }
 
 fn serialize_std_duration<S>(value: &StdDuration, serializer: S) -> Result<S::Ok, S::Error>

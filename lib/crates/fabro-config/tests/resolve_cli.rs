@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "sync test fixture setup; not on a Tokio path"
+)]
+
 use fabro_config::{parse_settings_layer, resolve_cli_from_file};
 use fabro_types::settings::cli::{CliTargetSettings, OutputFormat, OutputVerbosity};
 use fabro_types::settings::run::AgentPermissions;

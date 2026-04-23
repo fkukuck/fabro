@@ -9,6 +9,8 @@
 
 use std::io::Write;
 
+use fabro_api::types::ServerSettings;
+use fabro_config::UserSettings;
 use fabro_types::settings::CliNamespace;
 use fabro_types::settings::cli::{CliLayer, OutputFormat};
 use fabro_util::printer::Printer;
@@ -20,8 +22,8 @@ use crate::shared::print_json_pretty;
 
 #[derive(Serialize)]
 struct RenderedConfig {
-    user:   fabro_config::UserSettings,
-    server: fabro_api::types::ServerSettings,
+    user:   UserSettings,
+    server: ServerSettings,
 }
 
 async fn rendered_config(
