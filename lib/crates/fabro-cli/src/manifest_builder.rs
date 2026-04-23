@@ -8,15 +8,15 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use fabro_api::types;
-use fabro_config::parse_settings_layer;
 use fabro_config::project::{self, discover_project_config, resolve_workflow_path};
-use fabro_config::run::resolve_run_goal;
+use fabro_config::run::{resolve_run_goal, resolve_run_goal_from_namespace};
+use fabro_config::{WorkflowSettingsBuilder, parse_settings_layer};
 use fabro_graphviz::graph::AttrValue;
 use fabro_graphviz::parser;
 use fabro_sandbox::daytona::detect_repo_info;
-use fabro_types::RunId;
+use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::run::{DaytonaDockerfileLayer, ResolvedGoalSource, ResolvedRunGoal};
-use fabro_types::settings::{Combine, SettingsLayer};
+use fabro_types::{RunId, WorkflowSettings};
 use fabro_workflow::git::{GitSyncStatus, head_sha, sync_status};
 
 use crate::args::{PreflightArgs, RunArgs};
@@ -70,21 +70,18 @@ pub(crate) fn build_run_manifest(input: ManifestBuildInput) -> Result<BuiltManif
         .parent()
         .unwrap_or_else(|| Path::new("."));
     let project_config = discover_project_config(workflow_parent)?;
-    let workflow_layer = root_resolution
-        .workflow_config
-        .clone()
-        .unwrap_or_default()
-        .combine(
-            project_config
-                .as_ref()
-                .map(|(_, config)| config.clone())
-                .unwrap_or_default(),
-        );
-    let merged_settings = input
-        .args_layer
-        .clone()
-        .combine(workflow_layer)
-        .combine(input.user_layer);
+    let workflow_layer = root_resolution.workflow_config.clone().unwrap_or_default();
+    let project_layer = project_config
+        .as_ref()
+        .map(|(_, config)| config.clone())
+        .unwrap_or_default();
+    let workflow_settings = WorkflowSettingsBuilder::new()
+        .args_layer(input.args_layer.clone())
+        .workflow_layer(workflow_layer.clone())
+        .project_layer(project_layer)
+        .user_layer(input.user_layer.clone())
+        .build()
+        .map_err(|errors| anyhow!("failed to resolve manifest settings: {errors}"))?;
     let target_path = root_resolution.dot_path.clone();
     let target_logical_path = to_logical_path(&target_path, &input.cwd)?;
     let target_logical_path_string = logical_path_string(&target_logical_path);
@@ -124,7 +121,7 @@ pub(crate) fn build_run_manifest(input: ManifestBuildInput) -> Result<BuiltManif
 
     let goal = resolve_manifest_goal(
         &input.args_layer,
-        &merged_settings,
+        &workflow_settings,
         &root_source,
         &target_path,
         &input.cwd,
@@ -405,12 +402,12 @@ fn collect_bundled_file(
 
 fn resolve_manifest_goal(
     args_layer: &SettingsLayer,
-    settings: &SettingsLayer,
+    settings: &WorkflowSettings,
     root_source: &str,
     root_dot_path: &Path,
     cwd: &Path,
 ) -> Result<Option<types::ManifestGoal>> {
-    let working_directory = project::resolve_working_directory(settings, cwd);
+    let working_directory = project::resolve_working_directory_from_run(&settings.run, cwd);
 
     // Precedence 1: CLI args (`--goal` / `--goal-file`). These are already
     // resolved to absolute paths by `overrides::goal_layer_from_args`.
@@ -423,7 +420,7 @@ fn resolve_manifest_goal(
     // Precedence 2: merged config `run.goal`. Config-sourced `goal.file`
     // paths were rewritten to absolute by `load_settings_path` at the
     // directory of the config file that declared them.
-    if let Some(resolved) = resolve_run_goal(settings, &working_directory)
+    if let Some(resolved) = resolve_run_goal_from_namespace(&settings.run, &working_directory)
         .context("failed to resolve run.goal.file contents")?
     {
         return Ok(Some(resolved_goal_to_manifest(resolved)));
