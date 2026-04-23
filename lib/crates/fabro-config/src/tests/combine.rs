@@ -1,9 +1,10 @@
+use fabro_types::settings::InterpString;
 use fabro_types::settings::cli::{OutputFormat, OutputVerbosity};
-use fabro_types::settings::run::StringOrSplice;
-use fabro_types::settings::{Combine, InterpString, SettingsLayer};
+
+use crate::{Combine, SettingsLayer, StringOrSplice};
 
 fn parse(input: &str) -> SettingsLayer {
-    fabro_config::parse_settings_layer(input).expect("fixture should parse")
+    crate::parse_settings_layer(input).expect("fixture should parse")
 }
 
 #[test]

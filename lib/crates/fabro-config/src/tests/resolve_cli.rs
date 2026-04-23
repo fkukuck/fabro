@@ -3,11 +3,12 @@
     reason = "sync test fixture setup; not on a Tokio path"
 )]
 
-use fabro_config::UserSettingsBuilder;
+use fabro_types::settings::InterpString;
 use fabro_types::settings::cli::{CliTargetSettings, OutputFormat, OutputVerbosity};
 use fabro_types::settings::run::AgentPermissions;
-use fabro_types::settings::{InterpString, SettingsLayer};
 use temp_env::with_var;
+
+use crate::{SettingsLayer, UserSettingsBuilder};
 
 #[test]
 fn resolves_cli_defaults_from_empty_settings() {

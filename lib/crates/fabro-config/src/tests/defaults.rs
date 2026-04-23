@@ -1,15 +1,17 @@
-use fabro_config::{ServerSettingsBuilder, WorkflowSettingsBuilder, parse_settings_layer};
 use fabro_types::settings::cli::OutputFormat;
 use fabro_types::settings::run::{ApprovalMode, RunMode, WorktreeMode};
 use fabro_types::settings::server::ObjectStoreProvider;
-use fabro_types::settings::{Combine, SettingsLayer};
+
+use crate::{
+    Combine, ServerSettingsBuilder, SettingsLayer, WorkflowSettingsBuilder, parse_settings_layer,
+};
 
 fn parse(source: &str) -> SettingsLayer {
     parse_settings_layer(source).expect("fixture should parse")
 }
 
 fn embedded_defaults() -> SettingsLayer {
-    parse(include_str!("../src/defaults.toml"))
+    parse(include_str!("../defaults.toml"))
 }
 
 #[test]

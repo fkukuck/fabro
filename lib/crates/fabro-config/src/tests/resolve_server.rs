@@ -3,14 +3,16 @@
     reason = "sync test fixture setup; not on a Tokio path"
 )]
 
-use fabro_config::user::default_storage_dir;
-use fabro_config::{ServerSettingsBuilder, parse_settings_layer};
+use fabro_types::settings::InterpString;
 use fabro_types::settings::server::{
     GithubIntegrationStrategy, IpAllowEntry, ObjectStoreSettings, ServerListenSettings,
 };
-use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_util::Home;
 use temp_env::with_var;
+
+use crate::resolve::dev_token_auth_enabled;
+use crate::user::default_storage_dir;
+use crate::{ServerSettingsBuilder, SettingsLayer, parse_settings_layer};
 
 fn parse(source: &str) -> SettingsLayer {
     let mut layer = parse_settings_layer(source).expect("fixture should parse");
@@ -152,7 +154,7 @@ session_sandboxes = true
 
 #[test]
 fn parsing_rejects_inbound_listener_tls_configuration() {
-    let err = fabro_config::parse_settings_layer(
+    let err = parse_settings_layer(
         r#"
 _version = 1
 
@@ -575,10 +577,8 @@ methods = ["dev-token", "github"]
 "#,
     );
 
-    assert!(fabro_config::dev_token_auth_enabled(&dev_token_only));
-    assert!(!fabro_config::dev_token_auth_enabled(&github_only));
-    assert!(fabro_config::dev_token_auth_enabled(&both));
-    assert!(!fabro_config::dev_token_auth_enabled(
-        &SettingsLayer::default()
-    ));
+    assert!(dev_token_auth_enabled(&dev_token_only));
+    assert!(!dev_token_auth_enabled(&github_only));
+    assert!(dev_token_auth_enabled(&both));
+    assert!(!dev_token_auth_enabled(&SettingsLayer::default()));
 }

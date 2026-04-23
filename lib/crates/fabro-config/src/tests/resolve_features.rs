@@ -1,5 +1,4 @@
-use fabro_config::UserSettingsBuilder;
-use fabro_types::settings::SettingsLayer;
+use crate::{SettingsLayer, UserSettingsBuilder};
 
 #[test]
 fn resolves_features_defaults_from_empty_settings() {

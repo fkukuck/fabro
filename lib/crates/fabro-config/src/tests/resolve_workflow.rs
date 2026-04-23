@@ -1,5 +1,4 @@
-use fabro_config::WorkflowSettingsBuilder;
-use fabro_types::settings::SettingsLayer;
+use crate::{SettingsLayer, WorkflowSettingsBuilder};
 
 #[test]
 fn resolves_workflow_defaults_from_empty_settings() {

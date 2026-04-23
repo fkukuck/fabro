@@ -14,12 +14,12 @@ use super::{ResolveError, default_interp, parse_socket_addr, require_interp};
 use crate::user::default_storage_dir;
 use crate::{
     IntegrationWebhooksLayer, ObjectStoreLocalLayer, ObjectStoreS3Layer, ServerApiLayer,
-    ServerArtifactsLayer, ServerAuthGithubLayer, ServerAuthLayer, ServerIntegrationsLayer,
-    ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer,
-    ServerLoggingLayer, ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer, SettingsLayer,
+    ServerArtifactsLayer, ServerAuthLayer, ServerIntegrationsLayer, ServerIpAllowlistLayer,
+    ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer, ServerSlateDbLayer,
+    ServerStorageLayer, ServerWebLayer, SettingsLayer,
 };
 
-pub fn dev_token_auth_enabled(layer: &SettingsLayer) -> bool {
+pub(crate) fn dev_token_auth_enabled(layer: &SettingsLayer) -> bool {
     layer
         .server
         .as_ref()

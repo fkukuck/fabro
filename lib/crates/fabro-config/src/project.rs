@@ -16,7 +16,7 @@ use fabro_types::settings::RunNamespace;
 use serde::Serialize;
 
 use crate::load::load_settings_path;
-use crate::{Error, Result, RunGoalLayer, SettingsLayer, WorkflowSettingsBuilder, run};
+use crate::{Error, Result, SettingsLayer, WorkflowSettingsBuilder, run};
 
 const CONFIG_FILENAME: &str = ".fabro/project.toml";
 #[derive(Clone, Debug)]
@@ -108,7 +108,7 @@ pub fn resolve_workflow_path(workflow_path: &Path, cwd: &Path) -> Result<Workflo
     }
 }
 
-pub fn resolve_working_directory(settings: &SettingsLayer, caller_cwd: &Path) -> PathBuf {
+pub(crate) fn resolve_working_directory(settings: &SettingsLayer, caller_cwd: &Path) -> PathBuf {
     let Some(run_settings) = WorkflowSettingsBuilder::run_from_layer(settings).ok() else {
         return caller_cwd.to_path_buf();
     };
@@ -495,7 +495,7 @@ retros = true
 
     #[test]
     fn load_project_config_rewrites_relative_goal_file_path() {
-        use fabro_types::settings::run::RunGoalLayer;
+        use crate::RunGoalLayer;
 
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join(".fabro");
@@ -553,7 +553,7 @@ directory = "../custom"
 
     #[test]
     fn relative_goal_file_resolves_from_config_dir() {
-        use fabro_types::settings::run::RunGoalLayer;
+        use crate::RunGoalLayer;
 
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join(".fabro");

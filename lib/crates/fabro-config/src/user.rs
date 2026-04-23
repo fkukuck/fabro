@@ -41,7 +41,7 @@ fn active_settings_path_with_lookup(
 /// Load settings config from an explicit path or `~/.fabro/settings.toml`,
 /// returning defaults if the default file doesn't exist. An explicit path that
 /// doesn't exist is an error.
-pub fn load_settings_config(path: Option<&Path>) -> Result<SettingsLayer> {
+pub(crate) fn load_settings_config(path: Option<&Path>) -> Result<SettingsLayer> {
     if let Some(explicit) = path
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os(FABRO_CONFIG_ENV).map(PathBuf::from))

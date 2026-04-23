@@ -21,7 +21,7 @@ use crate::{Result, RunGoalLayer, RunLayer, SettingsLayer};
 ///
 /// Goes through [`load_settings_path`] so that relative `run.goal.file`
 /// paths are anchored at the directory of `path` at load time.
-pub fn load_run_config(path: &Path) -> Result<SettingsLayer> {
+pub(crate) fn load_run_config(path: &Path) -> Result<SettingsLayer> {
     load_settings_path(path)
 }
 
@@ -68,7 +68,7 @@ impl std::error::Error for ResolveRunGoalError {
     }
 }
 
-pub fn resolve_run_goal(
+pub(crate) fn resolve_run_goal(
     settings: &SettingsLayer,
     base_dir: &Path,
 ) -> std::result::Result<Option<ResolvedRunGoal>, ResolveRunGoalError> {
@@ -147,9 +147,10 @@ fn resolve_goal(
 
 #[cfg(test)]
 mod tests {
-    use fabro_types::settings::run::{RunGoal, RunGoalLayer};
+    use fabro_types::settings::run::RunGoal;
 
     use super::*;
+    use crate::RunGoalLayer;
 
     #[test]
     fn load_run_config_rewrites_relative_goal_file_path() {

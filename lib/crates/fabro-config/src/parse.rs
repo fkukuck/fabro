@@ -58,7 +58,7 @@ impl fmt::Display for VersionError {
 
 impl std::error::Error for VersionError {}
 
-pub fn parse_settings_layer(input: &str) -> Result<SettingsLayer, ParseError> {
+pub(crate) fn parse_settings_layer(input: &str) -> Result<SettingsLayer, ParseError> {
     let raw: toml::Value = toml::from_str(input).map_err(|e| ParseError::Toml(e.to_string()))?;
     validate_version(&raw).map_err(ParseError::Version)?;
 

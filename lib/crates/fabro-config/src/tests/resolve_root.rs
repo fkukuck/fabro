@@ -1,6 +1,7 @@
-use fabro_config::{ServerSettingsBuilder, WorkflowSettingsBuilder};
+use fabro_types::settings::InterpString;
 use fabro_types::settings::run::RunMode;
-use fabro_types::settings::{InterpString, SettingsLayer};
+
+use crate::{ServerSettingsBuilder, SettingsLayer, WorkflowSettingsBuilder};
 
 #[test]
 fn resolves_root_settings_require_explicit_server_auth_methods() {

@@ -7,7 +7,6 @@ use fabro_types::settings::run::{
     WorktreeMode,
 };
 use fabro_types::settings::{Duration, InterpString, ModelRef, Size};
-use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 use super::maps::{MergeMap, ReplaceMap, StickyMap};

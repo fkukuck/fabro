@@ -21,6 +21,8 @@ pub mod project;
 pub mod resolve;
 pub mod run;
 pub mod storage;
+#[cfg(test)]
+mod tests;
 pub mod user;
 
 use std::path::Path;
@@ -48,11 +50,12 @@ pub use layers::{
     ServerStorageLayer, ServerWebLayer, SlackIntegrationLayer, StickyMap, StringOrSplice,
     TeamsIntegrationLayer, WorkflowLayer,
 };
-pub(crate) use layers::{Combine, SPLICE_MARKER, SettingsLayer, SpliceArray};
-pub use parse::{ParseError, parse_settings_layer};
+pub(crate) use layers::{Combine, SettingsLayer};
+pub use parse::ParseError;
+pub(crate) use parse::parse_settings_layer;
 pub use resolve::{
-    ResolveError, dev_token_auth_enabled, resolve_cli, resolve_features, resolve_project,
-    resolve_run, resolve_server, resolve_workflow,
+    ResolveError, resolve_cli, resolve_features, resolve_project, resolve_run, resolve_server,
+    resolve_workflow,
 };
 use serde::de::DeserializeOwned;
 pub use storage::{RunScratch, RuntimeDirectory, Storage};

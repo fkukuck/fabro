@@ -1,6 +1,7 @@
-use fabro_config::WorkflowSettingsBuilder;
+use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{ApprovalMode, RunGoal, RunMode, WorktreeMode};
-use fabro_types::settings::{InterpString, SettingsLayer};
+
+use crate::{SettingsLayer, WorkflowSettingsBuilder};
 
 #[test]
 fn resolves_run_defaults_from_empty_settings() {

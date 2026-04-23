@@ -78,7 +78,7 @@ impl ServerSettingsBuilder {
         Self::from_layer(&layer)
     }
 
-    pub fn from_layer(layer: &SettingsLayer) -> Result<ServerSettings> {
+    pub(crate) fn from_layer(layer: &SettingsLayer) -> Result<ServerSettings> {
         let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let server = resolve_server(&layer.server.clone().unwrap_or_default(), &mut errors);
@@ -126,7 +126,7 @@ impl UserSettingsBuilder {
         Self::from_layer_with_cli_overrides(&layer, cli)
     }
 
-    pub fn from_layer(layer: &SettingsLayer) -> Result<UserSettings> {
+    pub(crate) fn from_layer(layer: &SettingsLayer) -> Result<UserSettings> {
         let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let cli = resolve_cli(&layer.cli.clone().unwrap_or_default(), &mut errors);
@@ -138,7 +138,7 @@ impl UserSettingsBuilder {
         )
     }
 
-    pub fn from_layer_with_cli_overrides(
+    pub(crate) fn from_layer_with_cli_overrides(
         layer: &SettingsLayer,
         cli: &CliLayer,
     ) -> Result<UserSettings> {
@@ -171,7 +171,7 @@ impl RunSettingsBuilder {
         Self::from_layer(&layer)
     }
 
-    pub fn from_layer(layer: &SettingsLayer) -> Result<RunNamespace> {
+    pub(crate) fn from_layer(layer: &SettingsLayer) -> Result<RunNamespace> {
         let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
         let mut errors = Vec::new();
         let run = resolve_run(&layer.run.clone().unwrap_or_default(), &mut errors);
@@ -268,13 +268,13 @@ impl WorkflowSettingsBuilder {
     }
 
     #[must_use]
-    pub fn args_layer(mut self, layer: SettingsLayer) -> Self {
+    pub(crate) fn args_layer(mut self, layer: SettingsLayer) -> Self {
         self.args = layer;
         self
     }
 
     #[must_use]
-    pub fn workflow_layer(mut self, layer: SettingsLayer) -> Self {
+    pub(crate) fn workflow_layer(mut self, layer: SettingsLayer) -> Self {
         self.workflow = layer;
         self
     }
@@ -298,7 +298,7 @@ impl WorkflowSettingsBuilder {
     }
 
     #[must_use]
-    pub fn project_layer(mut self, layer: SettingsLayer) -> Self {
+    pub(crate) fn project_layer(mut self, layer: SettingsLayer) -> Self {
         self.project = layer;
         self
     }
@@ -314,7 +314,7 @@ impl WorkflowSettingsBuilder {
     }
 
     #[must_use]
-    pub fn user_layer(mut self, layer: SettingsLayer) -> Self {
+    pub(crate) fn user_layer(mut self, layer: SettingsLayer) -> Self {
         self.user = layer;
         self
     }
@@ -330,7 +330,7 @@ impl WorkflowSettingsBuilder {
     }
 
     #[must_use]
-    pub fn server_layer(mut self, layer: SettingsLayer) -> Self {
+    pub(crate) fn server_layer(mut self, layer: SettingsLayer) -> Self {
         self.server = layer;
         self
     }
@@ -360,7 +360,7 @@ impl WorkflowSettingsBuilder {
     }
 
     #[must_use]
-    pub fn build_layer(self) -> SettingsLayer {
+    pub(crate) fn build_layer(self) -> SettingsLayer {
         let server_defaults = SettingsLayer {
             version: self.server.version,
             run: self.server.run,
@@ -383,7 +383,7 @@ impl WorkflowSettingsBuilder {
         Self::from_layer(&self.build_layer())
     }
 
-    pub fn from_layer(
+    pub(crate) fn from_layer(
         layer: &SettingsLayer,
     ) -> std::result::Result<WorkflowSettings, ResolveErrors> {
         let layer = layer.clone().combine(DEFAULTS_LAYER.clone());
