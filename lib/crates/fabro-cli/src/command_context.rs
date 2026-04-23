@@ -81,21 +81,6 @@ impl ResolvedBaseContext {
 }
 
 impl CommandContext {
-    pub(crate) fn base(
-        printer: Printer,
-        cli_layer: &CliLayer,
-        process_local_json: bool,
-    ) -> Result<Self> {
-        let (machine_settings, user_settings) = load_merged_settings(cli_layer, &ServerMode::None)?;
-        Self::base_with_settings(
-            printer,
-            cli_layer,
-            process_local_json,
-            machine_settings,
-            user_settings,
-        )
-    }
-
     fn base_with_settings(
         printer: Printer,
         cli_layer: &CliLayer,
