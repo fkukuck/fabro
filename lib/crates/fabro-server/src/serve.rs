@@ -7,7 +7,7 @@ use anyhow::Context;
 use clap::Args;
 use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::user::{apply_storage_dir_override, load_settings_config};
-use fabro_config::{ServerSettings, Storage};
+use fabro_config::{ServerSettingsBuilder, Storage};
 use fabro_install::{OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV};
 use fabro_sandbox::SandboxProvider;
 use fabro_types::settings::server::{
@@ -469,7 +469,7 @@ where
 }
 
 fn resolve_server_settings(file: &SettingsLayer) -> anyhow::Result<ServerNamespace> {
-    ServerSettings::from_layer(file)
+    ServerSettingsBuilder::from_layer(file)
         .map(|settings| settings.server)
         .map_err(anyhow::Error::from)
 }

@@ -1902,7 +1902,8 @@ async fn write_artifact_store_metadata(
     storage.root = Some(InterpString::parse(&storage_dir.display().to_string()));
 
     let resolved =
-        fabro_config::ServerSettings::from_layer(&settings).map_err(anyhow::Error::from)?;
+        fabro_config::ServerSettingsBuilder::from_layer(&settings)
+            .map_err(anyhow::Error::from)?;
     let (object_store, prefix) = serve::build_artifact_object_store(&resolved.server)?;
     let artifact_store = ArtifactStore::new(object_store, prefix);
     artifact_store.write_metadata(FABRO_VERSION).await?;

@@ -107,8 +107,8 @@ name = "gpt-5"
 #[test]
 fn workflow_settings_resolve_defaults_and_expose_fields() {
     let settings = SettingsLayer::default();
-    let resolved =
-        fabro_config::WorkflowSettings::from_layer(&settings).expect("defaults should resolve");
+    let resolved = fabro_config::WorkflowSettingsBuilder::from_layer(&settings)
+        .expect("defaults should resolve");
 
     assert_eq!(resolved.project.directory, ".");
     assert_eq!(resolved.workflow.graph, "workflow.fabro");
@@ -135,7 +135,7 @@ shared = "run"
 "#,
     );
 
-    let labels = fabro_config::WorkflowSettings::from_layer(&settings)
+    let labels = fabro_config::WorkflowSettingsBuilder::from_layer(&settings)
         .expect("workflow settings should resolve")
         .combined_labels();
 
@@ -156,7 +156,7 @@ provider = "not-a-provider"
 "#,
     );
 
-    let errors = fabro_config::WorkflowSettings::from_layer(&settings)
+    let errors = fabro_config::WorkflowSettingsBuilder::from_layer(&settings)
         .expect_err("invalid workflow settings should fail");
 
     assert!(errors.iter().any(|error| {
@@ -182,12 +182,9 @@ command = ["echo", "hi"]
 "#,
     );
 
-    let rendered = fabro_config::WorkflowSettings::from_layer(&settings)
+    let rendered = fabro_config::WorkflowSettingsBuilder::from_layer(&settings)
         .expect_err("invalid workflow settings should fail")
-        .into_iter()
-        .map(|error| error.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
+        .to_string();
 
     assert!(rendered.contains("run.sandbox.provider"));
     assert!(rendered.contains("run.prepare.steps[0]"));

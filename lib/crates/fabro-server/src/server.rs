@@ -40,7 +40,7 @@ pub use fabro_api::types::{
 };
 use fabro_auth::parse_credential_secret;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{ServerSettings, Storage};
+use fabro_config::{ServerSettingsBuilder, Storage};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
 };
@@ -73,7 +73,7 @@ use fabro_types::settings::{InterpString, SettingsLayer};
 use fabro_types::{
     ActorRef, EventBody, InterviewQuestionRecord, InterviewQuestionType, RunBlobId,
     RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance, RunServerProvenance,
-    RunSubjectProvenance,
+    RunSubjectProvenance, ServerSettings,
 };
 use fabro_util::redact::redact_jsonl_line;
 use fabro_util::text::strip_goal_decoration;
@@ -783,7 +783,7 @@ impl AppState {
     }
 
     pub(crate) fn replace_settings(&self, settings: SettingsLayer) -> anyhow::Result<()> {
-        let resolved = Arc::new(ServerSettings::from_layer(&settings)?);
+        let resolved = Arc::new(ServerSettingsBuilder::from_layer(&settings)?);
         resolve_canonical_origin(&resolved.server, &self.env_lookup).map_err(anyhow::Error::msg)?;
 
         *self.settings.write().expect("settings lock poisoned") = settings;
@@ -2585,7 +2585,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
     let (global_event_tx, _) = broadcast::channel(4096);
     let current_server_settings = {
         let settings = settings.read().expect("settings lock poisoned");
-        Arc::new(ServerSettings::from_layer(&settings)?)
+        Arc::new(ServerSettingsBuilder::from_layer(&settings)?)
     };
     let slack_service = {
         current_server_settings
@@ -4440,33 +4440,28 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
     };
     let server_settings = state.server_settings();
     let github_settings = &server_settings.server.integrations.github;
-    let github_app_result = match fabro_config::resolve_run_from_file(
-        &persisted.run_spec().settings,
-    ) {
-        Ok(settings) => {
-            let required_github_credentials = (settings.execution.mode != RunMode::DryRun
-                && settings.sandbox.provider == "daytona")
-                || !github_settings.permissions.is_empty();
-            if required_github_credentials {
-                state.github_credentials(github_settings)
-            } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some()
-            {
-                match state.github_credentials(github_settings) {
-                    Ok(github_app) => Ok(github_app),
-                    Err(err) => {
-                        tracing::warn!(
-                            run_id = %run_id,
-                            error = %err,
-                            "GitHub credentials unavailable; pull request creation will be skipped"
-                        );
-                        Ok(None)
-                    }
+    let github_app_result = {
+        let settings = &persisted.run_spec().settings.run;
+        let required_github_credentials = (settings.execution.mode != RunMode::DryRun
+            && settings.sandbox.provider == "daytona")
+            || !github_settings.permissions.is_empty();
+        if required_github_credentials {
+            state.github_credentials(github_settings)
+        } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some() {
+            match state.github_credentials(github_settings) {
+                Ok(github_app) => Ok(github_app),
+                Err(err) => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        error = %err,
+                        "GitHub credentials unavailable; pull request creation will be skipped"
+                    );
+                    Ok(None)
                 }
-            } else {
-                Ok(None)
             }
+        } else {
+            Ok(None)
         }
-        Err(_) => Ok(None),
     };
     let github_app = match github_app_result {
         Ok(github_app) => github_app,
@@ -9996,12 +9991,12 @@ level = "debug"
             .unwrap()
             .spec
             .expect("run spec should exist");
-        let resolved_run = fabro_config::resolve_run_from_file(&run_spec.settings).unwrap();
+        let resolved_run = &run_spec.settings.run;
 
         // Verify a sampling of the persisted v2 settings, including inherited
         // run execution mode from server settings.
         assert_eq!(
-            match resolved_run.goal {
+            match &resolved_run.goal {
                 Some(fabro_types::settings::run::RunGoal::Inline(value)) => Some(value.as_source()),
                 _ => None,
             }
@@ -10026,14 +10021,8 @@ level = "debug"
         // Server-operational fields (auth, integrations, etc.) deliberately
         // do not flow into the run's persisted settings — they live on the
         // server and are read via AppState::server_settings().
-        assert!(run_spec.settings.server.as_ref().is_none_or(|server| {
-            server
-                .integrations
-                .as_ref()
-                .and_then(|integrations| integrations.github.as_ref())
-                .and_then(|github| github.app_id.as_ref())
-                .is_none()
-        }));
+        let settings_json = serde_json::to_value(&run_spec.settings).unwrap();
+        assert!(settings_json.pointer("/server").is_none());
     }
 
     #[tokio::test]

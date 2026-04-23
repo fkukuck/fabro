@@ -309,8 +309,7 @@ impl RunSession {
         let (origin_url, detected_base_branch) = detect_repo_info(&working_directory)
             .map_or((None, None), |(url, branch)| (Some(url), branch));
 
-        let resolved = fabro_config::resolve_run_from_file(settings)
-            .map_err(|errors| Error::Precondition(fabro_config::render_resolve_errors(&errors)))?;
+        let resolved = &settings.run;
 
         let sandbox_provider = resolve_sandbox_provider(&resolved)?;
         let sandbox_provider =

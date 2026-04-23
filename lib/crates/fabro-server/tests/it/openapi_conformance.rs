@@ -214,8 +214,8 @@ async fn install_and_normal_routes_stay_isolated() {
 
 // Note: the earlier `server_settings_keys_match_openapi_spec` drift check
 // was deleted in Stage 6.3b alongside the legacy flat `fabro_types::Settings`
-// struct that it instantiated. The v2 `/api/v1/settings` and
-// `/api/v1/runs/:id/settings` endpoints now return the freely-shaped
-// `SettingsLayer` tree which the OpenAPI spec declares as
-// `type: object, additionalProperties: true`, so there is nothing to diff
-// at the property-key level.
+// struct that it instantiated. `/api/v1/settings` now returns dense
+// `ServerSettings`, and `/api/v1/runs/:id/settings` returns a dense
+// `WorkflowSettings` snapshot. Property-level conformance for those payloads
+// lives in the `fabro-api` round-trip tests that pin the Rust types against
+// the OpenAPI schema names.

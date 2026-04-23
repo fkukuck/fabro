@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
-use fabro_config::effective_settings::EffectiveSettingsLayers;
+use fabro_config::WorkflowSettingsBuilder;
 use fabro_config::project::resolve_working_directory;
 use fabro_config::run::parse_run_config;
-use fabro_config::{effective_settings, parse_settings_layer};
+use fabro_config::parse_settings_layer;
 use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
@@ -83,10 +83,13 @@ pub(crate) fn prepare_manifest(
         .try_fold(SettingsLayer::default(), |layer, config| {
             Ok::<_, anyhow::Error>(parse_manifest_config(config)?.combine(layer))
         })?;
-    let mut settings = effective_settings::materialize_settings_layer(
-        EffectiveSettingsLayers::new(args_layer, workflow_layer, project_layer, user_layer),
-        Some(server_settings),
-    )?;
+    let mut settings = WorkflowSettingsBuilder::new()
+        .args_layer(args_layer)
+        .workflow_layer(workflow_layer)
+        .project_layer(project_layer)
+        .user_layer(user_layer)
+        .server_layer(server_settings.clone())
+        .build_layer();
     if let Some(goal) = manifest.goal.as_ref() {
         let run = settings.run.get_or_insert_with(RunLayer::default);
         run.goal = Some(RunGoalLayer::Inline(InterpString::parse(&goal.text)));
@@ -359,13 +362,14 @@ async fn build_preflight_report(
         Catalog::builtin(),
         &configured_providers,
     );
-    let resolved_run = fabro_config::resolve_run_from_file(&materialized)
-        .map_err(|errors| anyhow!(fabro_config::render_resolve_errors(&errors)))?;
+    let resolved_run =
+        WorkflowSettingsBuilder::from_layer(&materialized).map_err(|errors| anyhow!(errors))?;
     let server_settings = state.server_settings();
     let github_integration = &server_settings.server.integrations.github;
-    let sandbox_provider = resolve_sandbox_provider(&resolved_run)?;
-    let sandbox_provider =
-        if resolved_run.execution.mode == RunMode::DryRun && !sandbox_provider.is_local() {
+    let sandbox_provider = resolve_sandbox_provider(&resolved_run.run)?;
+    let sandbox_provider = if resolved_run.run.execution.mode == RunMode::DryRun
+        && !sandbox_provider.is_local()
+    {
             SandboxProvider::Local
         } else {
             sandbox_provider
@@ -385,7 +389,7 @@ async fn build_preflight_report(
         &mut checks,
         sandbox_provider,
         prepared,
-        &resolved_run,
+        &resolved_run.run,
         github_app.clone(),
         daytona_api_key,
     )
@@ -394,7 +398,7 @@ async fn build_preflight_report(
         state,
         &mut checks,
         graph,
-        &resolved_run,
+        &resolved_run.run,
         &configured_providers,
     )
     .await;
@@ -415,8 +419,8 @@ async fn build_preflight_report(
 }
 
 fn base_preflight_checks(prepared: &PreparedManifest, graph: &Graph) -> Vec<CheckResult> {
-    let setup_command_count = fabro_config::resolve_run_from_file(&prepared.settings)
-        .map(|settings| settings.prepare.commands.len())
+    let setup_command_count = WorkflowSettingsBuilder::from_layer(&prepared.settings)
+        .map(|settings| settings.run.prepare.commands.len())
         .unwrap_or_default();
     let repo_summary = prepared.git.as_ref().map_or_else(
         || "unknown".to_string(),
@@ -978,8 +982,9 @@ root = "/srv/fabro"
         let prepared = prepare_manifest(&server_settings, &manifest).unwrap();
 
         assert_eq!(
-            fabro_config::resolve_run_from_file(&prepared.settings)
+            WorkflowSettingsBuilder::from_layer(&prepared.settings)
                 .unwrap()
+                .run
                 .execution
                 .mode,
             fabro_types::settings::run::RunMode::DryRun
@@ -1036,25 +1041,15 @@ app_id = "snapshotted-app-id"
         });
 
         let prepared = prepare_manifest(&server_settings, &manifest).unwrap();
-        let resolved_run = fabro_config::resolve_run_from_file(&prepared.settings).unwrap();
-        let resolved_server = fabro_config::resolve_server_from_file(&prepared.settings).unwrap();
+        let resolved_run = WorkflowSettingsBuilder::from_layer(&prepared.settings).unwrap();
+        let settings_json = serde_json::to_value(&prepared.settings).unwrap();
 
         // v2 merge matrix: run.prepare.steps replaces the whole list across
         // layers, so the higher-precedence workflow layer wins over cli.
-        assert_eq!(resolved_run.prepare.commands, vec![
+        assert_eq!(resolved_run.run.prepare.commands, vec![
             "workflow-setup".to_string()
         ]);
-        assert_eq!(
-            resolved_server
-                .integrations
-                .github
-                .app_id
-                .as_ref()
-                .map(fabro_types::settings::InterpString::as_source)
-                .as_deref(),
-            Some("snapshotted-app-id")
-        );
-        assert_eq!(resolved_server.storage.root.as_source(), "/srv/fabro");
+        assert!(settings_json.pointer("/server").is_none());
     }
 
     #[tokio::test]

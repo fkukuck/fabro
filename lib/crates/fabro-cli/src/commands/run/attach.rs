@@ -85,8 +85,7 @@ pub(crate) async fn attach_run_with_client(
 ) -> Result<ExitCode> {
     let state = client.get_run_state(run_id).await?;
     let auto_approve = state.spec.as_ref().is_some_and(|record| {
-        fabro_config::resolve_run_from_file(&record.settings)
-            .is_ok_and(|settings| settings.execution.approval == ApprovalMode::Auto)
+        record.settings.run.execution.approval == ApprovalMode::Auto
     });
     let events = client.list_run_events(run_id, None, None).await?;
     let replay_events = events.clone();

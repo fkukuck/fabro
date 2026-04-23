@@ -4,7 +4,8 @@ use fabro_api::types::{
     FeaturesNamespace as ApiFeaturesNamespace, ObjectStoreSettings as ApiObjectStoreSettings,
     ServerNamespace as ApiServerNamespace, ServerSettings as ApiServerSettings,
 };
-use fabro_config::{ServerSettings, parse_settings_layer};
+use fabro_config::{ServerSettingsBuilder, parse_settings_layer};
+use fabro_types::ServerSettings;
 use fabro_types::settings::server::ObjectStoreSettings;
 use fabro_types::settings::{FeaturesNamespace, ServerNamespace};
 
@@ -54,7 +55,7 @@ session_sandboxes = true
 "#,
     )
     .expect("settings fixture should parse");
-    let settings = ServerSettings::from_layer(&layer).expect("settings should resolve");
+    let settings = ServerSettingsBuilder::from_layer(&layer).expect("settings should resolve");
 
     let json = serde_json::to_value(&settings).expect("server settings should serialize");
     assert_eq!(json["server"]["listen"]["type"], "tcp");

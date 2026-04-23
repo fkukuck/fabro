@@ -118,9 +118,8 @@ async fn initialized(
             inputs: run_options
                 .settings
                 .run
-                .as_ref()
-                .and_then(|run| run.inputs.clone())
-                .unwrap_or_default(),
+                .inputs
+                .clone(),
             run_options: run_options.clone(),
             workflow_path: None,
             workflow_bundle: None,

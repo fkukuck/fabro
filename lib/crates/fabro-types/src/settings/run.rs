@@ -18,7 +18,7 @@ use super::maps::{MergeMap, ReplaceMap, StickyMap};
 use super::model_ref::ModelRef;
 
 /// A structurally resolved `[run]` view for consumers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunNamespace {
     pub goal:          Option<RunGoal>,
     pub working_dir:   Option<InterpString>,
@@ -40,32 +40,32 @@ pub struct RunNamespace {
 }
 
 /// The resolved source of a run goal.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum RunGoal {
     Inline(InterpString),
     File(InterpString),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunModelSettings {
     pub provider:  Option<InterpString>,
     pub name:      Option<InterpString>,
     pub fallbacks: Vec<ModelRef>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunGitSettings {
     pub author: Option<GitAuthorSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GitAuthorSettings {
     pub name:  Option<InterpString>,
     pub email: Option<InterpString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunPrepareSettings {
     pub commands:   Vec<String>,
     pub timeout_ms: u64,
@@ -80,7 +80,7 @@ impl Default for RunPrepareSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunExecutionSettings {
     pub mode:     RunMode,
     pub approval: ApprovalMode,
@@ -97,12 +97,12 @@ impl Default for RunExecutionSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunCheckpointSettings {
     pub exclude_globs: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSandboxSettings {
     pub provider:     String,
     pub preserve:     bool,
@@ -125,12 +125,12 @@ impl Default for RunSandboxSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LocalSandboxSettings {
     pub worktree_mode: WorktreeMode,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DaytonaSettings {
     pub auto_stop_interval: Option<i32>,
     pub labels:             HashMap<String, String>,
@@ -143,6 +143,17 @@ pub struct DaytonaSettings {
 pub enum DockerfileSource {
     Inline(String),
     Path { path: String },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum DockerfileSourceRepr {
+    Inline {
+        value: String,
+    },
+    Path {
+        path: String,
+    },
 }
 
 impl Serialize for DockerfileSource {
@@ -165,7 +176,19 @@ impl Serialize for DockerfileSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+impl<'de> Deserialize<'de> for DockerfileSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match DockerfileSourceRepr::deserialize(deserializer)? {
+            DockerfileSourceRepr::Inline { value } => Ok(Self::Inline(value)),
+            DockerfileSourceRepr::Path { path } => Ok(Self::Path { path }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DaytonaSnapshotSettings {
     pub name:       String,
     pub cpu:        Option<i32>,
@@ -174,7 +197,7 @@ pub struct DaytonaSnapshotSettings {
     pub dockerfile: Option<DockerfileSource>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NotificationRouteSettings {
     pub enabled:  bool,
     pub provider: Option<String>,
@@ -184,12 +207,12 @@ pub struct NotificationRouteSettings {
     pub teams:    Option<NotificationProviderSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NotificationProviderSettings {
     pub channel: Option<InterpString>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunInterviewsSettings {
     pub provider: Option<String>,
     pub slack:    Option<InterviewProviderSettings>,
@@ -197,18 +220,18 @@ pub struct RunInterviewsSettings {
     pub teams:    Option<InterviewProviderSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InterviewProviderSettings {
     pub channel: Option<InterpString>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunAgentSettings {
     pub permissions: Option<AgentPermissions>,
     pub mcps:        HashMap<String, McpServerSettings>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpServerSettings {
     pub name:                 String,
     pub transport:            McpTransport,
@@ -242,7 +265,7 @@ impl McpServerSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum McpTransport {
     Stdio {
@@ -372,7 +395,7 @@ impl HookDefinition {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunScmSettings {
     pub provider:   Option<String>,
     pub owner:      Option<InterpString>,
@@ -380,20 +403,10 @@ pub struct RunScmSettings {
     pub github:     Option<ScmGitHubSettings>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ScmGitHubSettings;
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ScmGitHubSettings {}
 
-impl Serialize for ScmGitHubSettings {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let state = serializer.serialize_struct("ScmGitHubSettings", 0)?;
-        state.end()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PullRequestSettings {
     pub enabled:        bool,
     pub draft:          bool,
@@ -412,7 +425,7 @@ impl Default for PullRequestSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactsSettings {
     pub include: Vec<String>,
 }

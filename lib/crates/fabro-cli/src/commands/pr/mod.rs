@@ -5,7 +5,7 @@ mod merge;
 mod view;
 
 use anyhow::{Context, Result, anyhow};
-use fabro_config::Storage;
+use fabro_config::{ServerSettingsBuilder, Storage};
 use fabro_github::GitHubCredentials;
 use fabro_types::PullRequestRecord;
 use fabro_types::settings::InterpString;
@@ -33,7 +33,7 @@ pub(crate) async fn dispatch(ns: PrNamespace, base_ctx: &CommandContext) -> Resu
     reason = "boundary-exempt(pr-api): remove with follow-up #1 when PR ops move server-side"
 )]
 fn load_github_credentials_required(base_ctx: &CommandContext) -> Result<GitHubCredentials> {
-    let server_settings = fabro_config::ServerSettings::from_layer(base_ctx.machine_settings())
+    let server_settings = ServerSettingsBuilder::from_layer(base_ctx.machine_settings())
         .map_err(anyhow::Error::from)?;
     let vault = user_config::storage_dir(base_ctx.machine_settings())
         .ok()

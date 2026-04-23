@@ -3,7 +3,7 @@
     reason = "sync test fixture setup; not on a Tokio path"
 )]
 
-use fabro_config::parse_settings_layer;
+use fabro_config::{ServerSettingsBuilder, parse_settings_layer};
 use fabro_config::user::default_storage_dir;
 use fabro_types::settings::server::{
     GithubIntegrationStrategy, IpAllowEntry, ObjectStoreSettings, ServerListenSettings,
@@ -92,8 +92,8 @@ session_sandboxes = true
 "#,
     );
 
-    let context =
-        fabro_config::ServerSettings::from_layer(&settings).expect("settings should resolve");
+    let context = fabro_config::ServerSettingsBuilder::from_layer(&settings)
+        .expect("settings should resolve");
 
     assert_eq!(
         context.server,
@@ -127,7 +127,8 @@ session_sandboxes = true
     .unwrap();
 
     with_var("FABRO_HOME", Some(home.path()), || {
-        let settings = fabro_config::ServerSettings::resolve().expect("settings should resolve");
+        let settings =
+            fabro_config::ServerSettingsBuilder::load_default().expect("settings should resolve");
         assert_eq!(settings.server.storage.root.as_source(), "/srv/from-home");
         assert!(settings.features.session_sandboxes);
     });
@@ -517,9 +518,11 @@ entries = ["github_meta_hooks"]
 }
 
 #[test]
-fn resolve_storage_root_defaults_without_server_auth_methods() {
+fn resolve_storage_root_defaults_with_minimal_server_auth_methods() {
+    let settings = ServerSettingsBuilder::from_layer(&empty_settings_with_auth_methods())
+        .expect("default server settings should resolve");
     assert_eq!(
-        fabro_config::resolve_storage_root(&SettingsLayer::default()).as_source(),
+        settings.server.storage.root.as_source(),
         default_storage_dir().to_string_lossy()
     );
 }
@@ -534,11 +537,10 @@ _version = 1
 root = "/srv/fabro"
 "#,
     );
+    let settings =
+        ServerSettingsBuilder::from_layer(&file).expect("server settings should resolve");
 
-    assert_eq!(
-        fabro_config::resolve_storage_root(&file).as_source(),
-        "/srv/fabro"
-    );
+    assert_eq!(settings.server.storage.root.as_source(), "/srv/fabro");
 }
 
 #[test]
@@ -551,11 +553,10 @@ _version = 1
 root = "{{ env.FABRO_STORAGE_ROOT }}"
 "#,
     );
+    let settings =
+        ServerSettingsBuilder::from_layer(&file).expect("server settings should resolve");
 
-    assert_eq!(
-        fabro_config::resolve_storage_root(&file),
-        InterpString::parse("{{ env.FABRO_STORAGE_ROOT }}")
-    );
+    assert_eq!(settings.server.storage.root, InterpString::parse("{{ env.FABRO_STORAGE_ROOT }}"));
 }
 
 #[test]

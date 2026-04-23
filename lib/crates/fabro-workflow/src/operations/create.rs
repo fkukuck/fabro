@@ -8,15 +8,15 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fabro_config::{Storage, WorkflowSettings};
+use fabro_config::{Storage, WorkflowSettingsBuilder};
 use fabro_graphviz::graph::{AttrValue, Graph};
 use fabro_model::{Catalog, Provider};
 use fabro_sandbox::SandboxProvider;
 use fabro_sandbox::daytona::detect_repo_info;
 use fabro_store::Database;
 use fabro_template::{TemplateContext, render as render_template};
-use fabro_types::settings::SettingsLayer;
 use fabro_types::settings::run::RunMode;
+use fabro_types::settings::SettingsLayer;
 use fabro_types::{RunId, RunProvenance};
 use fabro_util::json::normalize_json_value;
 use tokio::task::spawn_blocking;
@@ -85,8 +85,8 @@ pub async fn create(
     })
     .map_err(|err| Error::Parse(err.to_string()))?;
 
-    if fabro_config::resolve_run_from_file(&resolved.settings)
-        .map_or(true, |settings| settings.execution.mode != RunMode::DryRun)
+    if WorkflowSettingsBuilder::from_layer(&resolved.settings)
+        .map_or(true, |settings| settings.run.execution.mode != RunMode::DryRun)
     {
         validate_sandbox_provider(&resolved.settings)?;
     }
@@ -108,8 +108,8 @@ pub async fn create(
     } = request;
 
     let settings = resolved.settings.clone();
-    let resolved_settings = WorkflowSettings::from_layer(&settings)
-        .map_err(|errors| Error::Precondition(fabro_config::render_resolve_errors(&errors)))?;
+    let resolved_settings = WorkflowSettingsBuilder::from_layer(&settings)
+        .map_err(|errors| Error::Precondition(errors.to_string()))?;
     let run_id = run_id.unwrap_or_else(RunId::new);
     let storage = Storage::new(storage_root);
     let run_dir = storage.run_scratch(&run_id).root().to_path_buf();
@@ -272,9 +272,10 @@ fn store_error(err: impl std::fmt::Display) -> Error {
 }
 
 fn validate_sandbox_provider(settings: &SettingsLayer) -> Result<(), Error> {
-    let resolved = fabro_config::resolve_run_from_file(settings)
-        .map_err(|errors| Error::Precondition(fabro_config::render_resolve_errors(&errors)))?;
+    let resolved = WorkflowSettingsBuilder::from_layer(settings)
+        .map_err(|errors| Error::Precondition(errors.to_string()))?;
     resolved
+        .run
         .sandbox
         .provider
         .parse::<SandboxProvider>()
@@ -378,6 +379,8 @@ fn persist_validated(
         Catalog::builtin(),
         &configured_providers,
     );
+    let settings = WorkflowSettingsBuilder::from_layer(&settings)
+        .map_err(|errors| Error::Precondition(errors.to_string()))?;
 
     let run_id = run_id.unwrap_or_else(RunId::new);
     let run_dir = run_dir.unwrap_or_else(|| default_run_dir(&run_id));
@@ -860,8 +863,11 @@ mod tests {
         assert_eq!(created.run_id, fixtures::RUN_1);
         assert_eq!(created.persisted.run_spec().graph.goal(), "override goal");
         assert_eq!(
-            fabro_config::resolve_run_from_file(&created.persisted.run_spec().settings)
-                .unwrap()
+            created
+                .persisted
+                .run_spec()
+                .settings
+                .run
                 .model
                 .name
                 .as_ref()
@@ -870,8 +876,11 @@ mod tests {
             Some("claude-sonnet-4-6")
         );
         assert_eq!(
-            fabro_config::resolve_run_from_file(&created.persisted.run_spec().settings)
-                .unwrap()
+            created
+                .persisted
+                .run_spec()
+                .settings
+                .run
                 .model
                 .provider
                 .as_ref()
@@ -880,10 +889,7 @@ mod tests {
             Some("anthropic")
         );
         assert_eq!(
-            match fabro_config::resolve_run_from_file(&created.persisted.run_spec().settings)
-                .unwrap()
-                .goal
-            {
+            match &created.persisted.run_spec().settings.run.goal {
                 Some(fabro_types::settings::run::RunGoal::Inline(value)) => {
                     Some(value.as_source())
                 }
@@ -893,8 +899,11 @@ mod tests {
             Some("override goal")
         );
         assert!(
-            fabro_config::resolve_run_from_file(&created.persisted.run_spec().settings)
-                .unwrap()
+            created
+                .persisted
+                .run_spec()
+                .settings
+                .run
                 .pull_request
                 .is_none()
         );

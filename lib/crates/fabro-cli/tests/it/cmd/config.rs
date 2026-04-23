@@ -74,7 +74,7 @@ shared = "server"
 }
 
 fn resolved_server_settings_fixture() -> serde_json::Value {
-    let settings = fabro_config::ServerSettings::from_layer(&server_settings_layer_fixture())
+    let settings = fabro_config::ServerSettingsBuilder::from_layer(&server_settings_layer_fixture())
         .expect("server settings fixture should resolve");
     serde_json::to_value(settings).expect("resolved settings payload should serialize")
 }

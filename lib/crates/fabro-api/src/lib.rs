@@ -14,7 +14,8 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 }
 pub mod types {
-    pub use fabro_config::ServerSettings;
+    pub use fabro_types::WorkflowSettings;
+    pub use fabro_types::ServerSettings;
     pub use fabro_types::settings::server::{
         DiscordIntegrationSettings, GithubIntegrationSettings, GithubIntegrationStrategy,
         IntegrationWebhooksSettings, IpAllowEntry, ObjectStoreSettings, ServerApiSettings,

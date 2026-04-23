@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use fabro_graphviz::graph::{AttrValue, Graph, Node};
 use fabro_store::{ArtifactStore, Database};
 use fabro_types::settings::SettingsLayer;
+use fabro_types::WorkflowSettings;
 use object_store::memory::InMemory;
 use tokio::fs;
 use tokio::time::{sleep, timeout};
@@ -202,7 +203,7 @@ impl Handler for SubWorkflowHandler {
         let child_cancel = Arc::clone(&cancel_token);
 
         let child_run_options = RunOptions {
-            settings:         SettingsLayer::default(),
+            settings:         WorkflowSettings::default(),
             run_dir:          child_logs,
             cancel_token:     Some(cancel_token),
             // Child workflows are part of the parent run's event stream.

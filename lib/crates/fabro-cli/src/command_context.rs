@@ -2,9 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
-use fabro_config::UserSettings;
+use fabro_config::UserSettingsBuilder;
 use fabro_types::settings::cli::{CliLayer, OutputFormat, OutputVerbosity};
 use fabro_types::settings::{Combine, SettingsLayer};
+use fabro_types::UserSettings;
 use fabro_util::printer::Printer;
 use tokio::sync::OnceCell;
 
@@ -177,7 +178,7 @@ fn merge_settings_layer(
         ..SettingsLayer::default()
     }
     .combine(disk_settings);
-    let user_settings = UserSettings::from_layer(&machine_settings)?;
+    let user_settings = UserSettingsBuilder::from_layer(&machine_settings)?;
     Ok((machine_settings, user_settings))
 }
 

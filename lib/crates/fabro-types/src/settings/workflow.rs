@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::maps::ReplaceMap;
 
 /// A structurally resolved `[workflow]` view for consumers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WorkflowNamespace {
     pub name:        Option<String>,
     pub description: Option<String>,

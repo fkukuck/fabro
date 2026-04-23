@@ -10,7 +10,7 @@ use crate::helpers::{
 };
 
 #[tokio::test]
-async fn retrieve_run_settings_returns_persisted_layer_without_redaction() {
+async fn retrieve_run_settings_returns_dense_snapshot() {
     let storage_dir = tempfile::tempdir().unwrap();
     let settings = parse_settings_layer(&format!(
         r#"
@@ -87,20 +87,12 @@ session_sandboxes = true
         format!("GET /api/v1/runs/{run_id}/settings"),
     )
     .await;
-    assert_eq!(body["_version"], 1);
-    assert_eq!(body["run"]["goal"], "Ship it");
-    assert_eq!(body["cli"]["output"]["verbosity"], "verbose");
-    assert_eq!(body["features"]["session_sandboxes"], true);
-    assert_eq!(
-        body["server"]["storage"]["root"],
-        storage_dir.path().display().to_string()
-    );
-    assert_eq!(body["server"]["scheduler"]["max_concurrent_runs"], 9);
-    assert!(body.pointer("/server/integrations/github/app_id").is_none());
-    assert!(
-        body.pointer("/server/integrations/github/client_id")
-            .is_none()
-    );
-    assert!(body.pointer("/server/auth").is_none());
-    assert!(body.pointer("/server/listen").is_none());
+    assert_eq!(body["project"]["directory"], ".");
+    assert_eq!(body["workflow"]["graph"], "workflow.fabro");
+    assert_eq!(body["run"]["goal"]["type"], "inline");
+    assert_eq!(body["run"]["goal"]["value"], "Ship it");
+    assert!(body.pointer("/_version").is_none());
+    assert!(body.pointer("/cli").is_none());
+    assert!(body.pointer("/features").is_none());
+    assert!(body.pointer("/server").is_none());
 }

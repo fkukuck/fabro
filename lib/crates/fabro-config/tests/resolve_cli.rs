@@ -39,8 +39,8 @@ session_sandboxes = true
     )
     .expect("fixture should parse");
 
-    let user_settings =
-        fabro_config::UserSettings::from_layer(&settings).expect("user settings should resolve");
+    let user_settings = fabro_config::UserSettingsBuilder::from_layer(&settings)
+        .expect("user settings should resolve");
 
     assert_eq!(
         user_settings.cli,
@@ -71,8 +71,8 @@ session_sandboxes = true
     .unwrap();
 
     with_var("FABRO_HOME", Some(home.path()), || {
-        let user_settings =
-            fabro_config::UserSettings::resolve().expect("user settings should resolve");
+        let user_settings = fabro_config::UserSettingsBuilder::load_default()
+            .expect("user settings should resolve");
         assert_eq!(user_settings.cli.output.verbosity, OutputVerbosity::Verbose);
         assert!(user_settings.features.session_sandboxes);
     });
@@ -83,8 +83,8 @@ fn user_settings_resolve_returns_defaults_when_default_settings_file_is_missing(
     let home = tempfile::tempdir().unwrap();
 
     with_var("FABRO_HOME", Some(home.path()), || {
-        let user_settings =
-            fabro_config::UserSettings::resolve().expect("user settings should resolve");
+        let user_settings = fabro_config::UserSettingsBuilder::load_default()
+            .expect("user settings should resolve");
         assert_eq!(user_settings.cli.output.format, OutputFormat::Text);
         assert_eq!(user_settings.cli.output.verbosity, OutputVerbosity::Normal);
         assert!(!user_settings.features.session_sandboxes);

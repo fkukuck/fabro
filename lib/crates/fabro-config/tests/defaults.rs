@@ -1,8 +1,8 @@
 use fabro_config::{
-    apply_builtin_defaults, defaults_layer, parse_settings_layer, resolve_run_from_file,
-    resolve_server_from_file, resolve_workflow_from_file,
+    parse_settings_layer, resolve_run_from_file, resolve_server_from_file,
+    resolve_workflow_from_file,
 };
-use fabro_types::settings::SettingsLayer;
+use fabro_types::settings::{Combine, SettingsLayer};
 use fabro_types::settings::cli::OutputFormat;
 use fabro_types::settings::run::{ApprovalMode, RunMode, WorktreeMode};
 use fabro_types::settings::server::ObjectStoreProvider;
@@ -11,9 +11,13 @@ fn parse(source: &str) -> SettingsLayer {
     parse_settings_layer(source).expect("fixture should parse")
 }
 
+fn embedded_defaults() -> SettingsLayer {
+    parse(include_str!("../src/defaults.toml"))
+}
+
 #[test]
 fn embedded_defaults_parse_successfully() {
-    let defaults = defaults_layer();
+    let defaults = embedded_defaults();
 
     assert_eq!(
         defaults
@@ -33,7 +37,7 @@ fn embedded_defaults_parse_successfully() {
 
 #[test]
 fn apply_builtin_defaults_materializes_expected_layer() {
-    let layer = apply_builtin_defaults(SettingsLayer::default());
+    let layer = SettingsLayer::default().combine(embedded_defaults());
 
     assert_eq!(
         layer
