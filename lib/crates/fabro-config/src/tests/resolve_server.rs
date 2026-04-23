@@ -15,7 +15,9 @@ use crate::user::default_storage_dir;
 use crate::{ServerSettingsBuilder, SettingsLayer};
 
 fn parse(source: &str) -> SettingsLayer {
-    let mut layer = source.parse::<SettingsLayer>().expect("fixture should parse");
+    let mut layer = source
+        .parse::<SettingsLayer>()
+        .expect("fixture should parse");
     layer.ensure_test_auth_methods();
     layer
 }

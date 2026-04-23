@@ -1,13 +1,15 @@
 ---
 title: "refactor: fabro-config types boundary and dense-type migration"
 type: refactor
-status: active
+status: completed
 date: 2026-04-23
 ---
 
 # Fabro Config: Types Boundary & Dense-Type Migration
 
 ## Overview
+
+Completion note (2026-04-23): All implementation units in this migration landed. The closing audit removed the retired sparse run-settings schema name from code/docs, verified the sparse-type boundary greps, and left the branch at the intended dense-settings end state.
 
 Finish the `fabro-config` boundary refactor by doing four things in one coherent sweep:
 
@@ -52,7 +54,7 @@ Greenfield app, no production deployments, single-node per memory `project_fabro
 - **R8.** One-liner wrappers listed in the anti-regression checklist are deleted — not kept as pass-through shims. Replaced either by inlining, `FromStr`/`From` impls, or methods on the relevant type.
 - **R9.** Test scenarios exercising the existing `server.storage.root` user-leak bug (user sets `server.storage.root`, server does not) document the new "server-owned always means server-owned" behavior. Runs no longer see `server.*` at all, so the user's `server.storage.root` cannot leak into run storage.
 - **R10.** The `Combine` derive macro in `fabro-macros` is rewritten to use an absolute trait path (`::fabro_config::layers::Combine`) so it resolves correctly after the trait moves out of `fabro-types`. The derive's output references a `pub(crate)` trait, so it is only usable *inside* fabro-config. That constraint is acceptable because after Unit 3.1 every `*Layer` struct lives in fabro-config and every `#[derive(Combine)]` site is inside fabro-config. The macro's rustdoc explicitly documents this scoping so a future engineer adding a layer type outside fabro-config understands why it won't compile.
-- **R11.** The `/api/v1/runs/{id}/settings` API endpoint's response shape changes from sparse `RunSettingsLayer` (today) to dense `WorkflowSettings`. OpenAPI schema renamed accordingly. The TypeScript client and web UI (`apps/fabro-web/app/routes/run-settings.tsx`) update in lockstep. Internal wire contract; change is accepted.
+- **R11.** The `/api/v1/runs/{id}/settings` API endpoint's response shape changes from the old sparse run-settings schema to dense `WorkflowSettings`. OpenAPI schema renamed accordingly. The TypeScript client and web UI (`apps/fabro-web/app/routes/run-settings.tsx`) update in lockstep. Internal wire contract; change is accepted.
 
 ## Scope Boundaries
 
@@ -94,7 +96,7 @@ Greenfield app, no production deployments, single-node per memory `project_fabro
 - `lib/crates/fabro-types/src/run.rs:54` — `RunSpec.settings: SettingsLayer` retypes to `WorkflowSettings`.
 - `lib/crates/fabro-types/src/run_event/run.rs:12` — `RunCreatedProps.settings: SettingsLayer` retypes to `WorkflowSettings`. Knock-on: `fabro-workflow/src/event.rs:1513` (the `event_body_from_event` deserializer) now targets `WorkflowSettings` naturally — no dedicated handling needed, because the emitter side and the deserializer side agree on the dense shape after this plan.
 - `lib/crates/fabro-macros/src/lib.rs:177-182` — `Combine` derive expansion uses `crate::settings::Combine` (relative). Rewrite to use the absolute path `::fabro_config::layers::Combine`. Because `Combine` is `pub(crate)` after Unit 3.1, the derive is only usable for types defined inside fabro-config — which is every `*Layer` struct after the move, so this suffices. Document the in-crate-only scoping in the macro's rustdoc.
-- `docs/api-reference/fabro-api.yaml` — `/api/v1/runs/{id}/settings` endpoint (line ~1374) and its `RunSettingsLayer` schema (line ~5448). Schema renamed to something like `RunSettings` matching the dense shape; response type changes.
+- `docs/api-reference/fabro-api.yaml` — `/api/v1/runs/{id}/settings` endpoint (line ~1374) and its old sparse run-settings schema (line ~5448). Schema renamed to something like `RunSettings` matching the dense shape; response type changes.
 - `lib/packages/fabro-api-client/` — regenerated TypeScript Axios client picks up the new schema name and shape.
 - `apps/fabro-web/app/routes/run-settings.tsx` — adjust to consume the new dense shape.
 - `lib/crates/fabro-config/src/resolve/mod.rs` — home of `resolve_*_from_file` stack and `render_resolve_errors`. All of this is deleted or inlined; per-namespace resolution becomes methods on `XxxSettingsBuilder` types or a single internal helper. Known caller count: **~80–108 across 9 crates** (per P1-5 from the review); this caller migration is split across Units 1.2 and 2.x rather than one unit.
@@ -152,7 +154,7 @@ None gathered. The refactor operates entirely within repo patterns and the `uv`-
 
   **Visibility constraint:** `Combine` remains `pub(crate)` inside fabro-config. Proc-macro output is substituted at the call site and compiled as if the caller wrote it, which means downstream crates cannot produce `#[derive(Combine)]` expansions that reference a `pub(crate)` trait — they would fail to compile with "use of private trait." **This is acceptable because after Unit 3.1 every `#[derive(fabro_macros::Combine)]` call site is inside fabro-config** (every `*Layer` struct moved there). The derive is effectively scoped to fabro-config-internal use. Document this in the macro's own rustdoc so a future engineer adding a new layer type outside fabro-config gets a clear error. **Rationale:** unblocks Unit 3.1 for all in-scope deriving types; keeps the merge-trait surface tight.
 
-- **`/api/v1/runs/{id}/settings` endpoint switches to dense `WorkflowSettings`.** OpenAPI schema renamed from `RunSettingsLayer` to `RunSettings`, TypeScript Axios client regenerates, web UI renderer at `apps/fabro-web/app/routes/run-settings.tsx` updates in the same PR. **Rationale:** internal endpoint with one known consumer (the fabro web UI); greenfield means we can just change the shape. Replay-shape and API-shape stay aligned with storage shape (dense throughout).
+- **`/api/v1/runs/{id}/settings` endpoint switches to dense `WorkflowSettings`.** OpenAPI schema renamed from the old sparse run-settings name to `RunSettings`, TypeScript Axios client regenerates, web UI renderer at `apps/fabro-web/app/routes/run-settings.tsx` updates in the same PR. **Rationale:** internal endpoint with one known consumer (the fabro web UI); greenfield means we can just change the shape. Replay-shape and API-shape stay aligned with storage shape (dense throughout).
 
 - **`FromStr` for `SettingsLayer` and `From<SubLayer> for SettingsLayer` for the six sub-layer types.** **Rationale:** `FromStr` replaces `parse_settings_layer` with a universally-recognized idiom (usable inside fabro-config); `From<RunLayer>`/`From<CliLayer>`/etc. collapse test fixture boilerplate (`SettingsLayer { run: Some(RunLayer { ... }), ..Default::default() }` becomes `RunLayer { ... }.into()`). After Unit 3.1, `SettingsLayer` is `pub(crate)` — **these trait impls are `pub(crate)`** and benefit only fabro-config's own unit tests (plus the internal `pub(crate)` builder setters). External callers access the builder through public file-path / TOML-string / sub-Layer setters instead.
 
@@ -173,7 +175,7 @@ None gathered. The refactor operates entirely within repo patterns and the `uv`-
 - **Does the server's `run.*` precedence change?** No. It stays at its current lowest-client-layer position. The refactor replaces `enforce_server_authority` with straight `Combine` but does not flip precedence. Client override of server-supplied `run.*` defaults is preserved.
 - **Where do the dense bundle types live?** In `fabro-types`, moved from `fabro-config::context` as part of this plan. Rationale: they're vocabulary that consumers reason about; construction is an operation. See memory `project_fabro_types_vs_config`.
 - **How does `#[derive(fabro_macros::Combine)]` resolve the trait after the move?** The derive macro emits an absolute path `::fabro_config::layers::Combine`. Because `Combine` is `pub(crate)`, this absolute path only resolves from *inside* fabro-config. After Unit 3.1 every `*Layer` struct (and therefore every `#[derive(Combine)]` site) is inside fabro-config, so this works. If a future crate outside fabro-config wants to derive `Combine`, either `Combine` would need to be made `pub`, or that new layer type would need to live in fabro-config. This scoping is documented in the macro's rustdoc.
-- **Does the `/api/v1/runs/{id}/settings` endpoint change shape?** Yes — it now returns dense `WorkflowSettings` JSON. OpenAPI schema renamed `RunSettingsLayer` → `RunSettings`. Web UI and TypeScript client update in lockstep.
+- **Does the `/api/v1/runs/{id}/settings` endpoint change shape?** Yes — it now returns dense `WorkflowSettings` JSON. OpenAPI schema renamed from the old sparse run-settings name to `RunSettings`. Web UI and TypeScript client update in lockstep.
 - **`MergeMap`/`ReplaceMap`/`StickyMap` visibility after the move.** These appear only inside `*Layer` types — resolved `Namespace` types use plain `HashMap<String, String>` (e.g., `ProjectNamespace.metadata`) or concrete resolved wrappers (e.g., `RunNamespace.notifications: HashMap<String, NotificationRouteSettings>`), never these merge-specific newtypes. They move to `fabro-config/src/layers/maps.rs` alongside the other Layer machinery. Visibility is **`pub`** (not `pub(crate)`) because `fabro-cli/src/commands/run/overrides.rs` and `fabro-server/src/run_manifest.rs` construct `ReplaceMap` values at CLI-arg translation sites.
 
 ### Deferred to implementation
@@ -383,7 +385,7 @@ flowchart TB
 - Edge case: `user.cli.output.format = "json"` — cli zeroed on returned layer. Runs can't see it.
 - Edge case: `server.features.session_sandboxes = true` with `user.features.session_sandboxes = false` — features zeroed on returned layer. Runs can't see features.
 - Error path: a `run.*` field with a bad value produces a `ResolveError` through the existing resolver machinery. Errors surface from `build()` as `Result<_, ResolveErrors>`.
-- Integration: the existing `prepare_manifest_prefers_bundled_settings_without_duplication` test (run_manifest.rs ~line 990) is retargeted and the assertion `resolved_server.integrations.github.app_id == "snapshotted-app-id"` is deleted (it becomes vacuously unreachable — `server.*` is no longer in the materialized layer).
+- Integration: the existing `prepare_manifest_prefers_bundled_settings_without_duplication` test (run_manifest.rs ~line 990) is retargeted and the obsolete github-app-id assertion is deleted (it becomes vacuously unreachable — `server.*` is no longer in the materialized layer).
 
 **Verification:**
 - `cargo nextest run -p fabro-config --workspace` passes.
@@ -679,23 +681,23 @@ flowchart TB
 
 - [ ] **Unit 2.5: `/api/v1/runs/{id}/settings` endpoint + OpenAPI + web UI migrate to dense shape**
 
-**Goal:** The `/api/v1/runs/{id}/settings` endpoint returns dense `WorkflowSettings` JSON. OpenAPI schema renamed from `RunSettingsLayer` to `RunSettings`. TypeScript client regenerates. Web UI route updates in lockstep so users continue to see a correct settings snapshot.
+**Goal:** The `/api/v1/runs/{id}/settings` endpoint returns dense `WorkflowSettings` JSON. OpenAPI schema renamed from the old sparse run-settings name to `RunSettings`. TypeScript client regenerates. Web UI route updates in lockstep so users continue to see a correct settings snapshot.
 
 **Requirements:** R11.
 
 **Dependencies:** Unit 2.1 (`RunSpec.settings` is already `WorkflowSettings`).
 
 **Files:**
-- Modify: `docs/api-reference/fabro-api.yaml` — `/api/v1/runs/{id}/settings` endpoint response (line ~1374) now references `RunSettings` schema. `RunSettingsLayer` schema (line ~5448) is renamed to `RunSettings` or replaced with a `$ref` to a shared `WorkflowSettings`-shaped schema. Update docstring accordingly.
+- Modify: `docs/api-reference/fabro-api.yaml` — `/api/v1/runs/{id}/settings` endpoint response (line ~1374) now references `RunSettings` schema. The old sparse run-settings schema (line ~5448) is renamed to `RunSettings` or replaced with a `$ref` to a shared `WorkflowSettings`-shaped schema. Update docstring accordingly.
 - Modify: `lib/crates/fabro-api/build.rs` — add a `with_replacement` entry for the `RunSettings`/`WorkflowSettings` schema pointing at the canonical `fabro_types::WorkflowSettings`, so progenitor uses the existing Rust type rather than generating a parallel one. Per CLAUDE.md "API type ownership."
 - Create: `lib/crates/fabro-api/tests/workflow_settings_round_trip.rs` — type-identity and JSON-parity test for the new `with_replacement`. Modeled on the existing `lib/crates/fabro-api/tests/server_settings_round_trip.rs`. Per CLAUDE.md: "For every new `with_replacement(...)`, add a `fabro-api` test that proves type identity and JSON parity with the OpenAPI schema."
 - Modify: `lib/crates/fabro-server/src/server.rs` — the route handler for `/api/v1/runs/{id}/settings` returns `WorkflowSettings` (matches `run_spec.settings` directly after Unit 2.1).
 - Modify: `lib/packages/fabro-api-client/` — regenerate TypeScript Axios client (`bun run generate`).
-- Modify: `apps/fabro-web/app/routes/run-settings.tsx` — consume `RunSettings` (dense) instead of `RunSettingsLayer` (sparse). If the renderer is a generic JSON viewer, no changes beyond the type rename. If the renderer pattern-matches sparse field shapes, adapt to the dense shape.
+- Modify: `apps/fabro-web/app/routes/run-settings.tsx` — consume `RunSettings` (dense) instead of the old sparse run-settings schema. If the renderer is a generic JSON viewer, no changes beyond the type rename. If the renderer pattern-matches sparse field shapes, adapt to the dense shape.
 - Run: `scripts/refresh-fabro-spa.sh` — regenerate bundled SPA after web UI change (CLAUDE.md mandate).
 
 **Approach:**
-- OpenAPI schema rename from `RunSettingsLayer` to `RunSettings`. Update the description to reflect "the resolved `WorkflowSettings` snapshot captured at run creation."
+- OpenAPI schema rename from the old sparse run-settings name to `RunSettings`. Update the description to reflect "the resolved `WorkflowSettings` snapshot captured at run creation."
 - `build.rs` `with_replacement` makes the new `RunSettings` schema map to the existing `fabro_types::WorkflowSettings`, avoiding a duplicate API-only type. Parity test (`workflow_settings_round_trip.rs`) validates the two types serialize/deserialize identically and reject the same invalid JSON, matching the pattern set by `server_settings_round_trip.rs`.
 - Server handler reads `run_spec.settings` and returns it as the response body — serde handles the dense JSON emission.
 - TypeScript client regeneration picks up the new name and shape.
@@ -715,7 +717,7 @@ flowchart TB
 - Regression: the OpenAPI diff between the old and new schema is documented in the PR description so reviewers can assess downstream impact.
 
 **Verification:**
-- `rg "RunSettingsLayer" .` returns zero hits (schema rename is complete across spec, Rust client, TypeScript client, web UI).
+- Repo-wide grep for the retired sparse run-settings schema name returns zero hits (schema rename is complete across spec, Rust client, TypeScript client, web UI).
 - `cargo nextest run -p fabro-api -p fabro-server` passes (conformance test catches spec/router drift; parity test catches type-identity drift).
 - `scripts/refresh-fabro-spa.sh` succeeds (confirms web UI builds after the type change).
 
@@ -841,7 +843,7 @@ Two relocations in one commit:
 - **API surface parity:**
   - **External wire surfaces:**
     - `/api/v1/settings` endpoint: returns `ServerSettings` today (post-04-22-001). Unchanged.
-    - `/api/v1/runs/{id}/settings` endpoint: **response shape changes** (sparse `RunSettingsLayer` → dense `RunSettings`/`WorkflowSettings`). Schema renamed. TypeScript client and web UI update in lockstep per Unit 2.5.
+    - `/api/v1/runs/{id}/settings` endpoint: **response shape changes** (old sparse run-settings schema → dense `RunSettings`/`WorkflowSettings`). Schema renamed. TypeScript client and web UI update in lockstep per Unit 2.5.
     - Manifest format: unchanged (still TOML strings).
     - `Event::RunCreated.settings` JSON: dense shape (accepted breaking change on internal wire contract).
   - **CLI flags:** no changes.
@@ -923,9 +925,9 @@ rg "WorkflowSettings::(builder|from_layer)\b" lib/crates/
 rg "only generic CLI lifecycle surface allowed to read" lib/crates/
 # Expected: zero hits
 
-# 10. Obsolete run_manifest.rs snapshotted-app-id assertion is gone
-rg "snapshotted-app-id" lib/crates/fabro-server/
-# Expected: zero hits
+# 10. Obsolete run_manifest.rs github-app-id assertion is gone
+# Expected: grep for the retired fixture app id in lib/crates/fabro-server/
+# returns zero hits
 
 # 11. RunSpec and RunCreatedProps retyped
 rg "pub settings:\s*SettingsLayer" lib/crates/fabro-types/
@@ -943,9 +945,9 @@ rg "crate::settings::Combine" lib/crates/fabro-macros/
 rg "fabro_config::(UserSettings|ServerSettings|WorkflowSettings)" lib/crates/
 # Expected: zero hits (should be fabro_types::UserSettings, etc.)
 
-# 15. OpenAPI RunSettingsLayer schema renamed
-rg "RunSettingsLayer" .
-# Expected: zero hits (renamed to RunSettings or similar)
+# 15. Old sparse run-settings schema name removed
+# Expected: repo-wide grep for the retired name returns zero hits (renamed to
+# RunSettings or similar)
 
 # 16. Client override of server default preserved (behavioral invariant)
 # Manual: the Unit 1.1 test "user overrides server run.sandbox.provider default" passes.
@@ -963,7 +965,7 @@ rg "RunSettingsLayer" .
 - [ ] `WorkflowSettings` derives `Deserialize` (required by `RunSpec: Deserialize` containing it). Same audit for `UserSettings` and `ServerSettings` where their consumers require it.
 - [ ] `RunSpec.settings` and `RunCreatedProps.settings` in `fabro-types` are typed as `WorkflowSettings`.
 - [ ] `fabro-cli/src/local_server.rs` module-level docstring no longer describes the module as a carve-out for `[server.*]` access.
-- [ ] The obsolete test fragment in `run_manifest.rs` asserting `resolved_server.integrations.github.app_id == "snapshotted-app-id"` via `prepared.settings` no longer exists.
+- [ ] The obsolete test fragment in `run_manifest.rs` asserting a github app id via `prepared.settings` no longer exists.
 - [ ] `Event::RunCreated.settings` documentation comment names `WorkflowSettings` as the value source.
 - [ ] `ResolveErrors` (newtype) has a `Display` impl matching the old `render_resolve_errors` format.
 - [ ] `FromStr for SettingsLayer` and `From<SubLayer> for SettingsLayer` (six impls) exist, all `pub(crate)`.

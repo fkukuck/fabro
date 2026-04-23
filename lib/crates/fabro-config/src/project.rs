@@ -461,7 +461,9 @@ retros = true
 
     #[test]
     fn parse_higher_version_errors() {
-        let err = "_version = 2\n".parse::<crate::SettingsLayer>().unwrap_err();
+        let err = "_version = 2\n"
+            .parse::<crate::SettingsLayer>()
+            .unwrap_err();
         let chain = format!("{err:#}");
         assert!(
             chain.contains("Upgrade") || chain.to_lowercase().contains("version"),

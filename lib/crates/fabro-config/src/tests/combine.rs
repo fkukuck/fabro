@@ -4,7 +4,9 @@ use fabro_types::settings::cli::{OutputFormat, OutputVerbosity};
 use crate::{Combine, SettingsLayer, StringOrSplice};
 
 fn parse(input: &str) -> SettingsLayer {
-    input.parse::<SettingsLayer>().expect("fixture should parse")
+    input
+        .parse::<SettingsLayer>()
+        .expect("fixture should parse")
 }
 
 #[test]

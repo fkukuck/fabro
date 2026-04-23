@@ -21,7 +21,11 @@ use super::server::{
     ServerListenLayer, ServerLoggingLayer,
 };
 
-pub trait Combine {
+/// Internal merge trait used by sparse config layers inside `fabro-config`.
+///
+/// The `fabro_macros::Combine` derive expands against this trait via an
+/// absolute path, so deriving `Combine` only works for types defined here.
+pub(crate) trait Combine {
     /// Combine two values, preferring the values in `self`.
     #[must_use]
     fn combine(self, other: Self) -> Self;
@@ -139,7 +143,7 @@ impl Combine for RunCheckpointLayer {
 
 /// An element of a splice-aware sequence: either a regular value or the
 /// `...` marker that asks the combiner to expand the fallback list inline.
-pub trait SpliceMarker {
+trait SpliceMarker {
     fn is_splice(&self) -> bool;
 }
 

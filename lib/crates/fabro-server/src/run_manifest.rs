@@ -1032,7 +1032,7 @@ root = "/srv/fabro"
 script = "cli-setup"
 
 [server.integrations.github]
-app_id = "snapshotted-app-id"
+app_id = "fixture-app-id"
 "#,
         )));
 
@@ -1061,7 +1061,7 @@ methods = ["dev-token"]
 script = "cli-setup"
 
 [server.integrations.github]
-app_id = "snapshotted-app-id"
+app_id = "fixture-app-id"
 "#
                 .to_string(),
             ),

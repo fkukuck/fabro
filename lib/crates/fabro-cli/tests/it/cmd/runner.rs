@@ -271,7 +271,7 @@ _version = 1
 methods = [\"dev-token\"]
 
 [server.integrations.github]
-app_id = \"snapshotted-app-id\"
+app_id = \"fixture-app-id\"
 ",
     );
     context.write_temp(

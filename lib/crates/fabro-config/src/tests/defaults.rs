@@ -5,7 +5,9 @@ use fabro_types::settings::server::ObjectStoreProvider;
 use crate::{Combine, ServerSettingsBuilder, SettingsLayer, WorkflowSettingsBuilder};
 
 fn parse(source: &str) -> SettingsLayer {
-    source.parse::<SettingsLayer>().expect("fixture should parse")
+    source
+        .parse::<SettingsLayer>()
+        .expect("fixture should parse")
 }
 
 fn embedded_defaults() -> SettingsLayer {
