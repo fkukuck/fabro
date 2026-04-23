@@ -263,11 +263,7 @@ pub(crate) fn build_container_group_body(
         "volumes": [
             {
                 "name": "workspace",
-                "azureFile": {
-                    "shareName": config.storage_share,
-                    "storageAccountName": config.storage_account,
-                    "storageAccountKey": config.storage_key,
-                }
+                "emptyDir": {}
             }
         ]
     });
@@ -295,15 +291,12 @@ mod tests {
     use crate::azure::config::AzurePlatformConfig;
 
     #[test]
-    fn build_container_group_body_includes_workspace_mount_and_resources() {
+    fn build_container_group_body_uses_emptydir_workspace_mount() {
         let config = AzurePlatformConfig {
             subscription_id: "sub-1".to_string(),
             resource_group:  "rg-1".to_string(),
             location:        "eastus".to_string(),
             subnet_id:       "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci".to_string(),
-            storage_account: "stor1".to_string(),
-            storage_share:   "workspace".to_string(),
-            storage_key:     "storage-key".to_string(),
             acr_server:      "fabro.azurecr.io".to_string(),
             sandboxd_port:   7777,
             acr_username:    Some("user".to_string()),
@@ -320,30 +313,14 @@ mod tests {
 
         assert_eq!(body["name"], "fabro-run-1");
         assert_eq!(body["location"], "eastus");
-        assert!(body["properties"]["containers"][0]["image"].is_null());
-        assert_eq!(
-            body["properties"]["containers"][0]["properties"]["image"],
-            "fabro.azurecr.io/fabro-sandboxes/base:latest"
-        );
-        assert_eq!(
-            body["properties"]["containers"][0]["properties"]["resources"]["requests"]["cpu"],
-            2.0
-        );
-        assert_eq!(
-            body["properties"]["containers"][0]["properties"]["resources"]["requests"]["memoryInGB"],
-            4.0
-        );
-        assert_eq!(
-            body["properties"]["volumes"][0]["azureFile"]["shareName"],
-            "workspace"
-        );
-        assert_eq!(
-            body["properties"]["volumes"][0]["azureFile"]["storageAccountKey"],
-            "storage-key"
-        );
         assert_eq!(
             body["properties"]["containers"][0]["properties"]["volumeMounts"][0]["mountPath"],
             "/workspace"
         );
+        assert_eq!(
+            body["properties"]["volumes"][0]["emptyDir"],
+            serde_json::json!({})
+        );
+        assert!(body["properties"]["volumes"][0]["azureFile"].is_null());
     }
 }

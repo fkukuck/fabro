@@ -11,10 +11,6 @@ output "primary_access_key" {
   sensitive = true
 }
 
-output "workspace_share_name" {
-  value = azurerm_storage_share.workspace.name
-}
-
 output "server_storage_share_name" {
   value = azurerm_storage_share.server.name
 }
