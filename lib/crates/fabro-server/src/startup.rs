@@ -1,54 +1,27 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use fabro_types::settings::ServerSettings as ResolvedServerSettings;
 
 use crate::jwt_auth::{AuthMode, resolve_auth_mode_with_lookup};
-pub use crate::server_secrets::{EnvSource, ProcessEnv};
-use crate::server_secrets::{Error as ServerSecretsError, ServerSecrets};
-
-#[derive(Debug)]
-pub(crate) struct StartupResolution {
-    pub(crate) auth_mode:      AuthMode,
-    pub(crate) server_secrets: ServerSecrets,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum StartupValidationError {
-    #[error("{0}")]
-    Message(String),
-}
-
-impl From<ServerSecretsError> for StartupValidationError {
-    fn from(err: ServerSecretsError) -> Self {
-        Self::Message(err.to_string())
-    }
-}
-
-impl From<anyhow::Error> for StartupValidationError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
-}
+use crate::server_secrets::ServerSecrets;
 
 pub(crate) fn resolve_startup(
     env_path: &Path,
-    env: &dyn EnvSource,
+    env_entries: HashMap<String, String>,
     settings: &ResolvedServerSettings,
-) -> std::result::Result<StartupResolution, StartupValidationError> {
-    let server_secrets = ServerSecrets::load(env_path, env)?;
+) -> anyhow::Result<(AuthMode, ServerSecrets)> {
+    let server_secrets = ServerSecrets::load(env_path, env_entries)?;
     let auth_mode = resolve_auth_mode_with_lookup(settings, |name| server_secrets.get(name))?;
-    Ok(StartupResolution {
-        auth_mode,
-        server_secrets,
-    })
+    Ok((auth_mode, server_secrets))
 }
 
 pub fn validate_startup(
     env_path: &Path,
-    env: &dyn EnvSource,
+    env_entries: HashMap<String, String>,
     settings: &ResolvedServerSettings,
-) -> std::result::Result<(), StartupValidationError> {
-    resolve_startup(env_path, env, settings).map(|_| ())
+) -> anyhow::Result<()> {
+    resolve_startup(env_path, env_entries, settings).map(|_| ())
 }
 
 #[cfg(test)]
@@ -58,7 +31,7 @@ mod tests {
     use fabro_config::parse_settings_layer;
     use fabro_types::settings::ServerSettings as ResolvedServerSettings;
 
-    use super::{resolve_startup, validate_startup};
+    use super::validate_startup;
 
     fn resolved_settings(auth_methods: &[&str]) -> ResolvedServerSettings {
         let settings = parse_settings_layer(&format!(
@@ -79,7 +52,7 @@ methods = [{}]
     }
 
     #[test]
-    fn validate_startup_matches_resolve_startup() {
+    fn validate_startup_accepts_configured_secrets() {
         let dir = tempfile::tempdir().unwrap();
         let env = HashMap::from([
             (
@@ -94,24 +67,21 @@ methods = [{}]
         ]);
         let settings = resolved_settings(&["dev-token"]);
 
-        assert!(validate_startup(dir.path().join("server.env").as_path(), &env, &settings).is_ok());
-        assert!(resolve_startup(dir.path().join("server.env").as_path(), &env, &settings).is_ok());
+        assert!(validate_startup(dir.path().join("server.env").as_path(), env, &settings).is_ok());
     }
 
     #[test]
-    fn validate_startup_and_resolve_startup_share_errors() {
+    fn validate_startup_rejects_missing_secrets() {
         let dir = tempfile::tempdir().unwrap();
-        let env: HashMap<String, String> = HashMap::new();
         let settings = resolved_settings(&["dev-token"]);
 
-        let validate_err =
-            validate_startup(dir.path().join("server.env").as_path(), &env, &settings)
-                .unwrap_err()
-                .to_string();
-        let resolve_err = resolve_startup(dir.path().join("server.env").as_path(), &env, &settings)
-            .unwrap_err()
-            .to_string();
-
-        assert_eq!(validate_err, resolve_err);
+        assert!(
+            validate_startup(
+                dir.path().join("server.env").as_path(),
+                HashMap::new(),
+                &settings,
+            )
+            .is_err()
+        );
     }
 }

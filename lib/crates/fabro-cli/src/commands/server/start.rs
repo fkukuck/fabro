@@ -13,7 +13,7 @@ use fabro_config::daemon::ServerDaemon;
 use fabro_config::user::{FABRO_CONFIG_ENV, default_settings_path, load_settings_config};
 use fabro_server::jwt_auth::auth_method_name;
 use fabro_server::serve::{DEFAULT_TCP_PORT, ServeArgs, resolve_runtime_server_settings_for_start};
-use fabro_server::{ProcessEnv, validate_startup};
+use fabro_server::{process_env_snapshot, validate_startup};
 use fabro_types::settings::ServerAuthMethod;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -234,9 +234,6 @@ async fn execute_foreground(
     styles: &'static Styles,
     _printer: Printer,
 ) -> Result<()> {
-    // Foreground mode validates inside serve_command after lock/log setup so
-    // operator-visible startup failures use the same path as normal foreground
-    // boot.
     super::foreground::serve_with_daemon_record(serve_args, bind, storage_dir, styles).await
 }
 
@@ -270,10 +267,9 @@ async fn execute_daemon(
     let resolved_settings = resolve_runtime_server_settings_for_start(serve_args, storage_dir)?;
     validate_startup(
         runtime_directory.env_path().as_path(),
-        &ProcessEnv,
+        process_env_snapshot(),
         &resolved_settings,
-    )
-    .map_err(anyhow::Error::from)?;
+    )?;
 
     let log_path = runtime_directory.log_path();
     if let Some(parent) = log_path.parent() {

@@ -11,22 +11,8 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-pub trait EnvSource {
-    fn snapshot(&self) -> HashMap<String, String>;
-}
-
-pub struct ProcessEnv;
-
-impl EnvSource for ProcessEnv {
-    fn snapshot(&self) -> HashMap<String, String> {
-        std::env::vars().collect()
-    }
-}
-
-impl EnvSource for HashMap<String, String> {
-    fn snapshot(&self) -> HashMap<String, String> {
-        self.clone()
-    }
+pub fn process_env_snapshot() -> HashMap<String, String> {
+    std::env::vars().collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,9 +27,12 @@ pub(crate) struct ServerSecrets {
 }
 
 impl ServerSecrets {
-    pub(crate) fn load(path: impl AsRef<Path>, env: &dyn EnvSource) -> Result<Self, Error> {
+    pub(crate) fn load(
+        path: impl AsRef<Path>,
+        env_entries: HashMap<String, String>,
+    ) -> Result<Self, Error> {
         Ok(Self {
-            env_entries:  env.snapshot(),
+            env_entries,
             file_entries: envfile::read_env_file(path.as_ref())?,
         })
     }
@@ -231,7 +220,7 @@ mod tests {
 
         let secrets = ServerSecrets::load(
             env_path,
-            &HashMap::from([("SESSION_SECRET".to_string(), "env-value".to_string())]),
+            HashMap::from([("SESSION_SECRET".to_string(), "env-value".to_string())]),
         )
         .unwrap();
 
@@ -240,17 +229,5 @@ mod tests {
             secrets.get("GITHUB_APP_CLIENT_SECRET").as_deref(),
             Some("file-client")
         );
-    }
-
-    #[test]
-    fn server_secrets_snapshot_is_owned_after_load() {
-        let dir = tempfile::tempdir().unwrap();
-        let env_path = dir.path().join("server.env");
-        let mut env = HashMap::from([("SESSION_SECRET".to_string(), "before".to_string())]);
-
-        let secrets = ServerSecrets::load(env_path, &env.clone()).unwrap();
-        env.insert("SESSION_SECRET".to_string(), "after".to_string());
-
-        assert_eq!(secrets.get("SESSION_SECRET").as_deref(), Some("before"));
     }
 }

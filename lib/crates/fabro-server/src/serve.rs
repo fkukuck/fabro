@@ -35,7 +35,7 @@ use crate::server::{
     AppState, AppStateConfig, RouterOptions, build_app_state, build_router_with_options,
     reconcile_incomplete_runs_on_startup, shutdown_active_workers, spawn_scheduler,
 };
-use crate::server_secrets::{ProcessEnv, ServerSecrets};
+use crate::server_secrets::{ServerSecrets, process_env_snapshot};
 use crate::startup::resolve_startup;
 
 const TEST_IN_MEMORY_STORE_ENV: &str = "FABRO_TEST_IN_MEMORY_STORE";
@@ -518,7 +518,7 @@ fn load_server_secrets_for_settings(
 ) -> anyhow::Result<ServerSecrets> {
     let storage_root = resolve_interp_path(&settings.storage.root)?;
     let server_env_path = Storage::new(&storage_root).runtime_directory().env_path();
-    ServerSecrets::load(server_env_path, &ProcessEnv).map_err(anyhow::Error::from)
+    ServerSecrets::load(server_env_path, process_env_snapshot()).map_err(anyhow::Error::from)
 }
 
 pub(crate) fn build_artifact_object_store_with_server_secrets(
@@ -603,9 +603,11 @@ where
     // Shared config for live reloading
     let effective_settings = apply_runtime_settings(&disk_settings, &args, &data_dir);
     let resolved_server_settings = resolve_server_settings(&effective_settings)?;
-    let startup = resolve_startup(&server_env_path, &ProcessEnv, &resolved_server_settings)?;
-    let auth_mode = startup.auth_mode;
-    let server_secrets = startup.server_secrets;
+    let (auth_mode, server_secrets) = resolve_startup(
+        &server_env_path,
+        process_env_snapshot(),
+        &resolved_server_settings,
+    )?;
     let webhook_secret_present = server_secrets.get(WEBHOOK_SECRET_ENV).is_some();
     let bind_request =
         resolve_bind_request_from_settings(&effective_settings, args.bind.as_deref())?;

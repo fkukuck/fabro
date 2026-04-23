@@ -2516,7 +2516,7 @@ pub fn create_app_state_with_env_lookup_and_server_secret_env(
     config.store = store;
     config.artifact_store = artifact_store;
     let server_env_path = config.vault_path.with_file_name("server.env");
-    config.server_secrets = load_test_server_secrets(server_env_path, server_secret_env);
+    config.server_secrets = load_test_server_secrets(server_env_path, server_secret_env.clone());
     build_app_state(config).expect("test app state should build")
 }
 
@@ -2553,7 +2553,7 @@ pub(crate) fn create_test_app_state_with_session_key(
         store,
         artifact_store,
         vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, &HashMap::new()),
+        server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
         local_daemon_mode,
         env_lookup,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
@@ -2589,7 +2589,7 @@ fn default_test_app_state_config(
         store,
         artifact_store,
         vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, &HashMap::new()),
+        server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
         local_daemon_mode: false,
         env_lookup,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
@@ -2646,7 +2646,7 @@ fn default_env_lookup() -> EnvLookup {
     Arc::new(|name| std::env::var(name).ok())
 }
 
-fn load_test_server_secrets(path: PathBuf, env: &HashMap<String, String>) -> ServerSecrets {
+fn load_test_server_secrets(path: PathBuf, env: HashMap<String, String>) -> ServerSecrets {
     ServerSecrets::load(path, env).expect("test server secrets should load")
 }
 
@@ -7892,7 +7892,7 @@ type = "http"
 
         let secrets = ServerSecrets::load(
             dir.path().join("server.env"),
-            &HashMap::from([("SESSION_SECRET".to_string(), "env-value".to_string())]),
+            HashMap::from([("SESSION_SECRET".to_string(), "env-value".to_string())]),
         )
         .unwrap();
 

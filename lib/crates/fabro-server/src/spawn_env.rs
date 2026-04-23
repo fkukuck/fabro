@@ -3,39 +3,26 @@ use std::ffi::OsString;
 use tokio::process::Command;
 
 const WORKER_ENV_ALLOWLIST: &[&str] = &[
-    "PATH",               // process essentials
-    "HOME",               // process essentials
-    "TMPDIR",             // temp file staging
-    "USER",               // process identity
-    "RUST_LOG",           // diagnostics
-    "RUST_BACKTRACE",     // diagnostics
-    "FABRO_HOME",         // worker state lookup
-    "FABRO_STORAGE_ROOT", // worker state lookup
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "USER",
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "FABRO_HOME",
+    "FABRO_STORAGE_ROOT",
 ];
 
-const RENDER_GRAPH_ENV_ALLOWLIST: &[&str] = &[
-    "PATH",   // executable lookup
-    "HOME",   // graphviz/font resolution
-    "TMPDIR", // temp file staging
-];
+const RENDER_GRAPH_ENV_ALLOWLIST: &[&str] = &["PATH", "HOME", "TMPDIR"];
 
 pub(crate) fn apply_worker_env(cmd: &mut Command) {
-    apply_worker_env_with_lookup(cmd, &|name| std::env::var_os(name));
+    apply_allowlist(cmd, WORKER_ENV_ALLOWLIST, &|name| std::env::var_os(name));
 }
 
 pub(crate) fn apply_render_graph_env(cmd: &mut Command) {
-    apply_render_graph_env_with_lookup(cmd, &|name| std::env::var_os(name));
-}
-
-fn apply_worker_env_with_lookup(cmd: &mut Command, lookup: &dyn Fn(&str) -> Option<OsString>) {
-    apply_allowlist(cmd, WORKER_ENV_ALLOWLIST, lookup);
-}
-
-fn apply_render_graph_env_with_lookup(
-    cmd: &mut Command,
-    lookup: &dyn Fn(&str) -> Option<OsString>,
-) {
-    apply_allowlist(cmd, RENDER_GRAPH_ENV_ALLOWLIST, lookup);
+    apply_allowlist(cmd, RENDER_GRAPH_ENV_ALLOWLIST, &|name| {
+        std::env::var_os(name)
+    });
 }
 
 fn apply_allowlist(cmd: &mut Command, keys: &[&str], lookup: &dyn Fn(&str) -> Option<OsString>) {
@@ -53,31 +40,28 @@ mod tests {
     use std::ffi::OsString;
     use std::path::Path;
 
-    use super::{apply_render_graph_env_with_lookup, apply_worker_env_with_lookup};
+    use super::{RENDER_GRAPH_ENV_ALLOWLIST, WORKER_ENV_ALLOWLIST, apply_allowlist};
 
     fn env_command() -> tokio::process::Command {
         assert!(Path::new("/usr/bin/env").exists());
         tokio::process::Command::new("/usr/bin/env")
     }
 
-    fn env_output(mut cmd: tokio::process::Command) -> HashMap<String, String> {
-        let runtime = tokio::runtime::Runtime::new().expect("creating test Tokio runtime");
-        runtime.block_on(async move {
-            let output = cmd.output().await.expect("running env subprocess");
-            assert!(output.status.success());
-            String::from_utf8(output.stdout)
-                .expect("parsing env subprocess output as UTF-8")
-                .lines()
-                .filter_map(|line| {
-                    let (key, value) = line.split_once('=')?;
-                    Some((key.to_string(), value.to_string()))
-                })
-                .collect()
-        })
+    async fn env_output(mut cmd: tokio::process::Command) -> HashMap<String, String> {
+        let output = cmd.output().await.expect("running env subprocess");
+        assert!(output.status.success());
+        String::from_utf8(output.stdout)
+            .expect("parsing env subprocess output as UTF-8")
+            .lines()
+            .filter_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                Some((key.to_string(), value.to_string()))
+            })
+            .collect()
     }
 
-    #[test]
-    fn worker_allowlist_is_fail_closed() {
+    #[tokio::test]
+    async fn worker_allowlist_is_fail_closed() {
         let env = HashMap::from([
             ("PATH".to_string(), "/bin".to_string()),
             ("HOME".to_string(), "/tmp/home".to_string()),
@@ -94,13 +78,15 @@ mod tests {
             ("MY_API_KEY".to_string(), "blocked".to_string()),
         ]);
         let mut cmd = env_command();
-        apply_worker_env_with_lookup(&mut cmd, &|name| env.get(name).map(OsString::from));
+        apply_allowlist(&mut cmd, WORKER_ENV_ALLOWLIST, &|name| {
+            env.get(name).map(OsString::from)
+        });
         cmd.env(
             "FABRO_DEV_TOKEN",
             "fabro_dev_abababababababababababababababababababababababababababababababab",
         );
 
-        let actual = env_output(cmd);
+        let actual = env_output(cmd).await;
 
         assert_eq!(actual.get("PATH").map(String::as_str), Some("/bin"));
         assert_eq!(actual.get("HOME").map(String::as_str), Some("/tmp/home"));
@@ -112,8 +98,8 @@ mod tests {
         assert!(!actual.contains_key("MY_API_KEY"));
     }
 
-    #[test]
-    fn render_graph_allowlist_is_fail_closed() {
+    #[tokio::test]
+    async fn render_graph_allowlist_is_fail_closed() {
         let env = HashMap::from([
             ("PATH".to_string(), "/bin".to_string()),
             ("HOME".to_string(), "/tmp/home".to_string()),
@@ -122,10 +108,12 @@ mod tests {
             ("SESSION_SECRET".to_string(), "leak".to_string()),
         ]);
         let mut cmd = env_command();
-        apply_render_graph_env_with_lookup(&mut cmd, &|name| env.get(name).map(OsString::from));
+        apply_allowlist(&mut cmd, RENDER_GRAPH_ENV_ALLOWLIST, &|name| {
+            env.get(name).map(OsString::from)
+        });
         cmd.env("FABRO_TELEMETRY", "off");
 
-        let actual = env_output(cmd);
+        let actual = env_output(cmd).await;
 
         assert_eq!(actual.get("PATH").map(String::as_str), Some("/bin"));
         assert_eq!(

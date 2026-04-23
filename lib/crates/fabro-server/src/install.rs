@@ -42,7 +42,7 @@ use zeroize::Zeroizing;
 
 use crate::error::ApiError;
 use crate::serve::{self, DEFAULT_TCP_PORT};
-use crate::server_secrets::{ProcessEnv, ServerSecrets};
+use crate::server_secrets::{ServerSecrets, process_env_snapshot};
 use crate::{security_headers, static_files};
 
 #[derive(Clone)]
@@ -961,8 +961,8 @@ async fn validate_install_object_store_selection(
     let server_env_path = Storage::new(state.storage_dir.as_ref())
         .runtime_directory()
         .env_path();
-    let server_secrets =
-        ServerSecrets::load(server_env_path, &ProcessEnv).map_err(|err| err.to_string())?;
+    let server_secrets = ServerSecrets::load(server_env_path, process_env_snapshot())
+        .map_err(|err| err.to_string())?;
     let build_options = serve::ObjectStoreBuildOptions {
         client_options,
         retry_config: RetryConfig {
@@ -2090,8 +2090,7 @@ AWS_SESSION_TOKEN=ambient-session\n\
 AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/fabro-web-identity-token\n",
         )
         .unwrap();
-        let server_secrets =
-            ServerSecrets::load(env_path.clone(), &HashMap::<String, String>::new()).unwrap();
+        let server_secrets = ServerSecrets::load(env_path.clone(), HashMap::new()).unwrap();
         let manual_credentials =
             InstallAwsCredentialPair::new("submitted-access", "submitted-secret");
 

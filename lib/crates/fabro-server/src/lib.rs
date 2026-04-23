@@ -38,4 +38,5 @@ pub mod static_files;
 pub mod web_auth;
 
 pub use error::{ApiError, Error, Result};
-pub use startup::{EnvSource, ProcessEnv, StartupValidationError, validate_startup};
+pub use server_secrets::process_env_snapshot;
+pub use startup::validate_startup;
