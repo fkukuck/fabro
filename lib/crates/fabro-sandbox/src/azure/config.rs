@@ -4,9 +4,6 @@ pub struct AzurePlatformConfig {
     pub resource_group:  String,
     pub location:        String,
     pub subnet_id:       String,
-    pub storage_account: String,
-    pub storage_share:   String,
-    pub storage_key:     String,
     pub acr_server:      String,
     pub sandboxd_port:   u16,
     pub acr_username:    Option<String>,
@@ -20,9 +17,6 @@ impl AzurePlatformConfig {
             "FABRO_AZURE_RESOURCE_GROUP",
             "FABRO_AZURE_LOCATION",
             "FABRO_AZURE_SANDBOX_SUBNET_ID",
-            "FABRO_AZURE_STORAGE_ACCOUNT",
-            "FABRO_AZURE_STORAGE_SHARE",
-            "FABRO_AZURE_STORAGE_KEY",
             "FABRO_AZURE_ACR_SERVER",
         ];
 
@@ -60,9 +54,6 @@ impl AzurePlatformConfig {
             resource_group: std::env::var("FABRO_AZURE_RESOURCE_GROUP").unwrap_or_default(),
             location: std::env::var("FABRO_AZURE_LOCATION").unwrap_or_default(),
             subnet_id: std::env::var("FABRO_AZURE_SANDBOX_SUBNET_ID").unwrap_or_default(),
-            storage_account: std::env::var("FABRO_AZURE_STORAGE_ACCOUNT").unwrap_or_default(),
-            storage_share: std::env::var("FABRO_AZURE_STORAGE_SHARE").unwrap_or_default(),
-            storage_key: std::env::var("FABRO_AZURE_STORAGE_KEY").unwrap_or_default(),
             acr_server: std::env::var("FABRO_AZURE_ACR_SERVER").unwrap_or_default(),
             sandboxd_port,
             acr_username: std::env::var("FABRO_AZURE_ACR_USERNAME").ok(),
@@ -76,21 +67,28 @@ mod tests {
     use super::AzurePlatformConfig;
 
     #[test]
-    fn azure_platform_config_requires_core_env() {
+    fn azure_platform_config_does_not_require_workspace_storage_env() {
         temp_env::with_vars(
             vec![
-                ("FABRO_AZURE_SUBSCRIPTION_ID", None::<&str>),
-                ("FABRO_AZURE_RESOURCE_GROUP", None::<&str>),
-                ("FABRO_AZURE_LOCATION", None::<&str>),
-                ("FABRO_AZURE_SANDBOX_SUBNET_ID", None::<&str>),
+                ("FABRO_AZURE_SUBSCRIPTION_ID", Some("sub-1")),
+                ("FABRO_AZURE_RESOURCE_GROUP", Some("rg-1")),
+                ("FABRO_AZURE_LOCATION", Some("eastus")),
+                (
+                    "FABRO_AZURE_SANDBOX_SUBNET_ID",
+                    Some(
+                        "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci",
+                    ),
+                ),
                 ("FABRO_AZURE_STORAGE_ACCOUNT", None::<&str>),
                 ("FABRO_AZURE_STORAGE_SHARE", None::<&str>),
                 ("FABRO_AZURE_STORAGE_KEY", None::<&str>),
-                ("FABRO_AZURE_ACR_SERVER", None::<&str>),
+                ("FABRO_AZURE_ACR_SERVER", Some("fabro.azurecr.io")),
             ],
             || {
-                let err = AzurePlatformConfig::from_env().unwrap_err();
-                assert!(err.contains("FABRO_AZURE_SUBSCRIPTION_ID"));
+                let config = AzurePlatformConfig::from_env().unwrap();
+                assert_eq!(config.subscription_id, "sub-1");
+                assert_eq!(config.acr_server, "fabro.azurecr.io");
+                assert_eq!(config.sandboxd_port, 7777);
             },
         );
     }

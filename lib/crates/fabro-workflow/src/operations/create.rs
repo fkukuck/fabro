@@ -78,8 +78,9 @@ fn sanitize_host_repo_path(
     working_directory: &Path,
 ) -> Option<String> {
     match host_repo_path {
-        Some(path) => discover_host_repo_root(Path::new(&path))
-            .map(|path| path.to_string_lossy().to_string()),
+        Some(path) => {
+            discover_host_repo_root(Path::new(&path)).map(|path| path.to_string_lossy().to_string())
+        }
         None => working_directory
             .exists()
             .then(|| working_directory.to_string_lossy().to_string()),
