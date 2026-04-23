@@ -9,8 +9,7 @@ mod workflow;
 pub use cli::resolve_cli;
 pub use error::ResolveError;
 use fabro_types::settings::{
-    CliNamespace, FeaturesNamespace, InterpString, ProjectNamespace, RunNamespace, ServerNamespace,
-    SettingsLayer, WorkflowNamespace,
+    CliNamespace, FeaturesNamespace, InterpString, ServerNamespace, SettingsLayer,
 };
 pub use features::resolve_features;
 pub use project::resolve_project;
@@ -36,37 +35,12 @@ pub fn resolve_server_from_file(
     finish(value, errors)
 }
 
-pub fn resolve_project_from_file(
-    file: &SettingsLayer,
-) -> Result<ProjectNamespace, Vec<ResolveError>> {
-    let layer = apply_builtin_defaults(file.clone());
-    let mut errors = Vec::new();
-    let value = resolve_project(&layer.project.clone().unwrap_or_default(), &mut errors);
-    finish(value, errors)
-}
-
 pub fn resolve_features_from_file(
     file: &SettingsLayer,
 ) -> Result<FeaturesNamespace, Vec<ResolveError>> {
     let layer = apply_builtin_defaults(file.clone());
     let mut errors = Vec::new();
     let value = resolve_features(&layer.features.clone().unwrap_or_default(), &mut errors);
-    finish(value, errors)
-}
-
-pub fn resolve_run_from_file(file: &SettingsLayer) -> Result<RunNamespace, Vec<ResolveError>> {
-    let layer = apply_builtin_defaults(file.clone());
-    let mut errors = Vec::new();
-    let value = resolve_run(&layer.run.clone().unwrap_or_default(), &mut errors);
-    finish(value, errors)
-}
-
-pub fn resolve_workflow_from_file(
-    file: &SettingsLayer,
-) -> Result<WorkflowNamespace, Vec<ResolveError>> {
-    let layer = apply_builtin_defaults(file.clone());
-    let mut errors = Vec::new();
-    let value = resolve_workflow(&layer.workflow.clone().unwrap_or_default(), &mut errors);
     finish(value, errors)
 }
 
@@ -119,8 +93,7 @@ mod tests {
 
     use fabro_types::settings::run::{HookType, McpTransport, TlsMode};
 
-    use super::resolve_run_from_file;
-    use crate::parse_settings_layer;
+    use crate::{WorkflowSettingsBuilder, parse_settings_layer};
 
     #[test]
     fn resolve_preserves_source_templates_for_mcp_and_hook_strings() {
@@ -164,7 +137,9 @@ Authorization = "Bearer {{ env.HOOK_TOKEN }}"
         )
         .expect("settings fixture should parse");
 
-        let resolved = resolve_run_from_file(&settings).expect("run settings should resolve");
+        let resolved = WorkflowSettingsBuilder::from_layer(&settings)
+            .expect("run settings should resolve")
+            .run;
         let mcps = &resolved.agent.mcps;
 
         assert_eq!(

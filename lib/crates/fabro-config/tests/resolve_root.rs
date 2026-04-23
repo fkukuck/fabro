@@ -48,8 +48,9 @@ provider = "not-a-provider"
             .map(|error| error.to_string()),
     );
     rendered.extend(
-        fabro_config::resolve_run_from_file(&settings)
+        fabro_config::WorkflowSettingsBuilder::from_layer(&settings)
             .expect_err("invalid run settings should fail")
+            .into_inner()
             .into_iter()
             .map(|error| error.to_string()),
     );
