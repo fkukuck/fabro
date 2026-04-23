@@ -8726,7 +8726,7 @@ strategy = "token"
 
     #[async_trait::async_trait]
     impl ProviderAdapter for MockLlmProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "anthropic"
         }
 
@@ -9457,8 +9457,7 @@ slug = "fabro"
                     .to_string(),
                 );
         });
-        let state =
-            create_github_token_app_state(Some("ghu_test"), Some(github.base_url().to_string()));
+        let state = create_github_token_app_state(Some("ghu_test"), Some(github.base_url()));
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
         let run_id = fixtures::RUN_1;
 
@@ -9584,8 +9583,7 @@ slug = "fabro"
                 .header("content-type", "application/json")
                 .body(json!({ "message": "Not Found" }).to_string());
         });
-        let state =
-            create_github_token_app_state(Some("ghu_test"), Some(github.base_url().to_string()));
+        let state = create_github_token_app_state(Some("ghu_test"), Some(github.base_url()));
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
         let run_id = fixtures::RUN_1;
 
@@ -9642,8 +9640,7 @@ slug = "fabro"
                     .to_string(),
                 );
         });
-        let state =
-            create_github_token_app_state(Some("ghu_test"), Some(github.base_url().to_string()));
+        let state = create_github_token_app_state(Some("ghu_test"), Some(github.base_url()));
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
         let run_id = fixtures::RUN_1;
 
