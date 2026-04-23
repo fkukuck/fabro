@@ -10,11 +10,12 @@ use fabro_config::user::load_settings_config;
 use fabro_config::{ServerSettingsBuilder, Storage};
 use fabro_install::{OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV};
 use fabro_sandbox::SandboxProvider;
+use fabro_types::ServerSettings;
 use fabro_types::settings::server::{
-    GithubIntegrationStrategy, ServerLayer, ServerListenLayer, ServerStorageLayer, WebhookStrategy,
+    GithubIntegrationStrategy, ServerLayer, ServerStorageLayer, WebhookStrategy,
 };
 use fabro_types::settings::{
-    Combine, GithubIntegrationSettings, InterpString, ObjectStoreSettings, ServerListenSettings,
+    GithubIntegrationSettings, InterpString, ObjectStoreSettings, ServerListenSettings,
     ServerNamespace, SettingsLayer,
 };
 use fabro_util::terminal::Styles;
@@ -496,34 +497,17 @@ pub fn resolve_bind_request_from_settings(
     settings: &SettingsLayer,
     explicit_bind: Option<&str>,
 ) -> anyhow::Result<BindRequest> {
-    let effective_settings = match explicit_bind.map(bind::parse_bind).transpose()? {
-        Some(BindRequest::TcpHost(host)) => return Ok(BindRequest::TcpHost(host)),
-        Some(bind) => bind_override_layer(bind).combine(settings.clone()),
-        None => settings.clone(),
-    };
-    let resolved = resolve_server_settings(&effective_settings)?;
-    resolved_bind_request(&resolved)
+    let resolved = ServerSettingsBuilder::from_layer(settings).map_err(anyhow::Error::from)?;
+    resolve_bind_request_from_server_settings(&resolved, explicit_bind)
 }
 
-fn bind_override_layer(bind: BindRequest) -> SettingsLayer {
-    let listen = match bind {
-        BindRequest::Unix(path) => ServerListenLayer::Unix {
-            path: Some(InterpString::parse(&path.display().to_string())),
-        },
-        BindRequest::Tcp(address) => ServerListenLayer::Tcp {
-            address: Some(InterpString::parse(&address.to_string())),
-        },
-        BindRequest::TcpHost(_) => {
-            unreachable!("host-only bind requests are handled before building a settings override")
-        }
-    };
-
-    SettingsLayer {
-        server: Some(ServerLayer {
-            listen: Some(listen),
-            ..ServerLayer::default()
-        }),
-        ..SettingsLayer::default()
+pub fn resolve_bind_request_from_server_settings(
+    settings: &ServerSettings,
+    explicit_bind: Option<&str>,
+) -> anyhow::Result<BindRequest> {
+    match explicit_bind.map(bind::parse_bind).transpose()? {
+        Some(bind) => Ok(bind),
+        None => resolved_bind_request(&settings.server),
     }
 }
 

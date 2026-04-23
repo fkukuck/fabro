@@ -58,7 +58,7 @@ use crate::shared::provider_auth::{
     ApiKeySource, authenticate_provider, authenticate_provider_with_api_key_source,
     authenticate_provider_with_method, prompt_confirm, prompt_password, provider_display_name,
 };
-use crate::{local_server, server_client, user_config};
+use crate::{local_server, server_client};
 
 const GITHUB_TOKEN_SECRET_KEY: &str = "GITHUB_TOKEN";
 const GITHUB_APP_PRIVATE_KEY_KEY: &str = "GITHUB_APP_PRIVATE_KEY";
@@ -1606,8 +1606,9 @@ async fn run_install_inner(args: &InstallArgs, ctx: &CommandContext) -> Result<(
     let web_url = &args.web_url;
     let s = Styles::detect_stderr();
     let emoji = console::Emoji("⚒️  ", "");
-    let cli_settings = user_config::load_settings_with_storage_dir(args.storage_dir.as_deref())?;
-    let storage_dir = local_server::storage_dir(&cli_settings)?;
+    let local_config =
+        local_server::LocalServerConfig::load_with_storage_dir(args.storage_dir.as_deref())?;
+    let storage_dir = local_config.storage_dir().to_path_buf();
     let server_was_running =
         ServerDaemon::load_running(&Storage::new(&storage_dir).runtime_directory())?.is_some();
     let fabro_dir = fabro_util::Home::from_env().root().to_path_buf();
