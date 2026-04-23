@@ -208,7 +208,19 @@ impl FromRequestParts<Arc<AppState>> for AuthorizeStageArtifact {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex as StdMutex};
+
+    use axum::http::header;
+    use axum::http::request::Parts;
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use chrono::Duration as ChronoDuration;
     use jsonwebtoken::{Algorithm, Header, decode};
+    use serde_json::json;
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber, subscriber};
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+    use tracing_subscriber::{Layer, Registry};
     use uuid::Uuid;
 
     use super::{
@@ -217,14 +229,152 @@ mod tests {
     };
     use crate::auth;
 
+    const TEST_SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
+    const OTHER_SECRET: &[u8] = b"fedcba9876543210fedcba9876543210";
+
     fn keys(secret: &[u8]) -> WorkerTokenKeys {
         WorkerTokenKeys::from_master_secret(secret).expect("worker keys should derive")
     }
 
+    fn run_id() -> fabro_types::RunId {
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+    }
+
+    fn other_run_id() -> fabro_types::RunId {
+        "01ARZ3NDEKTSV4RRFFQ69G5FAW".parse().unwrap()
+    }
+
+    fn request_parts(authorization: Option<&str>) -> Parts {
+        let mut builder = axum::http::Request::builder();
+        if let Some(authorization) = authorization {
+            builder = builder.header(header::AUTHORIZATION, authorization);
+        }
+        let (parts, _) = builder.body(()).unwrap().into_parts();
+        parts
+    }
+
+    fn bearer_parts(token: &str) -> Parts {
+        request_parts(Some(&format!("Bearer {token}")))
+    }
+
+    fn wrong_scope_token(keys: &WorkerTokenKeys, run_id: &fabro_types::RunId) -> String {
+        let claims = WorkerTokenClaims {
+            iss:    WORKER_TOKEN_ISSUER.to_string(),
+            iat:    1,
+            exp:    u64::MAX / 2,
+            run_id: run_id.to_string(),
+            scope:  "wrong:scope".to_string(),
+            jti:    Uuid::new_v4().simple().to_string(),
+        };
+        jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &keys.encoding)
+            .expect("test token should encode")
+    }
+
+    fn expired_worker_token(keys: &WorkerTokenKeys, run_id: &fabro_types::RunId) -> String {
+        let claims = WorkerTokenClaims {
+            iss:    WORKER_TOKEN_ISSUER.to_string(),
+            iat:    1,
+            exp:    2,
+            run_id: run_id.to_string(),
+            scope:  WORKER_TOKEN_SCOPE.to_string(),
+            jti:    Uuid::new_v4().simple().to_string(),
+        };
+        jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &keys.encoding)
+            .expect("expired test token should encode")
+    }
+
+    fn alg_none_token(run_id: &fabro_types::RunId) -> String {
+        let header = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "alg": "none",
+                "typ": "JWT",
+            }))
+            .expect("jwt header should serialize"),
+        );
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "iss": WORKER_TOKEN_ISSUER,
+                "iat": 1_u64,
+                "exp": u64::MAX / 2,
+                "run_id": run_id.to_string(),
+                "scope": WORKER_TOKEN_SCOPE,
+                "jti": Uuid::new_v4().simple().to_string(),
+            }))
+            .expect("jwt payload should serialize"),
+        );
+        format!("{header}.{payload}.")
+    }
+
+    fn issue_user_jwt() -> String {
+        let subject = auth::JwtSubject {
+            identity:    fabro_types::IdpIdentity::new("https://github.com", "12345").unwrap(),
+            login:       "octocat".to_string(),
+            name:        "The Octocat".to_string(),
+            email:       "octocat@example.com".to_string(),
+            avatar_url:  "https://example.com/octocat.png".to_string(),
+            user_url:    "https://github.com/octocat".to_string(),
+            auth_method: fabro_types::RunAuthMethod::Github,
+        };
+        let key = auth::derive_jwt_key(TEST_SECRET).expect("user jwt key should derive");
+        auth::issue(
+            &key,
+            "https://fabro.example",
+            &subject,
+            ChronoDuration::minutes(10),
+        )
+    }
+
+    #[derive(Debug)]
+    struct LogCapture {
+        target: String,
+        fields: Vec<(String, String)>,
+    }
+
+    #[derive(Default)]
+    struct LogCaptureVisitor {
+        fields: Vec<(String, String)>,
+    }
+
+    impl Visit for LogCaptureVisitor {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.fields
+                .push((field.name().to_string(), format!("{value:?}")));
+        }
+    }
+
+    struct LogCaptureLayer {
+        events: Arc<StdMutex<Vec<LogCapture>>>,
+    }
+
+    impl<S: Subscriber> Layer<S> for LogCaptureLayer {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            if event.metadata().target() != "worker_auth" {
+                return;
+            }
+
+            let mut visitor = LogCaptureVisitor::default();
+            event.record(&mut visitor);
+            self.events.lock().unwrap().push(LogCapture {
+                target: event.metadata().target().to_string(),
+                fields: visitor.fields,
+            });
+        }
+    }
+
+    fn capture_logs<T>(f: impl FnOnce() -> T) -> (T, Arc<StdMutex<Vec<LogCapture>>>) {
+        let events = Arc::new(StdMutex::new(Vec::<LogCapture>::new()));
+        let layer = LogCaptureLayer {
+            events: Arc::clone(&events),
+        };
+        let subscriber = Registry::default().with(layer);
+        let result = subscriber::with_default(subscriber, f);
+        (result, events)
+    }
+
     #[test]
     fn issue_worker_token_round_trips_claims() {
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let keys = keys(b"0123456789abcdef0123456789abcdef");
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
 
         let token = issue_worker_token(&keys, &run_id).expect("worker token should issue");
         let decoded = decode::<WorkerTokenClaims>(&token, &keys.decoding, &keys.validation)
@@ -244,10 +394,9 @@ mod tests {
 
     #[test]
     fn worker_token_survives_key_rederivation() {
-        let secret = b"0123456789abcdef0123456789abcdef";
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let first = keys(secret);
-        let second = keys(secret);
+        let run_id = run_id();
+        let first = keys(TEST_SECRET);
+        let second = keys(TEST_SECRET);
 
         let token = issue_worker_token(&first, &run_id).expect("worker token should issue");
         let decoded = decode::<WorkerTokenClaims>(&token, &second.decoding, &second.validation)
@@ -258,9 +407,9 @@ mod tests {
 
     #[test]
     fn worker_token_fails_under_rotated_secret() {
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let first = keys(b"0123456789abcdef0123456789abcdef");
-        let second = keys(b"fedcba9876543210fedcba9876543210");
+        let run_id = run_id();
+        let first = keys(TEST_SECRET);
+        let second = keys(OTHER_SECRET);
 
         let token = issue_worker_token(&first, &run_id).expect("worker token should issue");
         let err = decode::<WorkerTokenClaims>(&token, &second.decoding, &second.validation)
@@ -273,38 +422,30 @@ mod tests {
 
     #[test]
     fn worker_key_is_distinct_from_user_jwt_key() {
-        let secret = b"0123456789abcdef0123456789abcdef";
-        let user_key = auth::derive_jwt_key(secret).expect("user key should derive");
-        let worker_key = auth::derive_worker_jwt_key(secret).expect("worker key should derive");
+        let user_key = auth::derive_jwt_key(TEST_SECRET).expect("user key should derive");
+        let worker_key =
+            auth::derive_worker_jwt_key(TEST_SECRET).expect("worker key should derive");
 
         assert_ne!(user_key.as_bytes(), worker_key);
     }
 
     #[test]
     fn authorize_worker_token_accepts_matching_run_id() {
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let keys = keys(b"0123456789abcdef0123456789abcdef");
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
         let token = issue_worker_token(&keys, &run_id).expect("worker token should issue");
-        let request = axum::http::Request::builder()
-            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
-            .body(())
-            .unwrap();
-        let (parts, _) = request.into_parts();
+        let parts = bearer_parts(&token);
 
         assert!(authorize_worker_token(&parts, &run_id, &keys).unwrap());
     }
 
     #[test]
     fn authorize_worker_token_rejects_cross_run_reuse() {
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let other_run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAW".parse().unwrap();
-        let keys = keys(b"0123456789abcdef0123456789abcdef");
+        let run_id = run_id();
+        let other_run_id = other_run_id();
+        let keys = keys(TEST_SECRET);
         let token = issue_worker_token(&keys, &other_run_id).expect("worker token should issue");
-        let request = axum::http::Request::builder()
-            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
-            .body(())
-            .unwrap();
-        let (parts, _) = request.into_parts();
+        let parts = bearer_parts(&token);
 
         let err = authorize_worker_token(&parts, &run_id, &keys)
             .expect_err("mismatched run should reject");
@@ -313,26 +454,155 @@ mod tests {
 
     #[test]
     fn authorize_worker_token_rejects_wrong_scope() {
-        let run_id: fabro_types::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
-        let keys = keys(b"0123456789abcdef0123456789abcdef");
-        let claims = WorkerTokenClaims {
-            iss:    WORKER_TOKEN_ISSUER.to_string(),
-            iat:    1,
-            exp:    u64::MAX / 2,
-            run_id: run_id.to_string(),
-            scope:  "wrong:scope".to_string(),
-            jti:    Uuid::new_v4().simple().to_string(),
-        };
-        let token = jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &keys.encoding)
-            .expect("test token should encode");
-        let request = axum::http::Request::builder()
-            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
-            .body(())
-            .unwrap();
-        let (parts, _) = request.into_parts();
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = wrong_scope_token(&keys, &run_id);
+        let parts = bearer_parts(&token);
 
         let err =
             authorize_worker_token(&parts, &run_id, &keys).expect_err("wrong scope should reject");
         assert_eq!(err.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn authorize_worker_token_falls_through_without_header() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let parts = request_parts(None);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        assert!(!result.unwrap());
+        assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authorize_worker_token_falls_through_for_user_jwt_without_worker_logs() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = issue_user_jwt();
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        assert!(!result.unwrap());
+        assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authorize_worker_token_falls_through_for_expired_token_without_worker_logs() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = expired_worker_token(&keys, &run_id);
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        assert!(!result.unwrap());
+        assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authorize_worker_token_falls_through_for_bad_signature_without_worker_logs() {
+        let run_id = run_id();
+        let signer = keys(OTHER_SECRET);
+        let verifier = keys(TEST_SECRET);
+        let token = issue_worker_token(&signer, &run_id).expect("worker token should issue");
+        let parts = bearer_parts(&token);
+
+        let (result, captured) =
+            capture_logs(|| authorize_worker_token(&parts, &run_id, &verifier));
+
+        assert!(!result.unwrap());
+        assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authorize_worker_token_falls_through_for_alg_none_without_worker_logs() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = alg_none_token(&run_id);
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        assert!(!result.unwrap());
+        assert!(captured.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authorize_worker_token_logs_acceptance() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = issue_worker_token(&keys, &run_id).expect("worker token should issue");
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        assert!(result.unwrap());
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "worker_auth");
+        assert!(events[0]
+            .fields
+            .iter()
+            .any(|(field, value)| field == "message" && value.contains("worker token accepted")));
+        assert!(
+            events[0]
+                .fields
+                .iter()
+                .any(|(field, value)| field == "run_id" && value.contains(&run_id.to_string()))
+        );
+        assert!(
+            events[0]
+                .fields
+                .iter()
+                .any(|(field, value)| field == "jti" && !value.is_empty())
+        );
+    }
+
+    #[test]
+    fn authorize_worker_token_logs_run_id_mismatch() {
+        let run_id = run_id();
+        let other_run_id = other_run_id();
+        let keys = keys(TEST_SECRET);
+        let token = issue_worker_token(&keys, &other_run_id).expect("worker token should issue");
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        let err = result.expect_err("mismatched run should reject");
+        assert_eq!(err.status(), axum::http::StatusCode::FORBIDDEN);
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "worker_auth");
+        assert!(
+            events[0]
+                .fields
+                .iter()
+                .any(|(field, value)| field == "reason" && value.contains("run_id_mismatch"))
+        );
+    }
+
+    #[test]
+    fn authorize_worker_token_logs_wrong_scope() {
+        let run_id = run_id();
+        let keys = keys(TEST_SECRET);
+        let token = wrong_scope_token(&keys, &run_id);
+        let parts = bearer_parts(&token);
+
+        let (result, captured) = capture_logs(|| authorize_worker_token(&parts, &run_id, &keys));
+
+        let err = result.expect_err("wrong scope should reject");
+        assert_eq!(err.status(), axum::http::StatusCode::FORBIDDEN);
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "worker_auth");
+        assert!(
+            events[0]
+                .fields
+                .iter()
+                .any(|(field, value)| field == "reason" && value.contains("wrong_scope"))
+        );
     }
 }

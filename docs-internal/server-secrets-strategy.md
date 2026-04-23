@@ -18,7 +18,7 @@ These values belong to the server runtime and are read via `state.server_secret(
 | Secret | Used by |
 |---|---|
 | `SESSION_SECRET` | Cookie encryption and JWT signing derivation |
-| `FABRO_DEV_TOKEN` | Dev-token auth for worker/server interactions |
+| `FABRO_DEV_TOKEN` | Dev-token user auth when `server.auth.methods` includes `dev-token` |
 | `GITHUB_APP_PRIVATE_KEY` | GitHub App credentials |
 | `GITHUB_APP_WEBHOOK_SECRET` | GitHub webhook verification |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub OAuth login |
@@ -46,7 +46,7 @@ There is no compatibility layer for removed secrets and no startup-time secret g
 ## Subprocess Boundaries
 
 - Worker and render-graph subprocesses start from `env_clear()` and re-add only explicit allowlisted variables.
-- Authority-bearing values are re-injected intentionally.
+- Authority-bearing values are re-injected intentionally. For worker subprocesses this is `FABRO_WORKER_TOKEN`, not user auth state such as `FABRO_DEV_TOKEN` or `auth.json`.
 - The daemon child inherits the parent env unchanged except for output-format hygiene (`FABRO_JSON` removal).
 
 ## Tests

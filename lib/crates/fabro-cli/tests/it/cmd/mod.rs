@@ -69,6 +69,7 @@ mod upgrade;
 mod validate;
 mod version;
 mod wait;
+mod worker_auth;
 mod workflow;
 mod workflow_create;
 mod workflow_list;
