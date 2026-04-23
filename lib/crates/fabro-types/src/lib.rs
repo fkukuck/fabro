@@ -63,5 +63,6 @@ pub use sandbox_record::SandboxRecord;
 pub use stage_id::{ParallelBranchId, StageId};
 pub use start::StartRecord;
 pub use status::{
-    BlockedReason, InvalidTransition, RunControlAction, RunStatus, RunStatusRecord, StatusReason,
+    BlockedReason, FailureReason, InvalidTransition, ParseFailureReasonError,
+    ParseSuccessReasonError, RunControlAction, RunStatus, SuccessReason, TerminalStatus,
 };

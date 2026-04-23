@@ -16,22 +16,16 @@
 // May contain unused imports in some cases
 // @ts-ignore
 import type { BlockedReason } from './blocked-reason';
-// May contain unused imports in some cases
-// @ts-ignore
-import type { RunStatus } from './run-status';
-// May contain unused imports in some cases
-// @ts-ignore
-import type { StatusReason } from './status-reason';
 
-/**
- * Internal run status record from the event projection.
- */
-export interface RunStatusRecord {
-    'status': RunStatus;
-    'status_reason'?: StatusReason | null;
-    'blocked_reason'?: BlockedReason | null;
-    'updated_at': string;
+export interface RunStatusPaused {
+    'kind': RunStatusPausedKindEnum;
+    'prior_block': BlockedReason | null;
 }
 
+export const RunStatusPausedKindEnum = {
+    PAUSED: 'paused'
+} as const;
+
+export type RunStatusPausedKindEnum = typeof RunStatusPausedKindEnum[keyof typeof RunStatusPausedKindEnum];
 
 

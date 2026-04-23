@@ -15,12 +15,10 @@
 
 
 /**
- * Optional reason attached to a run status transition.
+ * Reason attached to a failed terminal run status.
  */
 
-export const StatusReason = {
-    COMPLETED: 'completed',
-    PARTIAL_SUCCESS: 'partial_success',
+export const FailureReason = {
     WORKFLOW_ERROR: 'workflow_error',
     CANCELLED: 'cancelled',
     TERMINATED: 'terminated',
@@ -28,11 +26,10 @@ export const StatusReason = {
     BUDGET_EXHAUSTED: 'budget_exhausted',
     LAUNCH_FAILED: 'launch_failed',
     BOOTSTRAP_FAILED: 'bootstrap_failed',
-    SANDBOX_INIT_FAILED: 'sandbox_init_failed',
-    SANDBOX_INITIALIZING: 'sandbox_initializing'
+    SANDBOX_INIT_FAILED: 'sandbox_init_failed'
 } as const;
 
-export type StatusReason = typeof StatusReason[keyof typeof StatusReason];
+export type FailureReason = typeof FailureReason[keyof typeof FailureReason];
 
 
 

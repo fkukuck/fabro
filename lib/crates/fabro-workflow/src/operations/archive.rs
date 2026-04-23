@@ -1,5 +1,5 @@
 use fabro_store::{Database, Error as StoreError};
-use fabro_types::{ActorRef, RunId, RunStatus};
+use fabro_types::{ActorRef, RunId, RunStatus, TerminalStatus};
 
 use crate::error::Error;
 use crate::event::{self, Event};
@@ -23,7 +23,7 @@ pub fn archived_rejection_message(run_id: &RunId) -> String {
 /// archived run. Use this at any mutation entry point that would otherwise
 /// transition or emit events against the run (rewind, resume, etc.).
 pub fn ensure_not_archived(status: Option<RunStatus>, run_id: &RunId) -> Result<(), Error> {
-    if status == Some(RunStatus::Archived) {
+    if matches!(status, Some(RunStatus::Archived { .. })) {
         Err(Error::Precondition(archived_rejection_message(run_id)))
     } else {
         Ok(())
@@ -34,7 +34,7 @@ pub fn ensure_not_archived(status: Option<RunStatus>, run_id: &RunId) -> Result<
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArchiveOutcome {
     /// Event was appended; projection transitions to `Archived`.
-    Archived { prior_status: RunStatus },
+    Archived { prior_status: TerminalStatus },
     /// Run was already archived; no event emitted.
     AlreadyArchived,
 }
@@ -43,7 +43,7 @@ pub enum ArchiveOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnarchiveOutcome {
     /// Event was appended; projection transitions back to `restored_status`.
-    Unarchived { restored_status: RunStatus },
+    Unarchived { restored_status: TerminalStatus },
     /// Run was terminal but not archived; no event emitted. Symmetric with
     /// `ArchiveOutcome::AlreadyArchived`.
     NotArchived { status: RunStatus },
@@ -63,21 +63,17 @@ pub async fn archive(
         .state()
         .await
         .map_err(|err| Error::engine(err.to_string()))?;
-    let current = projection
-        .status
-        .as_ref()
-        .map(|record| record.status)
-        .ok_or_else(|| {
-            Error::Precondition(format!("run {run_id} has no status; cannot archive"))
-        })?;
+    let current = projection.status.ok_or_else(|| {
+        Error::Precondition(format!("run {run_id} has no status; cannot archive"))
+    })?;
 
-    if current == RunStatus::Archived {
+    if matches!(current, RunStatus::Archived { .. }) {
         return Ok(ArchiveOutcome::AlreadyArchived);
     }
 
     if !matches!(
         current,
-        RunStatus::Succeeded | RunStatus::Failed | RunStatus::Dead
+        RunStatus::Succeeded { .. } | RunStatus::Failed { .. } | RunStatus::Dead
     ) {
         return Err(Error::Precondition(format!(
             "run {run_id} must be terminal (succeeded, failed, or dead) to archive; \
@@ -89,9 +85,13 @@ pub async fn archive(
         .await
         .map_err(|err| Error::engine(err.to_string()))?;
 
-    Ok(ArchiveOutcome::Archived {
-        prior_status: current,
-    })
+    let prior_status = current.terminal_status().ok_or_else(|| {
+        Error::engine(format!(
+            "run {run_id} passed archive precondition but had non-terminal status {current}"
+        ))
+    })?;
+
+    Ok(ArchiveOutcome::Archived { prior_status })
 }
 
 /// Unarchive a previously archived run, restoring its prior terminal status.
@@ -110,34 +110,22 @@ pub async fn unarchive(
         .state()
         .await
         .map_err(|err| Error::engine(err.to_string()))?;
-    let current = projection
-        .status
-        .as_ref()
-        .map(|record| record.status)
-        .ok_or_else(|| {
-            Error::Precondition(format!("run {run_id} has no status; cannot unarchive"))
-        })?;
+    let current = projection.status.ok_or_else(|| {
+        Error::Precondition(format!("run {run_id} has no status; cannot unarchive"))
+    })?;
 
-    if current == RunStatus::Archived {
-        let restored = projection.prior_status.ok_or_else(|| {
-            Error::engine(format!(
-                "run {run_id} is archived but prior_status is missing; projection is corrupt"
-            ))
-        })?;
-        event::append_event(&run_store, run_id, &Event::RunUnarchived {
-            actor,
-            restored_status: restored,
-        })
-        .await
-        .map_err(|err| Error::engine(err.to_string()))?;
+    if let RunStatus::Archived { prior } = current {
+        event::append_event(&run_store, run_id, &Event::RunUnarchived { actor })
+            .await
+            .map_err(|err| Error::engine(err.to_string()))?;
         return Ok(UnarchiveOutcome::Unarchived {
-            restored_status: restored,
+            restored_status: prior,
         });
     }
 
     if matches!(
         current,
-        RunStatus::Succeeded | RunStatus::Failed | RunStatus::Dead
+        RunStatus::Succeeded { .. } | RunStatus::Failed { .. } | RunStatus::Dead
     ) {
         return Ok(UnarchiveOutcome::NotArchived { status: current });
     }
@@ -153,7 +141,7 @@ mod tests {
     use std::time::Duration;
 
     use fabro_store::Database;
-    use fabro_types::{RunId, fixtures};
+    use fabro_types::{FailureReason, RunId, SuccessReason, TerminalStatus, fixtures};
     use object_store::memory::InMemory;
 
     use super::*;
@@ -173,7 +161,7 @@ mod tests {
             duration_ms:          10,
             artifact_count:       0,
             status:               "success".to_string(),
-            reason:               None,
+            reason:               SuccessReason::Completed,
             total_usd_micros:     None,
             final_git_commit_sha: None,
             final_patch:          None,
@@ -188,7 +176,7 @@ mod tests {
         event::append_event(&run_store, run_id, &Event::WorkflowRunFailed {
             error:          crate::error::Error::engine("boom"),
             duration_ms:    10,
-            reason:         None,
+            reason:         FailureReason::WorkflowError,
             git_commit_sha: None,
             final_patch:    None,
         })
@@ -198,14 +186,14 @@ mod tests {
 
     async fn seed_running(store: &Database, run_id: &RunId) {
         let run_store = store.create_run(run_id).await.unwrap();
-        event::append_event(&run_store, run_id, &Event::RunRunning { reason: None })
+        event::append_event(&run_store, run_id, &Event::RunRunning)
             .await
             .unwrap();
     }
 
     async fn current_status(store: &Database, run_id: &RunId) -> RunStatus {
         let run_store = store.open_run_reader(run_id).await.unwrap();
-        run_store.state().await.unwrap().status.unwrap().status
+        run_store.state().await.unwrap().status.unwrap()
     }
 
     async fn event_count(store: &Database, run_id: &RunId) -> usize {
@@ -221,9 +209,15 @@ mod tests {
 
         let outcome = archive(&store, &run_id, None).await.unwrap();
         assert_eq!(outcome, ArchiveOutcome::Archived {
-            prior_status: RunStatus::Succeeded,
+            prior_status: TerminalStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            },
         });
-        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived);
+        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived {
+            prior: TerminalStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            },
+        });
 
         let projection = store
             .open_run_reader(&run_id)
@@ -232,7 +226,14 @@ mod tests {
             .state()
             .await
             .unwrap();
-        assert_eq!(projection.prior_status, Some(RunStatus::Succeeded));
+        assert_eq!(
+            projection.status,
+            Some(RunStatus::Archived {
+                prior: TerminalStatus::Succeeded {
+                    reason: SuccessReason::Completed,
+                },
+            })
+        );
     }
 
     #[tokio::test]
@@ -243,9 +244,15 @@ mod tests {
 
         let outcome = archive(&store, &run_id, None).await.unwrap();
         assert_eq!(outcome, ArchiveOutcome::Archived {
-            prior_status: RunStatus::Failed,
+            prior_status: TerminalStatus::Failed {
+                reason: FailureReason::WorkflowError,
+            },
         });
-        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived);
+        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived {
+            prior: TerminalStatus::Failed {
+                reason: FailureReason::WorkflowError,
+            },
+        });
     }
 
     #[tokio::test]
@@ -288,7 +295,9 @@ mod tests {
 
         let outcome = unarchive(&store, &run_id, None).await.unwrap();
         assert_eq!(outcome, UnarchiveOutcome::Unarchived {
-            restored_status: RunStatus::Succeeded,
+            restored_status: TerminalStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            },
         });
         let projection = store
             .open_run_reader(&run_id)
@@ -298,10 +307,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            projection.status.as_ref().map(|r| r.status),
-            Some(RunStatus::Succeeded)
+            projection.status,
+            Some(RunStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            })
         );
-        assert_eq!(projection.prior_status, None);
     }
 
     #[tokio::test]
@@ -313,9 +323,13 @@ mod tests {
 
         let outcome = unarchive(&store, &run_id, None).await.unwrap();
         assert_eq!(outcome, UnarchiveOutcome::Unarchived {
-            restored_status: RunStatus::Failed,
+            restored_status: TerminalStatus::Failed {
+                reason: FailureReason::WorkflowError,
+            },
         });
-        assert_eq!(current_status(&store, &run_id).await, RunStatus::Failed);
+        assert_eq!(current_status(&store, &run_id).await, RunStatus::Failed {
+            reason: FailureReason::WorkflowError,
+        });
     }
 
     #[tokio::test]
@@ -329,7 +343,9 @@ mod tests {
         let events_after = event_count(&store, &run_id).await;
 
         assert_eq!(outcome, UnarchiveOutcome::NotArchived {
-            status: RunStatus::Succeeded,
+            status: RunStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            },
         });
         assert_eq!(events_before, events_after);
     }
@@ -387,6 +403,10 @@ mod tests {
         let events_after = event_count(&store, &run_id).await;
 
         assert_eq!(events_after - events_before, 3);
-        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived);
+        assert_eq!(current_status(&store, &run_id).await, RunStatus::Archived {
+            prior: TerminalStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            },
+        });
     }
 }
