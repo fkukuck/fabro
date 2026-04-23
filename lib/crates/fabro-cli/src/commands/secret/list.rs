@@ -2,11 +2,10 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Style, Table};
-use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
 use crate::args::SecretListArgs;
-use crate::server_client::Client;
+use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
 
 fn format_age(dt: DateTime<Utc>, now: DateTime<Utc>) -> String {
@@ -20,14 +19,11 @@ fn format_age(dt: DateTime<Utc>, now: DateTime<Utc>) -> String {
     }
 }
 
-pub(super) async fn list_command(
-    client: &Client,
-    _args: &SecretListArgs,
-    json_output: bool,
-    printer: Printer,
-) -> Result<()> {
+pub(super) async fn list_command(_args: &SecretListArgs, ctx: &CommandContext) -> Result<()> {
+    let client = ctx.server().await?;
+    let printer = ctx.printer();
     let secrets = client.list_secrets().await?;
-    if json_output {
+    if ctx.json_output() {
         print_json_pretty(&secrets)?;
         return Ok(());
     }

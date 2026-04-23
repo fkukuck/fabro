@@ -11,11 +11,10 @@ use std::io::{IsTerminal, Read as _};
 
 use anyhow::{Context as _, Result, bail};
 use fabro_api::types;
-use fabro_util::printer::Printer;
 use tokio::task::spawn_blocking;
 
 use crate::args::{SecretSetArgs, SecretTypeArg};
-use crate::server_client::Client;
+use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
 use crate::shared::provider_auth::prompt_password;
 
@@ -55,13 +54,9 @@ async fn resolve_value(args: &SecretSetArgs) -> Result<String> {
     bail!("secret value required: pass <VALUE>, use --value-stdin, or run interactively")
 }
 
-pub(super) async fn set_command(
-    client: &Client,
-    args: &SecretSetArgs,
-    json_output: bool,
-    printer: Printer,
-) -> Result<()> {
+pub(super) async fn set_command(args: &SecretSetArgs, ctx: &CommandContext) -> Result<()> {
     let value = resolve_value(args).await?;
+    let client = ctx.server().await?;
     let meta = client
         .create_secret(types::CreateSecretRequest {
             name: args.key.clone(),
@@ -70,10 +65,10 @@ pub(super) async fn set_command(
             description: args.description.clone(),
         })
         .await?;
-    if json_output {
+    if ctx.json_output() {
         print_json_pretty(&meta)?;
     } else {
-        fabro_util::printerr!(printer, "Set {}", meta.name);
+        fabro_util::printerr!(ctx.printer(), "Set {}", meta.name);
     }
     Ok(())
 }
