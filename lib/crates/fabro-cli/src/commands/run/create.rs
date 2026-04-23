@@ -1,8 +1,6 @@
 use fabro_config::load::load_settings_user;
 use fabro_config::user::active_settings_path;
 use fabro_types::RunId;
-use fabro_types::settings::SettingsLayer;
-use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 
 use super::output::{api_diagnostics_to_local, print_preflight_workflow_summary};
@@ -22,10 +20,8 @@ pub(crate) struct CreatedRun {
 pub(crate) async fn create_run(
     ctx: &CommandContext,
     args: &RunArgs,
-    _cli_defaults: SettingsLayer,
     styles: &Styles,
     quiet: bool,
-    printer: Printer,
 ) -> anyhow::Result<CreatedRun> {
     let workflow_path = args
         .workflow
@@ -51,6 +47,7 @@ pub(crate) async fn create_run(
     })?;
     let client = ctx.server().await?;
     if !quiet {
+        let printer = ctx.printer();
         let preflight = client.run_preflight(built.manifest.clone()).await?;
         let diagnostics = api_diagnostics_to_local(&preflight.workflow.diagnostics);
         if !diagnostics

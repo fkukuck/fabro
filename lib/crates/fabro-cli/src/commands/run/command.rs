@@ -5,27 +5,17 @@ use fabro_util::terminal::Styles;
 use crate::args::RunArgs;
 use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
-use crate::user_config::load_settings_with_storage_dir;
 
 pub(crate) async fn execute(mut args: RunArgs, base_ctx: &CommandContext) -> Result<()> {
     let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
     let printer = base_ctx.printer();
     let ctx = base_ctx.with_target(&args.target)?;
-    let cli_defaults = load_settings_with_storage_dir(None)?;
     args.verbose =
         args.verbose || ctx.user_settings().cli.output.verbosity == OutputVerbosity::Verbose;
 
     let quiet = args.detach;
     let prevent_idle_sleep = ctx.user_settings().cli.exec.prevent_idle_sleep;
-    let created_run = Box::pin(super::create::create_run(
-        &ctx,
-        &args,
-        cli_defaults,
-        styles,
-        quiet,
-        printer,
-    ))
-    .await?;
+    let created_run = Box::pin(super::create::create_run(&ctx, &args, styles, quiet)).await?;
 
     if !quiet {
         fabro_util::printerr!(

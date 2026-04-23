@@ -43,7 +43,37 @@ impl CommandContext {
         cli_layer: &CliLayer,
         process_local_json: bool,
     ) -> Result<Self> {
-        Self::new(printer, process_local_json, ServerMode::None, cli_layer)
+        let (machine_settings, user_settings) = load_merged_settings(cli_layer, &ServerMode::None)?;
+        Self::base_with_settings(
+            printer,
+            cli_layer,
+            process_local_json,
+            machine_settings,
+            user_settings,
+        )
+    }
+
+    pub(crate) fn base_with_settings(
+        printer: Printer,
+        cli_layer: &CliLayer,
+        process_local_json: bool,
+        machine_settings: SettingsLayer,
+        user_settings: UserSettings,
+    ) -> Result<Self> {
+        let cwd = std::env::current_dir().context("Failed to get current directory")?;
+        let base_config_path = user_config::active_settings_path(None);
+
+        Ok(Self {
+            printer,
+            process_local_json,
+            cwd,
+            base_config_path,
+            cli_layer: cli_layer.clone(),
+            machine_settings,
+            user_settings,
+            server_mode: ServerMode::None,
+            server: OnceCell::new(),
+        })
     }
 
     pub(crate) fn with_target(&self, args: &ServerTargetArgs) -> Result<Self> {
@@ -56,29 +86,6 @@ impl CommandContext {
         self.with_server_mode(ServerMode::ByStorageDir {
             target_override:      args.target.server.clone(),
             storage_dir_override: args.storage_dir.clone_path(),
-        })
-    }
-
-    fn new(
-        printer: Printer,
-        process_local_json: bool,
-        server_mode: ServerMode,
-        cli_layer: &CliLayer,
-    ) -> Result<Self> {
-        let cwd = std::env::current_dir().context("Failed to get current directory")?;
-        let base_config_path = user_config::active_settings_path(None);
-        let (machine_settings, user_settings) = load_merged_settings(cli_layer, &server_mode)?;
-
-        Ok(Self {
-            printer,
-            process_local_json,
-            cwd,
-            base_config_path,
-            cli_layer: cli_layer.clone(),
-            machine_settings,
-            user_settings,
-            server_mode,
-            server: OnceCell::new(),
         })
     }
 
@@ -137,14 +144,28 @@ impl CommandContext {
     }
 
     fn with_server_mode(&self, server_mode: ServerMode) -> Result<Self> {
-        let (machine_settings, user_settings) = match &server_mode {
-            ServerMode::ByStorageDir { .. } => load_merged_settings(&self.cli_layer, &server_mode)?,
-            ServerMode::None | ServerMode::ByTarget { .. } => {
-                (self.machine_settings.clone(), self.user_settings.clone())
-            }
-        };
+        // Always reload settings for the requested derivation mode so the result
+        // depends only on the requested mode, not on whichever derived context
+        // happened to call into this helper.
+        let (machine_settings, user_settings) =
+            load_merged_settings(&self.cli_layer, &server_mode)?;
 
-        Ok(Self {
+        Ok(
+            self.with_server_mode_from_loaded_settings(
+                server_mode,
+                machine_settings,
+                user_settings,
+            ),
+        )
+    }
+
+    fn with_server_mode_from_loaded_settings(
+        &self,
+        server_mode: ServerMode,
+        machine_settings: SettingsLayer,
+        user_settings: UserSettings,
+    ) -> Self {
+        Self {
             printer: self.printer,
             process_local_json: self.process_local_json,
             cwd: self.cwd.clone(),
@@ -154,7 +175,7 @@ impl CommandContext {
             user_settings,
             server_mode,
             server: OnceCell::new(),
-        })
+        }
     }
 }
 
@@ -188,13 +209,14 @@ fn merge_settings_layer(
 mod tests {
     use std::path::PathBuf;
 
-    use fabro_config::parse_settings_layer;
+    use fabro_config::user::apply_storage_dir_override;
+    use fabro_config::{UserSettings, parse_settings_layer};
+    use fabro_types::settings::SettingsLayer;
     use fabro_types::settings::cli::{CliLayer, CliOutputLayer, OutputFormat, OutputVerbosity};
     use fabro_util::printer::Printer;
     use tokio::sync::OnceCell;
 
     use super::{CommandContext, ServerMode, merge_settings_layer};
-    use crate::args::ServerTargetArgs;
 
     fn cli_layer_with_json_and_verbose() -> CliLayer {
         CliLayer {
@@ -225,6 +247,27 @@ mod tests {
         }
     }
 
+    fn synthetic_context_with_settings(
+        process_local_json: bool,
+        printer: Printer,
+        cli_layer: CliLayer,
+        machine_settings: SettingsLayer,
+        user_settings: UserSettings,
+        server_mode: ServerMode,
+    ) -> CommandContext {
+        CommandContext {
+            printer,
+            process_local_json,
+            cwd: PathBuf::from("/tmp/workspace"),
+            base_config_path: PathBuf::from("/tmp/settings.toml"),
+            cli_layer,
+            machine_settings,
+            user_settings,
+            server_mode,
+            server: OnceCell::new(),
+        }
+    }
+
     #[test]
     fn context_exposes_resolved_output_and_explicit_json_state() {
         let ctx = synthetic_context(true, Printer::Default);
@@ -241,11 +284,13 @@ mod tests {
     #[test]
     fn deriving_target_context_preserves_invocation_state() {
         let base = synthetic_context(true, Printer::Verbose);
-        let derived = base
-            .with_target(&ServerTargetArgs {
-                server: Some("https://fabro.example.com".to_string()),
-            })
-            .expect("target context should derive");
+        let derived = base.with_server_mode_from_loaded_settings(
+            ServerMode::ByTarget {
+                target_override: Some("https://fabro.example.com".to_string()),
+            },
+            base.machine_settings().clone(),
+            base.user_settings().clone(),
+        );
 
         assert_eq!(derived.printer(), Printer::Verbose);
         assert!(derived.explicit_json_requested());
@@ -271,7 +316,7 @@ root = "/srv/fabro/default"
 "#,
         )
         .expect("settings fixture should parse");
-        let override_disk_settings = fabro_config::user::apply_storage_dir_override(
+        let override_disk_settings = apply_storage_dir_override(
             base_disk_settings.clone(),
             Some(std::path::Path::new("/srv/fabro/override")),
         );
@@ -306,6 +351,61 @@ root = "/srv/fabro/default"
     }
 
     #[test]
+    fn deriving_target_from_connection_context_discards_storage_override() {
+        let cli_layer = cli_layer_with_json_and_verbose();
+        let base_disk_settings = parse_settings_layer(
+            r#"
+_version = 1
+
+[server.storage]
+root = "/srv/fabro/default"
+"#,
+        )
+        .expect("settings fixture should parse");
+        let override_disk_settings = apply_storage_dir_override(
+            base_disk_settings.clone(),
+            Some(std::path::Path::new("/srv/fabro/override")),
+        );
+
+        let (base_settings, base_user_settings) =
+            merge_settings_layer(base_disk_settings, &cli_layer)
+                .expect("base settings should merge");
+        let (connection_settings, connection_user_settings) =
+            merge_settings_layer(override_disk_settings, &cli_layer)
+                .expect("connection settings should merge");
+        let connection_ctx = synthetic_context_with_settings(
+            false,
+            Printer::Default,
+            cli_layer,
+            connection_settings,
+            connection_user_settings,
+            ServerMode::ByStorageDir {
+                target_override:      None,
+                storage_dir_override: Some(PathBuf::from("/srv/fabro/override")),
+            },
+        );
+
+        let derived = connection_ctx.with_server_mode_from_loaded_settings(
+            ServerMode::ByTarget {
+                target_override: Some("https://fabro.example.com".to_string()),
+            },
+            base_settings,
+            base_user_settings,
+        );
+
+        assert_eq!(
+            derived
+                .machine_settings()
+                .server
+                .as_ref()
+                .and_then(|server| server.storage.as_ref())
+                .and_then(|storage| storage.root.as_ref())
+                .map(|root| root.as_source()),
+            Some("/srv/fabro/default".to_string())
+        );
+    }
+
+    #[test]
     fn explicit_json_guard_uses_invocation_flag_not_resolved_output_format() {
         let json_ctx = synthetic_context(true, Printer::Default);
         let text_ctx = synthetic_context(false, Printer::Default);
@@ -316,11 +416,14 @@ root = "/srv/fabro/default"
 
     #[test]
     fn target_resolution_errors_remain_deferred() {
-        let ctx = synthetic_context(false, Printer::Default)
-            .with_target(&ServerTargetArgs {
-                server: Some("not-a-valid-target".to_string()),
-            })
-            .expect("target derivation should not resolve the target eagerly");
+        let base = synthetic_context(false, Printer::Default);
+        let ctx = base.with_server_mode_from_loaded_settings(
+            ServerMode::ByTarget {
+                target_override: Some("not-a-valid-target".to_string()),
+            },
+            base.machine_settings().clone(),
+            base.user_settings().clone(),
+        );
 
         assert!(matches!(ctx.server_mode, ServerMode::ByTarget { .. }));
     }

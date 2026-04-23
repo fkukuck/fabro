@@ -5,7 +5,6 @@ use fabro_util::terminal::Styles;
 use crate::args::{AttachArgs, RunCommands, RunWorkerArgs, StartArgs};
 use crate::command_context::CommandContext;
 use crate::shared::print_json_pretty;
-use crate::user_config::load_settings_with_storage_dir;
 
 pub(crate) mod attach;
 pub(crate) mod command;
@@ -32,17 +31,8 @@ pub(crate) async fn dispatch(cmd: RunCommands, base_ctx: &CommandContext) -> Res
         RunCommands::Run(args) => Box::pin(command::execute(args, base_ctx)).await,
         RunCommands::Create(args) => {
             let styles: &'static Styles = Box::leak(Box::new(Styles::detect_stderr()));
-            let cli_defaults = load_settings_with_storage_dir(None)?;
             let ctx = base_ctx.with_target(&args.target)?;
-            let created_run = Box::pin(create::create_run(
-                &ctx,
-                &args,
-                cli_defaults,
-                styles,
-                true,
-                printer,
-            ))
-            .await?;
+            let created_run = Box::pin(create::create_run(&ctx, &args, styles, true)).await?;
             if ctx.user_settings().cli.output.format == OutputFormat::Json {
                 print_json_pretty(&serde_json::json!({ "run_id": created_run.run_id }))?;
             } else {

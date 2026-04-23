@@ -49,6 +49,30 @@ fn settings_uses_json_output_format_from_home_config() {
 }
 
 #[test]
+fn auth_status_ignores_json_output_format_from_home_config() {
+    let context = test_context!();
+    context.write_home(
+        ".fabro/settings.toml",
+        "_version = 1\n\n[cli.output]\nformat = \"json\"\n",
+    );
+
+    let output = context
+        .command()
+        .args(["auth", "status"])
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "stdout should stay empty in text mode"
+    );
+    let stderr = output_stderr(&output);
+    assert!(stderr.contains("Not logged in to any servers."));
+    assert!(stderr.contains("Dev token:"));
+}
+
+#[test]
 fn secret_list_uses_json_output_format_from_home_config() {
     let context = test_context!();
     context.write_home(

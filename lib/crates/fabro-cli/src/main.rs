@@ -166,18 +166,19 @@ async fn main_inner() -> (String, Result<()>) {
         Err(err) => return (command_name, Err(err)),
     };
 
-    let user_settings = match user_config::load_settings() {
+    let disk_settings = match user_config::load_settings() {
         Ok(settings) => settings,
         Err(err) => return (command_name, Err(err)),
     };
-    let combined_settings = combine_files(user_settings, SettingsLayer {
+    let machine_settings = combine_files(disk_settings, SettingsLayer {
         cli: Some(cli_layer.clone()),
         ..SettingsLayer::default()
     });
-    let cli_settings = match fabro_config::UserSettings::from_layer(&combined_settings) {
-        Ok(settings) => settings.cli,
+    let user_settings = match fabro_config::UserSettings::from_layer(&machine_settings) {
+        Ok(settings) => settings,
         Err(err) => return (command_name, Err(err.into())),
     };
+    let cli_settings = user_settings.cli.clone();
     let printer = printer_from_verbosity(cli_settings.output.verbosity);
 
     let config_log_level = match &pre_tracing_bootstrap.sink {
@@ -211,7 +212,15 @@ async fn main_inner() -> (String, Result<()>) {
     };
 
     let result = Box::pin(async move {
-        let build_base_ctx = || CommandContext::base(printer, &cli_layer, process_local_json);
+        let build_base_ctx = || {
+            CommandContext::base_with_settings(
+                printer,
+                &cli_layer,
+                process_local_json,
+                machine_settings.clone(),
+                user_settings.clone(),
+            )
+        };
 
         match *command {
             Commands::Exec(args) => commands::exec::execute(args, &cli_settings, printer).await?,
