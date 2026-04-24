@@ -4487,9 +4487,9 @@ components:
       description: Git reference summary for a pull request.
       type: object
       required:
-        - ref_name
+        - ref
       properties:
-        ref_name:
+        ref:
           type: string
           example: fabro/run/demo
 

@@ -222,10 +222,10 @@ fn pr_list_uses_server_pull_request_endpoint_and_skips_runs_without_records() {
                         "login": "testuser"
                     },
                     "head": {
-                        "ref_name": "fabro/run/demo"
+                        "ref": "fabro/run/demo"
                     },
                     "base": {
-                        "ref_name": "main"
+                        "ref": "main"
                     },
                     "created_at": "2026-04-05T12:00:00Z",
                     "updated_at": "2026-04-05T12:00:00Z"

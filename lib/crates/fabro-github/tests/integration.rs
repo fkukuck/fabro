@@ -1,9 +1,10 @@
 use fabro_github::{
-    AutoMergeMethod, GitHubAppCredentials, GitHubCredentials, close_pull_request,
+    GitHubAppCredentials, GitHubCredentials, close_pull_request,
     create_installation_access_token_for_pr, create_pull_request, enable_auto_merge,
     get_pull_request, merge_pull_request, resolve_authenticated_url, sign_app_jwt,
 };
 use fabro_test::{GitHubAppOptions, GitHubAppState, TwinGitHub};
+use fabro_types::MergeMethod;
 
 const TEST_RSA_KEY: &str = include_str!("../src/testdata/rsa_private.pem");
 
@@ -89,7 +90,7 @@ async fn create_merge_and_verify_state() {
         "acme",
         "widgets",
         created.number,
-        "squash",
+        MergeMethod::Squash,
         &twin.base_url,
     )
     .await
@@ -161,7 +162,7 @@ async fn enable_auto_merge_persists() {
         "acme",
         "widgets",
         &created.node_id,
-        AutoMergeMethod::Squash,
+        MergeMethod::Squash,
         &twin.base_url,
     )
     .await

@@ -825,7 +825,10 @@ impl Client {
         convert_type(response.into_inner())
     }
 
-    pub async fn get_run_pull_request(&self, run_id: &RunId) -> Result<types::PullRequestDetail> {
+    pub async fn get_run_pull_request(
+        &self,
+        run_id: &RunId,
+    ) -> Result<fabro_types::PullRequestDetail> {
         let response = self
             .send_api(|client| async move {
                 client
@@ -836,17 +839,15 @@ impl Client {
             })
             .await
             .map_err(add_pr_upgrade_hint)?;
-        convert_type(response.into_inner())
+        Ok(response.into_inner())
     }
 
     pub async fn merge_run_pull_request(
         &self,
         run_id: &RunId,
-        method: fabro_github::AutoMergeMethod,
+        method: fabro_types::MergeMethod,
     ) -> Result<types::MergeRunPullRequestResponse> {
-        let body = types::MergeRunPullRequestRequest {
-            method: convert_type(method)?,
-        };
+        let body = types::MergeRunPullRequestRequest { method };
         let response = self
             .send_api(|client| async move {
                 client

@@ -24,10 +24,11 @@ use bytes::Bytes;
 pub use fabro_api::types::{
     AggregateBilling, AggregateBillingTotals, ApiQuestion, ApiQuestionOption, AppendEventResponse,
     ArtifactEntry, ArtifactListResponse, BilledTokenCounts as ApiBilledTokenCounts, BillingByModel,
-    BillingStageRef, CompletionContentPart, CompletionMessage, CompletionMessageRole,
-    CompletionResponse, CompletionToolChoiceMode, CompletionUsage, CreateCompletionRequest,
-    CreateSecretRequest, DeleteSecretRequest, DiskUsageResponse, DiskUsageRunRow,
-    DiskUsageSummaryRow, EventEnvelope as ApiEventEnvelope, ModelReference, PaginatedEventList,
+    BillingStageRef, CloseRunPullRequestResponse, CompletionContentPart, CompletionMessage,
+    CompletionMessageRole, CompletionResponse, CompletionToolChoiceMode, CompletionUsage,
+    CreateCompletionRequest, CreateRunPullRequestRequest, CreateSecretRequest, DeleteSecretRequest,
+    DiskUsageResponse, DiskUsageRunRow, DiskUsageSummaryRow, EventEnvelope as ApiEventEnvelope,
+    MergeRunPullRequestRequest, MergeRunPullRequestResponse, ModelReference, PaginatedEventList,
     PaginatedRunList, PaginationMeta, PreflightResponse, PreviewUrlRequest, PreviewUrlResponse,
     PruneRunEntry, PruneRunsRequest, PruneRunsResponse, QuestionType as ApiQuestionType,
     RenderWorkflowGraphDirection, RenderWorkflowGraphRequest, RunArtifactEntry,
@@ -182,17 +183,6 @@ struct EventListParams {
     since_seq: Option<u32>,
     #[serde(default)]
     limit:     Option<usize>,
-}
-
-#[derive(serde::Deserialize)]
-struct MergeRunPullRequestRequest {
-    method: String,
-}
-
-#[derive(serde::Deserialize)]
-struct CreateRunPullRequestRequest {
-    force: bool,
-    model: Option<String>,
 }
 
 impl EventListParams {
@@ -5079,14 +5069,6 @@ fn github_pull_request_not_found_error(record: &PullRequestRecord) -> ApiError {
     )
 }
 
-fn invalid_merge_method_error(method: &str) -> ApiError {
-    ApiError::with_code(
-        StatusCode::BAD_REQUEST,
-        format!("Invalid merge method: {method}"),
-        "invalid_merge_method",
-    )
-}
-
 fn pull_request_already_exists_response(record: &PullRequestRecord) -> Response {
     let status = StatusCode::CONFLICT;
     let title = status.canonical_reason().unwrap_or("Conflict").to_string();
@@ -5193,38 +5175,6 @@ async fn load_pull_request_github_context(
         owner,
         repo,
         creds,
-    })
-}
-
-fn pull_request_detail_json(
-    record: &PullRequestRecord,
-    detail: &fabro_github::PullRequestDetail,
-) -> serde_json::Value {
-    serde_json::json!({
-        "record": record,
-        "number": detail.number,
-        "title": detail.title,
-        "body": detail.body,
-        "state": detail.state,
-        "draft": detail.draft,
-        "merged": detail.merged,
-        "merged_at": detail.merged_at,
-        "mergeable": detail.mergeable,
-        "additions": detail.additions,
-        "deletions": detail.deletions,
-        "changed_files": detail.changed_files,
-        "html_url": detail.html_url,
-        "user": {
-            "login": detail.user.login,
-        },
-        "head": {
-            "ref_name": detail.head.ref_name,
-        },
-        "base": {
-            "ref_name": detail.base.ref_name,
-        },
-        "created_at": detail.created_at,
-        "updated_at": detail.updated_at,
     })
 }
 
@@ -5389,7 +5339,11 @@ async fn get_run_pull_request(
     )
     .await
     {
-        Ok(detail) => Json(pull_request_detail_json(&ctx.record, &detail)).into_response(),
+        Ok(github) => Json(fabro_types::PullRequestDetail {
+            record: ctx.record,
+            github,
+        })
+        .into_response(),
         Err(err) if err.contains("not found") => {
             github_pull_request_not_found_error(&ctx.record).into_response()
         }
@@ -5402,9 +5356,6 @@ async fn merge_run_pull_request(
     State(state): State<Arc<AppState>>,
     Json(body): Json<MergeRunPullRequestRequest>,
 ) -> Response {
-    let Ok(method) = body.method.parse::<fabro_github::AutoMergeMethod>() else {
-        return invalid_merge_method_error(&body.method).into_response();
-    };
     let ctx = match load_pull_request_github_context(&state, &id).await {
         Ok(ctx) => ctx,
         Err(err) => return err.into_response(),
@@ -5415,16 +5366,17 @@ async fn merge_run_pull_request(
         &ctx.owner,
         &ctx.repo,
         ctx.record.number,
-        method.as_str(),
+        body.method,
         state.github_api_base_url.as_str(),
     )
     .await
     {
-        Ok(()) => Json(serde_json::json!({
-            "number": ctx.record.number,
-            "html_url": ctx.record.html_url,
-            "method": method.as_str(),
-        }))
+        Ok(()) => Json(MergeRunPullRequestResponse {
+            number:   i64::try_from(ctx.record.number)
+                .expect("stored pull request number should fit in i64"),
+            html_url: ctx.record.html_url,
+            method:   body.method,
+        })
         .into_response(),
         Err(err) if err.contains("not found") => {
             github_pull_request_not_found_error(&ctx.record).into_response()
@@ -5451,10 +5403,11 @@ async fn close_run_pull_request(
     )
     .await
     {
-        Ok(()) => Json(serde_json::json!({
-            "number": ctx.record.number,
-            "html_url": ctx.record.html_url,
-        }))
+        Ok(()) => Json(CloseRunPullRequestResponse {
+            number:   i64::try_from(ctx.record.number)
+                .expect("stored pull request number should fit in i64"),
+            html_url: ctx.record.html_url,
+        })
         .into_response(),
         Err(err) if err.contains("not found") => {
             github_pull_request_not_found_error(&ctx.record).into_response()
@@ -9467,8 +9420,8 @@ slug = "fabro"
         assert_eq!(body["record"]["owner"], "acme");
         assert_eq!(body["state"], "closed");
         assert_eq!(body["merged"], true);
-        assert_eq!(body["head"]["ref_name"], "feature");
-        assert_eq!(body["base"]["ref_name"], "main");
+        assert_eq!(body["head"]["ref"], "feature");
+        assert_eq!(body["base"]["ref"], "main");
         github_mock.assert();
     }
 
@@ -9942,9 +9895,8 @@ slug = "fabro"
             )
             .await
             .unwrap();
-        let body = response_json!(response, StatusCode::BAD_REQUEST).await;
 
-        assert_eq!(body["errors"][0]["code"], "invalid_merge_method");
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]

@@ -755,7 +755,7 @@ pub(crate) enum PrMergeMethod {
     Rebase,
 }
 
-impl From<PrMergeMethod> for fabro_github::AutoMergeMethod {
+impl From<PrMergeMethod> for fabro_types::MergeMethod {
     fn from(value: PrMergeMethod) -> Self {
         match value {
             PrMergeMethod::Merge => Self::Merge,

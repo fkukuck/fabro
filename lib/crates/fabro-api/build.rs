@@ -303,6 +303,10 @@ fn main() {
             &[],
         ),
         ("PullRequestRecord", "fabro_types::PullRequestRecord", &[]),
+        ("PullRequestDetail", "fabro_types::PullRequestDetail", &[]),
+        ("PullRequestUser", "fabro_types::PullRequestUser", &[]),
+        ("PullRequestRef", "fabro_types::PullRequestRef", &[]),
+        ("MergeMethod", "fabro_types::MergeMethod", &[]),
     ];
     for (name, path, impls) in replacements {
         settings.with_replacement(*name, *path, impls.iter().copied());

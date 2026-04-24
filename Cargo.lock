@@ -1777,6 +1777,7 @@ dependencies = [
  "fabro-http",
  "fabro-macros",
  "fabro-test",
+ "fabro-types",
  "jsonwebtoken",
  "serde",
  "serde_json",

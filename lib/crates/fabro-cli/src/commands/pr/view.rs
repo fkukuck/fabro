@@ -10,9 +10,10 @@ pub(super) async fn view_command(args: PrViewArgs, base_ctx: &CommandContext) ->
     let client = ctx.server().await?;
     let run_id = client.resolve_run(&args.run_id).await?.run_id;
     let detail = client.get_run_pull_request(&run_id).await?;
+    let github = &detail.github;
 
     info!(
-        number = detail.number,
+        number = github.number,
         owner = %detail.record.owner,
         repo = %detail.record.repo,
         "Viewing pull request"
@@ -24,31 +25,31 @@ pub(super) async fn view_command(args: PrViewArgs, base_ctx: &CommandContext) ->
     }
 
     let printer = ctx.printer();
-    fabro_util::printout!(printer, "#{} {}", detail.number, detail.title);
-    let state_display = if detail.merged {
+    fabro_util::printout!(printer, "#{} {}", github.number, github.title);
+    let state_display = if github.merged {
         "merged"
-    } else if detail.draft {
+    } else if github.draft {
         "draft"
     } else {
-        &detail.state
+        &github.state
     };
     fabro_util::printout!(printer, "State:   {state_display}");
-    fabro_util::printout!(printer, "URL:     {}", detail.html_url);
+    fabro_util::printout!(printer, "URL:     {}", github.html_url);
     fabro_util::printout!(
         printer,
         "Branch:  {} -> {}",
-        detail.head.ref_name,
-        detail.base.ref_name
+        github.head.ref_name,
+        github.base.ref_name
     );
-    fabro_util::printout!(printer, "Author:  {}", detail.user.login);
+    fabro_util::printout!(printer, "Author:  {}", github.user.login);
     fabro_util::printout!(
         printer,
         "Changes: +{} -{} ({} files)",
-        detail.additions,
-        detail.deletions,
-        detail.changed_files
+        github.additions,
+        github.deletions,
+        github.changed_files
     );
-    if let Some(body) = &detail.body {
+    if let Some(body) = &github.body {
         if !body.is_empty() {
             fabro_util::printout!(printer, "");
             fabro_util::printout!(printer, "{body}");

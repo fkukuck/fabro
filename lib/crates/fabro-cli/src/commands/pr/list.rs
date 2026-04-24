@@ -1,7 +1,7 @@
 use anyhow::Result;
 use cli_table::format::{Border, Separator};
 use cli_table::{Cell, CellStruct, Color, Style, Table};
-use fabro_api::types::PullRequestDetail;
+use fabro_types::PullRequestGithubDetail;
 use fabro_util::terminal::Styles;
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
@@ -12,13 +12,13 @@ use crate::command_context::CommandContext;
 use crate::server_runs::{ServerRunSummaryInfo, ServerSummaryLookup};
 use crate::shared::{color_if, print_json_pretty};
 
-fn pr_display_state(detail: &PullRequestDetail) -> String {
-    if detail.merged {
+fn pr_display_state(github: &PullRequestGithubDetail) -> String {
+    if github.merged {
         "merged"
-    } else if detail.draft {
+    } else if github.draft {
         "draft"
     } else {
-        match detail.state.as_str() {
+        match github.state.as_str() {
             "open" => "open",
             "closed" => "closed",
             _ => "unknown",
@@ -30,7 +30,7 @@ fn pr_display_state(detail: &PullRequestDetail) -> String {
 #[derive(Serialize)]
 struct PrRow {
     run_id: String,
-    number: i64,
+    number: u64,
     state:  String,
     merged: bool,
     title:  String,
@@ -77,11 +77,11 @@ pub(super) async fn list_command(args: PrListArgs, base_ctx: &CommandContext) ->
                 match client.get_run_pull_request(&run_id).await {
                     Ok(detail) => Ok(PrRow {
                         run_id: run_id.to_string(),
-                        number: detail.number,
-                        state:  pr_display_state(&detail),
-                        merged: detail.merged,
-                        title:  detail.title,
-                        url:    detail.html_url,
+                        number: detail.github.number,
+                        state:  pr_display_state(&detail.github),
+                        merged: detail.github.merged,
+                        title:  detail.github.title,
+                        url:    detail.github.html_url,
                     }),
                     Err(err) => {
                         let message = err.to_string();
@@ -92,8 +92,7 @@ pub(super) async fn list_command(args: PrListArgs, base_ctx: &CommandContext) ->
                         tracing::warn!(run_id = %run_id, error = %message, "Failed to fetch PR state");
                         Ok(PrRow {
                             run_id: run_id.to_string(),
-                            number: i64::try_from(record.number)
-                                .expect("stored pull request number should fit in i64"),
+                            number: record.number,
                             state:  "unknown".to_string(),
                             merged: false,
                             title:  record.title,

@@ -179,10 +179,10 @@ fn pr_view_uses_server_pull_request_endpoint_and_renders_merged_state() {
                         "login": "testuser"
                     },
                     "head": {
-                        "ref_name": "fabro/run/demo"
+                        "ref": "fabro/run/demo"
                     },
                     "base": {
-                        "ref_name": "main"
+                        "ref": "main"
                     },
                     "created_at": "2026-04-05T12:00:00Z",
                     "updated_at": "2026-04-06T12:30:00Z"

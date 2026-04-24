@@ -18,6 +18,6 @@
  * Git reference summary for a pull request.
  */
 export interface PullRequestRef {
-    'ref_name': string;
+    'ref': string;
 }
 

@@ -446,9 +446,9 @@ pub async fn maybe_open_pull_request(
 
     if let Some(am_cfg) = auto_merge {
         let merge_method = match am_cfg.merge_strategy {
-            MergeStrategy::Squash => github_app::AutoMergeMethod::Squash,
-            MergeStrategy::Merge => github_app::AutoMergeMethod::Merge,
-            MergeStrategy::Rebase => github_app::AutoMergeMethod::Rebase,
+            MergeStrategy::Squash => fabro_types::MergeMethod::Squash,
+            MergeStrategy::Merge => fabro_types::MergeMethod::Merge,
+            MergeStrategy::Rebase => fabro_types::MergeMethod::Rebase,
         };
         match github_app::enable_auto_merge(
             creds,

@@ -1,6 +1,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use serde::{Deserialize, Serialize};
+use fabro_types::PullRequestGithubDetail;
+use serde::Deserialize;
 use tokio::process::Command;
 
 pub const GITHUB_API_BASE_URL: &str = "https://api.github.com";
@@ -13,41 +14,6 @@ pub fn github_api_base_url() -> String {
 
 fn http_client() -> Result<fabro_http::HttpClient, String> {
     fabro_http::http_client().map_err(|err| err.to_string())
-}
-
-/// Detailed information about a pull request from the GitHub API.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PullRequestDetail {
-    pub number:        u64,
-    pub title:         String,
-    pub body:          Option<String>,
-    pub state:         String,
-    pub draft:         bool,
-    #[serde(default)]
-    pub merged:        bool,
-    #[serde(default)]
-    pub merged_at:     Option<String>,
-    pub mergeable:     Option<bool>,
-    pub additions:     u64,
-    pub deletions:     u64,
-    pub changed_files: u64,
-    pub html_url:      String,
-    pub user:          PullRequestUser,
-    pub head:          PullRequestRef,
-    pub base:          PullRequestRef,
-    pub created_at:    String,
-    pub updated_at:    String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PullRequestUser {
-    pub login: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PullRequestRef {
-    #[serde(rename = "ref")]
-    pub ref_name: String,
 }
 
 /// Owner information for a GitHub App.
@@ -554,38 +520,11 @@ pub async fn create_pull_request(
     })
 }
 
-/// GitHub GraphQL merge method for auto-merge.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    strum::Display,
-    strum::EnumString,
-    strum::IntoStaticStr,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum AutoMergeMethod {
-    Merge,
-    Squash,
-    Rebase,
-}
-
-impl AutoMergeMethod {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
-    fn as_graphql_value(self) -> &'static str {
-        match self {
-            Self::Merge => "MERGE",
-            Self::Squash => "SQUASH",
-            Self::Rebase => "REBASE",
-        }
+fn merge_method_as_graphql_value(method: fabro_types::MergeMethod) -> &'static str {
+    match method {
+        fabro_types::MergeMethod::Merge => "MERGE",
+        fabro_types::MergeMethod::Squash => "SQUASH",
+        fabro_types::MergeMethod::Rebase => "REBASE",
     }
 }
 
@@ -598,7 +537,7 @@ pub async fn enable_auto_merge(
     owner: &str,
     repo: &str,
     pr_node_id: &str,
-    merge_method: AutoMergeMethod,
+    merge_method: fabro_types::MergeMethod,
     base_url: &str,
 ) -> Result<(), String> {
     let client = http_client()?;
@@ -612,9 +551,10 @@ pub async fn enable_auto_merge(
         )
         .await?;
 
+    let graphql_value = merge_method_as_graphql_value(merge_method);
     let query = format!(
         r#"mutation {{
-  enablePullRequestAutoMerge(input: {{pullRequestId: "{pr_node_id}", mergeMethod: {merge_method}}}) {{
+  enablePullRequestAutoMerge(input: {{pullRequestId: "{pr_node_id}", mergeMethod: {graphql_value}}}) {{
     pullRequest {{
       autoMergeRequest {{
         enabledAt
@@ -623,12 +563,11 @@ pub async fn enable_auto_merge(
     }}
   }}
 }}"#,
-        merge_method = merge_method.as_graphql_value(),
     );
 
     tracing::debug!(
         pr_node_id,
-        merge_method = merge_method.as_graphql_value(),
+        merge_method = graphql_value,
         "Enabling auto-merge"
     );
 
@@ -962,7 +901,7 @@ pub async fn get_pull_request(
     repo: &str,
     number: u64,
     base_url: &str,
-) -> Result<PullRequestDetail, String> {
+) -> Result<PullRequestGithubDetail, String> {
     let client = http_client()?;
     get_pull_request_with_client(&client, creds, owner, repo, number, base_url).await
 }
@@ -974,7 +913,7 @@ async fn get_pull_request_with_client(
     repo: &str,
     number: u64,
     base_url: &str,
-) -> Result<PullRequestDetail, String> {
+) -> Result<PullRequestGithubDetail, String> {
     tracing::debug!(owner, repo, number, "Fetching pull request");
 
     let token = creds
@@ -1015,7 +954,7 @@ async fn get_pull_request_with_client(
         }
     }
 
-    resp.json::<PullRequestDetail>()
+    resp.json::<PullRequestGithubDetail>()
         .map_err(|e| format!("Failed to parse pull request response: {e}"))
 }
 
@@ -1025,7 +964,7 @@ pub async fn merge_pull_request(
     owner: &str,
     repo: &str,
     number: u64,
-    method: &str,
+    method: fabro_types::MergeMethod,
     base_url: &str,
 ) -> Result<(), String> {
     let client = http_client()?;
@@ -1042,10 +981,10 @@ async fn merge_pull_request_with_client(
     owner: &str,
     repo: &str,
     number: u64,
-    method: &str,
+    method: fabro_types::MergeMethod,
     base_url: &str,
 ) -> Result<(), String> {
-    tracing::debug!(owner, repo, number, method, "Merging pull request");
+    tracing::debug!(owner, repo, number, method = %method, "Merging pull request");
 
     let token = creds
         .resolve_bearer_token(
@@ -1058,7 +997,7 @@ async fn merge_pull_request_with_client(
         .await?;
 
     let url = format!("{base_url}/repos/{owner}/{repo}/pulls/{number}/merge");
-    let body = serde_json::json!({ "merge_method": method });
+    let body = serde_json::json!({ "merge_method": method.as_str() });
     let auth = format!("Bearer {token}");
 
     let resp = client
@@ -1987,9 +1926,17 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        merge_pull_request_with_client(&mock, &creds, "owner", "repo", 42, "squash", "")
-            .await
-            .unwrap();
+        merge_pull_request_with_client(
+            &mock,
+            &creds,
+            "owner",
+            "repo",
+            42,
+            fabro_types::MergeMethod::Squash,
+            "",
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -2014,9 +1961,17 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        let err = merge_pull_request_with_client(&mock, &creds, "owner", "repo", 42, "squash", "")
-            .await
-            .unwrap_err();
+        let err = merge_pull_request_with_client(
+            &mock,
+            &creds,
+            "owner",
+            "repo",
+            42,
+            fabro_types::MergeMethod::Squash,
+            "",
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("not mergeable"), "got: {err}");
     }
 
@@ -2042,9 +1997,17 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        let err = merge_pull_request_with_client(&mock, &creds, "owner", "repo", 42, "squash", "")
-            .await
-            .unwrap_err();
+        let err = merge_pull_request_with_client(
+            &mock,
+            &creds,
+            "owner",
+            "repo",
+            42,
+            fabro_types::MergeMethod::Squash,
+            "",
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("merge conflict"), "got: {err}");
     }
 
