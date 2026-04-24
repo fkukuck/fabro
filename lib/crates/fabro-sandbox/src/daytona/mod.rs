@@ -534,10 +534,12 @@ impl Sandbox for DaytonaSandbox {
                                     err
                                 })?;
                             fabro_github::resolve_clone_credentials(
-                                creds,
+                                fabro_github::GitHubContext::new(
+                                    creds,
+                                    &fabro_github::github_api_base_url(),
+                                ),
                                 &owner,
                                 &repo,
-                                &fabro_github::github_api_base_url(),
                             )
                             .await
                             .map_err(|e| {
@@ -814,9 +816,8 @@ impl Sandbox for DaytonaSandbox {
         };
 
         let auth_url = fabro_github::resolve_authenticated_url(
-            creds,
+            fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
             origin_url,
-            &fabro_github::github_api_base_url(),
         )
         .await
         .map_err(|e| format!("Failed to refresh GitHub App token: {e}"))?;

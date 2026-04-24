@@ -409,6 +409,43 @@ pub struct OpenPullRequestRequest<'a> {
     pub conclusion:  Option<&'a Conclusion>,
 }
 
+impl<'a> OpenPullRequestRequest<'a> {
+    /// Build a draft PR request from validated run state. Defaults
+    /// `draft = true` and `auto_merge = None` — the shape the
+    /// `POST /runs/{id}/pull_request` server endpoint always uses.
+    /// The workflow pipeline path constructs the struct directly when
+    /// it needs non-default flags.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "fields are validated upstream and named at the call site for clarity"
+    )]
+    pub fn from_run_state(
+        github: github_app::GitHubContext<'a>,
+        run_spec: &'a RunSpec,
+        head_branch: &'a str,
+        normalized_origin: &'a str,
+        base_branch: &'a str,
+        diff: &'a str,
+        model: &'a str,
+        run_store: &'a RunStoreHandle,
+        conclusion: &'a Conclusion,
+    ) -> Self {
+        Self {
+            github,
+            origin_url: normalized_origin,
+            base_branch,
+            head_branch,
+            goal: run_spec.graph.goal(),
+            diff,
+            model,
+            draft: true,
+            auto_merge: None,
+            run_store,
+            conclusion: Some(conclusion),
+        }
+    }
+}
+
 /// Optionally open a pull request after a successful workflow run.
 ///
 /// Returns `Ok(Some(PullRequestRecord))` if a PR was created, `Ok(None)` if

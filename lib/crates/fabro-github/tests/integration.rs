@@ -187,9 +187,8 @@ async fn resolve_authenticated_url_embeds_token() {
     let creds = github_credentials();
 
     let url = resolve_authenticated_url(
-        &creds,
+        GitHubContext::new(&creds, &twin.base_url),
         "https://github.com/acme/widgets.git",
-        &twin.base_url,
     )
     .await
     .unwrap();
@@ -205,9 +204,12 @@ async fn resolve_authenticated_url_errors_on_non_github_url() {
     let twin = TwinGitHub::start(standard_app_state()).await;
     let creds = github_credentials();
 
-    let error = resolve_authenticated_url(&creds, "https://gitlab.com/foo/bar", &twin.base_url)
-        .await
-        .unwrap_err();
+    let error = resolve_authenticated_url(
+        GitHubContext::new(&creds, &twin.base_url),
+        "https://gitlab.com/foo/bar",
+    )
+    .await
+    .unwrap_err();
 
     assert!(error.contains("Not a GitHub HTTPS URL"));
 

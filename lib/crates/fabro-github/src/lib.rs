@@ -695,35 +695,34 @@ fn normalize_https_host_path(url: &str) -> String {
 /// Uses a GitHub App installation token to query the branches API.
 /// Returns `true` if the branch exists, `false` if it doesn't (404).
 pub async fn branch_exists(
-    creds: &GitHubCredentials,
+    ctx: GitHubContext<'_>,
     owner: &str,
     repo: &str,
     branch: &str,
-    base_url: &str,
 ) -> Result<bool, String> {
     let client = http_client()?;
-    branch_exists_with_client(&client, creds, owner, repo, branch, base_url).await
+    branch_exists_with_client(&client, ctx, owner, repo, branch).await
 }
 
 async fn branch_exists_with_client(
     client: &impl HttpClient,
-    creds: &GitHubCredentials,
+    ctx: GitHubContext<'_>,
     owner: &str,
     repo: &str,
     branch: &str,
-    base_url: &str,
 ) -> Result<bool, String> {
-    let token = creds
+    let token = ctx
+        .creds
         .resolve_bearer_token(
             client,
             owner,
             repo,
-            base_url,
+            ctx.base_url,
             serde_json::json!({ "contents": "write" }),
         )
         .await?;
 
-    let url = format!("{base_url}/repos/{owner}/{repo}/branches/{branch}");
+    let url = format!("{}/repos/{owner}/{repo}/branches/{branch}", ctx.base_url);
     let auth = format!("Bearer {token}");
     let resp = client
         .request(HttpMethod::Get, &url, &github_headers(&auth), None)
@@ -881,21 +880,20 @@ pub async fn is_app_public(
 /// Always generates a token regardless of repo visibility, since the token
 /// is needed for pushing from the sandbox.
 pub async fn resolve_clone_credentials(
-    creds: &GitHubCredentials,
+    ctx: GitHubContext<'_>,
     owner: &str,
     repo: &str,
-    base_url: &str,
 ) -> Result<(Option<String>, Option<String>), String> {
-    let token = match creds {
+    let token = match ctx.creds {
         GitHubCredentials::Token(token) => token.clone(),
         GitHubCredentials::App(_) => {
             let client = http_client()?;
-            creds
+            ctx.creds
                 .resolve_bearer_token(
                     &client,
                     owner,
                     repo,
-                    base_url,
+                    ctx.base_url,
                     serde_json::json!({ "contents": "write" }),
                 )
                 .await?
@@ -917,12 +915,11 @@ pub fn embed_token_in_url(url: &str, token: &str) -> String {
 /// Parses owner/repo from the URL, obtains a fresh installation access token,
 /// and returns the URL with embedded credentials.
 pub async fn resolve_authenticated_url(
-    creds: &GitHubCredentials,
+    ctx: GitHubContext<'_>,
     url: &str,
-    base_url: &str,
 ) -> Result<String, String> {
     let (owner, repo) = parse_github_owner_repo(url)?;
-    let (_username, password) = resolve_clone_credentials(creds, &owner, &repo, base_url).await?;
+    let (_username, password) = resolve_clone_credentials(ctx, &owner, &repo).await?;
     match password {
         Some(token) => Ok(embed_token_in_url(url, &token)),
         None => Ok(url.to_string()),
@@ -1601,8 +1598,14 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        let result =
-            branch_exists_with_client(&mock, &creds, "owner", "repo", "my-branch", "").await;
+        let result = branch_exists_with_client(
+            &mock,
+            GitHubContext::new(&creds, ""),
+            "owner",
+            "repo",
+            "my-branch",
+        )
+        .await;
         assert!(result.unwrap());
     }
 
@@ -1633,8 +1636,14 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        let result =
-            branch_exists_with_client(&mock, &creds, "owner", "repo", "no-such-branch", "").await;
+        let result = branch_exists_with_client(
+            &mock,
+            GitHubContext::new(&creds, ""),
+            "owner",
+            "repo",
+            "no-such-branch",
+        )
+        .await;
         assert!(!result.unwrap());
     }
 
@@ -1665,7 +1674,14 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        let result = branch_exists_with_client(&mock, &creds, "owner", "repo", "broken", "").await;
+        let result = branch_exists_with_client(
+            &mock,
+            GitHubContext::new(&creds, ""),
+            "owner",
+            "repo",
+            "broken",
+        )
+        .await;
         assert!(result.is_err());
     }
 
@@ -1681,8 +1697,14 @@ mod tests {
             .with_req_header("Authorization", "Bearer ghu_test");
 
         let creds = GitHubCredentials::Token("ghu_test".to_string());
-        let result =
-            branch_exists_with_client(&mock, &creds, "owner", "repo", "my-branch", "").await;
+        let result = branch_exists_with_client(
+            &mock,
+            GitHubContext::new(&creds, ""),
+            "owner",
+            "repo",
+            "my-branch",
+        )
+        .await;
 
         assert!(result.unwrap());
     }
@@ -1949,9 +1971,10 @@ mod tests {
     async fn resolve_clone_credentials_returns_token_for_token_credentials() {
         let creds = GitHubCredentials::Token("ghu_test".to_string());
 
-        let credentials = resolve_clone_credentials(&creds, "owner", "repo", "")
-            .await
-            .unwrap();
+        let credentials =
+            resolve_clone_credentials(GitHubContext::new(&creds, ""), "owner", "repo")
+                .await
+                .unwrap();
 
         assert_eq!(
             credentials,

@@ -151,9 +151,8 @@ pub async fn git_push_host(
     let https_url = fabro_github::ssh_url_to_https(&origin_url);
     let push_url = if let Some(creds) = github_app {
         match fabro_github::resolve_authenticated_url(
-            creds,
+            fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
             &https_url,
-            &fabro_github::github_api_base_url(),
         )
         .await
         {

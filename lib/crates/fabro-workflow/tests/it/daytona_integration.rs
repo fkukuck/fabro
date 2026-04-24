@@ -1493,10 +1493,9 @@ async fn daytona_clone_public_repo_gets_credentials() {
     // Directly test resolve_clone_credentials against a repo in an org where the
     // app is installed
     let (username, password) = fabro_github::resolve_clone_credentials(
-        &creds,
+        fabro_github::GitHubContext::new(&creds, &fabro_github::github_api_base_url()),
         "fabro-sh",
         "fabro",
-        &fabro_github::github_api_base_url(),
     )
     .await
     .unwrap();
@@ -1519,10 +1518,9 @@ async fn daytona_iat_not_installed_gives_clear_error() {
     let creds = load_github_app_credentials();
 
     let result = fabro_github::resolve_clone_credentials(
-        &creds,
+        fabro_github::GitHubContext::new(&creds, &fabro_github::github_api_base_url()),
         "torvalds",
         "linux",
-        &fabro_github::github_api_base_url(),
     )
     .await;
 

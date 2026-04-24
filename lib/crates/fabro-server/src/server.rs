@@ -5381,32 +5381,29 @@ async fn create_run_pull_request(
             .clone()
     };
 
-    let pull_request =
-        match pull_request::maybe_open_pull_request(pull_request::OpenPullRequestRequest {
-            github: fabro_github::GitHubContext::new(&creds, state.github_api_base_url.as_str()),
-            origin_url: &normalized_origin,
-            base_branch,
-            head_branch: run_branch,
-            goal: run_spec.graph.goal(),
-            diff,
-            model: &model,
-            draft: true,
-            auto_merge: None,
-            run_store: &run_store.clone().into(),
-            conclusion: Some(conclusion),
-        })
-        .await
-        {
-            Ok(Some(record)) => record,
-            Ok(None) => {
-                return ApiError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Pull request creation returned no record unexpectedly.",
-                )
-                .into_response();
-            }
-            Err(err) => return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response(),
-        };
+    let run_store_handle = run_store.clone().into();
+    let request = pull_request::OpenPullRequestRequest::from_run_state(
+        fabro_github::GitHubContext::new(&creds, state.github_api_base_url.as_str()),
+        run_spec,
+        run_branch,
+        &normalized_origin,
+        base_branch,
+        diff,
+        &model,
+        &run_store_handle,
+        conclusion,
+    );
+    let pull_request = match pull_request::maybe_open_pull_request(request).await {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Pull request creation returned no record unexpectedly.",
+            )
+            .into_response();
+        }
+        Err(err) => return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response(),
+    };
 
     let event = workflow_event::Event::PullRequestCreated {
         pr_url:      pull_request.html_url.clone(),
