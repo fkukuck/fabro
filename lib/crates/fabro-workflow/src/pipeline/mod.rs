@@ -18,7 +18,9 @@ pub use finalize::{classify_engine_result, finalize, write_finalize_commit};
 pub use initialize::initialize;
 pub use parse::parse;
 pub(crate) use persist::persist;
-pub use pull_request::{AutoMergeOptions, build_pr_body, maybe_open_pull_request, pull_request};
+pub use pull_request::{
+    AutoMergeOptions, OpenPullRequestRequest, build_pr_body, maybe_open_pull_request, pull_request,
+};
 pub use retro::{retro, run_retro};
 pub use transform::transform;
 pub use types::{

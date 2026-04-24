@@ -15,7 +15,7 @@ use fabro_llm::types::{
 use fabro_mcp::config::McpServerSettings;
 use fabro_types::settings::InterpString;
 use fabro_types::settings::cli::OutputFormat as SettingsOutputFormat;
-use fabro_util::exit::{ErrorExt, ExitClass};
+use fabro_util::exit::{self, ErrorExt, ExitClass};
 use futures::stream;
 use serde::Deserialize;
 
@@ -111,7 +111,7 @@ fn parse_server_error_body(body: &str) -> (String, Option<String>, Option<serde_
 
 fn transport_error(provider: &str, err: &anyhow::Error) -> LlmError {
     let message = err.to_string();
-    if message.contains("fabro auth login") || message.contains("Authentication required.") {
+    if exit::exit_class_for(err) == Some(ExitClass::AuthRequired) {
         return LlmError::Provider {
             kind:   ProviderErrorKind::Authentication,
             detail: Box::new(ProviderErrorDetail {

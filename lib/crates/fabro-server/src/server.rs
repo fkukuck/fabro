@@ -5381,32 +5381,33 @@ async fn create_run_pull_request(
             .clone()
     };
 
-    let pull_request = match pull_request::maybe_open_pull_request(
-        &creds,
-        &normalized_origin,
-        state.github_api_base_url.as_str(),
-        base_branch,
-        run_branch,
-        run_spec.graph.goal(),
-        diff,
-        &model,
-        true,
-        None,
-        &run_store.clone().into(),
-        Some(conclusion),
-    )
-    .await
-    {
-        Ok(Some(record)) => record,
-        Ok(None) => {
-            return ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Pull request creation returned no record unexpectedly.",
-            )
-            .into_response();
-        }
-        Err(err) => return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response(),
-    };
+    let pull_request =
+        match pull_request::maybe_open_pull_request(pull_request::OpenPullRequestRequest {
+            creds: &creds,
+            origin_url: &normalized_origin,
+            github_api_base_url: state.github_api_base_url.as_str(),
+            base_branch,
+            head_branch: run_branch,
+            goal: run_spec.graph.goal(),
+            diff,
+            model: &model,
+            draft: true,
+            auto_merge: None,
+            run_store: &run_store.clone().into(),
+            conclusion: Some(conclusion),
+        })
+        .await
+        {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pull request creation returned no record unexpectedly.",
+                )
+                .into_response();
+            }
+            Err(err) => return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response(),
+        };
 
     let event = workflow_event::Event::PullRequestCreated {
         pr_url:      pull_request.html_url.clone(),

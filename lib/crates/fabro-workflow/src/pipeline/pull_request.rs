@@ -394,69 +394,70 @@ pub struct AutoMergeOptions {
     pub merge_strategy: MergeStrategy,
 }
 
+/// Inputs for [`maybe_open_pull_request`].
+pub struct OpenPullRequestRequest<'a> {
+    pub creds:               &'a GitHubCredentials,
+    pub origin_url:          &'a str,
+    pub github_api_base_url: &'a str,
+    pub base_branch:         &'a str,
+    pub head_branch:         &'a str,
+    pub goal:                &'a str,
+    pub diff:                &'a str,
+    pub model:               &'a str,
+    pub draft:               bool,
+    pub auto_merge:          Option<AutoMergeOptions>,
+    pub run_store:           &'a RunStoreHandle,
+    pub conclusion:          Option<&'a Conclusion>,
+}
+
 /// Optionally open a pull request after a successful workflow run.
 ///
 /// Returns `Ok(Some(PullRequestRecord))` if a PR was created, `Ok(None)` if
 /// the diff was empty, or `Err` on failure.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Pull request creation combines git refs, rendered content, and run metadata."
-)]
 pub async fn maybe_open_pull_request(
-    creds: &GitHubCredentials,
-    origin_url: &str,
-    base_url: &str,
-    base_branch: &str,
-    head_branch: &str,
-    goal: &str,
-    diff: &str,
-    model: &str,
-    draft: bool,
-    auto_merge: Option<AutoMergeOptions>,
-    run_store: &RunStoreHandle,
-    conclusion: Option<&Conclusion>,
+    req: OpenPullRequestRequest<'_>,
 ) -> Result<Option<PullRequestRecord>, String> {
-    if diff.is_empty() {
+    if req.diff.is_empty() {
         debug!("Empty diff, skipping pull request creation");
         return Ok(None);
     }
 
-    let https_url = ssh_url_to_https(origin_url);
+    let https_url = ssh_url_to_https(req.origin_url);
     let (owner, repo) = github_app::parse_github_owner_repo(&https_url)?;
 
-    let body = build_pr_body(diff, goal, model, run_store, conclusion).await?;
+    let body = build_pr_body(req.diff, req.goal, req.model, req.run_store, req.conclusion).await?;
     let body = truncate_pr_body(&body);
 
-    let title = pr_title_from_goal(goal);
+    let title = pr_title_from_goal(req.goal);
 
     let created = github_app::create_pull_request(
-        creds,
+        req.creds,
         &owner,
         &repo,
-        base_branch,
-        head_branch,
+        req.base_branch,
+        req.head_branch,
         &title,
         &body,
-        draft,
-        base_url,
+        req.draft,
+        req.github_api_base_url,
     )
     .await?;
 
     info!(pr_url = %created.html_url, created.number, "Pull request created");
 
-    if let Some(am_cfg) = auto_merge {
+    if let Some(am_cfg) = req.auto_merge {
         let merge_method = match am_cfg.merge_strategy {
             MergeStrategy::Squash => fabro_types::MergeMethod::Squash,
             MergeStrategy::Merge => fabro_types::MergeMethod::Merge,
             MergeStrategy::Rebase => fabro_types::MergeMethod::Rebase,
         };
         match github_app::enable_auto_merge(
-            creds,
+            req.creds,
             &owner,
             &repo,
             &created.node_id,
             merge_method,
-            base_url,
+            req.github_api_base_url,
         )
         .await
         {
@@ -478,8 +479,8 @@ pub async fn maybe_open_pull_request(
         number: created.number,
         owner,
         repo,
-        base_branch: base_branch.to_string(),
-        head_branch: head_branch.to_string(),
+        base_branch: req.base_branch.to_string(),
+        head_branch: req.head_branch.to_string(),
         title,
     };
 
@@ -527,20 +528,20 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
                         None
                     };
 
-                    match maybe_open_pull_request(
+                    match maybe_open_pull_request(OpenPullRequestRequest {
                         creds,
-                        origin,
-                        &github_app::github_api_base_url(),
+                        origin_url: origin,
+                        github_api_base_url: &github_app::github_api_base_url(),
                         base_branch,
-                        run_branch,
-                        graph.goal(),
-                        &diff,
-                        &options.model,
-                        pr_cfg.draft,
+                        head_branch: run_branch,
+                        goal: graph.goal(),
+                        diff: &diff,
+                        model: &options.model,
+                        draft: pr_cfg.draft,
                         auto_merge,
-                        &options.run_store,
-                        Some(&conclusion),
-                    )
+                        run_store: &options.run_store,
+                        conclusion: Some(&conclusion),
+                    })
                     .await
                     {
                         Ok(Some(record)) => {
@@ -1347,20 +1348,20 @@ mod tests {
             app_id:          "123".to_string(),
             private_key_pem: "unused".to_string(),
         });
-        let result = maybe_open_pull_request(
-            &creds,
-            "https://github.com/owner/repo.git",
-            &github_app::github_api_base_url(),
-            "main",
-            "fabro/run/123",
-            "Fix bug",
-            "",
-            "claude-sonnet-4-20250514",
-            false,
-            None,
-            &run_store.clone().into(),
-            None,
-        )
+        let result = maybe_open_pull_request(OpenPullRequestRequest {
+            creds:               &creds,
+            origin_url:          "https://github.com/owner/repo.git",
+            github_api_base_url: &github_app::github_api_base_url(),
+            base_branch:         "main",
+            head_branch:         "fabro/run/123",
+            goal:                "Fix bug",
+            diff:                "",
+            model:               "claude-sonnet-4-20250514",
+            draft:               false,
+            auto_merge:          None,
+            run_store:           &run_store.clone().into(),
+            conclusion:          None,
+        })
         .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
