@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use clap::{Args, Parser};
 use fabro_auth::{CredentialSource, EnvCredentialSource, VaultCredentialSource};
-use fabro_config::{Storage, load_settings_user, resolve_storage_root};
+use fabro_config::Storage;
+use fabro_config::user::default_storage_dir;
 use fabro_llm::Error as LlmError;
 use fabro_llm::client::Client;
 use fabro_llm::middleware::{Middleware, NextFn, NextStreamFn};
@@ -251,24 +252,14 @@ fn parse_provider(args: &AgentArgs) -> anyhow::Result<Provider> {
         .map_err(|_| anyhow::anyhow!("unknown provider: {provider_str}"))
 }
 
-fn standalone_llm_source() -> anyhow::Result<Arc<dyn CredentialSource>> {
-    fn env_lookup(name: &str) -> Option<String> {
-        std::env::var(name).ok()
+fn standalone_llm_source() -> Arc<dyn CredentialSource> {
+    let storage_dir = default_storage_dir();
+    match Vault::load(Storage::new(storage_dir).secrets_path()) {
+        Ok(vault) => Arc::new(VaultCredentialSource::new(Arc::new(AsyncRwLock::new(
+            vault,
+        )))),
+        Err(_) => Arc::new(EnvCredentialSource::new()),
     }
-
-    let settings = load_settings_user()?;
-    let storage_root = resolve_storage_root(&settings);
-
-    let storage_dir = match storage_root.resolve(&env_lookup) {
-        Ok(resolved) => PathBuf::from(resolved.value),
-        Err(_) => return Ok(Arc::new(EnvCredentialSource::new())),
-    };
-
-    let vault = Vault::load(Storage::new(&storage_dir).secrets_path())
-        .map_err(|err| anyhow::anyhow!("Failed to load vault for LLM credentials: {err}"))?;
-    Ok(Arc::new(VaultCredentialSource::new(Arc::new(
-        AsyncRwLock::new(vault),
-    ))))
 }
 
 fn ensure_provider_registered(client: &Client, provider: Provider) -> anyhow::Result<()> {
@@ -442,7 +433,7 @@ pub async fn run_with_args(
     args: AgentArgs,
     mcp_servers: Vec<McpServerSettings>,
 ) -> anyhow::Result<()> {
-    let llm_source = standalone_llm_source()?;
+    let llm_source = standalone_llm_source();
     run_with_args_and_source(args, llm_source, mcp_servers).await
 }
 

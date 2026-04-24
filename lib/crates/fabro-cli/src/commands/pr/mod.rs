@@ -13,7 +13,6 @@ use fabro_types::settings::InterpString;
 use crate::args::{PrCommand, PrNamespace, ServerTargetArgs};
 use crate::command_context::CommandContext;
 use crate::shared::github::build_github_credentials;
-use crate::user_config;
 
 const GITHUB_CREDENTIALS_REQUIRED: &str =
     "GitHub credentials required — run `fabro install` or set GITHUB_TOKEN";
@@ -33,11 +32,8 @@ pub(crate) async fn dispatch(ns: PrNamespace, base_ctx: &CommandContext) -> Resu
     reason = "boundary-exempt(pr-api): remove with follow-up #1 when PR ops move server-side"
 )]
 fn load_github_credentials_required(base_ctx: &CommandContext) -> Result<GitHubCredentials> {
-    let server_settings = fabro_config::ServerSettings::from_layer(base_ctx.machine_settings())
-        .map_err(anyhow::Error::from)?;
-    let vault = user_config::storage_dir(base_ctx.machine_settings())
-        .ok()
-        .and_then(|dir| fabro_vault::Vault::load(Storage::new(&dir).secrets_path()).ok());
+    let server_settings = base_ctx.server_settings()?;
+    let vault = fabro_vault::Vault::load(Storage::new(base_ctx.storage_dir()).secrets_path()).ok();
     let creds = build_github_credentials(
         server_settings.server.integrations.github.strategy,
         server_settings

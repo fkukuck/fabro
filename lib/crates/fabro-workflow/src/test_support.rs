@@ -169,12 +169,7 @@ async fn initialized(
                 registry:        Arc::new(registry),
                 git_state:       std::sync::RwLock::new(None),
                 env:             options.env,
-                inputs:          run_options
-                    .settings
-                    .run
-                    .as_ref()
-                    .and_then(|run| run.inputs.clone())
-                    .unwrap_or_default(),
+                inputs:          run_options.settings.run.inputs.clone(),
                 dry_run:         run_options.dry_run_enabled(),
                 workflow_path:   None,
                 workflow_bundle: None,

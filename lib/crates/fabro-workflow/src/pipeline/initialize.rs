@@ -589,16 +589,10 @@ pub async fn initialize(
         .await?
     };
     if effective_dry_run {
-        use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
+        use fabro_types::settings::run::RunMode;
 
         options.dry_run = true;
-        let run = options
-            .run_options
-            .settings
-            .run
-            .get_or_insert_with(RunLayer::default);
-        let execution = run.execution.get_or_insert_with(RunExecutionLayer::default);
-        execution.mode = Some(RunMode::DryRun);
+        options.run_options.settings.run.execution.mode = RunMode::DryRun;
     }
 
     let has_run_branch = options
@@ -720,13 +714,7 @@ pub async fn initialize(
         registry,
         git_state: std::sync::RwLock::new(None),
         env,
-        inputs: options
-            .run_options
-            .settings
-            .run
-            .as_ref()
-            .and_then(|run| run.inputs.clone())
-            .unwrap_or_default(),
+        inputs: options.run_options.settings.run.inputs.clone(),
         dry_run: options.dry_run,
         workflow_path: options.workflow_path.clone(),
         workflow_bundle: options.workflow_bundle.clone(),
@@ -760,8 +748,7 @@ mod tests {
     use fabro_interview::AutoApproveInterviewer;
     use fabro_sandbox::SandboxSpec;
     use fabro_store::Database;
-    use fabro_types::settings::SettingsLayer;
-    use fabro_types::{RunId, fixtures};
+    use fabro_types::{RunId, WorkflowSettings, fixtures};
     use fabro_vault::{SecretType, Vault};
     use object_store::memory::InMemory;
     use tokio::sync::RwLock as AsyncRwLock;
@@ -843,7 +830,7 @@ mod tests {
 
     fn test_settings(run_dir: &std::path::Path) -> RunOptions {
         RunOptions {
-            settings:         SettingsLayer::default(),
+            settings:         WorkflowSettings::default(),
             run_dir:          run_dir.to_path_buf(),
             cancel_token:     None,
             run_id:           test_run_id(),
@@ -865,7 +852,7 @@ mod tests {
             run_dir.to_path_buf(),
             RunSpec {
                 run_id: test_run_id(),
-                settings: SettingsLayer::default(),
+                settings: WorkflowSettings::default(),
                 graph,
                 workflow_slug: Some("test".to_string()),
                 working_directory: std::env::current_dir().unwrap(),

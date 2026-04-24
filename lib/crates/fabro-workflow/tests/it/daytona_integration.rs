@@ -27,9 +27,7 @@ use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
 use fabro_llm::provider::Provider;
 use fabro_sandbox::daytona::{DaytonaConfig, DaytonaSandbox, DaytonaSnapshotConfig};
 use fabro_store::{ArtifactStore, Database};
-use fabro_types::settings::SettingsLayer;
-use fabro_types::settings::run::{RunArtifactsLayer, RunLayer};
-use fabro_types::{RunId, StageId};
+use fabro_types::{RunId, StageId, WorkflowSettings};
 use fabro_workflow::artifact::sync_artifacts_to_env;
 use fabro_workflow::context::Context;
 use fabro_workflow::error::Error;
@@ -511,7 +509,7 @@ async fn daytona_pipeline_artifact_offload_and_sync() {
 
     let engine = WorkflowRunner::new(registry, Arc::new(Emitter::default()), env.clone());
     let run_options = RunOptions {
-        settings:         SettingsLayer::default(),
+        settings:         WorkflowSettings::default(),
         run_dir:          dir.path().to_path_buf(),
         cancel_token:     None,
         run_id:           test_run_id("test-run"),
@@ -690,7 +688,7 @@ async fn daytona_git_checkpoint_remote_emits_events() {
 
     let engine = WorkflowRunner::new(registry, Arc::new(emitter), env.clone());
     let run_options = RunOptions {
-        settings:         SettingsLayer::default(),
+        settings:         WorkflowSettings::default(),
         run_dir:          dir.path().to_path_buf(),
         cancel_token:     None,
         run_id:           test_run_id("git-cp-test"),
@@ -861,7 +859,7 @@ async fn daytona_parallel_git_branching_e2e() {
     let engine = WorkflowRunner::new(registry, Arc::new(emitter), Arc::clone(&env));
 
     let run_options = RunOptions {
-        settings: SettingsLayer::default(),
+        settings: WorkflowSettings::default(),
         run_dir: run_tmp.path().to_path_buf(),
         cancel_token: None,
         run_id,
@@ -1214,7 +1212,7 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
     let meta_branch = MetadataStore::branch_name(&run_id.to_string());
     let engine = WorkflowRunner::new(registry, Arc::new(Emitter::default()), env.clone());
     let run_options = RunOptions {
-        settings: SettingsLayer::default(),
+        settings: WorkflowSettings::default(),
         run_dir: dir.path().to_path_buf(),
         cancel_token: None,
         run_id,
@@ -1349,14 +1347,14 @@ async fn daytona_asset_collection() {
     graph.edges.push(Edge::new("create_assets", "exit"));
 
     let run_options = RunOptions {
-        settings:         SettingsLayer {
-            run: Some(RunLayer {
-                artifacts: Some(RunArtifactsLayer {
+        settings:         WorkflowSettings {
+            run: fabro_types::settings::RunNamespace {
+                artifacts: fabro_types::settings::run::ArtifactsSettings {
                     include: vec!["test-results/**".to_string()],
-                }),
-                ..RunLayer::default()
-            }),
-            ..SettingsLayer::default()
+                },
+                ..fabro_types::settings::RunNamespace::default()
+            },
+            ..WorkflowSettings::default()
         },
         run_dir:          dir.path().to_path_buf(),
         cancel_token:     None,
@@ -1616,7 +1614,7 @@ async fn daytona_git_push_run_branch_to_origin() {
 
     let engine = WorkflowRunner::new(registry, Arc::new(Emitter::default()), env.clone());
     let run_options = RunOptions {
-        settings: SettingsLayer::default(),
+        settings: WorkflowSettings::default(),
         run_dir: dir.path().to_path_buf(),
         cancel_token: None,
         run_id,
