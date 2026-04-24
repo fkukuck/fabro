@@ -150,10 +150,9 @@ async fn make_client(provider: Provider, twin: Option<&OpenAiTwinOptions>) -> Cl
     }
 
     let source = EnvCredentialSource::new();
-    (*Client::from_source(&source)
+    Client::from_source(&source)
         .await
-        .expect("Client::from_source failed"))
-    .clone()
+        .expect("Client::from_source failed")
 }
 
 fn make_twin_client(twin: &OpenAiTwinOptions) -> Client {

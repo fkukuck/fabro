@@ -305,7 +305,7 @@ impl HookExecutorImpl {
 
         Self::execute_llm_with_timeout(definition.timeout(), "prompt", || async move {
             let client = match LlmClient::from_source(llm_source).await {
-                Ok(client) => client,
+                Ok(client) => Arc::new(client),
                 Err(e) => {
                     tracing::warn!(error = %e, "prompt hook client creation failed, proceeding");
                     return HookDecision::Proceed;

@@ -459,7 +459,6 @@ pub async fn run_with_args_and_source(
     let provider = parse_provider(&args)?;
     let client = Client::from_source(llm_source.as_ref())
         .await
-        .map(|client| (*client).clone())
         .map_err(|e| anyhow::anyhow!("Failed to create LLM client: {e}"))?;
     ensure_provider_registered(&client, provider)?;
     run_with_args_and_client(args, client, mcp_servers).await

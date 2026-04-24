@@ -6833,7 +6833,6 @@ async fn create_completion(
     // Force non-streaming for structured output
     let use_stream = req.stream && req.schema.is_none();
 
-    // Resolve an LLM client from the current credential source.
     let llm_result = match state.resolve_llm_client().await {
         Ok(result) => result,
         Err(err) => {

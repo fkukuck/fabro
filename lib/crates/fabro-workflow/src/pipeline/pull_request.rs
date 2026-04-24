@@ -299,7 +299,15 @@ pub async fn build_pr_body(
         .await
         .map_err(|e| format!("Failed to create LLM client: {e}"))?;
 
-    build_pr_body_with_client(diff, goal, model, &services.run_store, conclusion, client).await
+    build_pr_body_with_client(
+        diff,
+        goal,
+        model,
+        &services.run_store,
+        conclusion,
+        Arc::new(client),
+    )
+    .await
 }
 
 async fn build_pr_body_with_client(
@@ -312,19 +320,6 @@ async fn build_pr_body_with_client(
 ) -> Result<String, String> {
     debug!("Building PR body");
 
-    let loaded_conclusion = if conclusion.is_none() {
-        run_store
-            .state()
-            .await
-            .inspect_err(|err| {
-                tracing::warn!(error = %err, "Failed to load conclusion from store for PR body");
-            })
-            .ok()
-            .and_then(|state| state.conclusion)
-    } else {
-        None
-    };
-    let conclusion = conclusion.or(loaded_conclusion.as_ref());
     let run_state = run_store
         .state()
         .await
@@ -332,6 +327,15 @@ async fn build_pr_body_with_client(
             tracing::warn!(error = %err, "Failed to load run state from store for PR body");
         })
         .ok();
+    let loaded_conclusion = conclusion
+        .is_none()
+        .then(|| {
+            run_state
+                .as_ref()
+                .and_then(|state| state.conclusion.clone())
+        })
+        .flatten();
+    let conclusion = conclusion.or(loaded_conclusion.as_ref());
     let plan_text = run_state.as_ref().and_then(read_plan_text);
     let retro = run_state.as_ref().and_then(|state| state.retro.clone());
     let run_spec = run_state.as_ref().and_then(|state| state.spec.clone());

@@ -95,7 +95,7 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
                     &state,
                     &events,
                     &options.run_dir,
-                    client.as_ref(),
+                    &client,
                     services.provider,
                     &options.model,
                     Some(event_callback),
