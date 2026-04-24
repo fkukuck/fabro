@@ -50,7 +50,7 @@ This convergence was brainstormed conversationally on 2026-04-23 (no formal `doc
 
 - **Not** adding provenance fields (`forked_from: Option<RunId>`) on forked runs. Covered for rewind by `RunSupersededBy` on the source; adding symmetric provenance on the new run is a separate follow-up covering both fork and rewind.
 - **Not** changing fork's CLI surface. `ForkRunInput` and the `fabro fork` CLI continue to work unchanged. Correction from earlier plan text: **`POST /runs/{id}/fork` does not exist today** — fork is CLI-only, operating directly on the local git `Store`. Unit 2 therefore introduces the first git-touching HTTP endpoint in `fabro-server`; there is no ForkResponse shape to align RewindResponse with.
-- **Not** changing `build_timeline_or_rebuild` behavior or the rebuild-from-events path.
+- **Not** changing `build_timeline_or_rebuild` behavior or the rebuild-from-events path. The new `GET /runs/{id}/timeline` endpoint wraps `build_timeline`; it does not modify the underlying function.
 - **Not** migrating stored `RunRewound` events — greenfield, no deployed instances.
 - **Not** widening `operations::archive`'s precondition. Rewind inherits the "terminal status required" rule; non-terminal sources (Paused, Blocked, Running, etc.) must be canceled or allowed to finish before they can be rewound. This is a deliberate narrowing from today's behavior — see User Decisions log.
 
@@ -77,7 +77,7 @@ Not needed. This is an internal refactor with no external contract surfaces; tim
 
 - **Rewind becomes a server-side composite endpoint, not a CLI orchestration.** Add `POST /runs/{id}/rewind` to the fabro-api server. The handler:
   1. Loads source status from the projection store
-  2. Pre-checks terminal state (rejects Running/Paused/Blocked/etc. with a clear 412 Precondition Failed before any git work)
+  2. Pre-checks terminal state (rejects Running/Paused/Blocked/etc. with a clear 409 Conflict before any git work)
   3. Calls `operations::fork()` synchronously (git branch creation)
   4. Appends `RunSupersededBy { new_run_id }` to the source's event stream (async database write)
   5. Transitions source via `operations::archive()` (reuses existing archive logic)
@@ -95,7 +95,7 @@ Not needed. This is an internal refactor with no external contract surfaces; tim
 
 - **Delete `RunRewound` entirely.** Variant on `Event`, `EventBody::RunRewound`, `RunRewoundProps`, `"run.rewound"` discriminant. Also delete `reset_for_rewind()` on `RunProjection` and its caller in `lib/crates/fabro-store/src/run_state.rs`. Rationale: in option 2 the source run is archived, not resurrected; there is no projection state to reset. Greenfield constraint lets us delete rather than deprecate.
 
-- **Remove `RewindInput.current_status` and the `ensure_not_archived` call in rewind.** Rationale: in the new design, rewinding an archived run is a no-op on the archive side (`ArchiveOutcome::AlreadyArchived`) and a normal fork on the fork side. No precondition check is needed. Other `ensure_not_archived` call sites (resume, etc.) stay untouched.
+- **Remove `RewindInput.current_status` and the old in-place-rewind's `ensure_not_archived` call.** Rationale: in the server-endpoint design, archived-source rejection happens at `reject_if_archived` (handler step 1, 409 Conflict) and non-terminal rejection happens at the explicit status pre-check (handler step 3, 409 Conflict). The old `RewindInput.current_status` precondition is subsumed. Other `ensure_not_archived` call sites (resume, etc.) stay untouched.
 
 - **Keep distinct rewind vs fork CLI output text.** Rewind prints "Rewound <source>... new run <new>"; fork prints "Forked <source> -> <new>". Both output the new RunId and a `fabro resume <new>` hint. Rationale: the archive-source side effect is invisible from the new-run's branches, so the message is how users learn their source was archived.
 
@@ -106,7 +106,7 @@ Not needed. This is an internal refactor with no external contract surfaces; tim
 - **Where do shared timeline helpers live?** → New `lib/crates/fabro-workflow/src/operations/timeline.rs` module.
 - **Does `RewindTarget` get renamed?** → Yes, to `ForkTarget`, as part of the extraction.
 - **Output text alignment with fork?** → Keep distinct. Rewind emphasizes the abandoned source; fork emphasizes the parallel continuation.
-- **Archive idempotency on already-archived sources?** → `ArchiveOutcome::AlreadyArchived` is a success variant. Rewinding an already-archived run succeeds (produces a new run, leaves source archived). Archive's check order: terminal-state gate first, then archived-state short-circuit — see `lib/crates/fabro-workflow/src/operations/archive.rs:70-82`.
+- **Archived source as rewind input?** → **Rejected with 409 Conflict** via `reject_if_archived` (mirrors archive/unarchive handlers). Users must `fabro unarchive <id>` first if they intend to rewind. This supersedes the earlier "Resolved" note that said archived-source rewinds would succeed as a no-op — that note was written for the CLI-orchestration shape and doesn't apply to the server-endpoint shape. The `ArchiveOutcome::AlreadyArchived` path is therefore unreachable from rewind; the reject-pattern fires first.
 
 ### User Decisions (recorded 2026-04-23)
 
@@ -117,12 +117,20 @@ Not needed. This is an internal refactor with no external contract surfaces; tim
 - **Server-side endpoint vs. CLI-only?** → **Server-side composite endpoint.** Adds `POST /runs/{id}/rewind`; CLI becomes a thin wrapper.
 
 **Decisions from the Unit 2 adversarial review:**
-- **HTTP status code for partial success?** → **207 Multi-Status.** Archive-failure-after-fork returns 207 with `archived: false, archive_error: <msg>`. Status codes: 200 / 207 / 400 / 404 / 409 / 412. No 500 for expected concurrent-mutation outcomes.
+- **HTTP status code for partial success?** → **207 Multi-Status.** Archive-failure-after-fork returns 207 with `archived: false, archive_error: <msg>`.
 - **TOCTOU race mapping (post-archive Precondition)?** → **Graceful degradation.** Treat as concurrent-mutation race, return 207 (same shape as transport failure). Not a server bug; not a 500.
 - **Event ordering (RunSupersededBy vs archive)?** → **Archive first, RunSupersededBy second.** If archive fails, source is cleanly-terminal-with-missing-provenance (repairable) rather than "superseded-but-still-Succeeded" (misleading).
 - **Idempotency?** → **Accept orphan-run cost; document in Key Technical Decisions.** No Idempotency-Key infrastructure. CLI is single-shot and does not auto-retry. Future cross-cutting idempotency mechanism can apply retroactively.
 - **`superseded_by` projection field?** → **Add now.** `RunProjection.superseded_by: Option<RunId>` set by the RunSupersededBy event arm. Makes "what replaced this run?" a single projection read for future UI and `fabro ps` consumers.
 - **Handler structure?** → **Operations-layer composite.** Business logic lives in new `operations::rewind` async function; handler is a 4-line delegator matching `archive_run`'s pattern. File `operations/rewind.rs` is repurposed, not deleted (Unit 4 updated accordingly).
+
+**Decisions from the second external review (2026-04-24):**
+- **Archived runs as rewind input?** → **Reject with 409 Conflict.** `reject_if_archived` fires at step 1; users must `fabro unarchive <id>` first. Removes the contradiction with the old "Resolved During Planning" text.
+- **Event ordering invariant on failure?** → **Only emit `RunSupersededBy` if archive succeeded.** No supersede event on 207 path — preserves the ordering rationale and prevents the "superseded but still Succeeded" state the ordering was designed to avoid.
+- **`AppState.repo_path` gap (P1-3)?** → **Keep server-endpoint; solve explicitly.** Handler reads `working_directory` from the run's `RunSpec` projection, opens a git Store at that path inside `spawn_blocking`. New 501 Not Implemented failure mode for runs whose working_directory isn't accessible from the server process (sandboxes, remote workers).
+- **`superseded_by` plumbing?** → **Plumb through RunSummary + OpenAPI in Unit 2.** Honor the "helps fabro ps" claim by adding the field to `RunSummary`, the projection→summary mapping, and the OpenAPI schema.
+- **Status code convention (412 vs 409)?** → **Use 409 Conflict** for both archived-source and non-terminal-source rejections. Matches fabro-server's consistent use of `StatusCode::CONFLICT`; error message disambiguates the two cases. No 412 in this plan.
+- **Server-side timeline/list endpoint?** → **Add `GET /runs/{id}/timeline` to Unit 2.** Matches the mutating-rewind server-side move for web-UI parity; shares the working_directory/git-Store machinery with the rewind endpoint. CLI `--list` calls this endpoint instead of reading local git state.
 
 ### Deferred to Implementation
 
@@ -162,16 +170,24 @@ fabro rewind <ID> @3                  fabro fork <ID> [@3]
          |                                    |
          v                                    v
  rewind CLI handler (thin)           fork CLI handler
-  - client.rewind_run(id, target)    - build_timeline
-         |                            - fork() op
-         v                            - print "Forked X -> Y"
+  - --list: client.run_timeline(id)    - build_timeline (local git)
+  - mutate: client.rewind_run(id,...)  - fork() op (local git)
+         |                              - print "Forked X -> Y"
+         v
  POST /runs/{id}/rewind  (server)
-  - load source status
-  - reject if non-terminal (412)
+  - reject_if_archived                    (409 if archived)
+  - load RunSpec, check terminal status   (409 if non-terminal)
+  - open git Store at spec.working_directory
   - spawn_blocking: fork() op  <---------- same fork() op
-  - operations::archive(source)    [FIRST]
-  - append RunSupersededBy         [SECOND, even on archive failure]
-  - return 200 (archive ok) or 207 (archive failed; archived:false)
+                                          (501 if working_dir inaccessible)
+  - operations::archive(source)     [FIRST]
+  - on archive OK: append RunSupersededBy [SECOND, only if archive succeeded]
+  - return 200 (archive ok) | 207 (archive failed; archived:false, no supersede)
+
+ GET /runs/{id}/timeline (server)
+  - open git Store at spec.working_directory
+  - spawn_blocking: build_timeline
+  - return 200 with Vec<TimelineEntryResponse> (501 if working_dir inaccessible)
 ```
 
 The shared `fork()` op is the only code that creates runs, moves refs, or writes metadata snapshots. Rewind's differentiator is a server-side composite endpoint that adds a source-status pre-check, appends `RunSupersededBy` for audit, and archives the source. Fork continues to work exactly as today.
@@ -216,9 +232,9 @@ The shared `fork()` op is the only code that creates runs, moves refs, or writes
 - `rg "use .*rewind::(RewindTarget|TimelineEntry|RunTimeline|build_timeline|find_run_id_by_prefix)"` returns no matches — all call sites now import from `timeline`.
 - Clippy passes: `cargo +nightly-2026-04-14 clippy --workspace --all-targets -- -D warnings`.
 
-- [ ] **Unit 2: Add `RunSupersededBy` event and `POST /runs/{id}/rewind` server endpoint**
+- [ ] **Unit 2: Add `RunSupersededBy` event, `POST /runs/{id}/rewind`, and `GET /runs/{id}/timeline` server endpoints**
 
-**Goal:** Introduce the new audit event and the server-side composite endpoint that orchestrates fork + archive atomically.
+**Goal:** Introduce the new audit event and the two server-side endpoints (mutating rewind + read-side timeline). Both endpoints share the "open git Store from run's working_directory" machinery introduced here; solving that once enables the timeline endpoint essentially for free. Web-UI parity requires both.
 
 **Requirements:** R1 (single codepath), R2 (archive source + new RunId)
 
@@ -230,22 +246,28 @@ The shared `fork()` op is the only code that creates runs, moves refs, or writes
 - Modify: `lib/crates/fabro-workflow/src/event.rs` — add `Event::RunSupersededBy { new_run_id, target_checkpoint_ordinal, target_node_id, target_visit }` variant, logging arm, discriminant, and `EventBody` conversion. Model on the existing `Event::RunRewound` shape (being deleted in Unit 5).
 - Modify: `lib/crates/fabro-types/src/run_projection.rs` — add `pub superseded_by: Option<RunId>` field to `RunProjection`, serde-defaulted to `None`.
 - Modify: `lib/crates/fabro-store/src/run_state.rs` — add `EventBody::RunSupersededBy(props) => self.superseded_by = Some(props.new_run_id);` arm. Single-line projection update; source's archived-status transition still comes from the separate `RunArchived` event per normal lifecycle.
+- Modify: `lib/crates/fabro-types/src/run_summary.rs` — add `pub superseded_by: Option<RunId>` field to `RunSummary` (serde-defaulted). This is the type exposed by list endpoints (`fabro ps`, web list views), so plumbing the field here is what makes the "fabro ps shows superseded" claim honest.
+- Modify: the projection→summary mapping (exact file TBD — check `fabro-server` or `fabro-store` for where `RunSummary` is built from `RunProjection`; set `summary.superseded_by = projection.superseded_by`).
+- Modify: `docs/api-reference/fabro-api.yaml` around the `RunSummary` schema definition (~line 3943) — add the `superseded_by` property. Also add the new `POST /runs/{id}/rewind` path, `RewindRequest`/`RewindResponse` schemas, `RunSupersededByProps` event schema, `"run.superseded_by"` in the event-name enum, and the new `GET /runs/{id}/timeline` path + `TimelineEntryResponse` schema (see Unit 2 timeline endpoint below).
 - Modify: `docs/api-reference/fabro-api.yaml` — add a new `RewindRequest` schema (with `target: Option<String>`, `push: Option<bool>` defaulting to true), a new `RewindResponse` schema (`{ source_run_id, new_run_id, target, archived, archive_error?: String }`), and a `POST /runs/{id}/rewind` path. Register `"run.superseded_by"` as an allowable event name in the SSE schema if that enum exists there.
-- Create: `pub async fn rewind(...) -> Result<RewindOutcome, Error>` in `lib/crates/fabro-workflow/src/operations/rewind.rs`. This is the file's new contents — replaces the old in-place-rewind function (which is deleted in Unit 4 by virtue of not being reintroduced). Mirror the signature style of `operations::archive`. The function composes `operations::fork` (inside a `spawn_blocking` block) + `RunSupersededBy` event append + `operations::archive`.
+- Create: `pub async fn rewind(...) -> Result<RewindOutcome, Error>` in `lib/crates/fabro-workflow/src/operations/rewind.rs`. This is the file's new contents — replaces the old in-place-rewind function (which is deleted in Unit 4 by virtue of not being reintroduced). Mirror the signature style of `operations::archive`. The function composes `operations::fork` (inside a `spawn_blocking` block) + `operations::archive` + `RunSupersededBy` event append (archive-first-then-supersede, only-on-archive-success).
 - Create: server handler in `lib/crates/fabro-server/src/server.rs` — thin `async fn rewind_run(...)` delegator into `operations::rewind`, matching the 4-line pattern of `archive_run` (line 6448). Add route `.route("/runs/{id}/rewind", post(rewind_run))` next to `archive_run` / `unarchive_run` (see lines 1086-1087).
+- Create: `pub async fn timeline(...) -> Result<Vec<TimelineEntry>, Error>` in `lib/crates/fabro-workflow/src/operations/timeline.rs` (the new module from Unit 1). This is an async wrapper around the existing sync `build_timeline` — opens the git Store from the run's working_directory (same pattern as the rewind endpoint) inside `spawn_blocking`.
+- Create: server handler in `lib/crates/fabro-server/src/server.rs` — thin `async fn run_timeline(...)` delegator. Add route `.route("/runs/{id}/timeline", get(run_timeline))`. Status codes: 200 with `Vec<TimelineEntryResponse>` on success; 404 for unknown run; 501 for inaccessible working_directory.
 - Modify: `lib/crates/fabro-workflow/src/event.rs` — append_event support for `RunSupersededBy` via existing event append pathway.
-- Test: unit tests for `operations::rewind` in `operations/rewind.rs` test module (axum-free, covers all composite branches); plus a thin handler test for HTTP-layer behavior following existing archive/unarchive test patterns.
+- Modify: `lib/crates/fabro-client/src/client.rs` — add hand-written wrappers for both new endpoints (`rewind_run`, `run_timeline`) following the archive_run wrapper pattern.
+- Test: unit tests for `operations::rewind` and `operations::timeline` in their respective test modules (axum-free, covers composite branches including the 501/working_directory-inaccessible path); plus thin handler tests for HTTP-layer behavior following existing archive/unarchive test patterns.
 
 **Approach:**
 - Server handler flow (pseudo-code, directional):
   1. Parse run ID from path; reject if archived (via `reject_if_archived`, mirrors archive/unarchive).
   2. Read body → `RewindRequest { target: Option<String>, push: Option<bool> }`.
-  3. Load source status from projection; reject with 412 Precondition Failed if not `Succeeded/Failed/Dead`. Include the canonical precondition message.
-  4. Open the git `Store` — **new pattern for fabro-server**. No existing handler opens a git repo. Unit 2 establishes this: construct from `AppState.repo_path` (or equivalent) inside the handler. Exact API shape deferred to implementation, but the pattern needs to be Send + 'static so the whole git block can run inside `spawn_blocking`.
+  3. Load source status from projection; reject with **409 Conflict** if not `Succeeded/Failed/Dead` (matches fabro-server's consistent use of `StatusCode::CONFLICT` for state preconditions — see multiple callers in `server.rs`). Include the canonical precondition message.
+  4. **Open the git `Store` by looking up the run's working_directory.** `AppState` has no global `repo_path` — confirmed by grep: `pub struct AppState` at `server.rs:539` has no repo field. The handler loads the run's `RunSpec` from the projection store, reads `spec.working_directory` (`lib/crates/fabro-types/src/run.rs:58`), and opens a git `Store` at that path. **New precondition:** the server process must have filesystem access to the run's `working_directory`. If the path doesn't exist, isn't a git repo, or isn't accessible (e.g., the run was launched in a Daytona sandbox or on a remote worker whose filesystem isn't shared with the server), return **501 Not Implemented** with a message directing the user to the CLI rewind command for non-local runs. Exact error shape deferred to implementation, but this failure mode is documented in the error-path test scenarios. The Store must be Send + 'static so the whole git block can run inside `spawn_blocking`.
   5. **Wrap steps 5–6 in `tokio::task::spawn_blocking`** — `operations::fork` does sync libgit2 work including potential remote push, which can block for seconds. Precedent: `spawn_blocking` is the established pattern in `server.rs` (lines 1291, 1331, 1674, 1711, 4564). Running `fork()` directly on the async runtime stalls Tokio workers under load. The spawn_blocking return should carry the new_run_id back to async context.
   6. Inside spawn_blocking: build timeline (sync), resolve target (`None` defaults to latest checkpoint), call `operations::fork(...)` → `new_run_id`.
   7. Back on the async runtime: call `operations::archive(&state.store, &id, actor)` FIRST.
-  8. On archive `Ok` → append `RunSupersededBy { new_run_id, ... }` to source's event stream, then return 200 with `{ source_run_id, new_run_id, target, archived: true }`. On archive `Err(Precondition)` (expected concurrent-mutation race where status changed between step 3 and step 7) or `Err(engine)` (transport/internal failure) → **return 207 Multi-Status** with `{ source_run_id, new_run_id, target, archived: false, archive_error: <message> }`. Still attempt the `RunSupersededBy` append even on archive failure, so the source's event log at least carries the supersession pointer — but the response reflects archive's outcome, not the event append's outcome. Log append failure; do not block response. **Ordering rationale:** if the RunSupersededBy append fails but archive succeeded, source is cleanly archived with missing provenance (repairable via follow-up append). If we had reversed the order, an archive failure after a successful supersede-append would leave source "superseded but still Succeeded" — a misleading projection state.
+  8. On archive `Ok` → append `RunSupersededBy { new_run_id, ... }` to source's event stream, then return 200 with `{ source_run_id, new_run_id, target, archived: true }`. On archive `Err(Precondition)` (expected concurrent-mutation race where status changed between step 3 and step 7) or `Err(engine)` (transport/internal failure) → **return 207 Multi-Status** with `{ source_run_id, new_run_id, target, archived: false, archive_error: <message> }`. **Do NOT emit `RunSupersededBy` on archive failure** — emitting it would recreate the "superseded but still Succeeded" state the archive-first ordering exists to prevent. The response body still carries `new_run_id` so clients know about the new run; no source-side audit trail in this case, which is the honest representation of partial success. If the RunSupersededBy append itself fails after a successful archive, log the failure prominently; source is cleanly archived with missing provenance (repairable via follow-up manual append). **Invariant: `RunSupersededBy` is only on the event stream iff source is archived.**
 - **Business logic should live in `operations::rewind`, not the handler.** Mirror the existing `archive_run` handler pattern (`server.rs:6448-6462`): a 4-line delegator into a `pub async fn rewind(...)` function in `fabro-workflow::operations`. Handler handles HTTP parsing, auth, and response shaping; the composite fork+archive+event-append flow lives in the ops layer and is unit-testable without axum. This changes Unit 4 from "delete `rewind.rs`" to "replace `rewind.rs` contents with the new composite op" — the file stays, its contents change. See `Files:` list below.
 
 **Technical design:** *(directional)*
@@ -273,8 +295,11 @@ struct RewindResponse {
 //   207 Multi-Status   — fork succeeded AND archive failed (archived=false, archive_error set)
 //   400 Bad Request    — target out of range, malformed request
 //   404 Not Found      — run id unknown
-//   409 Conflict       — source is already archived (reject_if_archived)
-//   412 Precondition   — pre-check: source is not terminal
+//   409 Conflict       — source already archived OR source not terminal
+//                        (matches fabro-server's consistent CONFLICT convention;
+//                         error message disambiguates the two cases)
+//   501 Not Implemented — run's working_directory not accessible from the server
+//                         process (remote worker, container sandbox, missing path)
 ```
 
 **Patterns to follow:**
@@ -285,16 +310,19 @@ struct RewindResponse {
 - `lib/crates/fabro-server/src/server.rs:6037-6053` (`denied_lifecycle_event_name`) — update: `RunSupersededBy` is a server-emitted event, so the rewind endpoint is its legitimate injection point. Comment should note this.
 
 **Test scenarios:**
-- Happy path: POST `/runs/{terminal_id}/rewind` with `{target: "@2"}` returns 200 with `{source, new, target, archived: true}`; source event log shows `RunArchived` then `RunSupersededBy` (archive-first ordering); source projection has `superseded_by: Some(new_run_id)`; new run has its own initialized branches.
+- Happy path: POST `/runs/{terminal_id}/rewind` with `{target: "@2"}` returns 200 with `{source, new, target, archived: true}`; source event log shows `RunArchived` then `RunSupersededBy` (archive-first ordering); source projection has `superseded_by: Some(new_run_id)`; source `RunSummary` exposes the same field; new run has its own initialized branches.
+- Happy path (timeline): GET `/runs/{id}/timeline` returns 200 with a `Vec<TimelineEntryResponse>` matching the ordered checkpoints in the run's metadata branch.
 - Happy path default: POST with no `target` field rewinds to the latest checkpoint.
 - Happy path: POST with `push: false` skips remote push; archive still occurs.
-- Error path: POST on a `Running` source → 412 Precondition Failed with "must be terminal" message; NO new run created (pre-check blocks before fork).
+- Error path: POST on a `Running` source → 409 Conflict with "must be terminal" message; NO new run created (pre-check blocks before fork).
 - Error path: POST on an `Archived` source → 409 Conflict via `reject_if_archived`; no new run.
 - Error path: POST on unknown run ID → 404.
 - Error path: target `@99` out of range → fork error surfaces as 400 Bad Request; no archive attempt; source unchanged.
-- Edge case: archive fails after fork (simulate via fault injection or by archiving the source first in the test setup to force `AlreadyArchived`) → returns **207 Multi-Status** with `archived: false, archive_error: <msg>`; new run is intact; source event log carries `RunSupersededBy` even though `RunArchived` wasn't appended (append-on-failure path).
-- Edge case: source status changes between pre-check and archive (TOCTOU race, simulate with a concurrent event append) → archive returns `Err(Precondition)`; endpoint returns 207 (same shape as transport failure), NOT 500.
+- Edge case: archive fails after fork (simulate via fault injection on the archive call — not via "archive source first", which is blocked by `reject_if_archived` before fork even runs) → returns **207 Multi-Status** with `archived: false, archive_error: <msg>`; new run is intact; source event log does **NOT** carry `RunSupersededBy` (only-on-archive-success rule).
+- Edge case: source status changes between pre-check and archive (TOCTOU race, simulate with a concurrent event append) → archive returns `Err(Precondition)`; endpoint returns 207 (same shape as transport failure), NOT 500. Source event log does NOT carry `RunSupersededBy`.
 - Edge case: `RunSupersededBy` append fails after archive succeeds (simulate storage error) → response is still 200 with `archived: true`; source is cleanly archived but provenance is missing in its event log. Log the append failure prominently; this is a repairable degradation.
+- Error path: source already archived → `reject_if_archived` returns 409 before handler business logic runs; no fork attempt.
+- Error path: source `working_directory` is not accessible (simulate by passing a path the server can't stat) → 501 Not Implemented with guidance to use the CLI rewind command.
 - Integration: full CLI → server → git path in a CLI-level or scenario test (covered in Unit 5).
 
 **Verification:**
@@ -317,9 +345,11 @@ struct RewindResponse {
 - Test: `lib/crates/fabro-cli/tests/it/cmd/rewind.rs` (assertions rewritten in Unit 5)
 
 **Approach:**
-- Mirror the shape of `lib/crates/fabro-cli/src/commands/run/fork.rs` for the `--list` path and origin validation, but the non-list path collapses to: parse target, build `RewindRequest`, call `client.rewind_run(&run_id, &req)`, handle response.
+- Mirror the shape of `lib/crates/fabro-cli/src/commands/run/fork.rs` for origin validation, but:
+  - `--list` path: call `client.run_timeline(&run_id)` (the new endpoint) instead of reading local git state. This matches the mutating rewind's server-side move. Falls back gracefully with a helpful message if the endpoint returns 501 — but the common case (local runs) works through the server.
+  - Non-list path: parse target, build `RewindRequest`, call `client.rewind_run(&run_id, &req)`, handle response.
 - Delete the helpers `reset_rewound_run_state`, `restored_checkpoint_event`, `run_event` (and their `RunRewoundProps`/`CheckpointCompletedProps`/`RunSubmittedProps` imports). They have no consumer after this unit.
-- Keep `print_timeline` and `timeline_entries_json` — `fork.rs` imports them.
+- Keep `print_timeline` and `timeline_entries_json` — `fork.rs` imports them; they now format data that arrived from the server, not data built locally.
 - Output text format: `"Rewound {source[:8]}; new run {new[:8]}"` followed by `"To resume: fabro resume {new[:8]}"`. On HTTP 207 (`archived == false`), also print `"Warning: source not archived: {archive_error}. Run `fabro archive {source}` to finish."` so the user knows the source is still terminal-but-not-archived and how to clean up.
 - JSON output: echo `response` shape plus the HTTP status code so scripts can branch on 200 vs 207 without re-parsing.
 - **Retry posture: single-shot.** The CLI does NOT auto-retry `POST /rewind` on network error, timeout, or 5xx. On any non-response failure, print `"Network error during rewind. Check server state with 'fabro ps' before retrying — the rewind may have succeeded."`. Rationale: fork mints a fresh RunId each call, so naive retry creates orphans. See "Retry semantics" key decision.
@@ -332,14 +362,16 @@ struct RewindResponse {
 - `lib/crates/fabro-client/src/client.rs:725` (existing `archive_run` wrapper) — location and style for the new `rewind_run` wrapper.
 
 **Test scenarios:**
-- Happy path: `fabro rewind <ID> @2 --no-push` on a succeeded run exits 0, stderr contains "Rewound" and the new RunId prefix; source run transitions to `Archived` (via server); new run branches exist locally after the server's fork push/update.
+- Happy path: `fabro rewind <ID> @2 --no-push` on a succeeded run exits 0, stderr contains "Rewound" and the new RunId prefix; source run transitions to `Archived` (via server); source event log shows `RunArchived` then `RunSupersededBy`; new run branches exist locally after the server's fork push/update.
 - Happy path (JSON): `--json` emits `{source_run_id, new_run_id, target, archived: true}` with both IDs resolvable.
-- Edge case: `fabro rewind <ID>` (no target, no `--list`) prints the timeline without touching the server (same as today's behavior when `--list` path hits).
-- Edge case: `fabro rewind <ID> --list` prints the timeline; no server call; source unchanged.
+- Edge case: `fabro rewind <ID>` (no target, no `--list`) prints the timeline via `GET /runs/{id}/timeline`; no mutation.
+- Edge case: `fabro rewind <ID> --list` prints the timeline via `GET /runs/{id}/timeline`; source unchanged.
 - Edge case: `--no-push` translates into `push: false` in the request body; server honors it.
 - Error path: target `@99` out of range → server returns 400; CLI prints the error; source unchanged.
-- Error path: source run is still running → server returns 412 with "must be terminal" message; CLI prints it clearly; no new run anywhere.
+- Error path: source run is still running or paused → server returns **409 Conflict** with "must be terminal" message; CLI prints it clearly; no new run anywhere.
+- Error path: source already archived → server returns 409 Conflict; CLI prints "run is archived; run `fabro unarchive` first and retry"; no new run.
 - Edge case: server returns 207 Multi-Status with `archived: false, archive_error: "..."` → CLI prints the new RunId, the archive-failure warning with the `fabro archive <source>` hint, and exits 0 so scripts can still pick up the new RunId.
+- Edge case: server returns 501 Not Implemented (working_directory inaccessible) → CLI prints a clear message suggesting checkout-to-local-path-and-retry; exits non-zero.
 - Edge case: network error or timeout during POST /rewind → CLI exits non-zero with the "check server state" message; does NOT auto-retry.
 - Integration: after `rewind <ID> @2`, `fabro ps` shows source as Archived and the new RunId present and resumable.
 
@@ -410,7 +442,7 @@ struct RewindResponse {
   - `rewind_outside_git_repo_errors` — unchanged.
   - `rewind_list_prints_timeline_for_completed_git_run` — unchanged (list path unmodified).
   - `rewind_target_updates_metadata_and_resume_hint` — rewrite. New assertions: (1) command succeeds; (2) stderr includes "Rewound" and "To resume: fabro resume"; (3) the resume hint points at a new RunId (not `setup.run.run_id`); (4) source run is now Archived. Drop the old assertion that the source's metadata ref moved.
-  - `rewind_preserves_event_history_and_clears_terminal_snapshot_state` — delete. This test asserted `run.rewound` + `checkpoint.completed` + `run.submitted` event append and projection reset, all of which no longer happen. Replace with a test that asserts BOTH sides explicitly: (1) source event log gains exactly one new event (`run.archived`) — not merely "unchanged", since a weak assertion would miss regressions where fork accidentally appends events to the source; (2) the new run's event log contains the expected init events in order (`run.submitted`, `checkpoint.completed` from the target checkpoint), with the exact expected event count. The original test's event-count-delta assertion is the kind of coverage that catches helper-function run_id-mixup bugs; preserve that discipline in the rewrite.
+  - `rewind_preserves_event_history_and_clears_terminal_snapshot_state` — delete. This test asserted `run.rewound` + `checkpoint.completed` + `run.submitted` event append and projection reset, all of which no longer happen. Replace with a test that asserts BOTH sides explicitly: (1) source event log gains exactly two new events in order: `run.archived` then `run.superseded_by` (matches the archive-first ordering and the only-on-archive-success rule); (2) the new run's event log contains the expected init events in order (`run.submitted`, `checkpoint.completed` from the target checkpoint), with the exact expected event count. The original test's event-count-delta assertion is the kind of coverage that catches helper-function run_id-mixup bugs; preserve that discipline in the rewrite.
 - In `tests/it/scenario/recovery.rs`:
   - Delete the existing `rewind_and_fork_recover_missing_metadata_from_real_run_state`.
   - Add `rewind_recovers_metadata_from_real_run_state` — runs a workflow, forks from a checkpoint, rewinds the fork (hits the new endpoint), captures the new RunId from the response/output, asserts metadata-branch + run-branch are present for the new RunId and that `fabro resume <new>` can pick up the work.
@@ -422,12 +454,12 @@ struct RewindResponse {
 - Snapshot-test discipline per CLAUDE.md: check `cargo insta pending-snapshots` before accepting.
 
 **Test scenarios:**
-- Happy path: `rewind_target_creates_new_run_and_archives_source` — run rewind, assert new RunId in output, assert source status is Archived, assert source's event log gains exactly two events (`RunSupersededBy`, then `RunArchived`), assert new run has init + checkpoint events.
+- Happy path: `rewind_target_creates_new_run_and_archives_source` — run rewind, assert new RunId in output, assert source status is Archived, assert source's event log gains exactly two events in order: (1) `RunArchived`, (2) `RunSupersededBy` (archive-first ordering). Assert source `RunProjection.superseded_by == Some(new_run_id)` and `RunSummary.superseded_by == Some(new_run_id)`. Assert new run has init + checkpoint events.
 - Edge case: `rewind_list_unchanged` — `--list` still prints timeline without side effects (no server call).
 - Edge case: `rewind_with_no_target_prints_timeline` — no-target invocation behaves like `--list`.
 - Edge case: `rewind_no_push_skips_remote_but_still_archives` — `--no-push` translates to `push: false` on the request; source is still archived via the server endpoint.
 - Error path: `rewind_target_out_of_range_does_not_archive` — bad target → server 400; source remains in original (non-archived) status; no new run branches created.
-- Error path: `rewind_non_terminal_source_rejected` — source is still running/paused → server 412 with "must be terminal" message; no new run.
+- Error path: `rewind_non_terminal_source_rejected` — source is still running/paused → server 409 Conflict with "must be terminal" message; no new run.
 - Edge case: `rewind_graceful_degradation_on_archive_failure` — simulate archive failure (e.g., by archiving the source manually first so the precondition short-circuits) → CLI prints new RunId with warning; exit code 0.
 - Integration: `recovery.rs` scenarios above — rewind then resume the new RunId; fork chain rebuilds metadata.
 
@@ -469,7 +501,7 @@ struct RewindResponse {
 ## System-Wide Impact
 
 - **Interaction graph:** Rewind is now a single HTTP call from the CLI (`POST /runs/{id}/rewind`) that atomically composes fork + archive server-side. Pre-check before fork eliminates the precondition half-success case; transport-level archive failure is handled by the endpoint returning `archived: false, archive_error: ...` so the CLI can surface the warning while still delivering the new RunId.
-- **Error propagation:** Fork errors surface as server 400. Non-terminal source returns 412 (pre-check in handler). Post-archive Precondition errors (concurrent-mutation race) return 207 Multi-Status, same as transport failures — NOT 500. Archive errors are degradations, not bugs.
+- **Error propagation:** Fork errors surface as server 400. Archived source returns 409 (via `reject_if_archived`). Non-terminal source returns 409 (pre-check in handler; disambiguated in error body). Inaccessible `working_directory` returns 501. Post-archive Precondition errors (concurrent-mutation race) return 207 Multi-Status, same as transport failures — NOT 500. Archive errors are degradations, not bugs.
 - **State lifecycle:** Source run transitions `Succeeded/Failed/Dead → Archived` via the existing archive pipeline. On success, `operations::archive` runs FIRST; then the server appends `RunSupersededBy { new_run_id }`. Event log reads `RunArchived, RunSupersededBy`. Ordering rationale: if RunSupersededBy fails after archive, source is cleanly archived with missing provenance (repairable). If we reversed, an archive failure after a supersede-append would leave source "superseded but still Succeeded" — a misleading projection state. Projection captures `superseded_by: Some(new_run_id)` so UIs/CLI can answer "what replaced this?" without event-log replay.
 - **Event stream consumers:** `RunRewound` disappears from the event stream; `RunSupersededBy` appears. Any UI element, log filter, or downstream consumer that matched `"run.rewound"` will break. Per memory, this is greenfield with no deployed consumers — confirm during implementation that no docs/web consumers reference the old event name: `rg -i rewound docs/ apps/ lib/packages/` should return only documentation strings destined for update in Unit 6.
 - **API surface parity:** `docs/api-reference/fabro-api.yaml` gets two additions (`POST /runs/{id}/rewind` endpoint with `RewindRequest`/`RewindResponse` schemas, and `"run.superseded_by"` event name in the SSE schema) and zero deletions — the spec does not currently reference rewound (verified: `rg -c rewound docs/api-reference/fabro-api.yaml` = 0). Regenerate the Rust client and TypeScript client per CLAUDE.md "API workflow" after spec edits.
@@ -487,6 +519,8 @@ struct RewindResponse {
 | Archive precondition rejects non-terminal runs that `ensure_not_archived` used to allow. | Resolved via User Decisions: accept the narrowing. Documented in Scope Boundaries and the CLI error message; users who need to rewind a paused/blocked run cancel-or-kill it first. |
 | OpenAPI spec drift after adding the endpoint and event. | `fabro-server` conformance test catches router/spec divergence. Regenerate both Rust and TypeScript clients immediately after spec edits; commit the generated updates in the same commit as the spec changes. |
 | New `RunSupersededBy` event shape conflicts with fabro-web or external SSE consumers. | Search `apps/fabro-web` and any external consumer repos for `run\.rewound` and related event-name strings before merging. Currently greenfield, but a one-line grep keeps the assumption honest. |
+| Server-side rewind/timeline endpoints reject runs whose `working_directory` isn't server-accessible (501). | Documented explicitly in error-path scenarios. CLI surfaces the 501 clearly and suggests checkout-to-local-path as the workaround. In practice, most runs today are local. Remote/sandbox runs are a future concern that may need a streaming-fork-from-client protocol. |
+| `RunSupersededBy` omitted on 207 leaves source with no source-side audit trail of the rewind. | Accepted trade-off per event-ordering-invariant decision. Response body still carries `new_run_id`, so forward-direction audit (new→source) is available via the deferred `forked_from` provenance follow-up. Backward direction (source→new) is only available on archive success — which is the common case. |
 
 ## Documentation / Operational Notes
 
