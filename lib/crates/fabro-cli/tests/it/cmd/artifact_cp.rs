@@ -15,6 +15,6 @@ fn artifact_cp_empty_run_reports_no_artifacts() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: No artifacts found for this run
+      × No artifacts found for this run
     ");
 }

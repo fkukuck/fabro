@@ -181,7 +181,7 @@ fn list_invalid_provider_errors() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: unknown provider: not-a-provider
+      × unknown provider: not-a-provider
     ");
 }
 

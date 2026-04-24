@@ -125,11 +125,11 @@ fn parse_invalid_dot_fails_cleanly() {
     let mut cmd = context.command();
     cmd.args(["parse", "bad.fabro"]);
 
-    fabro_snapshot!(context.filters(), cmd, @"
+    fabro_snapshot!(context.filters(), cmd, @r#"
     success: false
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Parse error: grammar error: Parsing Error: Error { input: \"\", code: Char }
-    ");
+      × Parse error: grammar error: Parsing Error: Error { input: "", code: Char }
+    "#);
 }

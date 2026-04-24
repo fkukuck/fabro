@@ -52,7 +52,7 @@ fn pr_create_nongit_run_reports_missing_repo_origin() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Run has no repo origin URL — pull request creation requires git metadata.
+      × Run has no repo origin URL — pull request creation requires git metadata.
     ");
 }
 

@@ -462,7 +462,7 @@ fn create_invalid_workflow_fails_without_creating_run() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Validation failed
+      × Validation failed
     ");
 
     let run_count = run_count_for_test_case(&context);

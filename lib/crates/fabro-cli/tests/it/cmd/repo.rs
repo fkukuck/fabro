@@ -69,6 +69,6 @@ fn test_repo_deinit_fails_when_not_initialized() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: not initialized — .fabro/project.toml not found
+      × not initialized — .fabro/project.toml not found
     ");
 }

@@ -43,7 +43,7 @@ fn diff_completed_run_without_changes_reports_no_patch() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Run completed but no stored diff exists — the run may not have produced any changes
+      × Run completed but no stored diff exists — the run may not have produced any changes
     ");
 }
 
@@ -59,7 +59,7 @@ fn diff_missing_node_diff_reports_helpful_error() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: No diff found for node 'missing' — check the node ID and try again
+      × No diff found for node 'missing' — check the node ID and try again
     ");
 }
 

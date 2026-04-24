@@ -48,7 +48,7 @@ fn fork_outside_git_repo_errors() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: No run found matching '[ULID]' (tried run ID prefix and workflow name)
+      × No run found matching '[ULID]' (tried run ID prefix and workflow name)
     ");
 }
 

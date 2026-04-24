@@ -132,7 +132,7 @@ fn wait_submitted_run_times_out() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Timed out after 1s waiting for run '[ULID]'
+      × Timed out after 1s waiting for run '[ULID]'
     ");
 }
 
@@ -189,7 +189,7 @@ fn wait_blocked_run_times_out_without_treating_it_as_terminal() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Timed out after 1s waiting for run '[ULID]'
+      × Timed out after 1s waiting for run '[ULID]'
     ");
     resolve_run.assert();
     assert!(

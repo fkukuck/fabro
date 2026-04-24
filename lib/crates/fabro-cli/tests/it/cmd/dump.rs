@@ -303,7 +303,7 @@ fn dump_rejects_non_empty_output_dir() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: output path [TEMP_DIR]/nonempty already exists and is not an empty directory; remove it first or choose a different path
+      × output path [TEMP_DIR]/nonempty already exists and is not an empty directory; remove it first or choose a different path
     ");
 }
 

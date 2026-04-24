@@ -109,7 +109,7 @@ fn test_secret_rm_missing_key() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: secret not found: NOPE
+      × secret not found: NOPE
     ");
 }
 

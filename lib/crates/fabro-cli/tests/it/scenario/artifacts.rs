@@ -153,7 +153,7 @@ fn artifact_commands_share_populated_run_fixture() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Path 'assets/retry/report.txt' matches multiple artifacts: create_colliding:retry_1, retry_assets:retry_1, retry_assets:retry_2. Use --node and/or --retry to disambiguate.
+      × Path 'assets/retry/report.txt' matches multiple artifacts: create_colliding:retry_1, retry_assets:retry_1, retry_assets:retry_2. Use --node and/or --retry to disambiguate.
     ");
 
     let flat_dest = context.temp_dir.join("artifact-flat");
@@ -169,6 +169,6 @@ fn artifact_commands_share_populated_run_fixture() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Filename collision: 'summary.txt' exists in both create_assets:retry_1 and create_colliding:retry_1. Use --tree to preserve directory structure, or --node and/or --retry to filter.
+      × Filename collision: 'summary.txt' exists in both create_assets:retry_1 and create_colliding:retry_1. Use --tree to preserve directory structure, or --node and/or --retry to filter.
     ");
 }

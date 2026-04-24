@@ -20,6 +20,7 @@ mod user_config;
 
 #[cfg(test)]
 use std::ffi::OsString;
+use std::fmt::{self, Debug, Display};
 
 use anyhow::Result;
 use args::{
@@ -94,6 +95,8 @@ async fn main() {
         None
     };
 
+    install_miette_hook();
+
     tel_panic::install_panic_hook();
     fabro_telemetry::init_cli();
 
@@ -135,35 +138,66 @@ async fn main() {
     fabro_telemetry::shutdown();
 
     if let Err(err) = result {
-        let style = console::Style::new().red().bold();
-        for (i, cause) in err.chain().enumerate() {
-            let text = cause.to_string();
-            if i == 0 {
-                for (j, line) in text.lines().enumerate() {
-                    if j == 0 {
-                        eprintln!("{} {line}", style.apply_to("error:"));
-                    } else {
-                        eprintln!("  {line}");
-                    }
-                }
-            } else {
-                for line in text.lines() {
-                    eprintln!("  > {line}");
-                }
-            }
-        }
         let json_mode = raw_args.iter().any(|a| a == "--json");
-        if !json_mode && exit::exit_class_for(&err) == Some(ExitClass::AuthRequired) {
-            let hint_style = console::Style::new().cyan().bold();
-            let cmd_style = console::Style::new().bold();
-            eprintln!();
-            eprintln!(
-                "{} Run {} to authenticate.",
-                hint_style.apply_to("hint:"),
-                cmd_style.apply_to("`fabro auth login`"),
-            );
-        }
+        eprintln!(
+            "{:?}",
+            miette::Report::new(CliDiagnostic::new(err, !json_mode))
+        );
         std::process::exit(exit_code);
+    }
+}
+
+fn install_miette_hook() {
+    let _ = miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .with_cause_chain()
+                .wrap_lines(false)
+                .break_words(false)
+                .build(),
+        )
+    }));
+}
+
+struct CliDiagnostic {
+    err:            anyhow::Error,
+    show_auth_hint: bool,
+}
+
+impl CliDiagnostic {
+    fn new(err: anyhow::Error, show_auth_hint: bool) -> Self {
+        Self {
+            err,
+            show_auth_hint,
+        }
+    }
+}
+
+impl Display for CliDiagnostic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.err, formatter)
+    }
+}
+
+impl Debug for CliDiagnostic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&self.err, formatter)
+    }
+}
+
+impl std::error::Error for CliDiagnostic {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.err.source()
+    }
+}
+
+impl miette::Diagnostic for CliDiagnostic {
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        if self.show_auth_hint && exit::exit_class_for(&self.err) == Some(ExitClass::AuthRequired) {
+            Some(Box::new("Run `fabro auth login` to authenticate."))
+        } else {
+            None
+        }
     }
 }
 

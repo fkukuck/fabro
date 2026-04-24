@@ -26,8 +26,12 @@ pub(crate) fn fatal_error_line(stderr: &[u8]) -> String {
     console::strip_ansi_codes(&stderr)
         .lines()
         .rev()
-        .find_map(|line| line.strip_prefix("error: ").map(ToOwned::to_owned))
-        .expect("stderr should contain a fatal `error:` line")
+        .find_map(|line| {
+            line.strip_prefix("error: ")
+                .or_else(|| line.trim_start().strip_prefix("× "))
+                .map(ToOwned::to_owned)
+        })
+        .expect("stderr should contain a fatal error line")
 }
 
 pub(crate) fn unique_run_id() -> String {

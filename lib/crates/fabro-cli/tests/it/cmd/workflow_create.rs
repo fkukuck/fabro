@@ -140,7 +140,7 @@ fn workflow_create_rejects_existing_workflow() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Workflow 'existing' already exists at [TEMP_DIR]/project/.fabro/workflows/existing
+      × Workflow 'existing' already exists at [TEMP_DIR]/project/.fabro/workflows/existing
     ");
 }
 
@@ -155,7 +155,7 @@ fn workflow_create_errors_without_project_config() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: No .fabro/project.toml found in [TEMP_DIR] or any parent directory
+      × No .fabro/project.toml found in [TEMP_DIR] or any parent directory
     ");
 }
 

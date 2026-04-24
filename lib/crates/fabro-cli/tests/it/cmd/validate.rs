@@ -146,6 +146,6 @@ fn invalid() {
     Graph: [FIXTURES]/invalid.fabro
     error: Pipeline must have exactly one start node (shape=Mdiamond or id start/Start) (start_node)
     error [node: exit]: Exit node 'exit' has 1 outgoing edge(s) but must have none (exit_no_outgoing)
-    error: Validation failed
+      × Validation failed
     ");
 }

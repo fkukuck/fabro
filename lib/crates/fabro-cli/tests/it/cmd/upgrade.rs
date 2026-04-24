@@ -97,8 +97,8 @@ fn upgrade_invalid_version_errors() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: invalid version: not-a-semver
-      > unexpected character 'n' while parsing major version number
+      × invalid version: not-a-semver
+      ╰─▶ unexpected character 'n' while parsing major version number
     ");
 }
 
@@ -209,7 +209,7 @@ fn upgrade_brew_install_refuses_and_prints_brew_command() {
     ----- stderr -----
     fabro was installed via Homebrew.
     Run `brew upgrade fabro` to update.
-    error: refusing to overwrite a Homebrew-managed binary
+      × refusing to overwrite a Homebrew-managed binary
     ");
 }
 
@@ -245,6 +245,6 @@ fn upgrade_brew_install_rejects_version_flag() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: fabro is managed by Homebrew (formula `fabro`); Homebrew selects the version and channel. Use `brew upgrade fabro` (or reinstall with a different formula) instead of `fabro upgrade --version`/`--prerelease`/`--force`.
+      × fabro is managed by Homebrew (formula `fabro`); Homebrew selects the version and channel. Use `brew upgrade fabro` (or reinstall with a different formula) instead of `fabro upgrade --version`/`--prerelease`/`--force`.
     ");
 }

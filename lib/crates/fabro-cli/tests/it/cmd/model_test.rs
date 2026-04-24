@@ -52,7 +52,7 @@ fn model_test_unknown_model_errors() {
     ----- stdout -----
     ----- stderr -----
     Testing nonexistent-model-xyz... done
-    error: Unknown model: nonexistent-model-xyz
+      × Unknown model: nonexistent-model-xyz
     ");
 }
 
@@ -71,7 +71,7 @@ fn single_model_skip_exits_nonzero() {
      gemini-3.1-pro-preview  gemini    gemini-pro       1m  $2.0 / $12.0  85 tok/s  not configured
     ----- stderr -----
     Testing gemini-3.1-pro-preview... done
-    error: 1 model(s) failed
+      × 1 model(s) failed
     ");
 }
 

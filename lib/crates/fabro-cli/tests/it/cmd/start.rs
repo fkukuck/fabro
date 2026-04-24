@@ -172,7 +172,7 @@ fn start_rejects_already_active_or_completed_run() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: an engine process is still running for this run — cannot start
+      × an engine process is still running for this run — cannot start
     ");
 
     gate.release();
@@ -185,7 +185,7 @@ fn start_rejects_already_active_or_completed_run() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: cannot start run: status is succeeded(completed), expected submitted
+      × cannot start run: status is succeeded(completed), expected submitted
     ");
 }
 

@@ -85,7 +85,7 @@ fn rm_rejects_submitted_run_without_force() {
     ----- stdout -----
     ----- stderr -----
     cannot remove active run [ULID] (status: submitted, use force=true or --force to force)
-    error: some runs could not be removed
+      × some runs could not be removed
     ");
 }
 
@@ -286,7 +286,7 @@ fn rm_without_force_uses_resolve_then_surfaces_server_conflict() {
     ----- stdout -----
     ----- stderr -----
     cannot remove active run [ULID] (status: running, use force=true or --force to force)
-    error: some runs could not be removed
+      × some runs could not be removed
     ");
     resolve_mock.assert();
     delete_mock.assert();
@@ -310,7 +310,7 @@ fn rm_partial_failure_reports_which_identifiers_failed() {
     ----- stderr -----
     [ULID]
     error: does-not-exist: No run found matching 'does-not-exist' (tried run ID prefix and workflow name)
-    error: some runs could not be removed
+      × some runs could not be removed
     ");
     assert!(
         !run.run_dir.exists(),

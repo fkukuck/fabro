@@ -71,7 +71,7 @@ fn sandbox_preview_rejects_non_daytona_run() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Sandbox provider does not support this capability.
+      × Sandbox provider does not support this capability.
     ");
 }
 

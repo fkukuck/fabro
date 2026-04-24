@@ -103,7 +103,7 @@ fn exec_missing_api_key_exits_with_error() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: LLM credentials not configured for provider 'anthropic'
+      × LLM credentials not configured for provider 'anthropic'
     ");
 }
 
@@ -129,7 +129,7 @@ fn exec_uses_user_config_defaults() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: LLM credentials not configured for provider 'openai'
+      × LLM credentials not configured for provider 'openai'
     ");
 }
 
@@ -349,6 +349,12 @@ fn exec_server_target_auth_failure_exits_with_4() {
     assert_eq!(
         fatal_error_line(&output.stderr),
         "LLM error: Authentication error for openai: Authentication required."
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = console::strip_ansi_codes(&stderr);
+    assert!(
+        stderr.contains("Run `fabro auth login` to authenticate."),
+        "auth failures should retain the login help footer:\n{stderr}"
     );
 }
 

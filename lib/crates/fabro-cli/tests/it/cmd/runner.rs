@@ -653,7 +653,7 @@ digraph Test {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Precondition failed: run already finished successfully — nothing to resume
+      × Precondition failed: run already finished successfully — nothing to resume
     ");
 
     let inspect_after = context

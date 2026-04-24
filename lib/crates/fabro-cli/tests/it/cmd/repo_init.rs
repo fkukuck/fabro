@@ -122,7 +122,7 @@ fn repo_init_rejects_already_initialized_repo() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: already initialized — .fabro/project.toml exists at [TEMP_DIR]/.fabro/project.toml
+      × already initialized — .fabro/project.toml exists at [TEMP_DIR]/.fabro/project.toml
     ");
 }
 
@@ -137,6 +137,6 @@ fn repo_init_errors_outside_git_repo() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: not a git repository — run `git init` first
+      × not a git repository — run `git init` first
     ");
 }

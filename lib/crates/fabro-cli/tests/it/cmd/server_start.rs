@@ -19,6 +19,8 @@ use fabro_test::{
 };
 use fabro_util::dev_token;
 
+use crate::support::fatal_error_line;
+
 const TEST_DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
 const TEST_SESSION_SECRET: &str =
@@ -120,13 +122,28 @@ fn run_startup_failure(context: &TestContext, mode: ServerStartMode, case: &Star
         mode.name(),
         String::from_utf8_lossy(&output.stdout)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = console::strip_ansi_codes(&stderr);
+    let mut expected_lines = case.expected_error.lines();
+    let expected_fatal_line = expected_lines.next().unwrap_or(case.expected_error);
     assert_eq!(
-        String::from_utf8_lossy(&output.stderr),
-        format!("error: {}\n", case.expected_error),
-        "unexpected stderr for {} in {} mode",
+        fatal_error_line(&output.stderr),
+        expected_fatal_line,
+        "unexpected fatal line for {} in {} mode\nstderr:\n{}",
         case.name,
-        mode.name()
+        mode.name(),
+        stderr
     );
+    for expected_line in expected_lines {
+        let expected_line = expected_line.trim_start();
+        assert!(
+            stderr.contains(expected_line),
+            "missing expected stderr detail for {} in {} mode: {expected_line}\nstderr:\n{}",
+            case.name,
+            mode.name(),
+            stderr
+        );
+    }
 
     let log_path = storage_dir.join("logs/server.log");
     match mode {
@@ -348,7 +365,7 @@ fn start_already_running_exits_with_error() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Server already running (pid [PID]) on [SOCKET_PATH]
+      × Server already running (pid [PID]) on [SOCKET_PATH]
     ");
 
     context
@@ -765,8 +782,8 @@ fn start_with_missing_explicit_flag_config_errors_without_entering_install_mode(
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
-      > No such file or directory (os error 2)
+      × reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
+      ╰─▶ No such file or directory (os error 2)
     ");
 }
 
@@ -793,8 +810,8 @@ fn start_with_missing_env_config_errors_without_entering_install_mode() {
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
-      > No such file or directory (os error 2)
+      × reading config file [MISSING_CONFIG]: No such file or directory (os error 2)
+      ╰─▶ No such file or directory (os error 2)
     ");
 }
 
@@ -819,18 +836,19 @@ fn start_with_malformed_default_settings_errors_without_entering_install_mode() 
     exit_code: 1
     ----- stdout -----
     ----- stderr -----
-    error: Failed to parse settings file at [HOME_DIR]/.fabro/settings.toml: settings file is not valid TOML: TOML parse error at line 1, column 15
-        |
-      1 | [server.listen
-        |               ^
-      invalid table header
-      expected `.`, `]`
-      > settings file is not valid TOML: TOML parse error at line 1, column 15
-      >   |
-      > 1 | [server.listen
-      >   |               ^
-      > invalid table header
-      > expected `.`, `]`
+      × Failed to parse settings file at [HOME_DIR]/.fabro/settings.toml: settings file is not valid TOML: TOML parse error at line 1, column 15
+      │   |
+      │ 1 | [server.listen
+      │   |               ^
+      │ invalid table header
+      │ expected `.`, `]`
+
+      ╰─▶ settings file is not valid TOML: TOML parse error at line 1, column 15
+            |
+          1 | [server.listen
+            |               ^
+          invalid table header
+          expected `.`, `]`
     ");
 }
 

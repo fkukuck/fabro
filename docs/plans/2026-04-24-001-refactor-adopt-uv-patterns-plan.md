@@ -510,7 +510,7 @@ Solid arrows are real dependencies. Dashed lines show phases that are independen
 
 ### Phase 4 — miette CLI diagnostics wrapper
 
-- [ ] **Unit 4.1: Wrap `fabro-cli` root error with `miette::Diagnostic`**
+- [x] **Unit 4.1: Wrap `fabro-cli` root error with `miette::Diagnostic`**
 
 **Goal:** Render CLI errors through `miette` at the `main` boundary, preserving existing exit-class hint behavior while gaining styled chained errors and `help:` footer rendering. Source-highlighted output is out of scope until fabro has errors that carry span/source context.
 
