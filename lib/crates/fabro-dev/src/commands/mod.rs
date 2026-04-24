@@ -3,22 +3,17 @@ use clap::Args;
 
 mod check_boundary;
 mod docker_build;
+mod release;
 
 pub(crate) use check_boundary::{CheckBoundaryArgs, check_boundary};
 pub(crate) use docker_build::{DockerBuildArgs, docker_build};
-
-#[derive(Debug, Args)]
-pub(crate) struct ReleaseArgs;
+pub(crate) use release::{ReleaseArgs, release};
 
 #[derive(Debug, Args)]
 pub(crate) struct RefreshSpaArgs;
 
 #[derive(Debug, Args)]
 pub(crate) struct CheckSpaBudgetsArgs;
-
-pub(crate) fn release(_args: ReleaseArgs) -> Result<()> {
-    not_yet_implemented("release")
-}
 
 pub(crate) fn refresh_spa(_args: RefreshSpaArgs) -> Result<()> {
     not_yet_implemented("refresh-spa")

@@ -68,4 +68,4 @@ jobs:
           git config user.email "fabro-releases[bot]@users.noreply.github.com"
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          bin/dev/release.sh nightly
+          cargo dev release nightly

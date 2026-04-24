@@ -28,6 +28,9 @@ macOS note: if `cargo nextest run` fails with `Too many open files (os error 24)
 - `cargo dev docker-build` — builds the local Docker image from the current tree using the release pipeline's cargo-zigbuild approach. Honors `--arch amd64|arm64`, `--tag <name>` (default `fabro`), `--compile-only` (stages `docker-context/<arch>/fabro` without `docker build`), and `--dry-run` (prints the Docker commands without running them). Prefer this over writing a throwaway Dockerfile; the release pipeline, `Dockerfile`, and this command share the same binary layout.
 - Refresh the embedded SPA before rebuilding the image after any `apps/fabro-web` change: `scripts/refresh-fabro-spa.sh` runs the bun build and copies `dist/` into `lib/crates/fabro-spa/assets/`. Skipping this step produces a Docker image whose Rust binary embeds a stale SPA bundle.
 
+### Release automation
+- `cargo dev release [nightly]` — creates the next stable release or nightly prerelease tag. Use `--dry-run` to print planned commands without mutating git or running Cargo, `--skip-tests` only after running the release-mode smoke yourself, and `--release-date YYYY-MM-DD` or `FABRO_RELEASE_DATE` for deterministic version computation.
+
 ### Marketing site (apps/marketing)
 - `cd apps/marketing && bun run dev` — start Astro dev server
 - `cd apps/marketing && bun run build` — production build

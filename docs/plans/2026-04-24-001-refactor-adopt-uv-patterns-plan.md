@@ -666,7 +666,7 @@ Solid arrows are real dependencies. Dashed lines show phases that are independen
 
 ---
 
-- [ ] **Unit 5.4: Port `release.sh` to `fabro-dev release`**
+- [x] **Unit 5.4: Port `release.sh` to `fabro-dev release`**
 
 **Goal:** Replace `bin/dev/release.sh` with a subcommand.
 
