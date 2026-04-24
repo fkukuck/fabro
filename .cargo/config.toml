@@ -1,4 +1,5 @@
 [alias]
+dev = "run --package fabro-dev --"
 t = "test -- --format terse"
 
 [env]

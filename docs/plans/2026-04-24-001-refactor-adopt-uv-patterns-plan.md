@@ -553,7 +553,7 @@ Solid arrows are real dependencies. Dashed lines show phases that are independen
 
 ### Phase 5 — fabro-dev unified CLI
 
-- [ ] **Unit 5.1: Create `fabro-dev` binary crate with clap subcommand scaffolding**
+- [x] **Unit 5.1: Create `fabro-dev` binary crate with clap subcommand scaffolding**
 
 **Goal:** Ship an empty-but-structured `fabro-dev` binary and wire the `cargo dev` alias.
 
