@@ -33,13 +33,18 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
     };
 
     let completed_stages = crate::build_completed_stages(cp, options.failed);
-    let stage_durations = match services.run_store.list_events().await {
-        Ok(events) => crate::extract_stage_durations_from_events(&events),
+    let events = match services.run_store.list_events().await {
+        Ok(events) => events,
         Err(err) => {
-            tracing::warn!(error = %err, "Could not load events from store, skipping stage durations");
-            std::collections::HashMap::default()
+            tracing::warn!(error = %err, "Could not load events from store, skipping retro");
+            services.emitter.emit(&Event::RetroFailed {
+                error:       err.to_string(),
+                duration_ms: 0,
+            });
+            return None;
         }
     };
+    let stage_durations = crate::extract_stage_durations_from_events(&events);
     let mut retro = derive_retro(
         options.run_id,
         &options.workflow_name,
@@ -76,20 +81,6 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
                             });
                         }
                     });
-                let events = match services.run_store.list_events().await {
-                    Ok(events) => events,
-                    Err(err) => {
-                        tracing::warn!(
-                            error = %err,
-                            "Could not load events from store, skipping retro"
-                        );
-                        services.emitter.emit(&Event::RetroFailed {
-                            error:       err.to_string(),
-                            duration_ms: 0,
-                        });
-                        return None;
-                    }
-                };
                 run_retro_agent(
                     &services.sandbox,
                     &state,
