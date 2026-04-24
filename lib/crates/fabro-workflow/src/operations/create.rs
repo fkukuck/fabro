@@ -412,7 +412,8 @@ mod tests {
     };
     use fabro_graphviz::graph::AttrValue;
     use fabro_store::Database;
-    use fabro_types::settings::{InterpString, run::RunMode};
+    use fabro_types::settings::InterpString;
+    use fabro_types::settings::run::RunMode;
     use fabro_types::{WorkflowSettings, fixtures};
     use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;

@@ -2003,10 +2003,9 @@ mod tests {
         let toml_str = format_config_toml();
         let cfg = fabro_config::ServerSettingsBuilder::from_toml(&toml_str)
             .expect("generated config should resolve");
-        assert_eq!(
-            cfg.server.auth.methods,
-            vec![fabro_types::settings::ServerAuthMethod::DevToken]
-        );
+        assert_eq!(cfg.server.auth.methods, vec![
+            fabro_types::settings::ServerAuthMethod::DevToken
+        ]);
     }
 
     #[test]

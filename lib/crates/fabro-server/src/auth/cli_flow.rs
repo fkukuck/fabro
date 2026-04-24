@@ -1299,9 +1299,9 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{HeaderMap, Request, StatusCode, header};
     use axum_extra::extract::cookie::Key;
-    use fabro_config::{RunLayer, ServerSettingsBuilder};
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use fabro_config::{RunLayer, ServerSettingsBuilder};
     use fabro_types::RunAuthMethod;
     use fabro_types::settings::server::ServerAuthMethod;
     use serde_json::json;
