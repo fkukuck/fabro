@@ -464,19 +464,6 @@ fabro pr create <run-id> --force
 
 The run must have completed successfully (or with partial success) and have a stored diff with changes. Use `--force` to override the status check.
 
-### `fabro pr list`
-
-List all pull requests created by workflow runs. Shows PR number, title, status, and the associated run ID.
-
-```bash
-fabro pr list
-fabro pr list --all
-```
-
-| Flag | Description |
-|---|---|
-| `--all` | Include closed and merged PRs (default: open only) |
-
 ### `fabro pr view`
 
 Show details of a pull request from a specific run.

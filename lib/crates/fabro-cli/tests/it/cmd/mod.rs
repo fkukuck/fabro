@@ -25,7 +25,6 @@ mod parse;
 mod pr;
 mod pr_close;
 mod pr_create;
-mod pr_list;
 mod pr_merge;
 mod pr_view;
 mod preflight;

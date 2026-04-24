@@ -729,16 +729,6 @@ pub(crate) struct PrCreateArgs {
 }
 
 #[derive(Args)]
-pub(crate) struct PrListArgs {
-    #[command(flatten)]
-    pub(crate) server: ServerTargetArgs,
-
-    /// Show all PRs (including closed/merged), not just open
-    #[arg(long)]
-    pub(crate) all: bool,
-}
-
-#[derive(Args)]
 pub(crate) struct PrViewArgs {
     #[command(flatten)]
     pub(crate) server: ServerTargetArgs,
@@ -1135,7 +1125,6 @@ impl Commands {
             },
             Self::Pr(ns) => match &ns.command {
                 PrCommand::Create(_) => "pr create",
-                PrCommand::List(_) => "pr list",
                 PrCommand::View(_) => "pr view",
                 PrCommand::Merge(_) => "pr merge",
                 PrCommand::Close(_) => "pr close",
@@ -1183,9 +1172,6 @@ pub(crate) struct PrNamespace {
 pub(crate) enum PrCommand {
     /// Create a pull request from a completed run
     Create(PrCreateArgs),
-    /// List pull requests from workflow runs
-    #[command(alias = "ls")]
-    List(PrListArgs),
     /// View pull request details
     View(PrViewArgs),
     /// Merge a pull request

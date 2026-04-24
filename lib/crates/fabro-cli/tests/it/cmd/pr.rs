@@ -15,7 +15,6 @@ fn help() {
 
     Commands:
       create  Create a pull request from a completed run
-      list    List pull requests from workflow runs
       view    View pull request details
       merge   Merge a pull request
       close   Close a pull request

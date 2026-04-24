@@ -70,8 +70,7 @@ impl ServerRunSummaryInfo {
 }
 
 pub(crate) struct ServerSummaryLookup {
-    client: Arc<Client>,
-    runs:   Vec<ServerRunSummaryInfo>,
+    runs: Vec<ServerRunSummaryInfo>,
 }
 
 impl ServerSummaryLookup {
@@ -86,11 +85,7 @@ impl ServerSummaryLookup {
                 .cmp(&a.start_time_dt())
                 .then_with(|| b.run_id().cmp(&a.run_id()))
         });
-        Ok(Self { client, runs })
-    }
-
-    pub(crate) fn client(&self) -> &Client {
-        self.client.as_ref()
+        Ok(Self { runs })
     }
 
     pub(crate) fn runs(&self) -> &[ServerRunSummaryInfo] {
