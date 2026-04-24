@@ -47,7 +47,7 @@ use fabro_interview::{
 };
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::generate::{GenerateParams, generate_object};
-use fabro_llm::model_test::{ModelTestMode, run_model_test_with_client};
+use fabro_llm::model_test::{ModelTestMode, run_model_test};
 use fabro_llm::types::{
     ContentPart, FinishReason, Message as LlmMessage, Request as LlmRequest, Role, ToolChoice,
     ToolDefinition,
@@ -6685,7 +6685,7 @@ async fn test_model(
     }
     let client = Arc::new(llm_result.client);
 
-    let outcome = run_model_test_with_client(info, mode, client).await;
+    let outcome = run_model_test(info, mode, client).await;
     Json(serde_json::json!({
         "model_id": info.id,
         "status": outcome.status.as_str(),
