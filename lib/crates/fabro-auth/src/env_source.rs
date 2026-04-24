@@ -28,8 +28,13 @@ impl EnvCredentialSource {
     }
 
     fn credential_for(&self, provider: Provider) -> Option<ApiCredential> {
-        match provider {
-            Provider::Anthropic => self.lookup("ANTHROPIC_API_KEY").map(|key| ApiCredential {
+        let key = provider
+            .api_key_env_vars()
+            .iter()
+            .find_map(|var| self.lookup(var))?;
+
+        Some(match provider {
+            Provider::Anthropic => ApiCredential {
                 provider,
                 auth_header: ApiKeyHeader::Custom {
                     name:  "x-api-key".to_string(),
@@ -40,8 +45,8 @@ impl EnvCredentialSource {
                 codex_mode: false,
                 org_id: None,
                 project_id: None,
-            }),
-            Provider::OpenAi => self.lookup("OPENAI_API_KEY").map(|key| {
+            },
+            Provider::OpenAi => {
                 let mut extra_headers = HashMap::new();
                 let mut base_url = self.lookup("OPENAI_BASE_URL");
                 let mut codex_mode = false;
@@ -51,7 +56,6 @@ impl EnvCredentialSource {
                     extra_headers.insert("ChatGPT-Account-Id".to_string(), account_id);
                     extra_headers.insert("originator".to_string(), "fabro".to_string());
                 }
-
                 ApiCredential {
                     provider,
                     auth_header: ApiKeyHeader::Bearer(key),
@@ -61,33 +65,22 @@ impl EnvCredentialSource {
                     org_id: self.lookup("OPENAI_ORG_ID"),
                     project_id: self.lookup("OPENAI_PROJECT_ID"),
                 }
-            }),
-            Provider::Gemini => self
-                .lookup("GEMINI_API_KEY")
-                .or_else(|| self.lookup("GOOGLE_API_KEY"))
-                .map(|key| ApiCredential {
-                    provider,
-                    auth_header: ApiKeyHeader::Bearer(key),
-                    extra_headers: HashMap::new(),
-                    base_url: self.lookup("GEMINI_BASE_URL"),
-                    codex_mode: false,
-                    org_id: None,
-                    project_id: None,
-                }),
-            Provider::Kimi => self
-                .lookup("KIMI_API_KEY")
-                .map(|key| bearer_credential(provider, key)),
-            Provider::Zai => self
-                .lookup("ZAI_API_KEY")
-                .map(|key| bearer_credential(provider, key)),
-            Provider::Minimax => self
-                .lookup("MINIMAX_API_KEY")
-                .map(|key| bearer_credential(provider, key)),
-            Provider::Inception => self
-                .lookup("INCEPTION_API_KEY")
-                .map(|key| bearer_credential(provider, key)),
-            Provider::OpenAiCompatible => None,
-        }
+            }
+            Provider::Gemini => ApiCredential {
+                provider,
+                auth_header: ApiKeyHeader::Bearer(key),
+                extra_headers: HashMap::new(),
+                base_url: self.lookup("GEMINI_BASE_URL"),
+                codex_mode: false,
+                org_id: None,
+                project_id: None,
+            },
+            Provider::Kimi | Provider::Zai | Provider::Minimax | Provider::Inception => {
+                bearer_credential(provider, key)
+            }
+            // OpenAiCompatible has no api_key_env_vars, so find_map returned None above.
+            Provider::OpenAiCompatible => unreachable!(),
+        })
     }
 }
 
