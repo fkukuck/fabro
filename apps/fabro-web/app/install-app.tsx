@@ -806,14 +806,17 @@ function TokenEntryScreen({
             <label htmlFor="install-token" className="sr-only">
               Install token
             </label>
-            <textarea
+            <input
               id="install-token"
+              type="password"
               name="install_token"
               value={manualToken}
               onChange={(event) => setManualToken(event.target.value)}
-              className={`${INPUT_CLASS} min-h-28 resize-y font-mono`}
+              className={`${INPUT_CLASS} font-mono`}
               placeholder="Paste install token"
               spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="off"
               autoFocus
             />
           </div>
