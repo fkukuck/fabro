@@ -503,10 +503,8 @@ pub async fn maybe_open_pull_request(
 /// completes.
 pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) -> Finalized {
     let Concluded {
-        run_id,
         outcome,
         conclusion,
-        pushed_branch,
         graph,
         run_options,
         services,
@@ -526,7 +524,7 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
                 let diff = load_pull_request_diff(&services.run_store).await;
                 if let (Some(base_branch), Some(run_branch), Some(creds), Some(origin)) = (
                     &run_options.base_branch,
-                    pushed_branch.as_deref(),
+                    run_options.run_branch(),
                     &options.github_app,
                     &options.origin_url,
                 ) {
@@ -584,10 +582,10 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
     }
 
     Finalized {
-        run_id,
+        run_id: run_options.run_id,
         outcome,
         conclusion,
-        pushed_branch,
+        pushed_branch: run_options.run_branch().map(str::to_string),
         pr_url,
     }
 }

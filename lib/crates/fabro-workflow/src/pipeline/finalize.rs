@@ -374,10 +374,8 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
     }
 
     Ok(Concluded {
-        run_id: run_options.run_id,
         outcome,
         conclusion,
-        pushed_branch: run_options.git.as_ref().and_then(|g| g.run_branch.clone()),
         graph,
         run_options,
         services,

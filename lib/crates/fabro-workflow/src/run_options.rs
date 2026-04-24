@@ -57,6 +57,11 @@ impl RunOptions {
     pub fn artifact_globs(&self) -> Vec<String> {
         self.settings.run.artifacts.include.clone()
     }
+
+    /// Run branch name from git checkpoint options, if set.
+    pub fn run_branch(&self) -> Option<&str> {
+        self.git.as_ref().and_then(|g| g.run_branch.as_deref())
+    }
 }
 
 /// Options for sandbox lifecycle management within the engine.

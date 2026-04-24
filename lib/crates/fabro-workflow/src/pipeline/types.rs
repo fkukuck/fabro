@@ -297,13 +297,11 @@ pub struct Retroed {
 /// Output of the FINALIZE phase.
 #[non_exhaustive]
 pub struct Concluded {
-    pub run_id:        RunId,
-    pub outcome:       Result<Outcome, Error>,
-    pub conclusion:    Conclusion,
-    pub pushed_branch: Option<String>,
-    pub graph:         Graph,
-    pub run_options:   RunOptions,
-    pub services:      Arc<RunServices>,
+    pub outcome:     Result<Outcome, Error>,
+    pub conclusion:  Conclusion,
+    pub graph:       Graph,
+    pub run_options: RunOptions,
+    pub services:    Arc<RunServices>,
 }
 
 /// Output of the PULL_REQUEST phase.
