@@ -1060,7 +1060,7 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 7. Build browser URL using `config.web_url` + `/auth/cli/start` path + query params.
 8. Unless `--no-browser`: `open::that(url)`. Otherwise print the URL (headless devs still need to complete it in some browser).
 9. Wait for loopback callback (with `--timeout`, default 5 min). On callback:
-   - `CallbackFailure { error_code, error_description }`: render in browser "Login failed: <locally-rendered message for error_code>" page, shut down listener, exit non-zero.
+   - `CallbackFailure { error_code, error_description }`: render in browser `"Login failed: <locally-rendered message for error_code>"` page, shut down listener, exit non-zero.
    - `CallbackSuccess { code }`: render "Logged in. You can close this tab." page; shut down listener.
 10. **HTTPS-or-loopback-or-unix-socket enforcement for the token POST.** Before `POST {target}/auth/cli/token`, call `is_loopback_or_unix_socket(target)`:
     - `Https` → proceed.
@@ -1120,7 +1120,7 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 **Approach:**
 1. If `--all`: iterate `AuthStore::list()`, call `/auth/cli/logout` for each, then remove each entry. Collect errors; fail-local-open (remove local entries even if remote POST fails).
 2. Else (default): resolve target server; `AuthStore::get(server)` → if entry exists, POST `/auth/cli/logout` with bearer; remove from `AuthStore`. If remote POST fails, still remove locally and print a WARN that remote revocation didn't succeed and the refresh token may remain valid until its natural expiry.
-3. If no entry exists: print "not logged in to <server>", exit 0 (not an error).
+3. If no entry exists: print `"not logged in to <server>"`, exit 0 (not an error).
 4. **Cross-platform:** on Windows, `AuthStore::list()` returns empty and `get()` returns `None` (see Unit 16), so `--all` is a no-op and the default path falls through to "not logged in." No Windows-specific error — logout is effectively always a no-op on Windows.
 
 **Patterns to follow:**
@@ -1162,7 +1162,7 @@ Organized into five phases. Early phases stand alone (no behavior changes). Late
 - Text output mirrors origin §CLI UX.
 - `--json`: structured per-server payload.
 - `--server <url>`: filter to one.
-- **Cross-platform:** Works on Windows. `AuthStore::list()` on Windows returns empty (no Unix-created auth.json); dev-token detection works cross-platform. Typical Windows output: "No OAuth logins (Windows). Dev-token: <active|not set>." Preserves R14.
+- **Cross-platform:** Works on Windows. `AuthStore::list()` on Windows returns empty (no Unix-created auth.json); dev-token detection works cross-platform. Typical Windows output: `"No OAuth logins (Windows). Dev-token: <active|not set>."` Preserves R14.
 
 **Patterns to follow:**
 - Existing `printer` usage in `lib/crates/fabro-cli/src/commands/provider/mod.rs`.

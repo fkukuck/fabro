@@ -150,6 +150,7 @@ pub mod run_options;
 pub mod run_status;
 pub mod runtime_store;
 pub mod sandbox_git;
+pub mod services;
 #[doc(hidden)]
 pub mod test_support;
 #[doc(hidden)]

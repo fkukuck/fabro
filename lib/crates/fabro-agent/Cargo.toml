@@ -24,6 +24,7 @@ workspace = true
 [dependencies]
 clap.workspace = true
 anyhow.workspace = true
+fabro-auth = { path = "../fabro-auth" }
 fabro-config = { path = "../fabro-config", features = ["clap"] }
 fabro-types = { path = "../fabro-types" }
 fabro-llm = { path = "../fabro-llm" }
@@ -31,6 +32,7 @@ fabro-model = { path = "../fabro-model" }
 fabro-mcp = { path = "../fabro-mcp" }
 fabro-sandbox = { path = "../fabro-sandbox" }
 fabro-util = { path = "../fabro-util" }
+fabro-vault = { path = "../fabro-vault" }
 fabro-http.workspace = true
 thiserror.workspace = true
 serde.workspace = true

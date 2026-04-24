@@ -61,13 +61,13 @@ impl Handler for PromptHandler {
 
         // 1b. Discover project docs for system prompt when project_memory is enabled
         let system_prompt = if node.project_memory() {
-            let working_dir = services.sandbox.working_directory();
+            let working_dir = services.run.sandbox.working_directory();
             let provider = node
                 .provider()
                 .and_then(|s| s.parse::<Provider>().ok())
-                .unwrap_or(services.provider);
+                .unwrap_or(services.run.provider);
             let docs = fabro_agent::discover_memory(
-                &*services.sandbox,
+                &*services.run.sandbox,
                 working_dir,
                 working_dir,
                 provider,
@@ -86,10 +86,10 @@ impl Handler for PromptHandler {
         let prompt_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(services.provider.as_str().to_string()));
+            .or_else(|| Some(services.run.provider.as_str().to_string()));
         let prompt_model = node.model().map(String::from);
         let stage_scope = StageScope::for_handler(context, &node.id);
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::Prompt {
                 stage:    node.id.clone(),
                 visit:    stage_scope.visit,
@@ -138,10 +138,10 @@ impl Handler for PromptHandler {
         let response_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(services.provider.as_str().to_string()))
+            .or_else(|| Some(services.run.provider.as_str().to_string()))
             .unwrap_or_default();
 
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::PromptCompleted {
                 node_id:  node.id.clone(),
                 response: response_text.clone(),
@@ -208,13 +208,13 @@ mod tests {
     ) {
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
-        let services = EngineServices {
-            emitter: Arc::new(crate::event::Emitter::new(fixtures::RUN_1)),
-            run_store: run_store.clone().into(),
-            ..EngineServices::test_default()
-        };
+        let mut services = EngineServices::test_default();
+        services.run = services
+            .run
+            .with_emitter(Arc::new(crate::event::Emitter::new(fixtures::RUN_1)))
+            .with_run_store(run_store.clone().into());
         let logger = crate::event::StoreProgressLogger::new(run_store.clone());
-        logger.register(services.emitter.as_ref());
+        logger.register(services.run.emitter.as_ref());
         (services, run_store, logger)
     }
 

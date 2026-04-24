@@ -84,8 +84,8 @@ impl Handler for FanInHandler {
                 context,
                 run_dir,
                 &node.id,
-                &services.emitter,
-                &services.sandbox,
+                &services.run.emitter,
+                &services.run.sandbox,
             )
             .await?
         } else {
@@ -116,7 +116,7 @@ impl Handler for FanInHandler {
         };
 
         if let (Some(ref sha), Some(_)) = (&best_head_sha, services.git_state()) {
-            git_merge_ff_only(&*services.sandbox, sha).await;
+            git_merge_ff_only(&*services.run.sandbox, sha).await;
         }
 
         let mut outcome = Outcome::success();

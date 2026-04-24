@@ -89,7 +89,7 @@ impl Handler for CommandHandler {
             script.to_string()
         };
         let stage_scope = StageScope::for_handler(context, &node.id);
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::CommandStarted {
                 node_id:    node.id.clone(),
                 script:     script.to_string(),
@@ -106,9 +106,10 @@ impl Handler for CommandHandler {
         } else {
             Some(&services.env)
         };
-        let cancel_token = services.sandbox_cancel_token();
+        let cancel_token = services.run.sandbox_cancel_token();
 
         let result = services
+            .run
             .sandbox
             .exec_command(&command, timeout_ms, None, env_vars, cancel_token.clone())
             .await;
@@ -117,7 +118,7 @@ impl Handler for CommandHandler {
         }
         let result = result.map_err(|e| Error::handler(format!("Failed to spawn script: {e}")))?;
 
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::CommandCompleted {
                 node_id:     node.id.clone(),
                 stdout:      result.stdout.clone(),
@@ -205,13 +206,13 @@ mod tests {
     ) {
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
-        let services = EngineServices {
-            emitter: Arc::new(crate::event::Emitter::new(fixtures::RUN_1)),
-            run_store: run_store.clone().into(),
-            ..EngineServices::test_default()
-        };
+        let mut services = EngineServices::test_default();
+        services.run = services
+            .run
+            .with_emitter(Arc::new(crate::event::Emitter::new(fixtures::RUN_1)))
+            .with_run_store(run_store.clone().into());
         let logger = crate::event::StoreProgressLogger::new(run_store.clone());
-        logger.register(services.emitter.as_ref());
+        logger.register(services.run.emitter.as_ref());
         (services, run_store, logger)
     }
 
@@ -806,7 +807,7 @@ mod tests {
 
     fn make_spy_services(sandbox: std::sync::Arc<SpySandbox>) -> EngineServices {
         let mut services = EngineServices::test_default();
-        services.sandbox = sandbox;
+        services.run = services.run.with_sandbox(sandbox);
         services
     }
 
@@ -952,7 +953,9 @@ mod tests {
         let run_dir = tempfile::tempdir().unwrap();
 
         let mut services = make_spy_services(spy.clone());
-        services.cancel_requested = Some(Arc::new(AtomicBool::new(false)));
+        services.run = services
+            .run
+            .with_cancel_requested(Some(Arc::new(AtomicBool::new(false))));
 
         handler
             .execute(&node, &context, &graph, run_dir.path(), &services)

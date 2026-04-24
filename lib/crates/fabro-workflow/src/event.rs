@@ -2901,6 +2901,19 @@ impl Emitter {
         self.emit_with_scope(event, Some(scope));
     }
 
+    pub fn notice(
+        &self,
+        level: RunNoticeLevel,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.emit(&Event::RunNotice {
+            level,
+            code: code.into(),
+            message: message.into(),
+        });
+    }
+
     fn emit_with_scope(&self, event: &Event, scope: Option<&StageScope>) {
         self.last_event_at.store(epoch_millis(), Ordering::Relaxed);
         event.trace();

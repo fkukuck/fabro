@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use fabro_auth::auth_issue_message;
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::types::{Message, Request};
 use fabro_model::{Catalog, Provider};
@@ -15,7 +16,6 @@ use serde::Serialize;
 use tokio::time::timeout;
 
 use crate::server::AppState;
-use crate::server_secrets::auth_issue_message;
 
 fn http_client_or_check(
     name: &str,
@@ -75,7 +75,7 @@ pub async fn run_all(state: &AppState) -> DiagnosticsReport {
 }
 
 async fn check_llm_providers(state: &AppState) -> CheckResult {
-    let result = match state.build_llm_client().await {
+    let result = match state.resolve_llm_client().await {
         Ok(result) => result,
         Err(err) => {
             return CheckResult {

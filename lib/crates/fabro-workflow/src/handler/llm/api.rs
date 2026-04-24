@@ -7,7 +7,7 @@ use fabro_agent::{
     AgentEvent, AgentProfile, AnthropicProfile, GeminiProfile, OpenAiProfile, Sandbox, Session,
     SessionOptions, Turn,
 };
-use fabro_auth::{CredentialResolver, CredentialUsage, ResolveError, ResolvedCredential};
+use fabro_auth::{CredentialSource, EnvCredentialSource};
 use fabro_graphviz::graph::Node;
 use fabro_llm::client::Client;
 use fabro_llm::types::{Message, Request, TokenCounts};
@@ -32,65 +32,6 @@ fn build_profile(model: &str, provider: Provider) -> Box<dyn AgentProfile> {
         | Provider::OpenAiCompatible => Box::new(OpenAiProfile::new(model).with_provider(provider)),
         Provider::Gemini => Box::new(GeminiProfile::new(model)),
         Provider::Anthropic => Box::new(AnthropicProfile::new(model)),
-    }
-}
-
-pub(crate) struct LlmClientBuildResult {
-    pub(crate) client:      Client,
-    pub(crate) auth_issues: Vec<(Provider, ResolveError)>,
-}
-
-pub(crate) async fn build_llm_client(
-    resolver: Option<&CredentialResolver>,
-) -> Result<LlmClientBuildResult, Error> {
-    let Some(resolver) = resolver else {
-        let client = Client::from_env()
-            .await
-            .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
-        return Ok(LlmClientBuildResult {
-            client,
-            auth_issues: Vec::new(),
-        });
-    };
-
-    let mut api_credentials = Vec::new();
-    let mut auth_issues = Vec::new();
-
-    for provider in Provider::ALL {
-        match resolver
-            .resolve(*provider, CredentialUsage::ApiRequest)
-            .await
-        {
-            Ok(ResolvedCredential::Api(credential)) => api_credentials.push(credential),
-            Ok(ResolvedCredential::Cli(_)) | Err(ResolveError::NotConfigured(_)) => {}
-            Err(err) => auth_issues.push((*provider, err)),
-        }
-    }
-
-    let client = Client::from_credentials(api_credentials)
-        .await
-        .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
-
-    Ok(LlmClientBuildResult {
-        client,
-        auth_issues,
-    })
-}
-
-pub(crate) fn auth_issue_message(provider: Provider, err: &ResolveError) -> String {
-    match err {
-        ResolveError::NotConfigured(_) => {
-            format!("{} is not configured", provider.display_name())
-        }
-        ResolveError::RefreshFailed { source, .. } => format!(
-            "{} requires re-authentication: {}",
-            provider.display_name(),
-            source
-        ),
-        ResolveError::RefreshTokenMissing(_) => format!(
-            "{} requires re-authentication: refresh token missing",
-            provider.display_name()
-        ),
     }
 }
 
@@ -180,7 +121,7 @@ pub struct AgentApiBackend {
     sessions:       Mutex<HashMap<String, Session>>,
     env:            HashMap<String, String>,
     mcp_servers:    Vec<McpServerSettings>,
-    resolver:       Option<CredentialResolver>,
+    source:         Arc<dyn CredentialSource>,
 }
 
 impl AgentApiBackend {
@@ -189,7 +130,7 @@ impl AgentApiBackend {
         model: String,
         provider: Provider,
         fallback_chain: Vec<FallbackTarget>,
-        resolver: CredentialResolver,
+        source: Arc<dyn CredentialSource>,
     ) -> Self {
         Self {
             model,
@@ -198,7 +139,7 @@ impl AgentApiBackend {
             sessions: Mutex::new(HashMap::new()),
             env: HashMap::new(),
             mcp_servers: Vec::new(),
-            resolver: Some(resolver),
+            source,
         }
     }
 
@@ -208,15 +149,12 @@ impl AgentApiBackend {
         provider: Provider,
         fallback_chain: Vec<FallbackTarget>,
     ) -> Self {
-        Self {
+        Self::new(
             model,
             provider,
             fallback_chain,
-            sessions: Mutex::new(HashMap::new()),
-            env: HashMap::new(),
-            mcp_servers: Vec::new(),
-            resolver: None,
-        }
+            Arc::new(EnvCredentialSource::new()),
+        )
     }
 
     #[must_use]
@@ -247,7 +185,7 @@ impl AgentApiBackend {
             provider,
             node,
             sandbox,
-            self.resolver.as_ref(),
+            self.source.as_ref(),
             &self.env,
             tool_hooks,
             self.mcp_servers.clone(),
@@ -260,12 +198,14 @@ impl AgentApiBackend {
         provider: Provider,
         node: &Node,
         sandbox: &Arc<dyn Sandbox>,
-        resolver: Option<&CredentialResolver>,
+        source: &dyn CredentialSource,
         env: &HashMap<String, String>,
         tool_hooks: Option<Arc<dyn fabro_agent::ToolHookCallback>>,
         mcp_servers: Vec<McpServerSettings>,
     ) -> Result<Session, Error> {
-        let client = build_llm_client(resolver).await?.client;
+        let client = Client::from_source(source)
+            .await
+            .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
 
         let mut profile = build_profile(model, provider);
 
@@ -346,7 +286,9 @@ impl CodergenBackend for AgentApiBackend {
         prompt: &str,
         system_prompt: Option<&str>,
     ) -> Result<CodergenResult, Error> {
-        let client = build_llm_client(self.resolver.as_ref()).await?.client;
+        let client = Client::from_source(self.source.as_ref())
+            .await
+            .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
 
         let model = node.model().unwrap_or(&self.model);
         let provider = node
@@ -587,7 +529,7 @@ impl CodergenBackend for AgentApiBackend {
                         target_provider,
                         node,
                         sandbox,
-                        self.resolver.as_ref(),
+                        self.source.as_ref(),
                         &self.env,
                         tool_hooks.clone(),
                         self.mcp_servers.clone(),
@@ -697,7 +639,7 @@ impl CodergenBackend for AgentApiBackend {
 #[cfg(test)]
 mod tests {
     use fabro_agent::subagent::SessionFactory;
-    use fabro_auth::{AuthCredential, AuthDetails, CredentialResolver};
+    use fabro_auth::{AuthCredential, AuthDetails, VaultCredentialSource};
     use fabro_vault::{SecretType, Vault};
     use tokio::sync::RwLock as AsyncRwLock;
 
@@ -847,7 +789,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_llm_client_uses_resolver_credentials() {
+    async fn api_backend_uses_source_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = Vault::load(dir.path().join("secrets.json")).unwrap();
         vault
@@ -864,14 +806,18 @@ mod tests {
                 None,
             )
             .unwrap();
-        let resolver = CredentialResolver::with_env_lookup(
-            Arc::new(AsyncRwLock::new(vault)),
-            Arc::new(|_| None),
+        let backend = AgentApiBackend::new(
+            "claude-opus-4-6".to_string(),
+            Provider::Anthropic,
+            Vec::new(),
+            Arc::new(VaultCredentialSource::with_env_lookup(
+                Arc::new(AsyncRwLock::new(vault)),
+                |_| None,
+            )),
         );
 
-        let result = build_llm_client(Some(&resolver)).await.unwrap();
+        let client = Client::from_source(backend.source.as_ref()).await.unwrap();
 
-        assert_eq!(result.client.provider_names(), vec!["anthropic"]);
-        assert!(result.auth_issues.is_empty());
+        assert_eq!(client.provider_names(), vec!["anthropic"]);
     }
 }

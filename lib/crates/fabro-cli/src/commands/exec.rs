@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result as AnyResult;
-use fabro_agent::cli::{OutputFormat, run_with_args, run_with_args_and_client};
+use fabro_agent::cli::{OutputFormat, run_with_args_and_client, run_with_args_and_source};
 use fabro_llm::client::Client;
 use fabro_llm::error::{
     Error as LlmError, ProviderErrorDetail, ProviderErrorKind, error_from_status_code,
@@ -330,12 +330,13 @@ pub(crate) async fn execute(mut args: ExecArgs, ctx: &CommandContext) -> AnyResu
             .register_provider(adapter)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to register fabro server adapter: {e}"))?;
-        run_with_args_and_client(args.agent, Some(client), mcp_servers)
+        run_with_args_and_client(args.agent, client, mcp_servers)
             .await
             .map_err(classify_server_agent_auth)?;
     } else {
         tracing::info!(transport = "direct", "Agent session starting");
-        run_with_args(args.agent, mcp_servers).await?;
+        let llm_source = ctx.llm_source().await?;
+        run_with_args_and_source(args.agent, llm_source, mcp_servers).await?;
     }
 
     Ok(())

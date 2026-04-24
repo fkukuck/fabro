@@ -1,5 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use fabro_model::Provider;
+use fabro_util::redact::redact_string;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -57,10 +58,35 @@ pub struct OAuthConfig {
     pub use_pkce:     bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ApiKeyHeader {
     Bearer(String),
     Custom { name: String, value: String },
+}
+
+fn redact_for_debug(value: &str) -> String {
+    let redacted = redact_string(value);
+    if redacted == value && !value.is_empty() {
+        "REDACTED".to_string()
+    } else {
+        redacted
+    }
+}
+
+impl std::fmt::Debug for ApiKeyHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bearer(value) => f
+                .debug_tuple("Bearer")
+                .field(&redact_for_debug(value))
+                .finish(),
+            Self::Custom { name, value } => f
+                .debug_struct("Custom")
+                .field("name", name)
+                .field("value", &redact_for_debug(value))
+                .finish(),
+        }
+    }
 }
 
 pub fn credential_id_for(credential: &AuthCredential) -> Result<String, String> {
@@ -159,5 +185,15 @@ mod tests {
         assert!(parse_credential_secret("openai_codex", &json).is_ok());
         assert!(parse_credential_secret("openai", &json).is_err());
         assert!(parse_credential_secret("openai_codex", "{").is_err());
+    }
+
+    #[test]
+    fn api_key_header_debug_redacts_secret_values() {
+        let header = ApiKeyHeader::Bearer("sk-test".to_string());
+
+        let debug = format!("{header:?}");
+
+        assert!(!debug.contains("sk-test"));
+        assert!(debug.contains("REDACTED"));
     }
 }

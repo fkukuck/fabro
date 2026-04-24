@@ -121,11 +121,11 @@ impl RunLifecycle<WorkflowGraph> for ArtifactLifecycle {
                     )
                     .await
                 {
-                    self.emitter.emit(&Event::RunNotice {
-                        level:   RunNoticeLevel::Warn,
-                        code:    "artifact_upload_failed".to_string(),
-                        message: format!("[node: {node_id}] artifact upload failed: {err}"),
-                    });
+                    self.emitter.notice(
+                        RunNoticeLevel::Warn,
+                        "artifact_upload_failed",
+                        format!("[node: {node_id}] artifact upload failed: {err}"),
+                    );
                     return Ok(());
                 }
                 let scope = stage_scope_for(state, node_id);
@@ -147,11 +147,11 @@ impl RunLifecycle<WorkflowGraph> for ArtifactLifecycle {
             }
             Ok(_) => {} // no files collected
             Err(e) => {
-                self.emitter.emit(&Event::RunNotice {
-                    level:   RunNoticeLevel::Warn,
-                    code:    "artifact_collection_failed".to_string(),
-                    message: format!("[node: {node_id}] artifact collection failed: {e}"),
-                });
+                self.emitter.notice(
+                    RunNoticeLevel::Warn,
+                    "artifact_collection_failed",
+                    format!("[node: {node_id}] artifact collection failed: {e}"),
+                );
             }
         }
 
@@ -170,11 +170,11 @@ impl RunLifecycle<WorkflowGraph> for ArtifactLifecycle {
         if let Err(e) =
             offload_large_values(&mut result.outcome.context_updates, &self.run_store).await
         {
-            self.emitter.emit(&Event::RunNotice {
-                level:   RunNoticeLevel::Warn,
-                code:    "artifact_offload_failed".to_string(),
-                message: format!("[node: {node_id}] artifact offload failed: {e}"),
-            });
+            self.emitter.notice(
+                RunNoticeLevel::Warn,
+                "artifact_offload_failed",
+                format!("[node: {node_id}] artifact offload failed: {e}"),
+            );
         }
 
         normalize_durable_updates(&mut result.outcome.context_updates);
@@ -183,11 +183,11 @@ impl RunLifecycle<WorkflowGraph> for ArtifactLifecycle {
         if let Err(e) =
             sync_artifacts_to_env(&mut result.outcome.context_updates, &*self.sandbox).await
         {
-            self.emitter.emit(&Event::RunNotice {
-                level:   RunNoticeLevel::Warn,
-                code:    "artifact_sync_failed".to_string(),
-                message: format!("[node: {node_id}] artifact sync failed: {e}"),
-            });
+            self.emitter.notice(
+                RunNoticeLevel::Warn,
+                "artifact_sync_failed",
+                format!("[node: {node_id}] artifact sync failed: {e}"),
+            );
         }
 
         Ok(())

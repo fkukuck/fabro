@@ -13,7 +13,6 @@ use crate::context::{self, Context};
 use crate::error::Error;
 use crate::event::Event;
 use crate::graph::WorkflowGraph;
-use crate::handler::EngineServices;
 use crate::lifecycle::WorkflowLifecycle;
 use crate::node_handler::WorkflowNodeHandler;
 use crate::outcome::{Outcome, StageStatus};
@@ -37,28 +36,15 @@ pub async fn execute(init: Initialized) -> Executed {
     let Initialized {
         graph,
         source: _,
-        inputs,
         run_options,
-        workflow_path,
-        workflow_bundle,
-        run_store,
         checkpoint,
         seed_context,
-        emitter,
-        sandbox,
-        registry,
         on_node,
         artifact_sink,
         run_control,
-        hook_runner,
-        env,
-        dry_run,
-        llm_client,
+        engine,
         model,
-        provider,
     } = init;
-
-    let service_inputs = inputs;
 
     let mut checkpoint = checkpoint;
     if let Some(cp) = checkpoint.as_mut() {
@@ -80,37 +66,22 @@ pub async fn execute(init: Initialized) -> Executed {
             git_author: run_options.git_author(),
         }))
     });
-
-    let shared_services = Arc::new(EngineServices {
-        registry,
-        emitter: Arc::clone(&emitter),
-        sandbox: Arc::clone(&sandbox),
-        run_store: run_store.clone(),
-        git_state: std::sync::RwLock::new(git_state),
-        hook_runner: hook_runner.clone(),
-        env,
-        inputs: service_inputs,
-        dry_run,
-        cancel_requested: run_options.cancel_token.clone(),
-        provider,
-        workflow_path,
-        workflow_bundle,
-    });
+    engine.set_git_state(git_state);
 
     let handler = Arc::new(WorkflowNodeHandler {
-        services: shared_services,
+        services: Arc::clone(&engine),
         run_dir:  run_options.run_dir.clone(),
         graph:    Arc::clone(&graph_arc),
     });
 
     let settings_arc = Arc::new(run_options.clone());
     let lifecycle = WorkflowLifecycle::new(
-        &emitter,
-        hook_runner.clone(),
-        &sandbox,
+        &engine.run.emitter,
+        engine.run.hook_runner.clone(),
+        &engine.run.sandbox,
         graph_arc,
         &run_options.run_dir,
-        &run_store,
+        &engine.run.run_store,
         artifact_sink,
         &settings_arc,
         checkpoint.is_some(),
@@ -168,15 +139,10 @@ pub async fn execute(init: Initialized) -> Executed {
                     graph,
                     outcome: Err(err),
                     run_options,
-                    run_store,
-                    hook_runner,
-                    emitter,
-                    sandbox,
                     duration_ms: crate::millis_u64(start.elapsed()),
                     final_context: seed_context_from_checkpoint(checkpoint.as_ref()),
-                    llm_client,
+                    engine,
                     model,
-                    provider,
                 };
             }
         }
@@ -193,15 +159,10 @@ pub async fn execute(init: Initialized) -> Executed {
                     graph,
                     outcome: Err(err),
                     run_options,
-                    run_store,
-                    hook_runner,
-                    emitter,
-                    sandbox,
                     duration_ms: crate::millis_u64(start.elapsed()),
                     final_context: seed,
-                    llm_client,
+                    engine,
                     model,
-                    provider,
                 };
             }
         }
@@ -213,15 +174,10 @@ pub async fn execute(init: Initialized) -> Executed {
                     graph,
                     outcome: Err(err),
                     run_options,
-                    run_store,
-                    hook_runner,
-                    emitter,
-                    sandbox,
                     duration_ms: crate::millis_u64(start.elapsed()),
                     final_context: Context::new(),
-                    llm_client,
+                    engine,
                     model,
-                    provider,
                 };
             }
         }
@@ -243,7 +199,7 @@ pub async fn execute(init: Initialized) -> Executed {
     let stall_shutdown =
         if let (Some(stall_timeout), Some(ref token)) = (stall_timeout_opt, &stall_token) {
             let shutdown = CancellationToken::new();
-            let emitter = Arc::clone(&emitter);
+            let emitter = Arc::clone(&engine.run.emitter);
             let token_clone = token.clone();
             let shutdown_clone = shutdown.clone();
             emitter.touch();
@@ -316,7 +272,7 @@ pub async fn execute(init: Initialized) -> Executed {
         Err(fabro_core::Error::StallTimeout { node_id }) => {
             let stall_timeout = graph.stall_timeout().unwrap_or_default();
             let idle_secs = stall_timeout.as_secs();
-            emitter.emit(&Event::StallWatchdogTimeout {
+            engine.run.emitter.emit(&Event::StallWatchdogTimeout {
                 node:         node_id.clone(),
                 idle_seconds: idle_secs,
             });
@@ -340,15 +296,10 @@ pub async fn execute(init: Initialized) -> Executed {
         graph,
         outcome,
         run_options,
-        run_store,
-        hook_runner,
-        emitter,
-        sandbox,
         duration_ms,
         final_context,
-        llm_client,
+        engine,
         model,
-        provider,
     }
 }
 

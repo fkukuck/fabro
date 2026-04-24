@@ -95,6 +95,7 @@ mod tests {
             context: &HookContext,
             _sandbox: Arc<dyn Sandbox>,
             _work_dir: Option<&Path>,
+            _llm_source: &dyn fabro_auth::CredentialSource,
         ) -> HookResult {
             self.captured_contexts.lock().unwrap().push(context.clone());
             HookResult {

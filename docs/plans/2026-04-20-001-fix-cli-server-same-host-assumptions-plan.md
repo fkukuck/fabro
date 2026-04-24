@@ -1,5 +1,5 @@
 ---
-title: fix: Remove lingering CLI/server same-host assumptions
+title: "fix: Remove lingering CLI/server same-host assumptions"
 type: fix
 status: completed
 date: 2026-04-20

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
+use fabro_auth::auth_issue_message;
 use fabro_config::{
     CliLayer, CliOutputLayer, DaytonaDockerfileLayer, ReplaceMap, RunExecutionLayer, RunLayer,
     RunModelLayer, RunSandboxLayer, WorkflowSettingsBuilder,
@@ -34,7 +35,6 @@ use fabro_workflow::run_materialization::materialize_run;
 use fabro_workflow::workflow_bundle::{BundledWorkflow, WorkflowBundle};
 
 use crate::server::AppState;
-use crate::server_secrets::auth_issue_message;
 
 #[derive(Clone)]
 pub(crate) struct PreparedManifest {
@@ -389,7 +389,7 @@ async fn build_preflight_report(
         ));
     }
 
-    let configured_providers = state.provider_credentials.configured_providers().await;
+    let configured_providers = state.llm_source.configured_providers().await;
     let materialized = materialize_run(
         prepared.settings.clone(),
         graph,
@@ -600,7 +600,7 @@ async fn run_llm_check(
     let (model, provider) = resolve_model_provider(settings, graph, configured_providers);
     let default_provider = provider.as_deref().unwrap_or("anthropic");
 
-    match state.build_llm_client().await {
+    match state.resolve_llm_client().await {
         Ok(result) => {
             let configured = result
                 .client

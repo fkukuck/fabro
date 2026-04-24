@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use fabro_util::backoff::BackoffPolicy;
 use futures::{Stream, StreamExt, future, stream};
-use tokio::sync::{OnceCell, mpsc};
+use tokio::sync::mpsc;
 use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -20,24 +20,6 @@ use crate::types::{
     ResponseFormat, ResponseFormatType, RetryPolicy, StepResult, StreamEvent, TimeoutOptions,
     TokenCounts, ToolCall, ToolChoice, ToolDefinition,
 };
-
-/// Module-level default client (Section 2.5).
-static DEFAULT_CLIENT: OnceCell<Arc<Client>> = OnceCell::const_new();
-
-/// Set the module-level default client.
-pub fn set_default_client(client: Client) {
-    let _ = DEFAULT_CLIENT.set(Arc::new(client));
-}
-
-/// Get the default client, lazily initialized from env.
-async fn get_default_client() -> Result<Arc<Client>, Error> {
-    if let Some(client) = DEFAULT_CLIENT.get() {
-        return Ok(client.clone());
-    }
-    let client = Arc::new(Client::from_env().await?);
-    let _ = DEFAULT_CLIENT.set(client.clone());
-    Ok(client)
-}
 
 fn build_initial_messages(params: &GenerateParams) -> Result<Vec<Message>, Error> {
     let mut messages = Vec::new();
@@ -109,10 +91,7 @@ fn build_generate_result(steps: Vec<StepResult>, total_usage: TokenCounts) -> Ge
 /// Panics if a tool's `execute` handler is `None` when matched during tool
 /// execution.
 pub async fn generate(params: GenerateParams) -> Result<GenerateResult, Error> {
-    let client = match params.client.clone() {
-        Some(c) => c,
-        None => get_default_client().await?,
-    };
+    let client = Arc::clone(&params.client);
     let retry_policy = RetryPolicy {
         max_retries: params.max_retries,
         backoff: BackoffPolicy {
@@ -307,7 +286,7 @@ pub struct GenerateParams {
     pub metadata:         Option<std::collections::HashMap<String, String>>,
     pub max_retries:      u32,
     pub timeout:          Option<TimeoutOptions>,
-    pub client:           Option<Arc<Client>>,
+    pub client:           Arc<Client>,
     /// Cancellation token to interrupt generation (Section 4.8).
     pub abort_signal:     Option<CancellationToken>,
     /// Custom stop condition checked after each tool round (Section 4.3).
@@ -317,30 +296,30 @@ pub struct GenerateParams {
 }
 
 impl GenerateParams {
-    pub fn new(model: impl Into<String>) -> Self {
+    pub fn new(model: impl Into<String>, client: Arc<Client>) -> Self {
         Self {
-            model:            model.into(),
-            prompt:           None,
-            messages:         None,
-            system:           None,
-            tools:            None,
-            tool_choice:      None,
-            max_tool_rounds:  1,
-            response_format:  None,
-            temperature:      None,
-            top_p:            None,
-            max_tokens:       None,
-            stop_sequences:   None,
+            model: model.into(),
+            prompt: None,
+            messages: None,
+            system: None,
+            tools: None,
+            tool_choice: None,
+            max_tool_rounds: 1,
+            response_format: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
             reasoning_effort: None,
-            speed:            None,
-            provider:         None,
+            speed: None,
+            provider: None,
             provider_options: None,
-            metadata:         None,
-            max_retries:      2,
-            timeout:          None,
-            client:           None,
-            abort_signal:     None,
-            stop_when:        None,
+            metadata: None,
+            max_retries: 2,
+            timeout: None,
+            client,
+            abort_signal: None,
+            stop_when: None,
             repair_tool_call: None,
         }
     }
@@ -360,12 +339,6 @@ impl GenerateParams {
     #[must_use]
     pub fn system(mut self, system: impl Into<String>) -> Self {
         self.system = Some(system.into());
-        self
-    }
-
-    #[must_use]
-    pub fn client(mut self, client: Arc<Client>) -> Self {
-        self.client = Some(client);
         self
     }
 
@@ -642,10 +615,7 @@ pub async fn stream(params: GenerateParams) -> Result<StreamResult, Error> {
 /// Returns `Error::Configuration` if both `prompt` and `messages` are set,
 /// or any provider error encountered during streaming setup.
 async fn stream_with_tool_loop(params: GenerateParams) -> Result<StreamEventStream, Error> {
-    let client = match params.client.clone() {
-        Some(c) => c,
-        None => get_default_client().await?,
-    };
+    let client = Arc::clone(&params.client);
     let mut messages = build_initial_messages(&params)?;
     let tool_definitions: Option<Vec<ToolDefinition>> = params
         .tools
@@ -931,10 +901,7 @@ async fn stream_generate_raw(
 /// Returns `Error::Configuration` if both `prompt` and `messages` are set,
 /// or any provider error encountered during streaming setup.
 pub async fn stream_generate(params: GenerateParams) -> Result<StreamEventStream, Error> {
-    let client = match params.client.clone() {
-        Some(c) => c,
-        None => get_default_client().await?,
-    };
+    let client = Arc::clone(&params.client);
     let messages = build_initial_messages(&params)?;
     let tool_definitions: Option<Vec<ToolDefinition>> = params
         .tools
@@ -1204,13 +1171,10 @@ mod tests {
 
     #[tokio::test]
     async fn generate_simple_text() {
-        let result = generate(
-            GenerateParams::new("mock-model")
-                .prompt("Hello")
-                .client(mock_client("Hi there!")),
-        )
-        .await
-        .unwrap();
+        let result =
+            generate(GenerateParams::new("mock-model", mock_client("Hi there!")).prompt("Hello"))
+                .await
+                .unwrap();
 
         assert_eq!(result.text(), "Hi there!");
         assert_eq!(result.finish_reason, FinishReason::Stop);
@@ -1221,10 +1185,9 @@ mod tests {
     #[tokio::test]
     async fn generate_with_system_message() {
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", mock_client("Greetings!"))
                 .system("You are helpful")
-                .prompt("Hello")
-                .client(mock_client("Greetings!")),
+                .prompt("Hello"),
         )
         .await
         .unwrap();
@@ -1235,13 +1198,11 @@ mod tests {
     #[tokio::test]
     async fn generate_with_messages() {
         let result = generate(
-            GenerateParams::new("mock-model")
-                .messages(vec![
-                    Message::user("Hello"),
-                    Message::assistant("Hi"),
-                    Message::user("How are you?"),
-                ])
-                .client(mock_client("I'm doing well!")),
+            GenerateParams::new("mock-model", mock_client("I'm doing well!")).messages(vec![
+                Message::user("Hello"),
+                Message::assistant("Hi"),
+                Message::user("How are you?"),
+            ]),
         )
         .await
         .unwrap();
@@ -1255,8 +1216,8 @@ mod tests {
             model: "mock-model".into(),
             prompt: Some("Hello".into()),
             messages: Some(vec![Message::user("World")]),
-            client: Some(mock_client("test")),
-            ..GenerateParams::new("mock-model")
+            client: mock_client("test"),
+            ..GenerateParams::new("mock-model", mock_client("base"))
         })
         .await;
 
@@ -1341,7 +1302,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -1352,8 +1313,7 @@ mod tests {
                         Ok(serde_json::json!(format!("72F in {}", city)))
                     },
                 )])
-                .max_tool_rounds(5)
-                .client(client),
+                .max_tool_rounds(5),
         )
         .await
         .unwrap();
@@ -1418,13 +1378,9 @@ mod tests {
     #[tokio::test]
     async fn stream_generate_returns_events() {
         let client = mock_client("Hello stream!");
-        let mut stream = stream_generate(
-            GenerateParams::new("mock-model")
-                .prompt("Hi")
-                .client(client),
-        )
-        .await
-        .unwrap();
+        let mut stream = stream_generate(GenerateParams::new("mock-model", client).prompt("Hi"))
+            .await
+            .unwrap();
 
         let first = stream.next().await.unwrap().unwrap();
         match &first {
@@ -1451,9 +1407,7 @@ mod tests {
         });
 
         let result = generate_object(
-            GenerateParams::new("mock-model")
-                .prompt("Extract name and age")
-                .client(client),
+            GenerateParams::new("mock-model", client).prompt("Extract name and age"),
             schema,
         )
         .await
@@ -1470,9 +1424,7 @@ mod tests {
         let client = mock_client("not valid json");
 
         let result = generate_object(
-            GenerateParams::new("mock-model")
-                .prompt("Extract data")
-                .client(client),
+            GenerateParams::new("mock-model", client).prompt("Extract data"),
             serde_json::json!({"type": "object"}),
         )
         .await;
@@ -1496,7 +1448,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -1508,8 +1460,7 @@ mod tests {
                     },
                 )])
                 .max_tool_rounds(5)
-                .stop_when(|_steps| true) // Stop immediately after first round
-                .client(client),
+                .stop_when(|_steps| true), // Stop immediately after first round
         )
         .await
         .unwrap();
@@ -1521,7 +1472,7 @@ mod tests {
 
     #[test]
     fn generate_params_builder_methods() {
-        let params = GenerateParams::new("test-model")
+        let params = GenerateParams::new("test-model", mock_client("builder"))
             .prompt("hello")
             .system("you are helpful")
             .temperature(0.7)
@@ -1558,10 +1509,11 @@ mod tests {
 
     #[test]
     fn generate_params_timeout_builder() {
-        let params = GenerateParams::new("test-model").timeout(TimeoutOptions {
-            total:    Some(30.0),
-            per_step: Some(10.0),
-        });
+        let params =
+            GenerateParams::new("test-model", mock_client("timeout")).timeout(TimeoutOptions {
+                total:    Some(30.0),
+                per_step: Some(10.0),
+            });
         assert!(params.timeout.is_some());
         let t = params.timeout.unwrap();
         assert_eq!(t.total, Some(30.0));
@@ -1662,9 +1614,7 @@ mod tests {
         });
 
         let obj_stream = stream_object(
-            GenerateParams::new("mock-model")
-                .prompt("Extract info")
-                .client(client),
+            GenerateParams::new("mock-model", client).prompt("Extract info"),
             schema,
         )
         .await
@@ -1700,9 +1650,7 @@ mod tests {
         });
 
         let obj_stream = stream_object(
-            GenerateParams::new("mock-model")
-                .prompt("Extract info")
-                .client(client),
+            GenerateParams::new("mock-model", client).prompt("Extract info"),
             schema,
         )
         .await
@@ -1748,9 +1696,7 @@ mod tests {
         let schema = serde_json::json!({"type": "object"});
 
         let obj_stream = stream_object(
-            GenerateParams::new("mock-model")
-                .prompt("Extract info")
-                .client(client),
+            GenerateParams::new("mock-model", client).prompt("Extract info"),
             schema,
         )
         .await
@@ -1768,9 +1714,8 @@ mod tests {
         token.cancel();
 
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", mock_client("Hi"))
                 .prompt("Hello")
-                .client(mock_client("Hi"))
                 .abort_signal(token),
         )
         .await;
@@ -1839,7 +1784,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -1848,8 +1793,7 @@ mod tests {
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
                 .max_tool_rounds(10)
-                .abort_signal(token)
-                .client(client),
+                .abort_signal(token),
         )
         .await;
 
@@ -1869,9 +1813,8 @@ mod tests {
         token_clone.cancel();
 
         let mut stream_result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("Hi")
-                .client(client)
                 .abort_signal(token),
         )
         .await
@@ -1897,7 +1840,7 @@ mod tests {
         let tool_executed_clone = tool_executed.clone();
 
         let result = generate(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -1911,8 +1854,7 @@ mod tests {
                         }
                     },
                 )])
-                .max_tool_rounds(0)
-                .client(client),
+                .max_tool_rounds(0),
         )
         .await
         .unwrap();
@@ -1928,20 +1870,16 @@ mod tests {
     #[test]
     fn generate_params_abort_signal_builder() {
         let token = CancellationToken::new();
-        let params = GenerateParams::new("test-model").abort_signal(token);
+        let params = GenerateParams::new("test-model", mock_client("abort")).abort_signal(token);
         assert!(params.abort_signal.is_some());
     }
 
     #[tokio::test]
     async fn stream_result_accumulates_response() {
         let client = mock_client("Hello!");
-        let mut result = stream(
-            GenerateParams::new("mock-model")
-                .prompt("Hi")
-                .client(client),
-        )
-        .await
-        .unwrap();
+        let mut result = stream(GenerateParams::new("mock-model", client).prompt("Hi"))
+            .await
+            .unwrap();
 
         assert!(result.response().is_none());
         assert!(result.partial_response().is_none());
@@ -1956,13 +1894,9 @@ mod tests {
     #[tokio::test]
     async fn stream_result_text_stream() {
         let client = streaming_json_mock_client(vec!["Hello", " ", "world"]);
-        let result = stream(
-            GenerateParams::new("mock-model")
-                .prompt("Hi")
-                .client(client),
-        )
-        .await
-        .unwrap();
+        let result = stream(GenerateParams::new("mock-model", client).prompt("Hi"))
+            .await
+            .unwrap();
 
         let texts: Vec<String> = result
             .text_stream()
@@ -2077,7 +2011,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2085,8 +2019,7 @@ mod tests {
                     serde_json::json!({"type": "object", "properties": {"city": {"type": "string"}}}),
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
-                .max_tool_rounds(5)
-                .client(client),
+                .max_tool_rounds(5),
         )
         .await
         .unwrap();
@@ -2130,7 +2063,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2138,8 +2071,7 @@ mod tests {
                     serde_json::json!({"type": "object", "properties": {"city": {"type": "string"}}}),
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
-                .max_tool_rounds(0)
-                .client(client),
+                .max_tool_rounds(0),
         )
         .await
         .unwrap();
@@ -2205,7 +2137,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2213,8 +2145,7 @@ mod tests {
                     serde_json::json!({"type": "object", "properties": {"city": {"type": "string"}}}),
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
-                .max_tool_rounds(5)
-                .client(client),
+                .max_tool_rounds(5),
         )
         .await
         .unwrap();
@@ -2267,7 +2198,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather in SF?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2276,8 +2207,7 @@ mod tests {
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
                 .max_tool_rounds(5)
-                .stop_when(|_steps| true) // Stop immediately after first round
-                .client(client),
+                .stop_when(|_steps| true), // Stop immediately after first round
         )
         .await
         .unwrap();
@@ -2392,7 +2322,7 @@ mod tests {
 
         // Need active tools so the tool loop path (with retry) is used
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("Hi")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2401,8 +2331,7 @@ mod tests {
                     |_args, _ctx| async { Ok(serde_json::json!("72F")) },
                 )])
                 .max_tool_rounds(1)
-                .max_retries(3)
-                .client(client),
+                .max_retries(3),
         )
         .await
         .unwrap();
@@ -2489,7 +2418,7 @@ mod tests {
 
         // Need active tools so the tool loop path (with timeout) is used
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("Hi")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2502,8 +2431,7 @@ mod tests {
                     total: None,
                     per_step: Some(0.01), // 10ms timeout, provider takes 5s
                 })
-                .max_retries(0)
-                .client(client),
+                .max_retries(0),
         )
         .await
         .unwrap();
@@ -2621,7 +2549,7 @@ mod tests {
         let client = Arc::new(Client::new(providers, Some("mock".to_string()), vec![]));
 
         let mut result = stream(
-            GenerateParams::new("mock-model")
+            GenerateParams::new("mock-model", client)
                 .prompt("What's the weather?")
                 .tools(vec![Tool::active(
                     "get_weather",
@@ -2634,8 +2562,7 @@ mod tests {
                     total: Some(0.05), // 50ms total timeout
                     per_step: None,
                 })
-                .max_retries(0)
-                .client(client),
+                .max_retries(0),
         )
         .await
         .unwrap();

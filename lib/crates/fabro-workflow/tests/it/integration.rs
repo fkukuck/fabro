@@ -6141,11 +6141,10 @@ mod real_llm {
         }
 
         fabro_test::require_env("ANTHROPIC_API_KEY")?;
-        Some(Arc::new(
-            Client::from_env()
-                .await
-                .expect("unified-llm client should initialize from env"),
-        ))
+        let source = fabro_auth::EnvCredentialSource::new();
+        Some(Arc::new(Client::from_source(&source).await.expect(
+            "unified-llm client should initialize from env source",
+        )))
     }
 
     fn make_llm_backend(client: Arc<Client>) -> Box<LlmCodergenBackend> {
@@ -6602,9 +6601,164 @@ mod real_llm {
     }
 }
 
+fn openai_api_key_credential(key: &str) -> fabro_auth::AuthCredential {
+    fabro_auth::AuthCredential {
+        provider: fabro_model::Provider::OpenAi,
+        details:  fabro_auth::AuthDetails::ApiKey {
+            key: key.to_string(),
+        },
+    }
+}
+
+fn openai_responses_payload(text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "resp_1",
+        "model": "gpt-5.4",
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": text
+                    }
+                ]
+            }
+        ],
+        "status": "completed",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 20
+        }
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Wait.human freeform edge integration tests (Section 4.6)
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn workflow_run_with_vault_only_openai_codex_builds_pr_body() {
+    use chrono::Utc;
+    use fabro_auth::{CredentialSource, VaultCredentialSource};
+    use fabro_types::Conclusion;
+    use fabro_vault::{SecretType, Vault};
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
+    use tokio::sync::RwLock as AsyncRwLock;
+
+    let server = MockServer::start_async().await;
+    let response_mock = server
+        .mock_async(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .header("authorization", "Bearer vault-openai-key");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(openai_responses_payload("Narrative from vault source."));
+        })
+        .await;
+
+    let mut graph = Graph::new("VaultOpenAiCodexPrBody");
+    graph.attrs.insert(
+        "goal".to_string(),
+        AttrValue::String("Verify PR body generation uses vault credentials".to_string()),
+    );
+
+    let mut start = Node::new("start");
+    start.attrs.insert(
+        "shape".to_string(),
+        AttrValue::String("Mdiamond".to_string()),
+    );
+    graph.nodes.insert("start".to_string(), start);
+
+    let mut exit = Node::new("exit");
+    exit.attrs.insert(
+        "shape".to_string(),
+        AttrValue::String("Msquare".to_string()),
+    );
+    graph.nodes.insert("exit".to_string(), exit);
+
+    graph.edges.push(Edge::new("start", "exit"));
+
+    let vault_dir = tempfile::tempdir().unwrap();
+    let mut vault = Vault::load(vault_dir.path().join("secrets.json")).unwrap();
+    vault
+        .set(
+            "openai_codex",
+            &serde_json::to_string(&openai_api_key_credential("vault-openai-key")).unwrap(),
+            SecretType::Credential,
+            None,
+        )
+        .unwrap();
+    let base_url = server.url("/v1");
+    let llm_source: Arc<dyn CredentialSource> = Arc::new(VaultCredentialSource::with_env_lookup(
+        Arc::new(AsyncRwLock::new(vault)),
+        move |name| match name {
+            "OPENAI_BASE_URL" => Some(base_url.clone()),
+            _ => None,
+        },
+    ));
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut registry = HandlerRegistry::new(Box::new(StartHandler));
+    registry.register("start", Box::new(StartHandler));
+    registry.register("exit", Box::new(ExitHandler));
+
+    let engine = WorkflowRunner::new(registry, Arc::new(Emitter::default()), local_env());
+    let run_options = RunOptions {
+        settings:         WorkflowSettings::default(),
+        run_dir:          dir.path().to_path_buf(),
+        cancel_token:     None,
+        run_id:           test_run_id("vault-only-openai-codex-pr-body"),
+        labels:           std::collections::HashMap::new(),
+        workflow_slug:    None,
+        github_app:       None,
+        base_branch:      None,
+        display_base_sha: None,
+        host_repo_path:   None,
+        git:              None,
+    };
+    let (outcome, _) = engine
+        .run_with_state_and_llm_source(&graph, &run_options, Arc::clone(&llm_source))
+        .await
+        .expect("workflow run should succeed");
+    assert_eq!(outcome.status, StageStatus::Success);
+
+    let store_dir = test_store_dir(&run_options.run_dir);
+    let store = Arc::new(Database::new(
+        Arc::new(LocalFileSystem::new_with_prefix(&store_dir).unwrap()),
+        "",
+        Duration::from_millis(1),
+        None,
+    ));
+    let run_store = store.open_run_reader(&run_options.run_id).await.unwrap();
+    let run_store_handle: fabro_workflow::runtime_store::RunStoreHandle = run_store.into();
+
+    let body = fabro_workflow::pull_request::build_pr_body(
+        "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
+        "Implement feature",
+        "gpt-5.4",
+        &run_store_handle,
+        llm_source.as_ref(),
+        Some(&Conclusion {
+            timestamp:            Utc::now(),
+            status:               StageStatus::Success,
+            duration_ms:          1,
+            failure_reason:       None,
+            final_git_commit_sha: None,
+            stages:               Vec::new(),
+            billing:              None,
+            total_retries:        0,
+        }),
+    )
+    .await
+    .expect("PR body should build from vault-only credentials");
+
+    assert!(body.contains("Narrative from vault source."));
+    response_mock.assert_async().await;
+}
 
 /// Freeform-only human gate: free-text input routes through the freeform edge
 /// and stores the text in human.gate.text context variable.
@@ -7376,9 +7530,10 @@ fn subgraph_without_label_no_class_derived() {
 // ---------------------------------------------------------------------------
 
 fn hook_runner_from_defs(hooks: Vec<fabro_hooks::HookDefinition>) -> Arc<fabro_hooks::HookRunner> {
-    Arc::new(fabro_hooks::HookRunner::new(fabro_hooks::HookSettings {
-        hooks,
-    }))
+    Arc::new(fabro_hooks::HookRunner::new(
+        fabro_hooks::HookSettings { hooks },
+        Arc::new(fabro_auth::EnvCredentialSource::new()),
+    ))
 }
 
 struct HookTestRunner {
@@ -10175,9 +10330,10 @@ impl Handler for FileWriterHandler {
         _run_dir: &Path,
         services: &fabro_workflow::handler::EngineServices,
     ) -> Result<Outcome, Error> {
-        let work_dir = services.sandbox.working_directory().to_string();
+        let work_dir = services.run.sandbox.working_directory().to_string();
         let file_path = format!("{}/{}.txt", work_dir, node.id);
         services
+            .run
             .sandbox
             .write_file(&file_path, &format!("written by {}", node.id))
             .await
@@ -12254,7 +12410,7 @@ impl Handler for KeepaliveHandler {
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_millis(self.total_ms) {
             tokio::time::sleep(std::time::Duration::from_millis(self.interval_ms)).await;
-            services.emitter.emit(&Event::Prompt {
+            services.run.emitter.emit(&Event::Prompt {
                 stage:    node.id.clone(),
                 visit:    1,
                 text:     "keepalive".to_string(),
@@ -12530,6 +12686,7 @@ impl Handler for AssetCreatorHandler {
             "echo 'test output' > test-results/output.txt"
         );
         services
+            .run
             .sandbox
             .exec_command(script, 30_000, None, None, None)
             .await

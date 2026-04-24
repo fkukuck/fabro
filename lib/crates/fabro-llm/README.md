@@ -1,10 +1,10 @@
-# unified-llm
+# fabro-llm
 
 A unified async Rust client library for multiple LLM providers. Write your LLM integration code once and switch between Anthropic, OpenAI, and Google Gemini without changing your application logic.
 
 ## Key concepts
 
-- **Client** -- Routes requests to registered provider adapters. Can be created explicitly or auto-configured from environment variables.
+- **Client** -- Routes requests to registered provider adapters. Build it from a `CredentialSource` or explicit typed credentials.
 - **ProviderAdapter** -- The trait every provider implements (`complete` and `stream`). Built-in adapters: `AnthropicAdapter`, `OpenAiAdapter`, `GeminiAdapter`, `OpenAiCompatibleAdapter`.
 - **Middleware** -- Intercepts requests/responses for logging, caching, or transformation. Supports both blocking and streaming paths.
 - **generate()** -- High-level function that wraps `Client.complete()` with automatic tool execution loops, retries, timeouts, and cancellation.
@@ -24,13 +24,15 @@ All adapters support streaming, tool calling, structured output (`response_forma
 
 ## Usage
 
-### Auto-configure from environment
+### Create from an environment-backed credential source
 
 ```rust
-use unified_llm::client::Client;
-use unified_llm::types::{Message, Request};
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+use fabro_llm::types::{Message, Request};
 
-let client = Client::from_env().await?;
+let source = EnvCredentialSource::new();
+let client = Client::from_source(&source).await?;
 
 let request = Request {
     model: "claude-sonnet-4-5".to_string(),
@@ -55,10 +57,14 @@ println!("{}", response.text());
 ### High-level generate()
 
 ```rust
-use unified_llm::generate::{generate, GenerateParams};
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+use fabro_llm::generate::{generate, GenerateParams};
 
+let source = EnvCredentialSource::new();
+let client = Client::from_source(&source).await?;
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("Explain monads in one sentence")
         .system("You are a concise programming tutor.")
         .max_tokens(200)
@@ -70,10 +76,14 @@ println!("{}", result.text());
 ### Tool calling
 
 ```rust
-use unified_llm::generate::{generate, GenerateParams};
-use unified_llm::tools::Tool;
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+use fabro_llm::generate::{generate, GenerateParams};
+use fabro_llm::tools::Tool;
 use std::sync::Arc;
 
+let source = EnvCredentialSource::new();
+let client = Client::from_source(&source).await?;
 let weather_tool = Tool::active(
     "get_weather",
     "Get the current weather for a city",
@@ -91,7 +101,7 @@ let weather_tool = Tool::active(
 );
 
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("What's the weather in San Francisco?")
         .tools(vec![weather_tool])
         .max_tool_rounds(3)
@@ -101,11 +111,13 @@ let result = generate(
 ### Streaming
 
 ```rust
-use unified_llm::client::Client;
-use unified_llm::types::{Message, Request, StreamEvent};
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+use fabro_llm::types::{Message, Request, StreamEvent};
 use futures::StreamExt;
 
-let client = Client::from_env().await?;
+let source = EnvCredentialSource::new();
+let client = Client::from_source(&source).await?;
 let request = Request {
     model: "claude-sonnet-4-5".to_string(),
     messages: vec![Message::user("Tell me a joke")],
@@ -131,10 +143,10 @@ while let Some(event) = stream.next().await {
 ### Middleware
 
 ```rust
-use unified_llm::middleware::{Middleware, NextFn, NextStreamFn};
-use unified_llm::types::{Request, Response};
-use unified_llm::provider::StreamEventStream;
-use unified_llm::error::SdkError;
+use fabro_llm::error::Error;
+use fabro_llm::middleware::{Middleware, NextFn, NextStreamFn};
+use fabro_llm::provider::StreamEventStream;
+use fabro_llm::types::{Request, Response};
 
 struct LoggingMiddleware;
 
@@ -144,7 +156,7 @@ impl Middleware for LoggingMiddleware {
         &self,
         request: Request,
         next: NextFn,
-    ) -> Result<Response, SdkError> {
+    ) -> Result<Response, Error> {
         eprintln!("Request to model: {}", request.model);
         let response = next(request).await?;
         eprintln!("Response tokens: {}", response.usage.total_tokens);
@@ -155,7 +167,7 @@ impl Middleware for LoggingMiddleware {
         &self,
         request: Request,
         next: NextStreamFn,
-    ) -> Result<StreamEventStream, SdkError> {
+    ) -> Result<StreamEventStream, Error> {
         next(request).await
     }
 }
@@ -164,7 +176,7 @@ impl Middleware for LoggingMiddleware {
 ### OpenAI-compatible providers
 
 ```rust
-use unified_llm::providers::OpenAiCompatibleAdapter;
+use fabro_llm::providers::OpenAiCompatibleAdapter;
 use std::sync::Arc;
 
 let adapter = OpenAiCompatibleAdapter::new("your-api-key", "https://api.groq.com/openai/v1")
@@ -174,7 +186,7 @@ let adapter = OpenAiCompatibleAdapter::new("your-api-key", "https://api.groq.com
 ### Model catalog
 
 ```rust
-use unified_llm::catalog::{get_model_info, list_models, get_latest_model};
+use fabro_llm::catalog::{get_latest_model, get_model_info, list_models};
 
 let info = get_model_info("claude-opus-4-6");
 let anthropic_models = list_models(Some("anthropic"));
@@ -213,7 +225,7 @@ The `retry()` function and `generate()` respect `Retry-After` headers and use ex
 Pass provider-specific parameters via `provider_options` without losing portability:
 
 ```rust
-use unified_llm::types::Request;
+use fabro_llm::types::Request;
 
 let request = Request {
     provider_options: Some(serde_json::json!({

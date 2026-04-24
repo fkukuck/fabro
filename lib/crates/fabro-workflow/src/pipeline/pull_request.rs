@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
+use fabro_auth::CredentialSource;
 use fabro_github::{self as github_app, ssh_url_to_https};
 use fabro_graphviz::parser;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{GenerateParams, generate};
 use fabro_retro::retro::Retro;
 use fabro_store::RunProjection;
@@ -9,7 +13,7 @@ use fabro_util::text::strip_goal_decoration;
 use tracing::{debug, info};
 
 use super::types::{Concluded, Finalized, PullRequestOptions};
-use crate::event::{Emitter, Event, RunNoticeLevel};
+use crate::event::{Event, RunNoticeLevel};
 use crate::outcome::{StageStatus, format_cost as outcome_format_cost};
 use crate::records::{Conclusion, RunSpec};
 use crate::runtime_store::RunStoreHandle;
@@ -270,19 +274,6 @@ fn assemble_pr_body(
     parts.join("\n")
 }
 
-fn emit_run_notice(
-    emitter: &Emitter,
-    level: RunNoticeLevel,
-    code: impl Into<String>,
-    message: impl Into<String>,
-) {
-    emitter.emit(&Event::RunNotice {
-        level,
-        code: code.into(),
-        message: message.into(),
-    });
-}
-
 async fn load_pull_request_diff(run_store: &RunStoreHandle) -> String {
     run_store
         .state()
@@ -302,17 +293,60 @@ pub async fn build_pr_body(
     goal: &str,
     model: &str,
     run_store: &RunStoreHandle,
+    llm_source: &dyn CredentialSource,
     conclusion: Option<&Conclusion>,
 ) -> Result<String, String> {
-    build_pr_body_with_state(diff, goal, model, run_store, conclusion, None).await
+    let client = Client::from_source(llm_source)
+        .await
+        .map_err(|e| format!("Failed to create LLM client: {e}"))?;
+
+    build_pr_body_with_client(diff, goal, model, run_store, conclusion, Arc::new(client)).await
 }
 
-async fn build_pr_body_with_state(
+async fn build_pr_body_with_client(
     diff: &str,
     goal: &str,
     model: &str,
     run_store: &RunStoreHandle,
     conclusion: Option<&Conclusion>,
+    client: Arc<Client>,
+) -> Result<String, String> {
+    build_pr_body_with_client_and_state(diff, goal, model, run_store, conclusion, client, None)
+        .await
+}
+
+async fn build_pr_body_with_source_and_state(
+    diff: &str,
+    goal: &str,
+    model: &str,
+    run_store: &RunStoreHandle,
+    llm_source: &dyn CredentialSource,
+    conclusion: Option<&Conclusion>,
+    run_state: Option<&fabro_store::RunProjection>,
+) -> Result<String, String> {
+    let client = Client::from_source(llm_source)
+        .await
+        .map_err(|e| format!("Failed to create LLM client: {e}"))?;
+
+    build_pr_body_with_client_and_state(
+        diff,
+        goal,
+        model,
+        run_store,
+        conclusion,
+        Arc::new(client),
+        run_state,
+    )
+    .await
+}
+
+async fn build_pr_body_with_client_and_state(
+    diff: &str,
+    goal: &str,
+    model: &str,
+    run_store: &RunStoreHandle,
+    conclusion: Option<&Conclusion>,
+    client: Arc<Client>,
     run_state: Option<&fabro_store::RunProjection>,
 ) -> Result<String, String> {
     debug!("Building PR body");
@@ -365,7 +399,9 @@ async fn build_pr_body_with_state(
         format!("Goal: {goal}\n\nDiff:\n```\n{truncated_diff}\n```")
     };
 
-    let params = GenerateParams::new(model).system(system).prompt(prompt);
+    let params = GenerateParams::new(model, client)
+        .system(system)
+        .prompt(prompt);
 
     let result = generate(params)
         .await
@@ -408,6 +444,7 @@ pub struct OpenPullRequestRequest<'a> {
     pub draft:       bool,
     pub auto_merge:  Option<AutoMergeOptions>,
     pub run_store:   &'a RunStoreHandle,
+    pub llm_source:  &'a dyn CredentialSource,
     pub conclusion:  Option<&'a Conclusion>,
     pub run_state:   Option<&'a fabro_store::RunProjection>,
 }
@@ -427,11 +464,12 @@ pub async fn maybe_open_pull_request(
     let https_url = ssh_url_to_https(req.origin_url);
     let (owner, repo) = github_app::parse_github_owner_repo(&https_url)?;
 
-    let body = build_pr_body_with_state(
+    let body = build_pr_body_with_source_and_state(
         req.diff,
         req.goal,
         req.model,
         req.run_store,
+        req.llm_source,
         req.conclusion,
         req.run_state,
     )
@@ -496,13 +534,11 @@ pub async fn maybe_open_pull_request(
 /// completes.
 pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) -> Finalized {
     let Concluded {
-        run_id,
         outcome,
         conclusion,
-        pushed_branch,
         graph,
         run_options,
-        emitter,
+        services,
     } = concluded;
 
     let mut pr_url = None;
@@ -516,10 +552,10 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
                 result.status,
                 StageStatus::Success | StageStatus::PartialSuccess
             ) {
-                let diff = load_pull_request_diff(&options.run_store).await;
+                let diff = load_pull_request_diff(&services.run_store).await;
                 if let (Some(base_branch), Some(run_branch), Some(creds), Some(origin)) = (
                     &run_options.base_branch,
-                    pushed_branch.as_deref(),
+                    run_options.run_branch(),
                     &options.github_app,
                     &options.origin_url,
                 ) {
@@ -544,21 +580,25 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
                         model: &options.model,
                         draft: pr_cfg.draft,
                         auto_merge,
-                        run_store: &options.run_store,
+                        run_store: &services.run_store,
+                        llm_source: services.llm_source.as_ref(),
                         conclusion: Some(&conclusion),
                         run_state: None,
                     })
                     .await
                     {
                         Ok(Some(record)) => {
-                            emitter.emit(&Event::pull_request_created(&record, pr_cfg.draft));
+                            services
+                                .emitter
+                                .emit(&Event::pull_request_created(&record, pr_cfg.draft));
                             pr_url = Some(record.html_url.clone());
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            emitter.emit(&Event::PullRequestFailed { error: e.clone() });
-                            emit_run_notice(
-                                &emitter,
+                            services
+                                .emitter
+                                .emit(&Event::PullRequestFailed { error: e.clone() });
+                            services.emitter.notice(
                                 RunNoticeLevel::Warn,
                                 "pull_request_failed",
                                 format!("PR creation failed: {e}"),
@@ -571,10 +611,10 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
     }
 
     Finalized {
-        run_id,
+        run_id: run_options.run_id,
         outcome,
         conclusion,
-        pushed_branch,
+        pushed_branch: run_options.run_branch().map(str::to_string),
         pr_url,
     }
 }
@@ -583,34 +623,43 @@ pub async fn pull_request(concluded: Concluded, options: &PullRequestOptions) ->
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::sync::{Arc, Once};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use chrono::Utc;
+    use fabro_auth::{
+        AuthCredential, AuthDetails, CredentialSource, EnvCredentialSource, VaultCredentialSource,
+    };
     use fabro_graphviz::graph::Graph;
+    use fabro_llm::Error as LlmError;
     use fabro_llm::client::Client;
     use fabro_llm::provider::{ProviderAdapter, StreamEventStream};
     use fabro_llm::types::{FinishReason, Message, Request, Response, StreamEvent, TokenCounts};
-    use fabro_llm::{Error as LlmError, set_default_client};
     use fabro_retro::retro::{
         AggregateStats, FrictionKind, FrictionPoint, OpenItem, OpenItemKind, StageRetro,
     };
     use fabro_store::Database;
     use fabro_types::{BilledTokenCounts, RunSpec, SuccessReason, fixtures};
+    use fabro_vault::{SecretType, Vault};
     use futures::stream;
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
     use object_store::memory::InMemory;
+    use tokio::sync::RwLock as AsyncRwLock;
 
     use super::*;
     use crate::event::{Event, append_event};
     use crate::records::StageSummary;
 
     struct MockProvider {
+        name:          String,
         response_text: String,
     }
 
     impl MockProvider {
-        fn new(text: &str) -> Self {
+        fn new(name: &str, text: &str) -> Self {
             Self {
+                name:          name.to_string(),
                 response_text: text.to_string(),
             }
         }
@@ -619,7 +668,7 @@ mod tests {
     #[async_trait::async_trait]
     impl ProviderAdapter for MockProvider {
         fn name(&self) -> &str {
-            "mock"
+            &self.name
         }
 
         async fn complete(&self, _request: &Request) -> Result<Response, LlmError> {
@@ -681,17 +730,54 @@ mod tests {
         ))
     }
 
-    fn install_mock_llm() {
-        static INIT: Once = Once::new();
+    fn explicit_client(provider_name: &str, text: &str) -> Arc<Client> {
+        let mut providers: HashMap<String, Arc<dyn ProviderAdapter>> = HashMap::new();
+        providers.insert(
+            provider_name.to_string(),
+            Arc::new(MockProvider::new(provider_name, text)),
+        );
+        Arc::new(Client::new(
+            providers,
+            Some(provider_name.to_string()),
+            vec![],
+        ))
+    }
 
-        INIT.call_once(|| {
-            let mut providers: HashMap<String, Arc<dyn ProviderAdapter>> = HashMap::new();
-            providers.insert(
-                "mock".to_string(),
-                Arc::new(MockProvider::new("Narrative from mock.")),
-            );
-            set_default_client(Client::new(providers, Some("mock".to_string()), vec![]));
-        });
+    fn test_llm_source() -> Arc<dyn CredentialSource> {
+        Arc::new(EnvCredentialSource::new())
+    }
+
+    fn openai_api_key_credential(key: &str) -> AuthCredential {
+        AuthCredential {
+            provider: fabro_model::Provider::OpenAi,
+            details:  AuthDetails::ApiKey {
+                key: key.to_string(),
+            },
+        }
+    }
+
+    fn openai_responses_payload(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-5.4",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": text
+                        }
+                    ]
+                }
+            ],
+            "status": "completed",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20
+            }
+        })
     }
 
     fn make_test_conclusion() -> Conclusion {
@@ -1057,17 +1143,15 @@ mod tests {
 
     #[tokio::test]
     async fn build_pr_body_uses_in_memory_conclusion() {
-        install_mock_llm();
-
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
-        let conclusion = make_test_conclusion();
-        let body = build_pr_body(
+        let body = build_pr_body_with_client(
             "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
             "Implement feature",
             "mock-model",
             &run_store.clone().into(),
-            Some(&conclusion),
+            Some(&make_test_conclusion()),
+            explicit_client("mock", "Narrative from mock."),
         )
         .await
         .unwrap();
@@ -1080,8 +1164,6 @@ mod tests {
 
     #[tokio::test]
     async fn build_pr_body_uses_store_records_without_legacy_files() {
-        install_mock_llm();
-
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
 
@@ -1126,13 +1208,13 @@ mod tests {
         .await
         .unwrap();
 
-        let conclusion = make_test_conclusion();
-        let body = build_pr_body(
+        let body = build_pr_body_with_client(
             "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
             "Implement feature",
             "mock-model",
             &run_store.clone().into(),
-            Some(&conclusion),
+            Some(&make_test_conclusion()),
+            explicit_client("mock", "Narrative from mock."),
         )
         .await
         .unwrap();
@@ -1145,8 +1227,6 @@ mod tests {
 
     #[tokio::test]
     async fn build_pr_body_uses_plan_text_from_store_without_response_md() {
-        install_mock_llm();
-
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
 
@@ -1208,18 +1288,91 @@ mod tests {
         .await
         .unwrap();
 
-        let body = build_pr_body(
+        let body = build_pr_body_with_client(
             "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
             "Implement feature",
             "mock-model",
             &run_store.clone().into(),
             Some(&make_test_conclusion()),
+            explicit_client("mock", "Narrative from mock."),
         )
         .await
         .unwrap();
 
         assert!(body.contains("<summary>Full plan</summary>"));
         assert!(body.contains("Plan from store"));
+    }
+
+    #[tokio::test]
+    async fn build_pr_body_uses_explicit_llm_client() {
+        let store = test_store();
+        let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
+        let body = build_pr_body_with_client(
+            "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
+            "Implement feature",
+            "gpt-5.4",
+            &run_store.clone().into(),
+            Some(&make_test_conclusion()),
+            explicit_client("openai", "Narrative from explicit client."),
+        )
+        .await
+        .unwrap();
+
+        assert!(body.contains("Narrative from explicit client."));
+        assert!(!body.contains("Narrative from mock."));
+    }
+
+    #[tokio::test]
+    async fn build_pr_body_uses_vault_only_openai_codex_source() {
+        let server = MockServer::start_async().await;
+        let response_mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/v1/responses")
+                    .header("authorization", "Bearer vault-openai-key");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(openai_responses_payload("Narrative from vault source."));
+            })
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = Vault::load(dir.path().join("secrets.json")).unwrap();
+        vault
+            .set(
+                "openai_codex",
+                &serde_json::to_string(&openai_api_key_credential("vault-openai-key")).unwrap(),
+                SecretType::Credential,
+                None,
+            )
+            .unwrap();
+        let base_url = server.url("/v1");
+        let llm_source: Arc<dyn CredentialSource> =
+            Arc::new(VaultCredentialSource::with_env_lookup(
+                Arc::new(AsyncRwLock::new(vault)),
+                move |name| match name {
+                    "OPENAI_BASE_URL" => Some(base_url.clone()),
+                    _ => None,
+                },
+            ));
+
+        let store = test_store();
+        let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
+        let run_store_handle: RunStoreHandle = run_store.into();
+
+        let body = build_pr_body(
+            "diff --git a/src/lib.rs b/src/lib.rs\n+fn new_feature() {}\n",
+            "Implement feature",
+            "gpt-5.4",
+            &run_store_handle,
+            llm_source.as_ref(),
+            Some(&make_test_conclusion()),
+        )
+        .await
+        .unwrap();
+
+        assert!(body.contains("Narrative from vault source."));
+        response_mock.assert_async().await;
     }
 
     // ── parse_dot_summary tests ─────────────────────────────────────────
@@ -1341,6 +1494,8 @@ mod tests {
     async fn empty_diff_returns_none() {
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
+        let run_store_handle: RunStoreHandle = run_store.into();
+        let llm_source = test_llm_source();
         let creds = fabro_github::GitHubCredentials::App(fabro_github::GitHubAppCredentials {
             app_id:          "123".to_string(),
             private_key_pem: "unused".to_string(),
@@ -1356,7 +1511,8 @@ mod tests {
             model:       "claude-sonnet-4-20250514",
             draft:       false,
             auto_merge:  None,
-            run_store:   &run_store.clone().into(),
+            run_store:   &run_store_handle,
+            llm_source:  llm_source.as_ref(),
             conclusion:  None,
             run_state:   None,
         })

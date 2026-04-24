@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fabro_agent::Sandbox;
+use fabro_auth::{CredentialSource, EnvCredentialSource};
 use fabro_graphviz::graph::Graph as GvGraph;
 use fabro_store::{ArtifactStore, Database, RunProjection};
 use object_store::local::LocalFileSystem;
@@ -19,6 +20,7 @@ use crate::pipeline::types::{Executed, Initialized};
 use crate::pipeline::{billing_from_checkpoint, build_terminal_event};
 use crate::records::Checkpoint;
 use crate::run_options::RunOptions;
+use crate::services::{EngineServices, RunServices};
 
 /// These helpers stop at EXECUTE, so they emit the terminal event here to
 /// keep test consumers seeing the same end-of-run signal as production
@@ -31,7 +33,7 @@ use crate::run_options::RunOptions;
 async fn execute_and_emit_terminal(initialized: InitializedState) -> Executed {
     let executed = Box::pin(pipeline::execute(initialized.initialized)).await;
     initialized.store_logger.flush().await;
-    let state = executed.run_store.state().await.ok();
+    let state = executed.engine.run.run_store.state().await.ok();
     let billing = state
         .as_ref()
         .and_then(|s| s.checkpoint.as_ref())
@@ -44,7 +46,7 @@ async fn execute_and_emit_terminal(initialized: InitializedState) -> Executed {
         None,
         billing,
     );
-    executed.emitter.emit(&event);
+    executed.engine.run.emitter.emit(&event);
     initialized.store_logger.flush().await;
     executed
 }
@@ -62,6 +64,7 @@ struct InitializedOptions {
     hook_runner: Option<Arc<fabro_hooks::HookRunner>>,
     env:         HashMap<String, String>,
     checkpoint:  Option<Checkpoint>,
+    llm_source:  Option<Arc<dyn CredentialSource>>,
 }
 
 struct InitializedState {
@@ -143,27 +146,35 @@ async fn initialized(
     );
     InitializedState {
         initialized: Initialized {
-            graph: graph.clone(),
-            source: String::new(),
-            inputs: run_options.settings.run.inputs.clone(),
-            run_options: run_options.clone(),
-            workflow_path: None,
-            workflow_bundle: None,
-            run_store: run_store.into(),
-            checkpoint: options.checkpoint,
-            seed_context: None,
-            emitter,
-            sandbox,
-            registry: Arc::new(registry),
-            on_node: None,
+            graph:         graph.clone(),
+            source:        String::new(),
+            run_options:   run_options.clone(),
+            checkpoint:    options.checkpoint,
+            seed_context:  None,
+            on_node:       None,
             artifact_sink: Some(ArtifactSink::Store(artifact_store)),
-            run_control: None,
-            hook_runner: options.hook_runner,
-            env: options.env,
-            dry_run: run_options.dry_run_enabled(),
-            llm_client: None,
-            model: String::new(),
-            provider: fabro_llm::Provider::Anthropic,
+            run_control:   None,
+            engine:        Arc::new(EngineServices {
+                run:             RunServices::new(
+                    run_store.into(),
+                    emitter,
+                    sandbox,
+                    options.hook_runner,
+                    run_options.cancel_token.clone(),
+                    fabro_llm::Provider::Anthropic,
+                    options
+                        .llm_source
+                        .unwrap_or_else(|| Arc::new(EnvCredentialSource::new())),
+                ),
+                registry:        Arc::new(registry),
+                git_state:       std::sync::RwLock::new(None),
+                env:             options.env,
+                inputs:          run_options.settings.run.inputs.clone(),
+                dry_run:         run_options.dry_run_enabled(),
+                workflow_path:   None,
+                workflow_bundle: None,
+            }),
+            model:         String::new(),
         },
         store_logger,
     }
@@ -186,6 +197,7 @@ pub async fn run_graph(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -210,12 +222,15 @@ pub async fn run_graph_with_state(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
     let executed = execute_and_emit_terminal(initialized).await;
     let outcome = executed.outcome?;
     let state = executed
+        .engine
+        .run
         .run_store
         .state()
         .await
@@ -242,6 +257,7 @@ pub async fn run_graph_with_hooks(
             hook_runner: Some(hook_runner),
             env:         env.unwrap_or_default(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
@@ -268,12 +284,15 @@ pub async fn run_graph_with_hooks_and_state(
             hook_runner: Some(hook_runner),
             env:         env.unwrap_or_default(),
             checkpoint:  None,
+            llm_source:  None,
         },
     )
     .await;
     let executed = execute_and_emit_terminal(initialized).await;
     let outcome = executed.outcome?;
     let state = executed
+        .engine
+        .run
         .run_store
         .state()
         .await
@@ -299,6 +318,7 @@ pub async fn run_graph_from_checkpoint(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  Some(checkpoint.clone()),
+            llm_source:  None,
         },
     )
     .await;
@@ -324,12 +344,50 @@ pub async fn run_graph_from_checkpoint_with_state(
             hook_runner: None,
             env:         HashMap::new(),
             checkpoint:  Some(checkpoint.clone()),
+            llm_source:  None,
         },
     )
     .await;
     let executed = execute_and_emit_terminal(initialized).await;
     let outcome = executed.outcome?;
     let state = executed
+        .engine
+        .run
+        .run_store
+        .state()
+        .await
+        .map_err(|err| Error::engine(err.to_string()))?;
+    Ok((outcome, state))
+}
+
+pub async fn run_graph_with_state_and_llm_source(
+    registry: HandlerRegistry,
+    emitter: Arc<Emitter>,
+    sandbox: Arc<dyn Sandbox>,
+    graph: &GvGraph,
+    run_options: &RunOptions,
+    llm_source: Arc<dyn CredentialSource>,
+) -> Result<(Outcome, RunProjection)> {
+    let initialized = initialized(
+        registry,
+        emitter,
+        sandbox,
+        graph,
+        run_options,
+        InitializedOptions {
+            hook_runner: None,
+            env:         HashMap::new(),
+            checkpoint:  None,
+            llm_source:  Some(llm_source),
+        },
+    )
+    .await;
+    let executed = pipeline::execute(initialized.initialized).await;
+    initialized.store_logger.flush().await;
+    let outcome = executed.outcome?;
+    let state = executed
+        .engine
+        .run
         .run_store
         .state()
         .await
@@ -391,6 +449,29 @@ impl WorkflowRunner {
             Arc::clone(&self.sandbox),
             graph,
             run_options,
+        ))
+        .await
+    }
+
+    pub async fn run_with_state_and_llm_source(
+        &self,
+        graph: &GvGraph,
+        run_options: &RunOptions,
+        llm_source: Arc<dyn CredentialSource>,
+    ) -> Result<(Outcome, RunProjection)> {
+        let registry = self
+            .registry
+            .lock()
+            .unwrap()
+            .take()
+            .expect("WorkflowRunner may only be used once");
+        Box::pin(run_graph_with_state_and_llm_source(
+            registry,
+            Arc::clone(&self.emitter),
+            Arc::clone(&self.sandbox),
+            graph,
+            run_options,
+            llm_source,
         ))
         .await
     }

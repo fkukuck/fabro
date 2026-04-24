@@ -2,12 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fabro_agent::Sandbox;
 use fabro_graphviz::graph::Graph;
-use fabro_hooks::HookRunner;
 use fabro_interview::Interviewer;
 use fabro_llm::Provider;
-use fabro_llm::client::Client;
 use fabro_mcp::config::McpServerSettings;
 use fabro_model::FallbackTarget;
 use fabro_retro::retro::Retro;
@@ -30,6 +27,7 @@ use crate::records::{Checkpoint, Conclusion, RunSpec};
 use crate::run_control::RunControlState;
 use crate::run_options::{GitCheckpointOptions, LifecycleOptions, RunOptions};
 use crate::runtime_store::RunStoreHandle;
+use crate::services::{EngineServices, RunServices};
 use crate::transforms::Transform;
 use crate::workflow_bundle::WorkflowBundle;
 
@@ -263,25 +261,14 @@ pub struct InitOptions {
 pub struct Initialized {
     pub graph:               Graph,
     pub source:              String,
-    pub inputs:              HashMap<String, toml::Value>,
     pub run_options:         RunOptions,
-    pub workflow_path:       Option<PathBuf>,
-    pub workflow_bundle:     Option<Arc<WorkflowBundle>>,
-    pub run_store:           RunStoreHandle,
     pub(crate) checkpoint:   Option<Checkpoint>,
     pub(crate) seed_context: Option<Context>,
-    pub emitter:             Arc<Emitter>,
-    pub sandbox:             Arc<dyn Sandbox>,
-    pub registry:            Arc<HandlerRegistry>,
     pub on_node:             crate::OnNodeCallback,
     pub artifact_sink:       Option<ArtifactSink>,
     pub run_control:         Option<Arc<RunControlState>>,
-    pub hook_runner:         Option<Arc<HookRunner>>,
-    pub env:                 HashMap<String, String>,
-    pub dry_run:             bool,
-    pub llm_client:          Option<Client>,
+    pub engine:              Arc<EngineServices>,
     pub model:               String,
-    pub provider:            Provider,
 }
 
 /// Output of the EXECUTE phase.
@@ -290,15 +277,10 @@ pub struct Executed {
     pub graph:         Graph,
     pub outcome:       Result<Outcome, Error>,
     pub run_options:   RunOptions,
-    pub run_store:     RunStoreHandle,
-    pub hook_runner:   Option<Arc<HookRunner>>,
-    pub emitter:       Arc<Emitter>,
-    pub sandbox:       Arc<dyn Sandbox>,
     pub duration_ms:   u64,
     pub final_context: Context,
-    pub llm_client:    Option<Client>,
+    pub engine:        Arc<EngineServices>,
     pub model:         String,
-    pub provider:      Provider,
 }
 
 /// Output of the RETRO phase.
@@ -307,24 +289,19 @@ pub struct Retroed {
     pub graph:       Graph,
     pub outcome:     Result<Outcome, Error>,
     pub run_options: RunOptions,
-    pub run_store:   RunStoreHandle,
-    pub hook_runner: Option<Arc<HookRunner>>,
-    pub emitter:     Arc<Emitter>,
-    pub sandbox:     Arc<dyn Sandbox>,
     pub duration_ms: u64,
+    pub services:    Arc<RunServices>,
     pub retro:       Option<Retro>,
 }
 
 /// Output of the FINALIZE phase.
 #[non_exhaustive]
 pub struct Concluded {
-    pub run_id:        RunId,
-    pub outcome:       Result<Outcome, Error>,
-    pub conclusion:    Conclusion,
-    pub pushed_branch: Option<String>,
-    pub graph:         Graph,
-    pub run_options:   RunOptions,
-    pub emitter:       Arc<Emitter>,
+    pub outcome:     Result<Outcome, Error>,
+    pub conclusion:  Conclusion,
+    pub graph:       Graph,
+    pub run_options: RunOptions,
+    pub services:    Arc<RunServices>,
 }
 
 /// Output of the PULL_REQUEST phase.
@@ -348,17 +325,13 @@ pub struct TransformOptions {
 /// Options for the RETRO phase.
 pub struct RetroOptions {
     pub run_id:          RunId,
-    pub run_store:       RunStoreHandle,
+    pub services:        Arc<RunServices>,
     pub workflow_name:   String,
     pub goal:            String,
     pub run_dir:         PathBuf,
-    pub sandbox:         Arc<dyn Sandbox>,
-    pub emitter:         Option<Arc<Emitter>>,
     pub failed:          bool,
     pub run_duration_ms: u64,
     pub enabled:         bool,
-    pub llm_client:      Option<Client>,
-    pub provider:        Provider,
     pub model:           String,
 }
 
@@ -366,17 +339,13 @@ pub struct RetroOptions {
 pub struct FinalizeOptions {
     pub run_dir:          PathBuf,
     pub run_id:           RunId,
-    pub run_store:        RunStoreHandle,
     pub workflow_name:    String,
-    pub hook_runner:      Option<Arc<HookRunner>>,
     pub preserve_sandbox: bool,
     pub last_git_sha:     Option<String>,
 }
 
 /// Options for the PULL_REQUEST phase.
 pub struct PullRequestOptions {
-    pub run_dir:    PathBuf,
-    pub run_store:  RunStoreHandle,
     pub pr_config:  Option<PullRequestSettings>,
     pub github_app: Option<fabro_github::GitHubCredentials>,
     pub origin_url: Option<String>,

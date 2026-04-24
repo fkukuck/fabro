@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
-use fabro_hooks::{HookContext, HookEvent, HookRunner};
+use fabro_hooks::{HookContext, HookEvent};
 use fabro_types::{BilledTokenCounts, EventBody};
 
 use super::types::{Concluded, FinalizeOptions, Retroed};
 use crate::error::Error;
-use crate::event::{Emitter, Event, RunNoticeLevel};
+use crate::event::{Event, RunNoticeLevel};
 use crate::git::MetadataStore;
 use crate::outcome::{Outcome, OutcomeExt, StageStatus};
 use crate::records::{Checkpoint, Conclusion, StageSummary};
@@ -14,19 +12,7 @@ use crate::run_options::RunOptions;
 use crate::run_status::{FailureReason, RunStatus, SuccessReason};
 use crate::runtime_store::RunStoreHandle;
 use crate::sandbox_git::{git_diff_with_timeout, git_push_host};
-
-fn emit_run_notice(
-    emitter: &Emitter,
-    level: RunNoticeLevel,
-    code: impl Into<String>,
-    message: impl Into<String>,
-) {
-    emitter.emit(&Event::RunNotice {
-        level,
-        code: code.into(),
-        message: message.into(),
-    });
-}
+use crate::services::RunServices;
 
 pub fn classify_engine_result(
     engine_result: &Result<Outcome, Error>,
@@ -196,21 +182,19 @@ pub async fn write_finalize_commit(
 /// workspace can't stall downstream consumers waiting on the terminal event.
 async fn compute_final_patch(
     run_options: &RunOptions,
-    sandbox: &dyn fabro_agent::Sandbox,
+    services: &RunServices,
     status: StageStatus,
-    emitter: &Emitter,
 ) -> Option<String> {
     let base_sha = run_options.git.as_ref().and_then(|g| g.base_sha.clone())?;
     let timeout_ms = match status {
         StageStatus::Success | StageStatus::PartialSuccess => 30_000,
         _ => 10_000,
     };
-    match git_diff_with_timeout(sandbox, &base_sha, timeout_ms).await {
+    match git_diff_with_timeout(&*services.sandbox, &base_sha, timeout_ms).await {
         Ok(patch) if !patch.is_empty() => Some(patch),
         Ok(_) => None,
         Err(err) => {
-            emit_run_notice(
-                emitter,
+            services.emitter.notice(
                 RunNoticeLevel::Warn,
                 "git_diff_failed",
                 format!("final diff failed: {err}"),
@@ -287,20 +271,8 @@ pub(crate) fn build_terminal_event(
     }
 }
 
-async fn run_hooks(
-    hook_runner: Option<&HookRunner>,
-    hook_context: &HookContext,
-    sandbox: Arc<dyn fabro_agent::Sandbox>,
-) {
-    let Some(runner) = hook_runner else {
-        return;
-    };
-    let _ = runner.run(hook_context, sandbox, None).await;
-}
-
 async fn cleanup_sandbox(
-    hook_runner: Option<Arc<HookRunner>>,
-    sandbox: Arc<dyn fabro_agent::Sandbox>,
+    services: &RunServices,
     run_id: &fabro_types::RunId,
     workflow_name: &str,
     preserve: bool,
@@ -310,9 +282,9 @@ async fn cleanup_sandbox(
         *run_id,
         workflow_name.to_string(),
     );
-    run_hooks(hook_runner.as_deref(), &hook_ctx, Arc::clone(&sandbox)).await;
+    let _ = services.run_hooks(&hook_ctx).await;
     if !preserve {
-        sandbox.cleanup().await?;
+        services.sandbox.cleanup().await?;
     }
     Ok(())
 }
@@ -331,23 +303,20 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
         graph,
         outcome,
         run_options,
-        run_store: _run_store,
-        hook_runner,
-        emitter,
-        sandbox,
         duration_ms,
+        services,
         retro: _,
     } = retroed;
 
     let (final_status, failure_reason, _run_status) = classify_engine_result(&outcome);
 
-    let events = options.run_store.list_events().await.unwrap_or_default();
+    let events = services.run_store.list_events().await.unwrap_or_default();
     let stage_durations = crate::extract_stage_durations_from_events(&events);
     let artifact_count = events
         .iter()
         .filter(|envelope| matches!(envelope.event.body, EventBody::ArtifactCaptured(_)))
         .count();
-    let checkpoint = options
+    let checkpoint = services
         .run_store
         .state()
         .await
@@ -362,9 +331,10 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
         options.last_git_sha.clone(),
     );
 
-    let final_patch = compute_final_patch(&run_options, &*sandbox, final_status, &emitter).await;
-
-    write_finalize_commit(&run_options, &options.run_store, &conclusion).await;
+    let (final_patch, ()) = tokio::join!(
+        compute_final_patch(&run_options, &services, final_status),
+        write_finalize_commit(&run_options, &services.run_store, &conclusion),
+    );
 
     let terminal_event = build_terminal_event(
         &outcome,
@@ -374,29 +344,21 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
         final_patch,
         conclusion.billing.clone(),
     );
-    emitter.emit(&terminal_event);
+    services.emitter.emit(&terminal_event);
 
     if options.preserve_sandbox {
-        let info = sandbox.sandbox_info();
-        if info.is_empty() {
-            emit_run_notice(
-                &emitter,
-                RunNoticeLevel::Info,
-                "sandbox_preserved",
-                "sandbox preserved",
-            );
+        let info = services.sandbox.sandbox_info();
+        let message = if info.is_empty() {
+            "sandbox preserved".to_string()
         } else {
-            emit_run_notice(
-                &emitter,
-                RunNoticeLevel::Info,
-                "sandbox_preserved",
-                format!("sandbox preserved: {info}"),
-            );
-        }
+            format!("sandbox preserved: {info}")
+        };
+        services
+            .emitter
+            .notice(RunNoticeLevel::Info, "sandbox_preserved", message);
     }
     if let Err(e) = cleanup_sandbox(
-        options.hook_runner.clone().or(hook_runner),
-        sandbox,
+        &services,
         &options.run_id,
         &options.workflow_name,
         options.preserve_sandbox,
@@ -404,8 +366,7 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
     .await
     {
         tracing::warn!(error = %e, "Sandbox cleanup failed");
-        emit_run_notice(
-            &emitter,
+        services.emitter.notice(
             RunNoticeLevel::Warn,
             "sandbox_cleanup_failed",
             format!("sandbox cleanup failed: {e}"),
@@ -413,13 +374,11 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
     }
 
     Ok(Concluded {
-        run_id: run_options.run_id,
         outcome,
         conclusion,
-        pushed_branch: run_options.git.as_ref().and_then(|g| g.run_branch.clone()),
         graph,
         run_options,
-        emitter,
+        services,
     })
 }
 
@@ -435,7 +394,7 @@ mod tests {
     use object_store::memory::InMemory;
 
     use super::*;
-    use crate::event::StoreProgressLogger;
+    use crate::event::{Emitter, StoreProgressLogger};
     use crate::pipeline::types::Retroed;
     use crate::run_options::RunOptions;
 
@@ -478,26 +437,30 @@ mod tests {
         let emitter = Arc::new(Emitter::new(test_run_id()));
         let store_logger = StoreProgressLogger::new(run_store.clone());
         store_logger.register(&emitter);
+        let services = RunServices::new(
+            run_store.clone().into(),
+            Arc::clone(&emitter),
+            Arc::new(fabro_agent::LocalSandbox::new(
+                std::env::current_dir().unwrap(),
+            )),
+            None,
+            None,
+            fabro_model::Provider::Anthropic,
+            Arc::new(fabro_auth::EnvCredentialSource::new()),
+        );
         let retroed = Retroed {
             graph: Graph::new("test"),
             outcome: Ok(Outcome::success()),
             run_options: test_run_options(&run_dir),
-            run_store: run_store.clone().into(),
-            hook_runner: None,
-            emitter,
-            sandbox: Arc::new(fabro_agent::LocalSandbox::new(
-                std::env::current_dir().unwrap(),
-            )),
             duration_ms: 5,
+            services,
             retro: None,
         };
 
         let concluded = finalize(retroed, &FinalizeOptions {
             run_dir:          run_dir.clone(),
             run_id:           test_run_id(),
-            run_store:        run_store.clone().into(),
             workflow_name:    "test".to_string(),
-            hook_runner:      None,
             preserve_sandbox: true,
             last_git_sha:     None,
         })

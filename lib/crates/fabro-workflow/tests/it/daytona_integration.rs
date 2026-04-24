@@ -571,6 +571,7 @@ impl Handler for FileWriterHandler {
         let content = format!("output from {}", node.id);
         let cmd = format!("echo '{content}' > {}.txt", node.id);
         let _ = services
+            .run
             .sandbox
             .exec_command(&cmd, 10_000, None, None, None)
             .await;
@@ -1288,6 +1289,7 @@ impl Handler for AssetCreatorHandler {
             "echo 'test output' > test-results/output.txt"
         );
         services
+            .run
             .sandbox
             .exec_command(script, 30_000, None, None, None)
             .await

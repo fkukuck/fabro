@@ -16,6 +16,7 @@ The `fabro-agent` crate provides a session-based AI agent that runs an LLM with 
 
 ```toml title="Cargo.toml"
 [dependencies]
+fabro-auth = { git = "https://github.com/fabro-sh/fabro" }
 fabro-agent = { git = "https://github.com/fabro-sh/fabro" }
 fabro-llm = { git = "https://github.com/fabro-sh/fabro" }
 tokio = { version = "1", features = ["full"] }
@@ -25,18 +26,20 @@ tokio = { version = "1", features = ["full"] }
 
 ```rust
 use fabro_agent::{
-    AnthropicProfile, LocalSandbox, Session, SessionConfig,
+    AnthropicProfile, LocalSandbox, Session, SessionOptions,
 };
+use fabro_auth::EnvCredentialSource;
 use fabro_llm::client::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::from_env().await?;
+    let source = EnvCredentialSource::new();
+    let client = Client::from_source(&source).await?.as_ref().clone();
     let sandbox = Arc::new(LocalSandbox::new(PathBuf::from(".")));
     let profile = Arc::new(AnthropicProfile::new("claude-sonnet-4-5"));
-    let config = SessionConfig::default();
+    let config = SessionOptions::default();
 
     let mut session = Session::new(client, profile, sandbox, config);
     session.initialize().await;
@@ -66,9 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 pub fn new(
     llm_client: Client,
-    provider_profile: Arc<dyn ProviderProfile>,
+    provider_profile: Arc<dyn AgentProfile>,
     sandbox: Arc<dyn Sandbox>,
-    config: SessionConfig,
+    config: SessionOptions,
 ) -> Self
 ```
 
@@ -97,7 +100,7 @@ pub fn new(
 | `steer(message)` | Injects a system-level guidance message into the next LLM call. |
 | `follow_up(message)` | Queues a follow-up user message after the current turn completes. |
 
-### SessionConfig
+### SessionOptions
 
 All fields are public. Key settings with their defaults:
 
@@ -159,10 +162,10 @@ The `DaytonaSandbox` implementation (feature-gated: `daytona`) runs inside a Day
 
 ### Provider profiles
 
-The `ProviderProfile` trait encapsulates LLM-specific system prompts, tool definitions, and capability metadata. It controls how the agent presents itself to the model.
+The `AgentProfile` trait encapsulates LLM-specific system prompts, tool definitions, and capability metadata. It controls how the agent presents itself to the model.
 
 ```rust
-pub trait ProviderProfile: Send + Sync {
+pub trait AgentProfile: Send + Sync {
     fn provider(&self) -> Provider;
     fn model(&self) -> &str;
     fn tool_registry(&self) -> &ToolRegistry;
@@ -250,10 +253,10 @@ impl ToolHookCallback for MyHooks {
 }
 ```
 
-Pass hooks via `SessionConfig`:
+Pass hooks via `SessionOptions`:
 
 ```rust
-let config = SessionConfig {
+let config = SessionOptions {
     tool_hooks: Some(Arc::new(MyHooks)),
     ..Default::default()
 };
@@ -265,7 +268,7 @@ For simple sync approval, use `ToolApprovalAdapter` to wrap a closure:
 use fabro_agent::ToolApprovalAdapter;
 use std::sync::Arc;
 
-let config = SessionConfig {
+let config = SessionOptions {
     tool_hooks: Some(Arc::new(ToolApprovalAdapter(Arc::new(|tool_name, _args| {
         if tool_name == "shell" {
             Err("shell is not allowed".into())
@@ -299,6 +302,7 @@ You can use it independently of Fabro's workflow engine — add it as a dependen
 
 ```toml title="Cargo.toml"
 [dependencies]
+fabro-auth = { git = "https://github.com/fabro-sh/fabro" }
 fabro-llm = { git = "https://github.com/fabro-sh/fabro" }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
@@ -306,20 +310,20 @@ serde_json = "1"
 
 ### Quick start
 
-The simplest path is `Client::from_env()`, which auto-registers providers based on environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.):
+The simplest path is an environment-backed `CredentialSource`, then `Client::from_source(&source)`. That keeps credential resolution explicit while still auto-reading environment variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GEMINI_API_KEY`.
 
 ```rust
+use fabro_auth::EnvCredentialSource;
 use fabro_llm::client::Client;
 use fabro_llm::generate::{generate, GenerateParams};
-use fabro_llm::set_default_client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::from_env().await?;
-    set_default_client(client);
+    let source = EnvCredentialSource::new();
+    let client = Client::from_source(&source).await?;
 
     let result = generate(
-        GenerateParams::new("claude-sonnet-4-5")
+        GenerateParams::new("claude-sonnet-4-5", client.clone())
             .prompt("Explain ownership in Rust in two sentences.")
     ).await?;
 
@@ -333,13 +337,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `Client` is the core type that holds provider adapters and middleware. It routes each request to the appropriate provider.
 
-#### Creating from environment
+#### Creating from a credential source
 
 ```rust
-let client = Client::from_env().await?;
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+
+let source = EnvCredentialSource::new();
+let client = Client::from_source(&source).await?;
 ```
 
-This checks for API key environment variables and registers adapters for each provider found:
+For env-backed usage, `EnvCredentialSource` checks for API key environment variables and registers adapters for each provider found:
 
 | Environment variable | Provider |
 |---|---|
@@ -351,7 +359,7 @@ This checks for API key environment variables and registers adapters for each pr
 | `MINIMAX_API_KEY` | Minimax |
 | `INCEPTION_API_KEY` | Inception |
 
-The first provider registered becomes the default. Optional base URL overrides (e.g. `ANTHROPIC_BASE_URL`) are also read.
+The first provider registered becomes the default. Optional base URL overrides (e.g. `ANTHROPIC_BASE_URL`) are also read. For vault-backed usage inside Fabro, use `fabro_auth::VaultCredentialSource` instead.
 
 #### Creating manually
 
@@ -394,10 +402,14 @@ The `generate()` function wraps the client with automatic tool execution loops, 
 #### Basic completion
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{generate, GenerateParams};
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .system("You are a helpful assistant.")
         .prompt("What is the capital of France?")
         .temperature(0.0)
@@ -411,10 +423,14 @@ println!("{}", result.text());
 Use `.messages()` instead of `.prompt()` to pass a full conversation history:
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::types::Message;
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .messages(vec![
             Message::user("My name is Alice."),
             Message::assistant("Hello Alice! How can I help you?"),
@@ -431,7 +447,7 @@ You cannot use both `.prompt()` and `.messages()` on the same request — this r
 
 | Method | Type | Description |
 |---|---|---|
-| `new(model)` | `impl Into<String>` | Required. Model ID or alias (e.g. `"opus"`, `"claude-sonnet-4-5"`) |
+| `new(model, client)` | `(impl Into<String>, Arc<Client>)` | Required. Model ID or alias plus the client to use |
 | `.prompt(text)` | `impl Into<String>` | Convenience: sends a single user message |
 | `.messages(msgs)` | `Vec<Message>` | Full conversation history |
 | `.system(text)` | `impl Into<String>` | System prompt |
@@ -446,7 +462,6 @@ You cannot use both `.prompt()` and `.messages()` on the same request — this r
 | `.provider(name)` | `impl Into<String>` | Force a specific provider |
 | `.max_retries(n)` | `u32` | Retry count for transient errors (default: 2) |
 | `.timeout(config)` | `TimeoutConfig` | Total and per-step timeouts |
-| `.client(client)` | `Arc<Client>` | Override the default client |
 | `.abort_signal(token)` | `CancellationToken` | Cancel generation |
 | `.stop_when(f)` | `Fn(&[StepResult]) -> bool` | Custom stop condition after each tool round |
 
@@ -480,6 +495,8 @@ Tools let the model call functions during generation. There are two kinds:
 #### Defining an active tool
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::tools::Tool;
 use serde_json::json;
 
@@ -503,8 +520,12 @@ let weather = Tool::active(
 #### Using tools with generate
 
 ```rust
+# use fabro_auth::EnvCredentialSource;
+# use fabro_llm::client::Client;
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("What's the weather in San Francisco?")
         .tools(vec![weather])
         .max_tool_rounds(5)
@@ -527,18 +548,22 @@ Control how the model selects tools:
 use fabro_llm::types::ToolChoice;
 
 // Let the model decide (default)
-GenerateParams::new("opus").tool_choice(ToolChoice::Auto);
+# use fabro_auth::EnvCredentialSource;
+# use fabro_llm::client::Client;
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
+GenerateParams::new("opus", client.clone()).tool_choice(ToolChoice::Auto);
 
 // Force a specific tool
-GenerateParams::new("opus").tool_choice(ToolChoice::Named {
+GenerateParams::new("opus", client.clone()).tool_choice(ToolChoice::Named {
     tool_name: "get_weather".into()
 });
 
 // Force the model to use some tool
-GenerateParams::new("opus").tool_choice(ToolChoice::Required);
+GenerateParams::new("opus", client.clone()).tool_choice(ToolChoice::Required);
 
 // Prevent tool use
-GenerateParams::new("opus").tool_choice(ToolChoice::None);
+GenerateParams::new("opus", client.clone()).tool_choice(ToolChoice::None);
 ```
 
 #### Passive tools
@@ -546,6 +571,10 @@ GenerateParams::new("opus").tool_choice(ToolChoice::None);
 Passive tools let you handle execution yourself:
 
 ```rust
+# use fabro_auth::EnvCredentialSource;
+# use fabro_llm::client::Client;
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let search = Tool::passive(
     "search",
     "Search the codebase",
@@ -559,7 +588,7 @@ let search = Tool::passive(
 );
 
 let result = generate(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("Find all uses of the Config struct")
         .tools(vec![search])
 ).await?;
@@ -577,11 +606,15 @@ for call in result.tool_calls() {
 For simple cases where you only need the text deltas:
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{stream, GenerateParams};
 use futures::StreamExt;
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let stream_result = stream(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("Write a haiku about Rust")
 ).await?;
 
@@ -596,12 +629,16 @@ while let Some(chunk) = text_stream.next().await {
 For fine-grained control, consume `StreamEvent` variants directly:
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{stream, GenerateParams};
 use fabro_llm::types::StreamEvent;
 use futures::StreamExt;
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let mut stream_result = stream(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("Explain monads")
 ).await?;
 
@@ -646,9 +683,13 @@ while let Some(event) = stream_result.next().await {
 Generate typed JSON objects that conform to a JSON Schema:
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use fabro_llm::generate::{generate_object, GenerateParams};
 use serde_json::json;
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let schema = json!({
     "type": "object",
     "properties": {
@@ -663,7 +704,7 @@ let schema = json!({
 });
 
 let result = generate_object(
-    GenerateParams::new("claude-sonnet-4-5")
+    GenerateParams::new("claude-sonnet-4-5", client.clone())
         .prompt("Generate a profile for a fictional character"),
     schema,
 ).await?;
@@ -712,8 +753,15 @@ impl Middleware for LoggingMiddleware {
 Add middleware to the client:
 
 ```rust
-let mut client = Client::from_env().await?;
-client.add_middleware(Arc::new(LoggingMiddleware));
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
+use std::sync::Arc;
+
+let source = EnvCredentialSource::new();
+let mut client = Client::from_source(&source).await?;
+Arc::get_mut(&mut client)
+    .expect("install middleware before sharing the client")
+    .add_middleware(Arc::new(LoggingMiddleware));
 ```
 
 ### Model catalog
@@ -820,8 +868,12 @@ Retry only fires when `error.retryable()` returns `true` and respects `Retry-Aft
 Pass a `CancellationToken` to interrupt long-running generation:
 
 ```rust
+use fabro_auth::EnvCredentialSource;
+use fabro_llm::client::Client;
 use tokio_util::sync::CancellationToken;
 
+# let source = EnvCredentialSource::new();
+# let client = Client::from_source(&source).await?;
 let token = CancellationToken::new();
 let token_clone = token.clone();
 
@@ -832,7 +884,7 @@ tokio::spawn(async move {
 });
 
 let result = generate(
-    GenerateParams::new("opus")
+    GenerateParams::new("opus", client.clone())
         .prompt("Write a novel")
         .abort_signal(token)
 ).await;

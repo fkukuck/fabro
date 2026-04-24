@@ -262,7 +262,7 @@ impl Handler for HumanHandler {
         let question_id = question.id.clone();
         let stage_scope = StageScope::for_handler(context, &node.id);
         self.emit(
-            &services.emitter,
+            &services.run.emitter,
             &Event::InterviewStarted {
                 question_id:     question_id.clone(),
                 question:        question_text.clone(),
@@ -282,14 +282,15 @@ impl Handler for HumanHandler {
             },
             &stage_scope,
         );
-        self.tracker.interview_started(services.emitter.as_ref());
+        self.tracker
+            .interview_started(services.run.emitter.as_ref());
         let interview_start = Instant::now();
         let answer = self.interviewer.ask(question).await;
 
         // 4. Handle timeout
         if answer.value == AnswerValue::Timeout {
             self.emit(
-                &services.emitter,
+                &services.run.emitter,
                 &Event::InterviewTimeout {
                     question_id: question_id.clone(),
                     question:    question_text,
@@ -298,7 +299,8 @@ impl Handler for HumanHandler {
                 },
                 &stage_scope,
             );
-            self.tracker.interview_resolved(services.emitter.as_ref());
+            self.tracker
+                .interview_resolved(services.run.emitter.as_ref());
             let default_choice = node
                 .attrs
                 .get("human.default_choice")
@@ -320,6 +322,7 @@ impl Handler for HumanHandler {
         // 5. Handle unanswered / interrupted interview sessions.
         if answer.value == AnswerValue::Interrupted {
             if services
+                .run
                 .cancel_requested
                 .as_ref()
                 .is_some_and(|flag| flag.load(Ordering::SeqCst))
@@ -327,7 +330,7 @@ impl Handler for HumanHandler {
                 return Err(Error::Cancelled);
             }
             self.emit(
-                &services.emitter,
+                &services.run.emitter,
                 &Event::InterviewInterrupted {
                     question_id: question_id.clone(),
                     question:    question_text,
@@ -337,14 +340,15 @@ impl Handler for HumanHandler {
                 },
                 &stage_scope,
             );
-            self.tracker.interview_resolved(services.emitter.as_ref());
+            self.tracker
+                .interview_resolved(services.run.emitter.as_ref());
             return Ok(unanswered_human_gate(
                 "human interaction interrupted before an answer was provided",
             ));
         }
         if answer.value == AnswerValue::Skipped {
             self.emit(
-                &services.emitter,
+                &services.run.emitter,
                 &Event::InterviewCompleted {
                     question_id,
                     question: question_text,
@@ -353,13 +357,14 @@ impl Handler for HumanHandler {
                 },
                 &stage_scope,
             );
-            self.tracker.interview_resolved(services.emitter.as_ref());
+            self.tracker
+                .interview_resolved(services.run.emitter.as_ref());
             return Ok(unanswered_human_gate("human skipped interaction"));
         }
 
         // Emit interview completed for successful interactions
         self.emit(
-            &services.emitter,
+            &services.run.emitter,
             &Event::InterviewCompleted {
                 question_id,
                 question: question_text,
@@ -368,7 +373,8 @@ impl Handler for HumanHandler {
             },
             &stage_scope,
         );
-        self.tracker.interview_resolved(services.emitter.as_ref());
+        self.tracker
+            .interview_resolved(services.run.emitter.as_ref());
 
         // 6. Try fixed-choice match
         if let Some(selected) = find_choice_match(&answer, &choices) {
@@ -477,7 +483,7 @@ mod tests {
                 .expect("event log lock poisoned")
                 .push(event.clone());
         });
-        services.emitter = emitter;
+        services.run = services.run.with_emitter(emitter);
         services
     }
 

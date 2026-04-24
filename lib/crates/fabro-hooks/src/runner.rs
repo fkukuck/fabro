@@ -3,6 +3,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fabro_agent::Sandbox;
+use fabro_auth::CredentialSource;
+#[cfg(test)]
+use fabro_auth::EnvCredentialSource;
 
 use crate::config::{HookDefinition, HookSettings};
 use crate::executor::{HookExecutor, HookExecutorImpl};
@@ -13,17 +16,19 @@ use crate::types::{HookContext, HookDecision};
 pub struct HookRunner {
     config:            HookSettings,
     executor:          Arc<dyn HookExecutor>,
+    llm_source:        Arc<dyn CredentialSource>,
     /// Pre-compiled regexes keyed by matcher pattern string.
     compiled_matchers: HashMap<String, regex::Regex>,
 }
 
 impl HookRunner {
     #[must_use]
-    pub fn new(config: HookSettings) -> Self {
+    pub fn new(config: HookSettings, llm_source: Arc<dyn CredentialSource>) -> Self {
         let compiled_matchers = Self::compile_matchers(&config);
         Self {
             config,
             executor: Arc::new(HookExecutorImpl),
+            llm_source,
             compiled_matchers,
         }
     }
@@ -35,6 +40,7 @@ impl HookRunner {
         Self {
             config,
             executor,
+            llm_source: Arc::new(EnvCredentialSource::new()),
             compiled_matchers,
         }
     }
@@ -140,7 +146,13 @@ impl HookRunner {
             );
             let result = self
                 .executor
-                .execute(hook, context, sandbox.clone(), work_dir)
+                .execute(
+                    hook,
+                    context,
+                    sandbox.clone(),
+                    work_dir,
+                    self.llm_source.as_ref(),
+                )
                 .await;
             tracing::debug!(
                 hook = %hook.effective_name(),
@@ -188,7 +200,13 @@ impl HookRunner {
             );
             let result = self
                 .executor
-                .execute(hook, context, sandbox.clone(), work_dir)
+                .execute(
+                    hook,
+                    context,
+                    sandbox.clone(),
+                    work_dir,
+                    self.llm_source.as_ref(),
+                )
                 .await;
             tracing::debug!(
                 hook = %hook.effective_name(),
@@ -211,6 +229,7 @@ impl HookRunner {
 
 #[cfg(test)]
 mod tests {
+    use fabro_auth::EnvCredentialSource;
     use fabro_types::fixtures;
 
     use super::*;
@@ -229,6 +248,7 @@ mod tests {
             _context: &HookContext,
             _sandbox: Arc<dyn Sandbox>,
             _work_dir: Option<&Path>,
+            _llm_source: &dyn CredentialSource,
         ) -> HookResult {
             HookResult {
                 hook_name:   definition.name.clone(),
@@ -248,6 +268,10 @@ mod tests {
         HookContext::new(event, fixtures::RUN_1, "test-wf".into())
     }
 
+    fn test_llm_source() -> Arc<dyn CredentialSource> {
+        Arc::new(EnvCredentialSource::new())
+    }
+
     fn make_hook(event: HookEvent, name: &str) -> HookDefinition {
         HookDefinition {
             name: Some(name.into()),
@@ -263,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_hooks_returns_proceed() {
-        let runner = HookRunner::new(HookSettings::default());
+        let runner = HookRunner::new(HookSettings::default(), test_llm_source());
         let ctx = make_context(HookEvent::RunStart);
         let sandbox = make_sandbox();
         let decision = runner.run(&ctx, sandbox.clone(), None).await;
@@ -428,7 +452,7 @@ mod tests {
                 h
             }],
         };
-        let runner = HookRunner::new(config);
+        let runner = HookRunner::new(config, test_llm_source());
         let ctx = make_context(HookEvent::RunStart);
         let sandbox = make_sandbox();
         let decision = runner.run(&ctx, sandbox.clone(), None).await;
@@ -444,7 +468,7 @@ mod tests {
                 h
             }],
         };
-        let runner = HookRunner::new(config);
+        let runner = HookRunner::new(config, test_llm_source());
         let ctx = make_context(HookEvent::RunStart);
         let sandbox = make_sandbox();
         let decision = runner.run(&ctx, sandbox.clone(), None).await;

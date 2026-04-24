@@ -2,12 +2,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
-use fabro_config::CliLayer;
+use fabro_auth::{CredentialSource, EnvCredentialSource, VaultCredentialSource};
+use fabro_config::{CliLayer, Storage};
 use fabro_types::UserSettings;
 use fabro_types::settings::RunNamespace;
 use fabro_types::settings::cli::{OutputFormat, OutputVerbosity};
 use fabro_util::printer::Printer;
-use tokio::sync::OnceCell;
+use fabro_vault::Vault;
+use tokio::sync::{OnceCell, RwLock as AsyncRwLock};
 
 use crate::args::{
     ServerConnectionArgs, ServerTargetArgs, printer_from_verbosity, require_no_json_override,
@@ -39,6 +41,7 @@ pub(crate) struct CommandContext {
     user_settings:      UserSettings,
     server_mode:        ServerMode,
     server:             OnceCell<Arc<Client>>,
+    llm_source:         OnceCell<Arc<dyn CredentialSource>>,
 }
 
 struct ResolvedCommandSettings {
@@ -65,6 +68,7 @@ impl CommandContext {
             user_settings: resolved_settings.user_settings,
             server_mode: ServerMode::None,
             server: OnceCell::new(),
+            llm_source: OnceCell::new(),
         })
     }
 
@@ -147,6 +151,26 @@ impl CommandContext {
         Ok(Arc::clone(client))
     }
 
+    pub(crate) async fn llm_source(&self) -> Result<Arc<dyn CredentialSource>> {
+        let storage_dir = self.storage_dir.clone();
+
+        let source = self
+            .llm_source
+            .get_or_try_init(|| async move {
+                let source: Arc<dyn CredentialSource> =
+                    match Vault::load(Storage::new(&storage_dir).secrets_path()) {
+                        Ok(vault) => Arc::new(VaultCredentialSource::new(Arc::new(
+                            AsyncRwLock::new(vault),
+                        ))),
+                        Err(_) => Arc::new(EnvCredentialSource::new()),
+                    };
+                Ok::<Arc<dyn CredentialSource>, anyhow::Error>(source)
+            })
+            .await?;
+
+        Ok(Arc::clone(source))
+    }
+
     fn with_server_mode(&self, server_mode: ServerMode) -> Result<Self> {
         // Always reload settings for the requested derivation mode so the result
         // depends only on the requested mode, not on whichever derived context
@@ -164,6 +188,7 @@ impl CommandContext {
             user_settings: resolved_settings.user_settings,
             server_mode,
             server: OnceCell::new(),
+            llm_source: OnceCell::new(),
         })
     }
 }
@@ -235,6 +260,7 @@ mod tests {
             user_settings: resolved_settings.user_settings,
             server_mode: ServerMode::None,
             server: OnceCell::new(),
+            llm_source: OnceCell::new(),
         }
     }
 

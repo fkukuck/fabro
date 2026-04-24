@@ -9,7 +9,5 @@ pub mod retry;
 pub mod tools;
 pub mod types;
 
-// Re-export module-level default client helpers (Section 2.5).
 pub use error::{Error, ProviderErrorDetail, ProviderErrorKind, Result};
 pub use fabro_model::{ModelHandle, Provider};
-pub use generate::set_default_client;

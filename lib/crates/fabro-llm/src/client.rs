@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use fabro_auth::{ApiCredential, ApiKeyHeader};
+use fabro_auth::{ApiCredential, ApiKeyHeader, CredentialSource};
 use tracing::debug;
 
 use crate::error::Error;
@@ -38,107 +38,18 @@ impl Client {
         }
     }
 
-    /// Create a Client from environment variables (Section 2.2).
-    /// Registers providers whose API keys are present in the environment.
-    /// The first registered provider becomes the default.
+    /// Create a Client from a credential source.
     ///
     /// # Errors
     ///
-    /// Returns `Error` if any provider adapter fails to initialize.
-    pub async fn from_env() -> Result<Self, Error> {
-        let mut credentials = Vec::new();
-        if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Anthropic,
-                auth_header:   ApiKeyHeader::Custom {
-                    name:  "x-api-key".to_string(),
-                    value: key,
-                },
-                extra_headers: HashMap::new(),
-                base_url:      std::env::var("ANTHROPIC_BASE_URL").ok(),
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-            let mut extra_headers = HashMap::new();
-            let mut base_url = std::env::var("OPENAI_BASE_URL").ok();
-            let mut codex_mode = false;
-            if let Ok(account_id) = std::env::var("CHATGPT_ACCOUNT_ID") {
-                base_url = Some("https://chatgpt.com/backend-api/codex".to_string());
-                codex_mode = true;
-                extra_headers.insert("ChatGPT-Account-Id".to_string(), account_id);
-                extra_headers.insert("originator".to_string(), "fabro".to_string());
-            }
-            credentials.push(ApiCredential {
-                provider: fabro_model::Provider::OpenAi,
-                auth_header: ApiKeyHeader::Bearer(key),
-                extra_headers,
-                base_url,
-                codex_mode,
-                org_id: std::env::var("OPENAI_ORG_ID").ok(),
-                project_id: std::env::var("OPENAI_PROJECT_ID").ok(),
-            });
-        }
-        if let Ok(key) =
-            std::env::var("GEMINI_API_KEY").or_else(|_| std::env::var("GOOGLE_API_KEY"))
-        {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Gemini,
-                auth_header:   ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url:      std::env::var("GEMINI_BASE_URL").ok(),
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        if let Ok(key) = std::env::var("KIMI_API_KEY") {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Kimi,
-                auth_header:   ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url:      None,
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        if let Ok(key) = std::env::var("ZAI_API_KEY") {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Zai,
-                auth_header:   ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url:      None,
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        if let Ok(key) = std::env::var("MINIMAX_API_KEY") {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Minimax,
-                auth_header:   ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url:      None,
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        if let Ok(key) = std::env::var("INCEPTION_API_KEY") {
-            credentials.push(ApiCredential {
-                provider:      fabro_model::Provider::Inception,
-                auth_header:   ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url:      None,
-                codex_mode:    false,
-                org_id:        None,
-                project_id:    None,
-            });
-        }
-        Self::from_credentials(credentials).await
+    /// Returns `Error` if the source cannot resolve credentials or any provider
+    /// adapter fails to initialize.
+    pub async fn from_source(source: &dyn CredentialSource) -> Result<Self, Error> {
+        let resolved = source.resolve().await.map_err(|err| Error::Configuration {
+            message: format!("Failed to resolve LLM credentials: {err}"),
+            source:  None,
+        })?;
+        Self::from_credentials(resolved.credentials).await
     }
 
     /// Create a Client from typed provider credentials.
@@ -418,6 +329,8 @@ fn auth_value(auth_header: &ApiKeyHeader) -> String {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use fabro_auth::{CredentialSource, ResolvedCredentials};
     use futures::stream;
 
     use super::*;
@@ -503,6 +416,27 @@ mod tests {
             speed:            None,
             metadata:         None,
             provider_options: None,
+        }
+    }
+
+    struct StubSource {
+        credentials: Vec<ApiCredential>,
+    }
+
+    #[async_trait]
+    impl CredentialSource for StubSource {
+        async fn resolve(&self) -> anyhow::Result<ResolvedCredentials> {
+            Ok(ResolvedCredentials {
+                credentials: self.credentials.clone(),
+                auth_issues: Vec::new(),
+            })
+        }
+
+        async fn configured_providers(&self) -> Vec<fabro_model::Provider> {
+            self.credentials
+                .iter()
+                .map(|credential| credential.provider)
+                .collect()
         }
     }
 
@@ -610,6 +544,39 @@ mod tests {
 
         assert_eq!(client.provider_names(), vec!["kimi"]);
         assert_eq!(client.default_provider(), Some("kimi"));
+    }
+
+    #[tokio::test]
+    async fn from_source_registers_provider_from_resolved_credentials() {
+        let source = StubSource {
+            credentials: vec![ApiCredential {
+                provider:      fabro_model::Provider::Anthropic,
+                auth_header:   ApiKeyHeader::Custom {
+                    name:  "x-api-key".to_string(),
+                    value: "anthropic-key".to_string(),
+                },
+                extra_headers: HashMap::new(),
+                base_url:      None,
+                codex_mode:    false,
+                org_id:        None,
+                project_id:    None,
+            }],
+        };
+
+        let client = Client::from_source(&source).await.unwrap();
+
+        assert_eq!(client.provider_names(), vec!["anthropic"]);
+    }
+
+    #[tokio::test]
+    async fn from_source_supports_empty_credentials() {
+        let source = StubSource {
+            credentials: Vec::new(),
+        };
+
+        let client = Client::from_source(&source).await.unwrap();
+
+        assert!(client.provider_names().is_empty());
     }
 
     #[tokio::test]

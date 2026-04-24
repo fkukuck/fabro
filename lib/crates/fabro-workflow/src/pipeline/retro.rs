@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use fabro_agent::SessionEvent;
+use fabro_llm::client::Client;
 use fabro_retro::retro::{Retro, derive_retro};
 use fabro_retro::retro_agent::{
     RETRO_DATA_DIR, build_retro_prompt, dry_run_narrative, run_retro_agent,
@@ -10,38 +11,40 @@ use super::types::{Executed, RetroOptions, Retroed};
 use crate::event::Event;
 
 pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
-    let state = match options.run_store.state().await {
+    let services = &options.services;
+    let state = match services.run_store.state().await {
         Ok(state) => state,
         Err(e) => {
             tracing::warn!(error = %e, "Could not load run state, skipping retro");
-            if let Some(ref emitter) = options.emitter {
-                emitter.emit(&Event::RetroFailed {
-                    error:       e.to_string(),
-                    duration_ms: 0,
-                });
-            }
+            services.emitter.emit(&Event::RetroFailed {
+                error:       e.to_string(),
+                duration_ms: 0,
+            });
             return None;
         }
     };
     let Some(ref cp) = state.checkpoint else {
         tracing::warn!("Could not load checkpoint, skipping retro");
-        if let Some(ref emitter) = options.emitter {
-            emitter.emit(&Event::RetroFailed {
-                error:       "checkpoint not found".to_string(),
-                duration_ms: 0,
-            });
-        }
+        services.emitter.emit(&Event::RetroFailed {
+            error:       "checkpoint not found".to_string(),
+            duration_ms: 0,
+        });
         return None;
     };
 
     let completed_stages = crate::build_completed_stages(cp, options.failed);
-    let stage_durations = match options.run_store.list_events().await {
-        Ok(events) => crate::extract_stage_durations_from_events(&events),
+    let events = match services.run_store.list_events().await {
+        Ok(events) => events,
         Err(err) => {
-            tracing::warn!(error = %err, "Could not load events from store, skipping stage durations");
-            std::collections::HashMap::default()
+            tracing::warn!(error = %err, "Could not load events from store, skipping retro");
+            services.emitter.emit(&Event::RetroFailed {
+                error:       err.to_string(),
+                duration_ms: 0,
+            });
+            return None;
         }
     };
+    let stage_durations = crate::extract_stage_durations_from_events(&events);
     let mut retro = derive_retro(
         options.run_id,
         &options.workflow_name,
@@ -53,81 +56,63 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
 
     let retro_start = std::time::Instant::now();
     let retro_prompt = build_retro_prompt(RETRO_DATA_DIR);
-    if let Some(ref emitter) = options.emitter {
-        emitter.emit(&Event::RetroStarted {
-            prompt:   Some(retro_prompt),
-            provider: Some(options.provider.as_str().to_string()),
-            model:    Some(options.model.clone()),
-        });
-    }
+    services.emitter.emit(&Event::RetroStarted {
+        prompt:   Some(retro_prompt),
+        provider: Some(services.provider.as_str().to_string()),
+        model:    Some(options.model.clone()),
+    });
 
     let retro_result = if dry_run {
         Ok((dry_run_narrative(), String::new()))
-    } else if let Some(client) = options.llm_client.as_ref() {
-        let emitter_clone = options.emitter.clone();
-        let event_callback: Option<Arc<dyn Fn(SessionEvent) + Send + Sync>> =
-            emitter_clone.map(|emitter| -> Arc<dyn Fn(SessionEvent) + Send + Sync> {
-                Arc::new(move |event: SessionEvent| {
-                    emitter.touch();
-                    if !event.event.is_streaming_noise() {
-                        emitter.emit(&Event::Agent {
-                            stage:             "retro".to_string(),
-                            visit:             1,
-                            event:             event.event.clone(),
-                            session_id:        Some(event.session_id.clone()),
-                            parent_session_id: event.parent_session_id.clone(),
-                        });
-                    }
-                })
-            });
-        let events = match options.run_store.list_events().await {
-            Ok(events) => events,
-            Err(err) => {
-                tracing::warn!(error = %err, "Could not load events from store, skipping retro");
-                if let Some(ref emitter) = options.emitter {
-                    emitter.emit(&Event::RetroFailed {
-                        error:       err.to_string(),
-                        duration_ms: 0,
-                    });
-                }
-                return None;
-            }
-        };
-        run_retro_agent(
-            &options.sandbox,
-            &state,
-            &events,
-            &options.run_dir,
-            client,
-            options.provider,
-            &options.model,
-            event_callback,
-        )
-        .await
-        .map(|result| (result.narrative, result.response))
     } else {
-        Err(anyhow::anyhow!("No LLM client available"))
+        match Client::from_source(services.llm_source.as_ref()).await {
+            Ok(client) => {
+                let emitter = Arc::clone(&services.emitter);
+                let event_callback: Arc<dyn Fn(SessionEvent) + Send + Sync> =
+                    Arc::new(move |event: SessionEvent| {
+                        emitter.touch();
+                        if !event.event.is_streaming_noise() {
+                            emitter.emit(&Event::Agent {
+                                stage:             "retro".to_string(),
+                                visit:             1,
+                                event:             event.event.clone(),
+                                session_id:        Some(event.session_id.clone()),
+                                parent_session_id: event.parent_session_id.clone(),
+                            });
+                        }
+                    });
+                run_retro_agent(
+                    &services.sandbox,
+                    &state,
+                    &events,
+                    &options.run_dir,
+                    &client,
+                    services.provider,
+                    &options.model,
+                    Some(event_callback),
+                )
+                .await
+                .map(|result| (result.narrative, result.response))
+            }
+            Err(err) => Err(anyhow::anyhow!(err.to_string())),
+        }
     };
 
     let duration_ms = crate::millis_u64(retro_start.elapsed());
     match retro_result {
         Ok((narrative, response)) => {
             retro.apply_narrative(narrative);
-            if let Some(ref emitter) = options.emitter {
-                emitter.emit(&Event::RetroCompleted {
-                    duration_ms,
-                    response: Some(response),
-                    retro: serde_json::to_value(&retro).ok(),
-                });
-            }
+            services.emitter.emit(&Event::RetroCompleted {
+                duration_ms,
+                response: Some(response),
+                retro: serde_json::to_value(&retro).ok(),
+            });
         }
         Err(e) => {
-            if let Some(ref emitter) = options.emitter {
-                emitter.emit(&Event::RetroFailed {
-                    error: e.to_string(),
-                    duration_ms,
-                });
-            }
+            services.emitter.emit(&Event::RetroFailed {
+                error: e.to_string(),
+                duration_ms,
+            });
             tracing::debug!(error = %e, "Retro agent skipped");
         }
     }
@@ -144,15 +129,10 @@ pub async fn retro(executed: Executed, options: &RetroOptions) -> Retroed {
         graph,
         outcome,
         run_options,
-        run_store,
-        hook_runner,
-        emitter,
-        sandbox,
         duration_ms,
         final_context: _,
-        llm_client: _,
+        engine,
         model: _,
-        provider: _,
     } = executed;
 
     let dry_run = run_options.dry_run_enabled();
@@ -167,11 +147,8 @@ pub async fn retro(executed: Executed, options: &RetroOptions) -> Retroed {
         graph,
         outcome,
         run_options,
-        run_store,
-        hook_runner,
-        emitter,
-        sandbox,
         duration_ms,
+        services: Arc::clone(&engine.run),
         retro,
     }
 }
@@ -182,6 +159,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use fabro_auth::{CredentialSource, EnvCredentialSource};
     use fabro_graphviz::graph::Graph;
     use fabro_store::Database;
     use fabro_types::{RunId, WorkflowSettings, fixtures};
@@ -193,6 +171,7 @@ mod tests {
     use crate::pipeline::types::Executed;
     use crate::records::{Checkpoint, CheckpointExt, RunSpec};
     use crate::run_options::RunOptions;
+    use crate::services::{EngineServices, RunServices};
 
     fn test_run_id() -> RunId {
         fixtures::RUN_1
@@ -310,6 +289,10 @@ mod tests {
         }
     }
 
+    fn test_llm_source() -> Arc<dyn CredentialSource> {
+        Arc::new(EnvCredentialSource::new())
+    }
+
     #[tokio::test]
     async fn retro_phase_persists_retro_in_projection() {
         let temp = tempfile::tempdir().unwrap();
@@ -324,34 +307,36 @@ mod tests {
         let sandbox: Arc<dyn fabro_agent::Sandbox> = Arc::new(fabro_agent::LocalSandbox::new(
             std::env::current_dir().unwrap(),
         ));
+        let services = RunServices::new(
+            run_store.clone().into(),
+            Arc::clone(&emitter),
+            Arc::clone(&sandbox),
+            None,
+            None,
+            fabro_llm::Provider::Anthropic,
+            test_llm_source(),
+        );
+        let mut engine = EngineServices::test_default();
+        engine.run = Arc::clone(&services);
         let executed = Executed {
             graph:         Graph::new("test"),
             outcome:       Ok(crate::outcome::Outcome::success()),
             run_options:   test_run_options(&run_dir),
-            run_store:     run_store.clone().into(),
-            hook_runner:   None,
-            emitter:       Arc::clone(&emitter),
-            sandbox:       Arc::clone(&sandbox),
             duration_ms:   1,
             final_context: Context::new(),
-            llm_client:    None,
+            engine:        Arc::new(engine),
             model:         "test-model".to_string(),
-            provider:      fabro_llm::Provider::Anthropic,
         };
 
         let retroed = retro(executed, &RetroOptions {
             run_id: test_run_id(),
-            run_store: run_store.into(),
+            services,
             workflow_name: "test".to_string(),
             goal: "Ship it".to_string(),
             run_dir: run_dir.clone(),
-            sandbox,
-            emitter: Some(emitter),
             failed: false,
             run_duration_ms: 1,
             enabled: true,
-            llm_client: None,
-            provider: fabro_llm::Provider::Anthropic,
             model: "test-model".to_string(),
         })
         .await;
@@ -373,24 +358,29 @@ mod tests {
             let seen = Arc::clone(&seen);
             move |event| seen.lock().unwrap().push(event.clone())
         });
+        let services = RunServices::new(
+            test_run_store(&run_dir, &checkpoint).await.into(),
+            Arc::clone(&emitter),
+            Arc::new(fabro_agent::LocalSandbox::new(
+                std::env::current_dir().unwrap(),
+            )),
+            None,
+            None,
+            fabro_llm::Provider::Anthropic,
+            test_llm_source(),
+        );
 
         let retro = run_retro(
             &RetroOptions {
-                run_id:          test_run_id(),
-                run_store:       test_run_store(&run_dir, &checkpoint).await.into(),
-                workflow_name:   "test".to_string(),
-                goal:            "Ship it".to_string(),
-                run_dir:         run_dir.clone(),
-                sandbox:         Arc::new(fabro_agent::LocalSandbox::new(
-                    std::env::current_dir().unwrap(),
-                )),
-                emitter:         Some(Arc::clone(&emitter)),
-                failed:          false,
+                run_id: test_run_id(),
+                services,
+                workflow_name: "test".to_string(),
+                goal: "Ship it".to_string(),
+                run_dir: run_dir.clone(),
+                failed: false,
                 run_duration_ms: 1,
-                enabled:         true,
-                llm_client:      None,
-                provider:        fabro_llm::Provider::Anthropic,
-                model:           "test-model".to_string(),
+                enabled: true,
+                model: "test-model".to_string(),
             },
             true,
         )

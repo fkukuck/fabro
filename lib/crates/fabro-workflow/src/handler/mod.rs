@@ -13,163 +13,18 @@ pub mod wait;
 
 use std::any::Any;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use async_trait::async_trait;
-use fabro_agent::Sandbox;
 use fabro_graphviz::graph::{Graph, Node, shape_to_handler_type};
-use fabro_hooks::{HookContext, HookDecision, HookRunner};
 use fabro_interview::Interviewer;
-use fabro_model::Provider;
-#[cfg(test)]
-use fabro_store::Database;
-#[cfg(test)]
-use object_store::memory::InMemory;
-use tokio::time;
-use tokio_util::sync::CancellationToken;
 
 use crate::context::Context;
 use crate::error::Error;
-use crate::event::Emitter;
 use crate::outcome::{Outcome, OutcomeExt};
-use crate::runtime_store::RunStoreHandle;
-use crate::sandbox_git::GitState;
-use crate::workflow_bundle::WorkflowBundle;
-
-/// Shared services available to all handlers during execution.
-pub struct EngineServices {
-    pub registry:         Arc<HandlerRegistry>,
-    pub emitter:          Arc<Emitter>,
-    pub sandbox:          Arc<dyn Sandbox>,
-    pub run_store:        RunStoreHandle,
-    /// Git state for the current run. Set via `set_git_state` at the start of
-    /// `run_via_core` and read by parallel/fan-in handlers.
-    pub(crate) git_state: std::sync::RwLock<Option<Arc<GitState>>>,
-    /// Hook runner for user-defined lifecycle hooks.
-    pub hook_runner:      Option<Arc<HookRunner>>,
-    /// Environment variables from `[sandbox.env]` config, injected into command
-    /// nodes.
-    pub env:              HashMap<String, String>,
-    /// Typed values from `[run.inputs]`, available to prompt templates.
-    pub inputs:           HashMap<String, toml::Value>,
-    /// When true, handlers should skip real execution and return simulated
-    /// results.
-    pub dry_run:          bool,
-    /// Optional run-scoped cancellation flag from the core executor.
-    pub cancel_requested: Option<Arc<AtomicBool>>,
-    /// Resolved default provider for the current run.
-    pub provider:         Provider,
-    /// Logical path of the current workflow when running from a bundle.
-    pub workflow_path:    Option<PathBuf>,
-    /// Bundled workflows available for child-workflow resolution.
-    pub workflow_bundle:  Option<Arc<WorkflowBundle>>,
-}
-
-impl EngineServices {
-    /// Read the current git state (if any).
-    pub fn git_state(&self) -> Option<Arc<GitState>> {
-        self.git_state.read().unwrap().clone()
-    }
-
-    /// Set the git state for the current run.
-    pub fn set_git_state(&self, state: Option<Arc<GitState>>) {
-        *self.git_state.write().unwrap() = state;
-    }
-
-    /// Bridge the core executor's atomic cancel flag to sandbox command
-    /// cancellation.
-    pub fn sandbox_cancel_token(&self) -> Option<CancellationToken> {
-        sandbox_cancel_token(self.cancel_requested.clone())
-    }
-
-    /// Run lifecycle hooks and return the merged decision.
-    /// Returns `Proceed` if no hook runner is configured.
-    pub async fn run_hooks(&self, hook_context: &HookContext) -> HookDecision {
-        let Some(ref runner) = self.hook_runner else {
-            return HookDecision::Proceed;
-        };
-        runner.run(hook_context, self.sandbox.clone(), None).await
-    }
-
-    /// Test-only default: empty registry, no hooks, local sandbox at cwd.
-    #[cfg(test)]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "This test helper must initialize a current-thread runtime safely from both sync tests and #[tokio::test]."
-    )]
-    pub fn test_default() -> Self {
-        let store = Arc::new(Database::new(
-            Arc::new(InMemory::new()),
-            "",
-            Duration::from_millis(1),
-            None,
-        ));
-        Self {
-            registry:         Arc::new(HandlerRegistry::new(Box::new(start::StartHandler))),
-            emitter:          Arc::new(Emitter::default()),
-            sandbox:          Arc::new(fabro_agent::LocalSandbox::new(
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            )),
-            // Build the test run store on a dedicated runtime so this helper
-            // remains safe to call from both sync tests and #[tokio::test].
-            run_store:        std::thread::spawn(move || {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("test runtime should initialize")
-                    .block_on(async {
-                        store
-                            .create_run(&fabro_types::RunId::new())
-                            .await
-                            .expect("slate-backed test run store should initialize")
-                    })
-            })
-            .join()
-            .expect("test run store thread should join")
-            .into(),
-            git_state:        std::sync::RwLock::new(None),
-            hook_runner:      None,
-            env:              HashMap::new(),
-            inputs:           HashMap::new(),
-            dry_run:          false,
-            cancel_requested: None,
-            provider:         Provider::Anthropic,
-            workflow_path:    None,
-            workflow_bundle:  None,
-        }
-    }
-}
-
-pub(crate) fn sandbox_cancel_token(
-    cancel_requested: Option<Arc<AtomicBool>>,
-) -> Option<CancellationToken> {
-    let cancel_requested = cancel_requested?;
-    let token = CancellationToken::new();
-
-    if cancel_requested.load(Ordering::Relaxed) {
-        token.cancel();
-        return Some(token);
-    }
-
-    let token_clone = token.clone();
-    tokio::spawn(async move {
-        loop {
-            if token_clone.is_cancelled() {
-                return;
-            }
-            if cancel_requested.load(Ordering::Relaxed) {
-                token_clone.cancel();
-                return;
-            }
-            time::sleep(Duration::from_millis(10)).await;
-        }
-    });
-
-    Some(token)
-}
+pub(crate) use crate::services::sandbox_cancel_token;
+pub use crate::services::{EngineServices, RunServices};
 
 /// The handler interface for node execution.
 #[async_trait]

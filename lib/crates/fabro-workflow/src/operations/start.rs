@@ -723,7 +723,7 @@ impl RunSession {
         let mut initialized = Box::pin(pipeline::initialize(persisted, init_options)).await?;
         initialized.on_node = on_node;
 
-        let sandbox_for_cleanup = Arc::clone(&initialized.sandbox);
+        let sandbox_for_cleanup = Arc::clone(&initialized.engine.run.sandbox);
         let cleanup_guard = scopeguard::guard((), move |()| {
             if preserve_sandbox {
                 return;
@@ -745,17 +745,13 @@ impl RunSession {
 
         let retro_opts = RetroOptions {
             run_id: executed.run_options.run_id,
-            run_store: executed.run_store.clone(),
+            services: Arc::clone(&executed.engine.run),
             workflow_name: executed.graph.name.clone(),
             goal: executed.graph.goal().to_string(),
             run_dir: executed.run_options.run_dir.clone(),
-            sandbox: Arc::clone(&executed.sandbox),
-            emitter: Some(Arc::clone(&executed.emitter)),
             failed,
             run_duration_ms: executed.duration_ms,
             enabled: self.retro_enabled,
-            llm_client: executed.llm_client.clone(),
-            provider: executed.provider,
             model: executed.model.clone(),
         };
 
@@ -766,15 +762,11 @@ impl RunSession {
         let finalize_opts = FinalizeOptions {
             run_dir:          retroed.run_options.run_dir.clone(),
             run_id:           retroed.run_options.run_id,
-            run_store:        retroed.run_store.clone(),
             workflow_name:    retroed.graph.name.clone(),
-            hook_runner:      retroed.hook_runner.clone(),
             preserve_sandbox: self.preserve_sandbox,
             last_git_sha:     last_git_sha.lock().unwrap().clone(),
         };
         let pr_opts = PullRequestOptions {
-            run_dir:    retroed.run_options.run_dir.clone(),
-            run_store:  retroed.run_store.clone(),
             pr_config:  self.pr_config,
             github_app: self.pr_github_app,
             origin_url: self.pr_origin_url,

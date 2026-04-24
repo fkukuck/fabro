@@ -355,7 +355,7 @@ flowchart TB
 - Test: `lib/crates/fabro-workflow/tests/it/` — resume/rewind rejection tests
 
 **Approach:**
-- Define a single canonical error message string such as: `"run <id> is archived; run \`fabro unarchive <id>\` to restore it and try again"`. Reuse across handlers.
+- Define a single canonical error message string such as: ``run <id> is archived; run `fabro unarchive <id>` to restore it and try again``. Reuse across handlers.
 - In each handler, check `status == Archived` before the existing status-class check so the archived-specific message wins.
 - Do NOT reject in `attach_event_is_terminal()` (`server.rs:1651`) — that matches on `EventBody`, not status, and archive is never a fresh-attach endpoint.
 - Leave `DELETE /runs/{id}` unguarded — archived runs being delete-able preserves the orthogonality of archive-and-delete (origin Scope Boundaries).

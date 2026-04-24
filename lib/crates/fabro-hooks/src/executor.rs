@@ -8,6 +8,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use fabro_agent::Sandbox;
 use fabro_agent::tool_registry::ToolContext;
+use fabro_auth::CredentialSource;
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::generate::{GenerateParams, generate_object};
 use fabro_llm::types::{Message, Request, ToolResult};
@@ -48,6 +49,7 @@ pub trait HookExecutor: Send + Sync {
         context: &HookContext,
         sandbox: Arc<dyn Sandbox>,
         work_dir: Option<&Path>,
+        llm_source: &dyn CredentialSource,
     ) -> HookResult;
 }
 
@@ -288,6 +290,7 @@ impl HookExecutorImpl {
         model: Option<&str>,
         context: &HookContext,
         env: &E,
+        llm_source: &dyn CredentialSource,
     ) -> HookDecision
     where
         E: Env + Clone + Send + Sync + fmt::Debug + 'static,
@@ -301,7 +304,15 @@ impl HookExecutorImpl {
         let user_msg = Self::build_hook_user_message(&prompt, context);
 
         Self::execute_llm_with_timeout(definition.timeout(), "prompt", || async move {
-            let params = GenerateParams::new(&resolved_model)
+            let client = match LlmClient::from_source(llm_source).await {
+                Ok(client) => Arc::new(client),
+                Err(e) => {
+                    tracing::warn!(error = %e, "prompt hook client creation failed, proceeding");
+                    return HookDecision::Proceed;
+                }
+            };
+
+            let params = GenerateParams::new(&resolved_model, client)
                 .system(HOOK_EVALUATOR_SYSTEM_PROMPT)
                 .prompt(user_msg)
                 .max_tokens(1024);
@@ -342,6 +353,7 @@ impl HookExecutorImpl {
         context: &HookContext,
         sandbox: Arc<dyn Sandbox>,
         env: &E,
+        llm_source: &dyn CredentialSource,
     ) -> HookDecision
     where
         E: Env + Clone + Send + Sync + fmt::Debug + 'static,
@@ -355,7 +367,7 @@ impl HookExecutorImpl {
         let user_msg = Self::build_hook_user_message(&prompt, context);
 
         Self::execute_llm_with_timeout(definition.timeout(), "agent", || async move {
-            let client = match LlmClient::from_env().await {
+            let client = match LlmClient::from_source(llm_source).await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(error = %e, "agent hook client creation failed, proceeding");
@@ -604,6 +616,7 @@ impl HookExecutor for HookExecutorImpl {
         context: &HookContext,
         sandbox: Arc<dyn Sandbox>,
         work_dir: Option<&Path>,
+        llm_source: &dyn CredentialSource,
     ) -> HookResult {
         use std::sync::OnceLock;
         static HTTP_CLIENTS: OnceLock<HttpClientCache> = OnceLock::new();
@@ -654,7 +667,17 @@ impl HookExecutor for HookExecutorImpl {
                     ref prompt,
                     ref model,
                 }),
-            ) => Self::execute_prompt(definition, prompt, model.as_deref(), context, &env).await,
+            ) => {
+                Self::execute_prompt(
+                    definition,
+                    prompt,
+                    model.as_deref(),
+                    context,
+                    &env,
+                    llm_source,
+                )
+                .await
+            }
             Some(
                 Cow::Borrowed(HookType::Agent {
                     ref prompt,
@@ -675,6 +698,7 @@ impl HookExecutor for HookExecutorImpl {
                     context,
                     sandbox,
                     &env,
+                    llm_source,
                 )
                 .await
             }
@@ -694,6 +718,7 @@ impl HookExecutor for HookExecutorImpl {
 
 #[cfg(test)]
 mod tests {
+    use fabro_auth::{CredentialSource, EnvCredentialSource};
     use fabro_types::fixtures;
     use fabro_util::env::TestEnv;
 
@@ -709,6 +734,10 @@ mod tests {
         Arc::new(fabro_agent::LocalSandbox::new(
             std::env::current_dir().unwrap(),
         ))
+    }
+
+    fn test_llm_source() -> Arc<dyn CredentialSource> {
+        Arc::new(EnvCredentialSource::new())
     }
 
     fn test_http_client() -> fabro_http::HttpClient {
@@ -791,7 +820,10 @@ mod tests {
         let def = make_definition("exit 0");
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert_eq!(result.decision, HookDecision::Proceed);
         assert_eq!(result.hook_name.as_deref(), Some("test-hook"));
     }
@@ -802,7 +834,10 @@ mod tests {
         let def = make_definition("exit 1");
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert!(matches!(result.decision, HookDecision::Block { .. }));
     }
 
@@ -812,7 +847,10 @@ mod tests {
         let def = make_definition("exit 2");
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert!(matches!(result.decision, HookDecision::Block { .. }));
     }
 
@@ -822,7 +860,10 @@ mod tests {
         let def = make_definition(r#"echo '{"decision": "skip", "reason": "test skip"}'"#);
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert_eq!(result.decision, HookDecision::Skip {
             reason: Some("test skip".into()),
         });
@@ -836,7 +877,10 @@ mod tests {
         let mut ctx = make_context();
         ctx.node_id = Some("plan".into());
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert_eq!(result.decision, HookDecision::Proceed);
     }
 
@@ -855,7 +899,10 @@ mod tests {
         };
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
         assert!(matches!(result.decision, HookDecision::Block { .. }));
     }
 
@@ -1247,7 +1294,10 @@ mod tests {
         };
         let ctx = make_context();
         let sandbox = make_sandbox();
-        let result = executor.execute(&def, &ctx, sandbox, None).await;
+        let source = test_llm_source();
+        let result = executor
+            .execute(&def, &ctx, sandbox, None, source.as_ref())
+            .await;
 
         mock.assert_async().await;
         assert_eq!(result.decision, HookDecision::Proceed);
@@ -1278,6 +1328,7 @@ mod tests {
             None,
             &make_context(),
             &test_env(&[]),
+            test_llm_source().as_ref(),
         )
         .await;
 
@@ -1294,6 +1345,7 @@ mod tests {
             &make_context(),
             make_sandbox(),
             &test_env(&[]),
+            test_llm_source().as_ref(),
         )
         .await;
 

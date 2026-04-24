@@ -43,8 +43,8 @@ impl NodeHandler<WorkflowGraph> for WorkflowNodeHandler {
 
         let wf_context = artifact::resolve_context_for_execution(
             context,
-            &self.services.run_store,
-            &*self.services.sandbox,
+            &self.services.run.run_store,
+            &*self.services.run.sandbox,
             &self.run_dir,
         )
         .await

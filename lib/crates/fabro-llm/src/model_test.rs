@@ -71,22 +71,10 @@ impl ModelTestOutcome {
     }
 }
 
-pub async fn run_model_test(info: &Model, mode: ModelTestMode) -> ModelTestOutcome {
-    run_model_test_inner(info, mode, None).await
-}
-
-pub async fn run_model_test_with_client(
+pub async fn run_model_test(
     info: &Model,
     mode: ModelTestMode,
     client: Arc<Client>,
-) -> ModelTestOutcome {
-    run_model_test_inner(info, mode, Some(client)).await
-}
-
-async fn run_model_test_inner(
-    info: &Model,
-    mode: ModelTestMode,
-    client: Option<Arc<Client>>,
 ) -> ModelTestOutcome {
     match mode {
         ModelTestMode::Basic => run_basic_test(info, client).await,
@@ -94,14 +82,11 @@ async fn run_model_test_inner(
     }
 }
 
-async fn run_basic_test(info: &Model, client: Option<Arc<Client>>) -> ModelTestOutcome {
-    let mut params = GenerateParams::new(&info.id)
+async fn run_basic_test(info: &Model, client: Arc<Client>) -> ModelTestOutcome {
+    let params = GenerateParams::new(&info.id, client)
         .provider(info.provider.as_str())
         .prompt("Say OK")
         .max_tokens(16);
-    if let Some(client) = client {
-        params = params.client(client);
-    }
 
     let result = time::timeout(
         Duration::from_secs(ModelTestMode::Basic.timeout_secs()),
@@ -116,7 +101,7 @@ async fn run_basic_test(info: &Model, client: Option<Arc<Client>>) -> ModelTestO
     }
 }
 
-async fn run_deep_test(info: &Model, client: Option<Arc<Client>>) -> ModelTestOutcome {
+async fn run_deep_test(info: &Model, client: Arc<Client>) -> ModelTestOutcome {
     let Some(params) = build_deep_test_params(info, client) else {
         return ModelTestOutcome::error("model does not support tools");
     };
@@ -137,7 +122,7 @@ async fn run_deep_test(info: &Model, client: Option<Arc<Client>>) -> ModelTestOu
     }
 }
 
-fn build_deep_test_params(info: &Model, client: Option<Arc<Client>>) -> Option<GenerateParams> {
+fn build_deep_test_params(info: &Model, client: Arc<Client>) -> Option<GenerateParams> {
     if !info.features.tools {
         return None;
     }
@@ -166,7 +151,7 @@ fn build_deep_test_params(info: &Model, client: Option<Arc<Client>>) -> Option<G
         },
     );
 
-    let mut params = GenerateParams::new(&info.id)
+    let mut params = GenerateParams::new(&info.id, client)
         .provider(info.provider.as_str())
         .prompt(
             "Use the add tool twice: first add 15 and 27, then add that result to 42. \
@@ -178,10 +163,6 @@ fn build_deep_test_params(info: &Model, client: Option<Arc<Client>>) -> Option<G
 
     if info.features.reasoning {
         params = params.reasoning_effort(ReasoningEffort::High);
-    }
-
-    if let Some(client) = client {
-        params = params.client(client);
     }
 
     Some(params)
@@ -205,6 +186,8 @@ fn validate_deep_result(result: &GenerateResult) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use fabro_model::{ModelCosts, ModelFeatures, ModelLimits, Provider};
 
     use super::*;
@@ -248,6 +231,10 @@ mod tests {
         }
     }
 
+    fn empty_test_client() -> Arc<Client> {
+        Arc::new(Client::new(HashMap::new(), None, vec![]))
+    }
+
     #[tokio::test]
     async fn run_model_test_deep_errors_when_model_lacks_tools() {
         let info = test_model_with(ModelFeatures {
@@ -257,7 +244,7 @@ mod tests {
             effort:    true,
         });
 
-        let outcome = run_model_test(&info, ModelTestMode::Deep).await;
+        let outcome = run_model_test(&info, ModelTestMode::Deep, empty_test_client()).await;
 
         assert_eq!(outcome.status, ModelTestStatus::Error);
         assert_eq!(

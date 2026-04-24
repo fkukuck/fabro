@@ -254,10 +254,10 @@ impl Handler for AgentHandler {
         let prompt_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(services.provider.as_str().to_string()));
+            .or_else(|| Some(services.run.provider.as_str().to_string()));
         let prompt_model = node.model().map(String::from);
         let stage_scope = StageScope::for_handler(context, &node.id);
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::Prompt {
                 stage:    node.id.clone(),
                 visit:    stage_scope.visit,
@@ -276,10 +276,10 @@ impl Handler for AgentHandler {
             .parse::<RunId>()
             .map_err(|err| Error::handler(format!("invalid internal run_id: {err}")))?;
         let tool_hooks: Option<Arc<dyn fabro_agent::ToolHookCallback>> =
-            services.hook_runner.as_ref().map(|hr| {
+            services.run.hook_runner.as_ref().map(|hr| {
                 Arc::new(fabro_hooks::WorkflowToolHookCallback {
                     hook_runner: Arc::clone(hr),
-                    sandbox: Arc::clone(&services.sandbox),
+                    sandbox: Arc::clone(&services.run.sandbox),
                     run_id,
                     workflow_name: graph.name.clone(),
                     work_dir: None,
@@ -294,8 +294,8 @@ impl Handler for AgentHandler {
                         &prompt,
                         context,
                         thread_id.as_deref(),
-                        &services.emitter,
-                        &services.sandbox,
+                        &services.run.emitter,
+                        &services.run.sandbox,
                         tool_hooks,
                     )
                     .await;
@@ -331,9 +331,9 @@ impl Handler for AgentHandler {
         let response_provider = node
             .provider()
             .map(String::from)
-            .or_else(|| Some(services.provider.as_str().to_string()))
+            .or_else(|| Some(services.run.provider.as_str().to_string()))
             .unwrap_or_default();
-        services.emitter.emit_scoped(
+        services.run.emitter.emit_scoped(
             &Event::PromptCompleted {
                 node_id:  node.id.clone(),
                 response: response_text.clone(),
@@ -366,6 +366,7 @@ impl Handler for AgentHandler {
         if !found_in_response {
             let mut found_in_status_json = false;
             if let Ok(result) = services
+                .run
                 .sandbox
                 .exec_command("cat status.json", 5_000, None, None, None)
                 .await
@@ -379,6 +380,7 @@ impl Handler for AgentHandler {
                     let quoted = shlex::try_quote(path).unwrap_or_else(|_| path.into());
                     let cmd = format!("cat {quoted}");
                     if let Ok(result) = services
+                        .run
                         .sandbox
                         .exec_command(&cmd, 5_000, None, None, None)
                         .await
@@ -435,13 +437,13 @@ mod tests {
     ) {
         let store = test_store();
         let run_store = store.create_run(&fixtures::RUN_1).await.unwrap();
-        let services = EngineServices {
-            emitter: Arc::new(crate::event::Emitter::new(fixtures::RUN_1)),
-            run_store: run_store.clone().into(),
-            ..EngineServices::test_default()
-        };
+        let mut services = EngineServices::test_default();
+        services.run = services
+            .run
+            .with_emitter(Arc::new(crate::event::Emitter::new(fixtures::RUN_1)))
+            .with_run_store(run_store.clone().into());
         let logger = crate::event::StoreProgressLogger::new(run_store.clone());
-        logger.register(services.emitter.as_ref());
+        logger.register(services.run.emitter.as_ref());
         (services, run_store, logger)
     }
 
@@ -576,9 +578,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut services = EngineServices::test_default();
-        services.sandbox = std::sync::Arc::new(fabro_agent::LocalSandbox::new(
-            sandbox_dir.path().to_path_buf(),
-        ));
+        services.run =
+            services
+                .run
+                .with_sandbox(std::sync::Arc::new(fabro_agent::LocalSandbox::new(
+                    sandbox_dir.path().to_path_buf(),
+                )));
 
         let outcome = handler
             .execute(&node, &context, &graph, tmp.path(), &services)
@@ -634,9 +639,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut services = EngineServices::test_default();
-        services.sandbox = std::sync::Arc::new(fabro_agent::LocalSandbox::new(
-            sandbox_dir.path().to_path_buf(),
-        ));
+        services.run =
+            services
+                .run
+                .with_sandbox(std::sync::Arc::new(fabro_agent::LocalSandbox::new(
+                    sandbox_dir.path().to_path_buf(),
+                )));
 
         let outcome = handler
             .execute(&node, &context, &graph, tmp.path(), &services)
@@ -692,9 +700,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut services = EngineServices::test_default();
-        services.sandbox = std::sync::Arc::new(fabro_agent::LocalSandbox::new(
-            sandbox_dir.path().to_path_buf(),
-        ));
+        services.run =
+            services
+                .run
+                .with_sandbox(std::sync::Arc::new(fabro_agent::LocalSandbox::new(
+                    sandbox_dir.path().to_path_buf(),
+                )));
 
         let outcome = handler
             .execute(&node, &context, &graph, tmp.path(), &services)
