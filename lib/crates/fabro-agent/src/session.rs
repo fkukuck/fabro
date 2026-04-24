@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use fabro_auth::CredentialSource;
 use fabro_llm::client::Client;
 use fabro_llm::error::ProviderErrorKind;
 use fabro_llm::generate::StreamAccumulator;
@@ -89,6 +90,33 @@ impl Session {
             tool_env: None,
             subagent_manager,
         }
+    }
+
+    /// Build a session from a credential source. Resolves the LLM client
+    /// once at construction and caches it for the session's lifetime.
+    /// Sessions are bounded (≤ 1 hour); cached client is fine within that
+    /// window. For longer-lived contexts (workflow runs) hold a source,
+    /// not a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `Client::from_source` fails (e.g. vault unreachable,
+    /// OAuth refresh failed).
+    pub async fn from_source(
+        source: &dyn CredentialSource,
+        provider_profile: Arc<dyn AgentProfile>,
+        sandbox: Arc<dyn Sandbox>,
+        config: SessionOptions,
+        subagent_manager: Option<Arc<AsyncMutex<SubAgentManager>>>,
+    ) -> Result<Self, LlmError> {
+        let client = Client::from_source(source).await?;
+        Ok(Self::new(
+            client,
+            provider_profile,
+            sandbox,
+            config,
+            subagent_manager,
+        ))
     }
 
     pub fn set_tool_env(&mut self, env: HashMap<String, String>) {
