@@ -8,6 +8,45 @@ pub struct ApiFailure {
     pub code:   Option<String>,
 }
 
+// Transparent wrapper that attaches an ApiFailure to an anyhow error while
+// preserving Display/Debug of the inner error. Discoverable via downcast_ref
+// so callers can branch on HTTP status without substring matching.
+struct TaggedFailure {
+    failure: ApiFailure,
+    inner:   anyhow::Error,
+}
+
+impl std::fmt::Debug for TaggedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.inner, f)
+    }
+}
+
+impl std::fmt::Display for TaggedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.inner, f)
+    }
+}
+
+impl std::error::Error for TaggedFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.inner.source()
+    }
+}
+
+pub fn tag_with_failure(err: anyhow::Error, failure: ApiFailure) -> anyhow::Error {
+    anyhow::Error::new(TaggedFailure {
+        failure,
+        inner: err,
+    })
+}
+
+pub fn api_failure_for(err: &anyhow::Error) -> Option<&ApiFailure> {
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<TaggedFailure>())
+        .map(|tagged| &tagged.failure)
+}
+
 pub struct StructuredApiError {
     pub error:   anyhow::Error,
     pub failure: Option<ApiFailure>,
@@ -50,6 +89,19 @@ fn classify_from_status(err: anyhow::Error, status: fabro_http::StatusCode) -> a
     }
 }
 
+fn build_structured_error(
+    error: anyhow::Error,
+    status: fabro_http::StatusCode,
+    code: Option<String>,
+) -> StructuredApiError {
+    let failure = ApiFailure { status, code };
+    let tagged = tag_with_failure(error, failure.clone());
+    StructuredApiError {
+        error:   classify_from_status(tagged, status),
+        failure: Some(failure),
+    }
+}
+
 pub async fn classify_api_error<E>(err: progenitor_client::Error<E>) -> StructuredApiError
 where
     E: serde::Serialize + std::fmt::Debug,
@@ -63,10 +115,7 @@ where
                 let (detail, parsed_code) = parse_error_response_value(&value);
                 code = parsed_code;
                 if let Some(detail) = detail {
-                    return StructuredApiError {
-                        error:   classify_from_status(anyhow!("{detail}"), status),
-                        failure: Some(ApiFailure { status, code }),
-                    };
+                    return build_structured_error(anyhow!("{detail}"), status, code);
                 }
             }
             let error = if body.is_empty() {
@@ -74,10 +123,7 @@ where
             } else {
                 anyhow!("request failed with status {status}: {body}")
             };
-            StructuredApiError {
-                error:   classify_from_status(error, status),
-                failure: Some(ApiFailure { status, code }),
-            }
+            build_structured_error(error, status, code)
         }
         other => map_api_error_structured(other),
     }
@@ -95,30 +141,15 @@ where
                 let (detail, parsed_code) = parse_error_response_value(&value);
                 code = parsed_code;
                 if let Some(detail) = detail {
-                    return StructuredApiError {
-                        error:   classify_from_status(anyhow!("{detail}"), status),
-                        failure: Some(ApiFailure { status, code }),
-                    };
+                    return build_structured_error(anyhow!("{detail}"), status, code);
                 }
             }
-            StructuredApiError {
-                error:   classify_from_status(
-                    anyhow!("request failed with status {status}"),
-                    status,
-                ),
-                failure: Some(ApiFailure { status, code }),
-            }
+            build_structured_error(anyhow!("request failed with status {status}"), status, code)
         }
-        progenitor_client::Error::UnexpectedResponse(response) => StructuredApiError {
-            error:   classify_from_status(
-                anyhow!("request failed with status {}", response.status()),
-                response.status(),
-            ),
-            failure: Some(ApiFailure {
-                status: response.status(),
-                code:   None,
-            }),
-        },
+        progenitor_client::Error::UnexpectedResponse(response) => {
+            let status = response.status();
+            build_structured_error(anyhow!("request failed with status {status}"), status, None)
+        }
         other => StructuredApiError {
             error:   anyhow!("{other}"),
             failure: None,
@@ -134,26 +165,30 @@ where
 }
 
 pub fn raw_response_failure_error(failure: &ApiError) -> anyhow::Error {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&failure.body) {
+    let base = if let Ok(value) = serde_json::from_str::<serde_json::Value>(&failure.body) {
         let (detail, _) = parse_error_response_value(&value);
         if let Some(detail) = detail {
-            return classify_from_status(anyhow!("{detail}"), failure.status);
+            anyhow!("{detail}")
+        } else if failure.body.is_empty() {
+            anyhow!("request failed with status {}", failure.status)
+        } else {
+            anyhow!(
+                "request failed with status {}: {}",
+                failure.status,
+                failure.body
+            )
         }
-    }
-
-    if failure.body.is_empty() {
-        return classify_from_status(
-            anyhow!("request failed with status {}", failure.status),
-            failure.status,
-        );
-    }
-
-    classify_from_status(
+    } else if failure.body.is_empty() {
+        anyhow!("request failed with status {}", failure.status)
+    } else {
         anyhow!(
             "request failed with status {}: {}",
             failure.status,
             failure.body
-        ),
+        )
+    };
+    classify_from_status(
+        tag_with_failure(base, failure.failure.clone()),
         failure.status,
     )
 }

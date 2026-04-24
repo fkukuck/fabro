@@ -23,8 +23,8 @@ use tokio_util::io::ReaderStream;
 
 use crate::credential::Credential;
 use crate::error::{
-    ApiError, ApiFailure, classify_api_error, classify_http_response, convert_type,
-    is_not_found_error, map_api_error, raw_response_failure_error,
+    ApiError, ApiFailure, api_failure_for, classify_api_error, classify_http_response,
+    convert_type, is_not_found_error, map_api_error, raw_response_failure_error,
 };
 use crate::session::OAuthSession;
 use crate::target::ServerTarget;
@@ -1390,13 +1390,16 @@ fn non_zero_u64_from_usize(value: usize) -> Option<NonZeroU64> {
     u64::try_from(value).ok().and_then(NonZeroU64::new)
 }
 
-// Unstructured 404s from classify_api_error surface as "request failed with
-// status 404 ...". Structured 404s from the server (e.g. no_stored_record)
-// surface as the server's detail text. So seeing the "status 404" substring
-// means the old server didn't know the route — point the user at a server
-// upgrade rather than leaving them with an opaque message.
+// A 404 without a structured error code means the server didn't know the
+// route — PR commands moved server-side in a recent release. Point users at
+// an upgrade rather than leaving them with an opaque message. A 404 with a
+// code (e.g. no_stored_record) is a normal app-level response and passes
+// through unchanged.
 fn add_pr_upgrade_hint(err: anyhow::Error) -> anyhow::Error {
-    if err.to_string().contains("status 404") {
+    let is_missing_route = api_failure_for(&err).is_some_and(|failure| {
+        failure.status == fabro_http::StatusCode::NOT_FOUND && failure.code.is_none()
+    });
+    if is_missing_route {
         anyhow!(
             "{err}\n\n\
              The fabro server may not support pull request endpoints — `fabro pr` commands \
@@ -1419,6 +1422,7 @@ mod tests {
 
     use super::*;
     use crate::AuthStore;
+    use crate::error::tag_with_failure;
 
     fn oauth_entry(login: &str) -> AuthEntry {
         let now = chrono::Utc::now();
@@ -1599,7 +1603,13 @@ mod tests {
 
     #[test]
     fn add_pr_upgrade_hint_appends_on_unstructured_404() {
-        let err = anyhow!("request failed with status 404 Not Found");
+        let err = tag_with_failure(
+            anyhow!("request failed with status 404 Not Found"),
+            ApiFailure {
+                status: fabro_http::StatusCode::NOT_FOUND,
+                code:   None,
+            },
+        );
         let wrapped = super::add_pr_upgrade_hint(err);
         let message = wrapped.to_string();
         assert!(
@@ -1611,8 +1621,13 @@ mod tests {
 
     #[test]
     fn add_pr_upgrade_hint_does_not_touch_structured_404() {
-        let err =
-            anyhow!("No pull request found in store. Create one first with: fabro pr create abc");
+        let err = tag_with_failure(
+            anyhow!("No pull request found in store. Create one first with: fabro pr create abc"),
+            ApiFailure {
+                status: fabro_http::StatusCode::NOT_FOUND,
+                code:   Some("no_stored_record".to_string()),
+            },
+        );
         let wrapped = super::add_pr_upgrade_hint(err);
         let message = wrapped.to_string();
         assert!(
