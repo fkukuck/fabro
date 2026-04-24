@@ -21,6 +21,8 @@ use serde::Deserialize;
 
 use crate::args::ExecArgs;
 use crate::command_context::CommandContext;
+#[cfg(feature = "sleep_inhibitor")]
+use crate::sleep_inhibitor;
 use crate::{server_client, user_config};
 
 struct AuthenticatedFabroServerAdapter {
@@ -277,7 +279,7 @@ pub(crate) async fn execute(mut args: ExecArgs, ctx: &CommandContext) -> AnyResu
 
     let cli = &ctx.user_settings().cli;
     #[cfg(feature = "sleep_inhibitor")]
-    let _sleep_guard = crate::sleep_inhibitor::guard(cli.exec.prevent_idle_sleep);
+    let _sleep_guard = sleep_inhibitor::guard(cli.exec.prevent_idle_sleep);
     let provider_str = cli
         .exec
         .model
