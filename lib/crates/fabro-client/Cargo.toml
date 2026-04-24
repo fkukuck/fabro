@@ -35,4 +35,5 @@ tracing.workspace = true
 
 [dev-dependencies]
 httpmock = "0.8"
+static_assertions = "1"
 tempfile = "3"

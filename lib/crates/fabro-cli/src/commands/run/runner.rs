@@ -19,7 +19,8 @@ use fabro_store::{EventEnvelope, RunProjection, RunProjectionReducer};
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::RunMode;
 use fabro_types::{
-    ArtifactUpload, EventBody, FailureReason, RunBlobId, RunEvent, RunId, WorkflowSettings,
+    ActorRef, ArtifactUpload, EventBody, FailureReason, RunBlobId, RunEvent, RunId,
+    WorkflowSettings,
 };
 use fabro_vault::Vault;
 use fabro_workflow::artifact_upload::{ArtifactSink, StageArtifactUploader};
@@ -59,14 +60,15 @@ pub(crate) async fn execute(
     run_id: RunId,
     server: String,
     storage_dir: Option<PathBuf>,
-    artifact_upload_token: Option<String>,
     run_dir: PathBuf,
     mode: RunWorkerMode,
+    worker_token: &str,
 ) -> Result<()> {
     let _ = fabro_proc::title_init();
     set_worker_title(&run_id, initial_worker_title_phase(mode));
 
-    let client = server_client::connect_server_target_direct(&server).await?;
+    let target = server.parse::<fabro_client::ServerTarget>()?;
+    let client = server_client::connect_server_target_with_bearer(&target, worker_token).await?;
     let run_store = HttpRunStore::connect(run_id, client.clone_for_reuse()).await?;
     let run_state = run_store
         .state()
@@ -79,7 +81,7 @@ pub(crate) async fn execute(
     let artifact_sink = Some(ArtifactSink::Uploader(build_artifact_uploader(
         run_id,
         client.clone_for_reuse(),
-        artifact_upload_token,
+        worker_token.to_owned(),
     )));
     let interviewer = Arc::new(ControlInterviewer::new());
     let cancel_token = Arc::new(AtomicBool::new(false));
@@ -100,13 +102,16 @@ pub(crate) async fn execute(
         emitter: Arc::new(Emitter::new(run_id)),
         interviewer,
         run_store: run_store.clone(),
-        event_sink: RunEventSink::fanout(vec![
-            RunEventSink::backend(run_store),
-            RunEventSink::callback(move |event| {
-                update_worker_title_from_event(&event);
-                async move { Ok(()) }
-            }),
-        ]),
+        event_sink: RunEventSink::map(
+            stamp_system_worker,
+            RunEventSink::fanout(vec![
+                RunEventSink::backend(run_store),
+                RunEventSink::callback(move |event| {
+                    update_worker_title_from_event(&event);
+                    async move { Ok(()) }
+                }),
+            ]),
+        ),
         artifact_sink,
         run_control: Some(run_control),
         github_app,
@@ -243,22 +248,19 @@ async fn apply_worker_control_line(
 fn build_artifact_uploader(
     run_id: RunId,
     client: server_client::Client,
-    artifact_upload_token: Option<String>,
+    worker_token: String,
 ) -> Arc<dyn StageArtifactUploader> {
-    match artifact_upload_token {
-        Some(token) => Arc::new(HttpArtifactUploader {
-            run_id,
-            client,
-            bearer_token: token,
-        }),
-        None => Arc::new(MissingArtifactUploadTokenUploader { run_id }),
-    }
+    Arc::new(HttpArtifactUploader {
+        run_id,
+        client,
+        worker_token,
+    })
 }
 
 struct HttpArtifactUploader {
     run_id:       RunId,
     client:       server_client::Client,
-    bearer_token: String,
+    worker_token: String,
 }
 
 #[async_trait]
@@ -282,7 +284,7 @@ impl StageArtifactUploader for HttpArtifactUploader {
                     stage_id,
                     &artifact.path,
                     &artifact_capture_dir.join(&artifact.path),
-                    &self.bearer_token,
+                    &self.worker_token,
                 )
                 .await;
         }
@@ -293,28 +295,9 @@ impl StageArtifactUploader for HttpArtifactUploader {
                 stage_id,
                 artifact_capture_dir,
                 artifacts,
-                &self.bearer_token,
+                &self.worker_token,
             )
             .await
-    }
-}
-
-struct MissingArtifactUploadTokenUploader {
-    run_id: RunId,
-}
-
-#[async_trait]
-impl StageArtifactUploader for MissingArtifactUploadTokenUploader {
-    async fn upload_stage_artifacts(
-        &self,
-        _stage_id: &fabro_types::StageId,
-        _artifact_capture_dir: &Path,
-        _artifacts: &[ArtifactUpload],
-    ) -> Result<()> {
-        Err(anyhow!(
-            "run {} could not upload artifacts because the worker did not receive an artifact upload token",
-            self.run_id
-        ))
     }
 }
 
@@ -504,6 +487,13 @@ fn update_worker_title_from_event(event: &RunEvent) {
     }
 }
 
+fn stamp_system_worker(mut event: RunEvent) -> RunEvent {
+    if event.actor.is_none() {
+        event.actor = Some(ActorRef::system_worker());
+    }
+    event
+}
+
 fn maybe_build_github_credentials(
     settings: &WorkflowSettings,
     vault: Option<&fabro_vault::Vault>,
@@ -588,6 +578,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    use chrono::Utc;
     use fabro_auth::{AuthCredential, AuthDetails};
     use fabro_config::Storage;
     use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
@@ -596,17 +587,35 @@ mod tests {
         InterviewCompletedProps, InterviewStartedProps, RunCompletedProps, RunControlEffectProps,
         RunFailedProps, RunStatusTransitionProps,
     };
-    use fabro_types::{EventBody, FailureReason, SuccessReason, fixtures};
+    use fabro_types::{ActorRef, EventBody, FailureReason, SuccessReason, fixtures};
     use fabro_vault::{SecretType, Vault};
-    use fabro_workflow::artifact_upload::StageArtifactUploader;
+    use fabro_workflow::event::RunEventSink;
 
     use super::{
-        MissingArtifactUploadTokenUploader, WorkerControlStreamEvent, WorkerTitlePhase,
-        apply_worker_control_line, handle_worker_control_stream_events, initial_worker_title_phase,
-        load_worker_vault, read_worker_control_stream_blocking, worker_title,
+        WorkerControlStreamEvent, WorkerTitlePhase, apply_worker_control_line,
+        handle_worker_control_stream_events, initial_worker_title_phase, load_worker_vault,
+        read_worker_control_stream_blocking, stamp_system_worker, worker_title,
         worker_title_phase_for_event,
     };
     use crate::args::RunWorkerMode;
+
+    fn running_event(actor: Option<ActorRef>) -> fabro_types::RunEvent {
+        fabro_types::RunEvent {
+            id: "evt_1".to_string(),
+            ts: Utc::now(),
+            run_id: fixtures::RUN_1,
+            node_id: None,
+            node_label: None,
+            stage_id: None,
+            parallel_group_id: None,
+            parallel_branch_id: None,
+            session_id: None,
+            parent_session_id: None,
+            tool_call_id: None,
+            actor,
+            body: EventBody::RunRunning(RunStatusTransitionProps::default()),
+        }
+    }
 
     #[test]
     fn worker_title_uses_short_run_id_and_phase() {
@@ -700,24 +709,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stamp_system_worker_fills_missing_actor_only() {
+        let stamped = stamp_system_worker(running_event(None));
+
+        assert_eq!(stamped.actor, Some(ActorRef::system_worker()));
+
+        let existing_actor = ActorRef::user("octocat".to_string());
+        let stamped = stamp_system_worker(running_event(Some(existing_actor.clone())));
+        assert_eq!(stamped.actor, Some(existing_actor));
+    }
+
     #[tokio::test]
-    async fn missing_artifact_upload_token_error_does_not_mention_removed_storage_mode() {
-        let uploader = MissingArtifactUploadTokenUploader {
-            run_id: fixtures::RUN_1,
-        };
-        let temp = tempfile::tempdir().unwrap();
-
-        let error = uploader
-            .upload_stage_artifacts(&fabro_types::StageId::new("code", 2), temp.path(), &[])
-            .await
-            .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("worker did not receive an artifact upload token")
+    async fn worker_event_stamp_applies_to_all_fanout_sinks() {
+        let first = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let second = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let first_events = Arc::clone(&first);
+        let second_events = Arc::clone(&second);
+        let sink = RunEventSink::map(
+            stamp_system_worker,
+            RunEventSink::fanout(vec![
+                RunEventSink::callback(move |event| {
+                    let first_events = Arc::clone(&first_events);
+                    async move {
+                        first_events.lock().await.push(event);
+                        Ok(())
+                    }
+                }),
+                RunEventSink::callback(move |event| {
+                    let second_events = Arc::clone(&second_events);
+                    async move {
+                        second_events.lock().await.push(event);
+                        Ok(())
+                    }
+                }),
+            ]),
         );
-        assert!(!error.to_string().contains("object-backed artifacts"));
+        let event = running_event(None);
+
+        sink.write_run_event(&event).await.unwrap();
+
+        let first = first.lock().await;
+        let second = second.lock().await;
+        assert_eq!(first[0].actor, Some(ActorRef::system_worker()));
+        assert_eq!(second[0].actor, Some(ActorRef::system_worker()));
     }
 
     #[tokio::test]

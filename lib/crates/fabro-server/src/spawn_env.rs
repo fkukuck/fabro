@@ -74,6 +74,11 @@ mod tests {
                 "/tmp/fabro-storage".to_string(),
             ),
             ("SESSION_SECRET".to_string(), "leak".to_string()),
+            ("FABRO_JWT_PRIVATE_KEY".to_string(), "leak".to_string()),
+            ("FABRO_JWT_PUBLIC_KEY".to_string(), "leak".to_string()),
+            ("GITHUB_APP_PRIVATE_KEY".to_string(), "leak".to_string()),
+            ("GITHUB_APP_CLIENT_SECRET".to_string(), "leak".to_string()),
+            ("GITHUB_APP_WEBHOOK_SECRET".to_string(), "leak".to_string()),
             ("FABRO_DEV_TOKEN".to_string(), "garbage".to_string()),
             ("MY_API_KEY".to_string(), "blocked".to_string()),
         ]);
@@ -95,6 +100,11 @@ mod tests {
             Some("fabro_dev_abababababababababababababababababababababababababababababababab")
         );
         assert!(!actual.contains_key("SESSION_SECRET"));
+        assert!(!actual.contains_key("FABRO_JWT_PRIVATE_KEY"));
+        assert!(!actual.contains_key("FABRO_JWT_PUBLIC_KEY"));
+        assert!(!actual.contains_key("GITHUB_APP_PRIVATE_KEY"));
+        assert!(!actual.contains_key("GITHUB_APP_CLIENT_SECRET"));
+        assert!(!actual.contains_key("GITHUB_APP_WEBHOOK_SECRET"));
         assert!(!actual.contains_key("MY_API_KEY"));
     }
 

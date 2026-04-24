@@ -11,7 +11,6 @@ use axum::body::Body;
 #[cfg(test)]
 use axum::body::to_bytes;
 use axum::extract::{self as axum_extract, DefaultBodyLimit, Path, Query, State};
-use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::{self};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -40,7 +39,7 @@ pub use fabro_api::types::{
 };
 use fabro_auth::parse_credential_secret;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{RunLayer, RunSettingsBuilder, ServerSettingsBuilder, Storage};
+use fabro_config::{RunLayer, RunSettingsBuilder, ServerSettingsBuilder, Storage, envfile};
 use fabro_interview::{
     Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
 };
@@ -66,7 +65,7 @@ use fabro_store::{
 use fabro_types::BlockedReason;
 use fabro_types::settings::run::RunMode;
 use fabro_types::settings::server::{GithubIntegrationSettings, GithubIntegrationStrategy};
-use fabro_types::settings::{InterpString, RunNamespace, ServerAuthMethod};
+use fabro_types::settings::{InterpString, RunNamespace};
 use fabro_types::{
     ActorRef, EventBody, InterviewQuestionRecord, InterviewQuestionType, RunBlobId,
     RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance, RunServerProvenance,
@@ -87,10 +86,7 @@ use fabro_workflow::run_lookup::{
     RunInfo, StatusFilter, filter_runs, scan_runs_with_summaries, scratch_base,
 };
 use fabro_workflow::run_status::{FailureReason, RunStatus, SuccessReason};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use object_store::memory::InMemory as MemoryObjectStore;
-use rand::TryRngCore;
-use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use tokio::fs;
@@ -114,15 +110,17 @@ use crate::github_webhooks::{
     WEBHOOK_ROUTE, WEBHOOK_SECRET_ENV, parse_event_metadata, verify_signature,
 };
 use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
-use crate::jwt_auth::{
-    AuthMode, AuthenticatedService, AuthenticatedSubject, authenticate_service_parts,
-};
+use crate::jwt_auth::{self, AuthMode, AuthenticatedService, AuthenticatedSubject};
 use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
 use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::server_secrets::{
     LlmClientResult, ProviderCredentials, ServerSecrets, auth_issue_message,
 };
 use crate::spawn_env::{apply_render_graph_env, apply_worker_env};
+use crate::worker_token::{
+    AuthorizeRunBlob, AuthorizeRunScoped, AuthorizeStageArtifact, WorkerTokenKeys,
+    issue_worker_token,
+};
 use crate::{demo, diagnostics, run_manifest, security_headers, static_files, web_auth};
 
 pub(crate) type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -281,9 +279,6 @@ const WORKER_CANCEL_GRACE: Duration = Duration::from_secs(5);
 const TERMINAL_DELETE_WORKER_GRACE: Duration = Duration::from_millis(50);
 const WORKER_CONTROL_QUEUE_CAPACITY: usize = 8;
 const WORKER_CONTROL_ENQUEUE_TIMEOUT: Duration = Duration::from_secs(1);
-const ARTIFACT_UPLOAD_TOKEN_ISSUER: &str = "fabro-server-artifact-upload";
-const ARTIFACT_UPLOAD_TOKEN_SCOPE: &str = "stage_artifacts:upload";
-const ARTIFACT_UPLOAD_TOKEN_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_SINGLE_ARTIFACT_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_MULTIPART_ARTIFACTS: usize = 100;
 const RENDER_ERROR_PREFIX: &[u8] = b"RENDER_ERROR:";
@@ -305,22 +300,6 @@ enum RenderSubprocessError {
 }
 const MAX_MULTIPART_REQUEST_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_MULTIPART_MANIFEST_BYTES: usize = 256 * 1024;
-
-#[derive(Clone)]
-struct ArtifactUploadTokenKeys {
-    encoding:   Arc<EncodingKey>,
-    decoding:   Arc<DecodingKey>,
-    validation: Arc<Validation>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ArtifactUploadClaims {
-    iss:    String,
-    iat:    u64,
-    exp:    u64,
-    run_id: String,
-    scope:  String,
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ArtifactBatchUploadManifest {
@@ -559,7 +538,7 @@ pub struct AppState {
     aggregate_billing: Mutex<BillingAccumulator>,
     store: Arc<Database>,
     artifact_store: ArtifactStore,
-    artifact_upload_tokens: ArtifactUploadTokenKeys,
+    worker_tokens: WorkerTokenKeys,
     started_at: Instant,
     max_concurrent_runs: usize,
     scheduler_notify: Notify,
@@ -714,6 +693,10 @@ impl AppState {
         self.server_secrets.get(name)
     }
 
+    pub(crate) fn worker_token_keys(&self) -> &WorkerTokenKeys {
+        &self.worker_tokens
+    }
+
     pub(crate) fn resolve_interp(&self, value: &InterpString) -> anyhow::Result<String> {
         value
             .resolve(|name| (self.env_lookup)(name))
@@ -770,30 +753,6 @@ impl AppState {
         }
     }
 
-    fn issue_artifact_upload_token(&self, run_id: &RunId) -> Result<String, ApiError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_secs());
-        let claims = ArtifactUploadClaims {
-            iss:    ARTIFACT_UPLOAD_TOKEN_ISSUER.to_string(),
-            iat:    now,
-            exp:    now + ARTIFACT_UPLOAD_TOKEN_TTL_SECS,
-            run_id: run_id.to_string(),
-            scope:  ARTIFACT_UPLOAD_TOKEN_SCOPE.to_string(),
-        };
-        jsonwebtoken::encode(
-            &Header::new(Algorithm::HS256),
-            &claims,
-            &self.artifact_upload_tokens.encoding,
-        )
-        .map_err(|err| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to sign artifact upload token: {err}"),
-            )
-        })
-    }
-
     fn begin_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Relaxed);
         self.scheduler_notify.notify_waiters();
@@ -831,65 +790,6 @@ impl AppState {
             .expect("server settings lock poisoned") = server_settings;
         Ok(())
     }
-}
-
-fn artifact_upload_token_keys() -> ArtifactUploadTokenKeys {
-    let mut secret = [0_u8; 32];
-    OsRng.try_fill_bytes(&mut secret).expect("OS RNG");
-
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.set_required_spec_claims(&["iss", "iat", "exp"]);
-    validation.set_issuer(&[ARTIFACT_UPLOAD_TOKEN_ISSUER]);
-
-    ArtifactUploadTokenKeys {
-        encoding:   Arc::new(EncodingKey::from_secret(&secret)),
-        decoding:   Arc::new(DecodingKey::from_secret(&secret)),
-        validation: Arc::new(validation),
-    }
-}
-
-fn maybe_authorize_artifact_upload_token(
-    parts: &Parts,
-    run_id: &RunId,
-    keys: &ArtifactUploadTokenKeys,
-) -> Result<bool, ApiError> {
-    let Some(header) = parts
-        .headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return Ok(false);
-    };
-    let Some(token) = header.strip_prefix("Bearer ") else {
-        return Ok(false);
-    };
-
-    let claims =
-        match jsonwebtoken::decode::<ArtifactUploadClaims>(token, &keys.decoding, &keys.validation)
-        {
-            Ok(token_data) => token_data.claims,
-            Err(_) => return Ok(false),
-        };
-
-    if claims.scope != ARTIFACT_UPLOAD_TOKEN_SCOPE {
-        return Err(ApiError::forbidden());
-    }
-    if claims.run_id != run_id.to_string() {
-        return Err(ApiError::forbidden());
-    }
-
-    Ok(true)
-}
-
-fn authorize_artifact_upload(
-    parts: &Parts,
-    state: &AppState,
-    run_id: &RunId,
-) -> Result<(), ApiError> {
-    if maybe_authorize_artifact_upload_token(parts, run_id, &state.artifact_upload_tokens)? {
-        return Ok(());
-    }
-    authenticate_service_parts(parts)
 }
 
 fn decode_secret_pem(name: &str, raw: &str) -> Result<String, String> {
@@ -2730,7 +2630,27 @@ fn default_env_lookup() -> EnvLookup {
 }
 
 fn load_test_server_secrets(path: PathBuf, env: HashMap<String, String>) -> ServerSecrets {
+    let mut env = env;
+    let file_has_session_secret = envfile::read_env_file(&path)
+        .ok()
+        .is_some_and(|entries| entries.contains_key("SESSION_SECRET"));
+    if !env.contains_key("SESSION_SECRET") && !file_has_session_secret {
+        env.insert(
+            "SESSION_SECRET".to_string(),
+            "server-test-session-key-0123456789".to_string(),
+        );
+    }
     ServerSecrets::load(path, env).expect("test server secrets should load")
+}
+
+fn worker_token_keys_from_server_secrets(
+    server_secrets: &ServerSecrets,
+) -> anyhow::Result<WorkerTokenKeys> {
+    let session_secret = server_secrets
+        .get("SESSION_SECRET")
+        .ok_or_else(|| jwt_auth::session_secret_key_error(&auth::KeyDeriveError::Empty))?;
+    WorkerTokenKeys::from_master_secret(session_secret.as_bytes())
+        .map_err(|err| jwt_auth::session_secret_key_error(&err))
 }
 
 pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppState>> {
@@ -2779,12 +2699,13 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
                 })
             })
     };
+    let worker_tokens = worker_token_keys_from_server_secrets(&server_secrets)?;
     Ok(Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
         aggregate_billing: Mutex::new(BillingAccumulator::default()),
         store,
         artifact_store,
-        artifact_upload_tokens: artifact_upload_token_keys(),
+        worker_tokens,
         started_at: Instant::now(),
         max_concurrent_runs,
         scheduler_notify: Notify::new(),
@@ -3286,26 +3207,16 @@ fn compute_queue_positions(runs: &HashMap<RunId, ManagedRun>) -> HashMap<RunId, 
     clippy::result_large_err,
     reason = "Run ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_run_id_path(id: &str) -> Result<RunId, Response> {
+pub(crate) fn parse_run_id_path(id: &str) -> Result<RunId, Response> {
     id.parse::<RunId>()
         .map_err(|_| ApiError::bad_request("Invalid run ID.").into_response())
-}
-
-/// Public re-export so sibling modules (e.g. `run_files`) can share the same
-/// 400-on-invalid-ULID parse behavior without duplicating the helper.
-#[allow(
-    clippy::result_large_err,
-    reason = "This shared run ID parser returns HTTP 400 responses directly."
-)]
-pub(crate) fn parse_run_id_path_pub(id: &str) -> Result<RunId, Response> {
-    parse_run_id_path(id)
 }
 
 #[allow(
     clippy::result_large_err,
     reason = "Stage ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
+pub(crate) fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
     StageId::from_str(stage_id)
         .map_err(|_| ApiError::bad_request("Invalid stage ID.").into_response())
 }
@@ -3314,7 +3225,7 @@ fn parse_stage_id_path(stage_id: &str) -> Result<StageId, Response> {
     clippy::result_large_err,
     reason = "Blob ID parsing returns HTTP 400 responses directly."
 )]
-fn parse_blob_id_path(blob_id: &str) -> Result<RunBlobId, Response> {
+pub(crate) fn parse_blob_id_path(blob_id: &str) -> Result<RunBlobId, Response> {
     RunBlobId::from_str(blob_id)
         .map_err(|_| ApiError::bad_request("Invalid blob ID.").into_response())
 }
@@ -3884,17 +3795,14 @@ fn worker_command(
         )
     })?;
     let server_target = daemon.bind.to_target();
-    let artifact_upload_token = state
-        .issue_artifact_upload_token(&run_id)
-        .map_err(|_| anyhow::anyhow!("failed to sign artifact upload token"))?;
+    let worker_token = issue_worker_token(state.worker_token_keys(), &run_id)
+        .map_err(|_| anyhow::anyhow!("failed to sign worker token"))?;
     let mut cmd = Command::new(exe);
     cmd.arg("__run-worker")
         .arg("--server")
         .arg(server_target)
         .arg("--storage-dir")
         .arg(&storage_dir)
-        .arg("--artifact-upload-token")
-        .arg(artifact_upload_token)
         .arg("--run-dir")
         .arg(run_dir)
         .arg("--run-id")
@@ -3906,17 +3814,8 @@ fn worker_command(
         .stderr(Stdio::piped());
 
     apply_worker_env(&mut cmd);
-    if state
-        .server_settings()
-        .server
-        .auth
-        .methods
-        .contains(&ServerAuthMethod::DevToken)
-    {
-        if let Some(token) = state.server_secret("FABRO_DEV_TOKEN") {
-            cmd.env("FABRO_DEV_TOKEN", token);
-        }
-    }
+    cmd.env_remove("FABRO_WORKER_TOKEN");
+    cmd.env("FABRO_WORKER_TOKEN", worker_token);
 
     #[cfg(unix)]
     fabro_proc::pre_exec_setpgid(cmd.as_std_mut());
@@ -4484,7 +4383,7 @@ async fn execute_run(state: Arc<AppState>, run_id: RunId) {
     }
 
     if state.registry_factory_override.is_some() {
-        execute_run_in_process(state, run_id).await;
+        Box::pin(execute_run_in_process(state, run_id)).await;
         return;
     }
 
@@ -5233,14 +5132,9 @@ async fn submit_answer(
 }
 
 async fn get_run_state(
-    _auth: AuthenticatedService,
+    AuthorizeRunScoped(id): AuthorizeRunScoped,
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match state.store.open_run_reader(&id).await {
         Ok(run_store) => match run_store.state().await {
             Ok(run_state) => Json(run_state).into_response(),
@@ -5253,15 +5147,10 @@ async fn get_run_state(
 }
 
 async fn append_run_event(
-    _auth: AuthenticatedService,
+    AuthorizeRunScoped(id): AuthorizeRunScoped,
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
     Json(value): Json<serde_json::Value>,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
         return response;
     }
@@ -5303,15 +5192,10 @@ async fn append_run_event(
 }
 
 async fn list_run_events(
-    _auth: AuthenticatedService,
+    AuthorizeRunScoped(id): AuthorizeRunScoped,
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
     Query(params): Query<EventListParams>,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     let since_seq = params.since_seq();
     let limit = params.limit();
     match state.store.open_run_reader(&id).await {
@@ -5509,15 +5393,10 @@ async fn get_checkpoint(
 }
 
 async fn write_run_blob(
-    _auth: AuthenticatedService,
+    AuthorizeRunScoped(id): AuthorizeRunScoped,
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
     body: Bytes,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
         return response;
     }
@@ -5536,18 +5415,9 @@ async fn write_run_blob(
 }
 
 async fn read_run_blob(
-    _auth: AuthenticatedService,
+    AuthorizeRunBlob(id, blob_id): AuthorizeRunBlob,
     State(state): State<Arc<AppState>>,
-    Path((id, blob_id)): Path<(String, String)>,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let blob_id = match parse_blob_id_path(&blob_id) {
-        Ok(blob_id) => blob_id,
-        Err(response) => return response,
-    };
     match state.store.open_run_reader(&id).await {
         Ok(run_store) => match run_store.read_blob(&blob_id).await {
             Ok(Some(bytes)) => octet_stream_response(bytes),
@@ -5996,23 +5866,11 @@ async fn upload_stage_artifact_multipart(
 
 async fn put_stage_artifact(
     State(state): State<Arc<AppState>>,
-    Path((id, stage_id)): Path<(String, String)>,
+    AuthorizeStageArtifact(id, stage_id): AuthorizeStageArtifact,
     Query(params): Query<ArtifactFilenameParams>,
     request: axum_extract::Request,
 ) -> Response {
-    let id = match parse_run_id_path(&id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let stage_id = match parse_stage_id_path(&stage_id) {
-        Ok(stage_id) => stage_id,
-        Err(response) => return response,
-    };
     let (parts, body) = request.into_parts();
-
-    if let Err(err) = authorize_artifact_upload(&parts, state.as_ref(), &id) {
-        return err.into_response();
-    }
     if let Some(response) = reject_if_archived(state.as_ref(), &id).await {
         return response;
     }
@@ -7456,13 +7314,15 @@ mod tests {
     use std::process::Stdio;
 
     use axum::body::Body;
-    use axum::http::{Request, header};
-    use chrono::Utc;
+    use axum::http::{Method, Request, header};
+    use chrono::{Duration as ChronoDuration, Utc};
     use fabro_config::bind::Bind;
     use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
-    use fabro_types::{InterviewQuestionRecord, InterviewQuestionType, RunBlobId, RunId, fixtures};
+    use fabro_types::{
+        InterviewQuestionRecord, InterviewQuestionType, RunAuthMethod, RunBlobId, RunId, fixtures,
+    };
     use serde_json::json;
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt;
@@ -7480,6 +7340,8 @@ mod tests {
     const TEST_WEBHOOK_SECRET: &str = "webhook-secret";
     const TEST_DEV_TOKEN: &str =
         "fabro_dev_abababababababababababababababababababababababababababababababab";
+    const TEST_SESSION_SECRET: &str = "server-test-session-key-0123456789";
+    const TEST_JWT_ISSUER: &str = "https://fabro.example";
     const WRONG_DEV_TOKEN: &str =
         "fabro_dev_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
 
@@ -7596,6 +7458,88 @@ mod tests {
             jwt_key:    None,
             jwt_issuer: None,
         })
+    }
+
+    fn jwt_auth_mode() -> AuthMode {
+        AuthMode::Enabled(ConfiguredAuth {
+            methods:    vec![ServerAuthMethod::Github],
+            dev_token:  None,
+            jwt_key:    Some(
+                auth::derive_jwt_key(TEST_SESSION_SECRET.as_bytes())
+                    .expect("test JWT key should derive"),
+            ),
+            jwt_issuer: Some(TEST_JWT_ISSUER.to_string()),
+        })
+    }
+
+    fn jwt_auth_state() -> Arc<AppState> {
+        create_test_app_state_with_session_key(
+            default_test_server_settings(),
+            RunLayer::default(),
+            Some(TEST_SESSION_SECRET),
+        )
+    }
+
+    fn jwt_auth_app() -> (Arc<AppState>, Router) {
+        let state = jwt_auth_state();
+        let app = build_router(Arc::clone(&state), jwt_auth_mode());
+        (state, app)
+    }
+
+    fn test_user_subject() -> auth::JwtSubject {
+        auth::JwtSubject {
+            identity:    fabro_types::IdpIdentity::new("https://github.com", "12345").unwrap(),
+            login:       "octocat".to_string(),
+            name:        "The Octocat".to_string(),
+            email:       "octocat@example.com".to_string(),
+            avatar_url:  "https://example.com/octocat.png".to_string(),
+            user_url:    "https://github.com/octocat".to_string(),
+            auth_method: RunAuthMethod::Github,
+        }
+    }
+
+    fn issue_test_user_jwt() -> String {
+        let key = auth::derive_jwt_key(TEST_SESSION_SECRET.as_bytes())
+            .expect("test JWT key should derive");
+        auth::issue(
+            &key,
+            TEST_JWT_ISSUER,
+            &test_user_subject(),
+            ChronoDuration::minutes(10),
+        )
+    }
+
+    fn issue_test_worker_token(run_id: &RunId) -> String {
+        let keys = WorkerTokenKeys::from_master_secret(TEST_SESSION_SECRET.as_bytes())
+            .expect("worker keys should derive");
+        issue_worker_token(&keys, run_id).expect("worker token should issue")
+    }
+
+    async fn create_run_with_bearer(app: &Router, bearer: &str) -> RunId {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(api("/runs"))
+                    .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(manifest_body(MINIMAL_DOT))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response_json!(response, StatusCode::CREATED).await;
+        body["id"].as_str().unwrap().parse().unwrap()
+    }
+
+    fn bearer_request(method: Method, path: &str, bearer: &str, body: Body) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(api(path))
+            .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+            .body(body)
+            .unwrap()
     }
 
     fn canonical_origin_settings(url: &str) -> ServerSettings {
@@ -8174,36 +8118,121 @@ provider = "invalid-provider"
 
     #[cfg(unix)]
     #[test]
-    fn worker_command_injects_dev_token_only_when_enabled() {
+    fn worker_command_always_sets_worker_token_env() {
         let github_only = tempfile::tempdir().unwrap();
         let github_state =
             worker_command_test_state(github_only.path(), &["github"], Some(TEST_DEV_TOKEN));
+        let github_run_id = RunId::new();
         let github_cmd = worker_command(
             github_state.as_ref(),
-            RunId::new(),
+            github_run_id,
             RunExecutionMode::Start,
             github_only.path(),
         )
         .unwrap();
+        assert!(matches!(
+            command_env_value(&github_cmd, "FABRO_WORKER_TOKEN"),
+            EnvOverride::Set(_)
+        ));
         assert_eq!(
             command_env_value(&github_cmd, "FABRO_DEV_TOKEN"),
             EnvOverride::Unchanged
         );
+        let github_args = github_cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            !github_args
+                .iter()
+                .any(|arg| arg == "--artifact-upload-token")
+        );
+        assert!(!github_args.iter().any(|arg| arg == "--worker-token"));
+        let EnvOverride::Set(github_token) = command_env_value(&github_cmd, "FABRO_WORKER_TOKEN")
+        else {
+            panic!("worker token should be set");
+        };
+        let github_keys = WorkerTokenKeys::from_master_secret(TEST_SESSION_SECRET.as_bytes())
+            .expect("worker keys should derive");
+        let github_claims = jsonwebtoken::decode::<crate::worker_token::WorkerTokenClaims>(
+            &github_token,
+            github_keys.decoding_key(),
+            github_keys.validation(),
+        )
+        .expect("github worker token should decode")
+        .claims;
+        assert_eq!(github_claims.run_id, github_run_id.to_string());
 
         let dev_token = tempfile::tempdir().unwrap();
         let dev_token_state =
             worker_command_test_state(dev_token.path(), &["dev-token"], Some(TEST_DEV_TOKEN));
+        let dev_token_run_id = RunId::new();
         let dev_token_cmd = worker_command(
             dev_token_state.as_ref(),
-            RunId::new(),
+            dev_token_run_id,
             RunExecutionMode::Start,
             dev_token.path(),
         )
         .unwrap();
+        assert!(matches!(
+            command_env_value(&dev_token_cmd, "FABRO_WORKER_TOKEN"),
+            EnvOverride::Set(_)
+        ));
         assert_eq!(
             command_env_value(&dev_token_cmd, "FABRO_DEV_TOKEN"),
-            EnvOverride::Set(TEST_DEV_TOKEN.to_string())
+            EnvOverride::Unchanged
         );
+        let EnvOverride::Set(dev_worker_token) =
+            command_env_value(&dev_token_cmd, "FABRO_WORKER_TOKEN")
+        else {
+            panic!("worker token should be set");
+        };
+        let dev_claims = jsonwebtoken::decode::<crate::worker_token::WorkerTokenClaims>(
+            &dev_worker_token,
+            github_keys.decoding_key(),
+            github_keys.validation(),
+        )
+        .expect("dev-token worker token should decode")
+        .claims;
+        assert_eq!(dev_claims.run_id, dev_token_run_id.to_string());
+    }
+
+    #[test]
+    fn build_app_state_requires_session_secret_for_worker_tokens() {
+        let server_settings = server_settings_from_toml(
+            r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+        );
+        let (store, artifact_store) = test_store_bundle();
+        let vault_path = test_secret_store_path();
+        let server_env_path = vault_path.with_file_name("server.env");
+        let Err(err) = build_app_state(AppStateConfig {
+            resolved_settings: resolved_runtime_settings_for_tests(
+                server_settings,
+                RunLayer::default(),
+            ),
+            registry_factory_override: None,
+            max_concurrent_runs: 5,
+            store,
+            artifact_store,
+            vault_path,
+            server_secrets: ServerSecrets::load(server_env_path, HashMap::new()).unwrap(),
+            env_lookup: default_env_lookup(),
+            http_client: Some(
+                fabro_http::test_http_client().expect("test HTTP client should build"),
+            ),
+        }) else {
+            panic!("build_app_state should require SESSION_SECRET")
+        };
+
+        assert!(err.to_string().contains(
+            "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
+        ));
     }
 
     fn worker_command_test_state(
@@ -9518,6 +9547,284 @@ slug = "fabro"
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_status!(response, StatusCode::BAD_REQUEST).await;
+    }
+
+    #[tokio::test]
+    async fn worker_token_accepts_run_scoped_routes_and_falls_back_to_user_jwt() {
+        let (state, app) = jwt_auth_app();
+        let user_jwt = issue_test_user_jwt();
+        let run_id = create_run_with_bearer(&app, &user_jwt).await;
+        let worker_token = issue_test_worker_token(&run_id);
+        let other_run_id = create_run_with_bearer(&app, &user_jwt).await;
+        let other_worker_token = issue_test_worker_token(&other_run_id);
+        let blob_id = state
+            .store
+            .open_run(&run_id)
+            .await
+            .unwrap()
+            .write_blob(b"preloaded blob")
+            .await
+            .unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/state"),
+                &worker_token,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let append_body = serde_json::to_vec(&serde_json::json!({
+            "id": "evt-run-notice",
+            "ts": "2026-04-23T12:00:00Z",
+            "event": "run.notice",
+            "run_id": run_id.to_string(),
+            "properties": {
+                "level": "info",
+                "code": "worker",
+                "message": "hello"
+            }
+        }))
+        .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(api(&format!("/runs/{run_id}/events")))
+                    .header(header::AUTHORIZATION, format!("Bearer {worker_token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(append_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/events"),
+                &worker_token,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::POST,
+                &format!("/runs/{run_id}/blobs"),
+                &worker_token,
+                Body::from("worker blob"),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/blobs/{blob_id}"),
+                &worker_token,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/state"),
+                &user_jwt,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::OK).await;
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/state"),
+                &other_worker_token,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::FORBIDDEN).await;
+    }
+
+    #[tokio::test]
+    async fn worker_token_controls_stage_artifact_route() {
+        let (_state, app) = jwt_auth_app();
+        let user_jwt = issue_test_user_jwt();
+        let run_id = create_run_with_bearer(&app, &user_jwt).await;
+        let worker_token = issue_test_worker_token(&run_id);
+        let other_run_id = create_run_with_bearer(&app, &user_jwt).await;
+        let mismatched_worker_token = issue_test_worker_token(&other_run_id);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(api(&format!(
+                        "/runs/{run_id}/stages/code@2/artifacts?filename=artifact.txt"
+                    )))
+                    .header(header::AUTHORIZATION, format!("Bearer {worker_token}"))
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .body(Body::from("artifact"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::NO_CONTENT).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(api(&format!(
+                        "/runs/{run_id}/stages/code@2/artifacts?filename=artifact.txt"
+                    )))
+                    .header(header::AUTHORIZATION, format!("Bearer {user_jwt}"))
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .body(Body::from("artifact"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::NO_CONTENT).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(api(&format!(
+                        "/runs/{run_id}/stages/code@2/artifacts?filename=artifact.txt"
+                    )))
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer {mismatched_worker_token}"),
+                    )
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .body(Body::from("artifact"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::FORBIDDEN).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(api(&format!(
+                        "/runs/{run_id}/stages/code@2/artifacts?filename=artifact.txt"
+                    )))
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .body(Body::from("artifact"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_status!(response, StatusCode::UNAUTHORIZED).await;
+    }
+
+    #[tokio::test]
+    async fn worker_token_is_rejected_on_user_only_routes() {
+        let (_state, app) = jwt_auth_app();
+        let user_jwt = issue_test_user_jwt();
+        let run_id = create_run_with_bearer(&app, &user_jwt).await;
+        let worker_token = issue_test_worker_token(&run_id);
+        let blob_id = RunBlobId::new(b"blob");
+        let user_only_routes = vec![
+            (Method::GET, "/runs".to_string()),
+            (Method::POST, "/runs".to_string()),
+            (Method::GET, "/runs/resolve".to_string()),
+            (Method::POST, "/preflight".to_string()),
+            (Method::POST, "/graph/render".to_string()),
+            (Method::GET, "/attach".to_string()),
+            (Method::GET, "/boards/runs".to_string()),
+            (Method::GET, format!("/runs/{run_id}")),
+            (Method::DELETE, format!("/runs/{run_id}")),
+            (Method::GET, format!("/runs/{run_id}/questions")),
+            (Method::POST, format!("/runs/{run_id}/questions/q-1/answer")),
+            (Method::GET, format!("/runs/{run_id}/attach")),
+            (Method::GET, format!("/runs/{run_id}/checkpoint")),
+            (Method::POST, format!("/runs/{run_id}/cancel")),
+            (Method::POST, format!("/runs/{run_id}/start")),
+            (Method::POST, format!("/runs/{run_id}/pause")),
+            (Method::POST, format!("/runs/{run_id}/unpause")),
+            (Method::POST, format!("/runs/{run_id}/archive")),
+            (Method::POST, format!("/runs/{run_id}/unarchive")),
+            (Method::GET, format!("/runs/{run_id}/graph")),
+            (Method::GET, format!("/runs/{run_id}/stages")),
+            (Method::GET, format!("/runs/{run_id}/artifacts")),
+            (Method::GET, format!("/runs/{run_id}/files")),
+            (
+                Method::GET,
+                format!("/runs/{run_id}/stages/code@2/artifacts"),
+            ),
+            (
+                Method::GET,
+                format!("/runs/{run_id}/stages/code@2/artifacts/download"),
+            ),
+            (Method::GET, format!("/runs/{run_id}/billing")),
+            (Method::GET, format!("/runs/{run_id}/settings")),
+            (Method::POST, format!("/runs/{run_id}/preview")),
+            (Method::POST, format!("/runs/{run_id}/ssh")),
+            (Method::GET, format!("/runs/{run_id}/sandbox/files")),
+            (Method::GET, format!("/runs/{run_id}/sandbox/file")),
+            (Method::PUT, format!("/runs/{run_id}/sandbox/file")),
+        ];
+
+        for (method, path) in user_only_routes {
+            let response = app
+                .clone()
+                .oneshot(bearer_request(
+                    method.clone(),
+                    &path,
+                    &worker_token,
+                    Body::empty(),
+                ))
+                .await
+                .unwrap();
+            assert!(
+                matches!(
+                    response.status(),
+                    StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+                ),
+                "{method} {path} unexpectedly accepted worker token with status {}",
+                response.status()
+            );
+        }
+
+        let response = app
+            .clone()
+            .oneshot(bearer_request(
+                Method::GET,
+                &format!("/runs/{run_id}/blobs/{blob_id}"),
+                &worker_token,
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

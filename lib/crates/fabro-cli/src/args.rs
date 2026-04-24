@@ -802,10 +802,6 @@ pub(crate) struct RunWorkerArgs {
     #[arg(long, hide = true)]
     pub(crate) storage_dir: Option<PathBuf>,
 
-    /// Short-lived bearer token for artifact uploads
-    #[arg(long, hide = true)]
-    pub(crate) artifact_upload_token: Option<String>,
-
     /// Run scratch directory
     #[arg(long)]
     pub(crate) run_dir: PathBuf,

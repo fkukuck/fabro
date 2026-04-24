@@ -51,9 +51,17 @@ pub(crate) async fn connect_server_target(target: &ServerTarget) -> Result<Clien
     connect_target_api_client_bundle(target).await
 }
 
-pub(crate) async fn connect_server_target_direct(target: &str) -> Result<Client> {
-    let target = target.parse::<ServerTarget>()?;
-    connect_server_target(&target).await
+pub(crate) async fn connect_server_target_with_bearer(
+    target: &ServerTarget,
+    bearer: &str,
+) -> Result<Client> {
+    build_client(
+        target.clone(),
+        Some(Credential::Worker(bearer.to_owned())),
+        None,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn connect_server_with_settings(
@@ -380,6 +388,8 @@ async fn wait_for_server_ready(http_client: &fabro_http::HttpClient) -> Result<(
 mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use fabro_client::{AuthEntry, StoredSubject};
+    use httpmock::Method::{GET, POST};
+    use serde_json::json;
 
     use super::*;
 
@@ -543,6 +553,87 @@ mod tests {
     fn unix_socket_targets_keep_local_dev_token_fallback() {
         let target = ServerTarget::unix_socket_path("/tmp/fabro.sock").unwrap();
         assert!(local_dev_token_fallback(&target));
+    }
+
+    #[tokio::test]
+    async fn connect_server_target_with_bearer_sends_worker_bearer_token() {
+        let server = httpmock::MockServer::start();
+        let info_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v1/system/info")
+                .header("authorization", "Bearer worker-token");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(json!({
+                    "version": "1.2.3",
+                    "git_sha": "abcdef0",
+                    "build_date": "2026-04-20",
+                    "profile": "release",
+                    "os": "darwin",
+                    "arch": "arm64",
+                    "storage_dir": "/tmp/fabro-worker-auth",
+                    "storage_engine": "slatedb",
+                    "runs": { "total": 0, "active": 0 },
+                    "uptime_secs": 42
+                }));
+        });
+
+        let target = ServerTarget::http_url(server.base_url()).unwrap();
+        let client = connect_server_target_with_bearer(&target, "worker-token")
+            .await
+            .unwrap();
+        let info = client.get_system_info().await.unwrap();
+
+        assert_eq!(info.version.as_deref(), Some("1.2.3"));
+        info_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn connect_server_target_with_bearer_does_not_attempt_oauth_refresh() {
+        let server = httpmock::MockServer::start();
+        let info_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v1/system/info")
+                .header("authorization", "Bearer worker-token");
+            then.status(401)
+                .header("Content-Type", "application/json")
+                .json_body(json!({
+                    "errors": [{
+                        "status": "401",
+                        "title": "Unauthorized",
+                        "detail": "Access token expired.",
+                        "code": "access_token_expired"
+                    }]
+                }));
+        });
+        let refresh_mock = server.mock(|when, then| {
+            when.method(POST).path("/auth/cli/refresh");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(json!({
+                    "access_token": "unused",
+                    "access_token_expires_at": (Utc::now() + ChronoDuration::minutes(10)).to_rfc3339(),
+                    "refresh_token": "unused",
+                    "refresh_token_expires_at": (Utc::now() + ChronoDuration::days(30)).to_rfc3339(),
+                    "subject": {
+                        "idp_issuer": "https://github.com",
+                        "idp_subject": "12345",
+                        "login": "octocat",
+                        "name": "Octo Cat",
+                        "email": "octocat@example.com"
+                    }
+                }));
+        });
+
+        let target = ServerTarget::http_url(server.base_url()).unwrap();
+        let client = connect_server_target_with_bearer(&target, "worker-token")
+            .await
+            .unwrap();
+        let err = client.get_system_info().await.unwrap_err();
+
+        assert!(err.to_string().contains("Access token expired"));
+        info_mock.assert();
+        assert_eq!(refresh_mock.calls(), 0);
     }
 
     fn oauth_entry(

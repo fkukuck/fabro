@@ -144,7 +144,7 @@ where
         .unwrap_or_else(|| "fabro-server".to_string())
 }
 
-fn session_secret_key_error(err: &KeyDeriveError) -> anyhow::Error {
+pub(crate) fn session_secret_key_error(err: &KeyDeriveError) -> anyhow::Error {
     match err {
         KeyDeriveError::Empty => {
             anyhow!(
@@ -182,7 +182,7 @@ fn config_allows_run_auth_method(config: &ConfiguredAuth, method: RunAuthMethod)
     }
 }
 
-fn bearer_token(parts: &Parts) -> Option<Result<&str, ApiError>> {
+pub(crate) fn bearer_token(parts: &Parts) -> Option<Result<&str, ApiError>> {
     let value = parts.headers.get(header::AUTHORIZATION)?;
     let Ok(value) = value.to_str() else {
         return Some(Err(ApiError::unauthorized()));

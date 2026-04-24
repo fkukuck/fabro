@@ -72,12 +72,33 @@ async fn main() {
         std::process::exit(commands::render_graph::execute());
     }
 
+    // Capture the worker bearer token immediately and scrub it from the process
+    // env before any subprocess can be spawned. Every descendant of the worker
+    // (hooks, sandbox commands, devcontainer setup, MCP stdio, etc.) therefore
+    // inherits a process env that no longer contains FABRO_WORKER_TOKEN, so an
+    // unscrubbed spawn site cannot leak it. The token flows to `runner::execute`
+    // through an explicit function argument instead of the environment.
+    let worker_token = if subcommand == Some("__run-worker") {
+        let token = std::env::var("FABRO_WORKER_TOKEN").ok();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "Scrub the worker bearer from this process's env before any \
+                      child process is spawned, so no descendant can inherit it."
+        )]
+        {
+            std::env::remove_var("FABRO_WORKER_TOKEN");
+        }
+        token
+    } else {
+        None
+    };
+
     tel_panic::install_panic_hook();
     fabro_telemetry::init_cli();
 
     let start = std::time::Instant::now();
 
-    let (command_name, result) = Box::pin(main_inner()).await;
+    let (command_name, result) = Box::pin(main_inner(worker_token)).await;
     let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
     let exit_code = result.as_ref().err().map_or(0, exit::exit_code_for);
 
@@ -145,7 +166,7 @@ async fn main() {
     }
 }
 
-async fn main_inner() -> (String, Result<()>) {
+async fn main_inner(worker_token: Option<String>) -> (String, Result<()>) {
     let _ = default_provider().install_default();
 
     let cli = Cli::parse();
@@ -206,7 +227,7 @@ async fn main_inner() -> (String, Result<()>) {
                 commands::exec::execute(args, &base_ctx).await?;
             }
             Commands::RunCmd(cmd) => {
-                Box::pin(commands::run::dispatch(cmd, &base_ctx)).await?;
+                Box::pin(commands::run::dispatch(cmd, &base_ctx, worker_token)).await?;
             }
             Commands::Preflight(args) => {
                 commands::preflight::execute(args, &base_ctx).await?;
@@ -939,8 +960,6 @@ level = "warn"
             "__run-worker",
             "--server",
             "/tmp/fabro.sock",
-            "--artifact-upload-token",
-            "token-123",
             "--run-dir",
             "/tmp/run",
             "--run-id",
@@ -952,7 +971,6 @@ level = "warn"
         match *cli.command.unwrap() {
             Commands::RunCmd(RunCommands::RunWorker(args)) => {
                 assert_eq!(args.server, "/tmp/fabro.sock");
-                assert_eq!(args.artifact_upload_token.as_deref(), Some("token-123"));
                 assert_eq!(args.run_dir, std::path::PathBuf::from("/tmp/run"));
                 assert_eq!(args.run_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap());
                 assert!(matches!(args.mode, args::RunWorkerMode::Start));
@@ -979,7 +997,6 @@ level = "warn"
         match *cli.command.unwrap() {
             Commands::RunCmd(RunCommands::RunWorker(args)) => {
                 assert_eq!(args.server, "http://127.0.0.1:3000");
-                assert!(args.artifact_upload_token.is_none());
                 assert_eq!(args.run_dir, std::path::PathBuf::from("/tmp/run"));
                 assert_eq!(args.run_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap());
                 assert!(matches!(args.mode, args::RunWorkerMode::Resume));
