@@ -4,7 +4,6 @@ mod info;
 mod prune;
 
 use anyhow::Result;
-pub(crate) use prune::parse_duration;
 
 use crate::args::{SystemCommand, SystemNamespace};
 use crate::command_context::CommandContext;

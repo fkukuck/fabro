@@ -1780,6 +1780,7 @@ dependencies = [
  "assert_cmd",
  "chrono",
  "clap",
+ "fabro-cli",
  "regex",
  "tempfile",
  "tracing-subscriber",

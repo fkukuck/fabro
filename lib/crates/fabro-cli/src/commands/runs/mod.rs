@@ -28,7 +28,7 @@ pub(super) fn short_run_id(id: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::system::parse_duration;
+    use crate::args::parse_duration;
     use crate::shared::format_size;
 
     #[test]

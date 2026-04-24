@@ -1,9 +1,11 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use fabro_agent::cli::AgentArgs;
 use fabro_config::{CliLayer, CliLoggingLayer, CliOutputLayer, CliUpdatesLayer};
+use fabro_server::serve::DEFAULT_TCP_PORT;
 use fabro_static::EnvVars;
 use fabro_types::settings::cli::{OutputFormat, OutputVerbosity};
 use fabro_types::settings::run::MergeStrategy;
@@ -80,6 +82,26 @@ pub(crate) fn require_no_json_override(process_local_json: bool) -> anyhow::Resu
         "--json is not supported for this command"
     );
     Ok(())
+}
+
+pub(crate) fn parse_duration(s: &str) -> Result<chrono::Duration> {
+    let s = s.trim();
+    if s.is_empty() {
+        bail!("empty duration string");
+    }
+    let (num_str, unit) = s.split_at(s.len() - 1);
+    let num: i64 = num_str
+        .parse()
+        .with_context(|| format!("invalid duration: {s}"))?;
+    match unit {
+        "h" => Ok(chrono::Duration::hours(num)),
+        "d" => Ok(chrono::Duration::days(num)),
+        _ => bail!("invalid duration unit '{unit}' in '{s}' (expected 'h' or 'd')"),
+    }
+}
+
+pub(crate) fn default_web_url() -> String {
+    format!("http://127.0.0.1:{DEFAULT_TCP_PORT}")
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -680,7 +702,7 @@ pub(crate) struct RunsPruneArgs {
     #[arg(
         long,
         value_name = "DURATION",
-        value_parser = crate::commands::system::parse_duration
+        value_parser = parse_duration
     )]
     pub(crate) older_than: Option<chrono::Duration>,
 
@@ -1407,7 +1429,7 @@ pub(crate) struct InstallArgs {
 
     /// Base URL for the web UI (used for OAuth callback URLs and generated
     /// settings)
-    #[arg(long, default_value_t = crate::commands::install::default_web_url())]
+    #[arg(long, default_value_t = default_web_url())]
     pub(crate) web_url: String,
 
     /// Run install without prompts; use hidden scripted flags for inputs

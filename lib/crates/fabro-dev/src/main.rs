@@ -22,6 +22,8 @@ enum Command {
     CheckBoundary(commands::CheckBoundaryArgs),
     /// Build Fabro Docker images with the release pipeline layout.
     DockerBuild(commands::DockerBuildArgs),
+    /// Generate docs/reference/cli.mdx from the Fabro clap command tree.
+    GenerateCliReference(commands::GenerateCliReferenceArgs),
     /// Run Fabro release automation.
     Release(commands::ReleaseArgs),
     /// Refresh the embedded Fabro web SPA bundle.
@@ -35,6 +37,7 @@ impl Command {
         match self {
             Self::CheckBoundary(args) => commands::check_boundary(args),
             Self::DockerBuild(args) => commands::docker_build(args),
+            Self::GenerateCliReference(args) => commands::generate_cli_reference(args),
             Self::Release(args) => commands::release(args),
             Self::RefreshSpa(args) => commands::refresh_spa(args),
             Self::CheckSpaBudgets(args) => commands::check_spa_budgets(args),

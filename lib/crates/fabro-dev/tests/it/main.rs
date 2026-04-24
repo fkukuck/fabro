@@ -3,6 +3,7 @@ use std::process::{Command, Output};
 
 mod check_boundary;
 mod docker_build;
+mod generate_cli_reference;
 mod release;
 mod spa;
 
@@ -48,6 +49,7 @@ fn help_lists_scaffolded_commands() {
     for command in [
         "check-boundary",
         "docker-build",
+        "generate-cli-reference",
         "release",
         "refresh-spa",
         "check-spa-budgets",

@@ -811,7 +811,7 @@ impl fabro_options_metadata::OptionsMetadata for RunArgs {
 
 ---
 
-- [ ] **Unit 6.2: Add `cargo dev generate-cli-reference` to regenerate `docs/reference/cli.mdx`**
+- [x] **Unit 6.2: Add `cargo dev generate-cli-reference` to regenerate `docs/reference/cli.mdx`**
 
 **Goal:** Replace hand-authored clap-mirroring portions of `docs/reference/cli.mdx` with generator output; add CI check for drift.
 
@@ -836,6 +836,8 @@ impl fabro_options_metadata::OptionsMetadata for RunArgs {
 - `--check` mode: generate to a buffer, compare against the content between fences in the committed file, fail on mismatch. Determinism requirements: sorted iteration order for options, LF-only line endings, trimmed trailing whitespace. Add a test that re-running the generator three times on unchanged inputs produces byte-identical output each time.
 
 **Execution note:** Run once against current fabro-cli to see what the output looks like; iterate doc-comment shape until generated output is acceptable, then commit both the generator and the regenerated `cli.mdx`.
+
+**Implementation note:** Landed with a narrow public `fabro_cli::command_for_reference()` surface that returns the built clap `Command` tree, rather than making every CLI args struct public or extracting a `fabro-cli-args` crate. The CLI reference generator reads clap metadata directly because clap already contains names, help text, value enums, defaults, and nested commands; `OptionsMetadata` remains the runtime metadata path for Unit 6.3's settings docs where clap metadata is not available.
 
 **Patterns to follow:**
 - uv: `uv-dev/src/generate_cli_reference.rs`.

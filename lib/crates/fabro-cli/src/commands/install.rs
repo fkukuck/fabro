@@ -47,6 +47,8 @@ use tokio::sync::oneshot;
 use tokio::task::spawn_blocking;
 
 use super::doctor;
+#[cfg(test)]
+use crate::args::default_web_url;
 use crate::args::{
     DoctorArgs, InstallArgs, InstallCommand, InstallGitHubStrategyArg, InstallGithubArgs,
     InstallNonInteractiveArgs, ServerTargetArgs,
@@ -102,11 +104,6 @@ fn print_auth_status(
 // ---------------------------------------------------------------------------
 // Config TOML generation
 // ---------------------------------------------------------------------------
-
-/// Default web URL used by `fabro install` when `--web-url` is omitted.
-pub(crate) fn default_web_url() -> String {
-    format!("http://127.0.0.1:{}", serve::DEFAULT_TCP_PORT)
-}
 
 fn merge_server_settings(doc: &mut toml::Value, web_url: &str) -> Result<()> {
     // Extract host:port from a URL like "http://127.0.0.1:32276"
