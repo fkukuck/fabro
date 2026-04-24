@@ -632,7 +632,7 @@ Solid arrows are real dependencies. Dashed lines show phases that are independen
 
 ---
 
-- [ ] **Unit 5.3: Port `docker-build.sh` to `fabro-dev docker-build`**
+- [x] **Unit 5.3: Port `docker-build.sh` to `fabro-dev docker-build`**
 
 **Goal:** Replace `bin/dev/docker-build.sh` with a subcommand.
 

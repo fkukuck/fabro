@@ -2,11 +2,10 @@ use anyhow::{Result, bail};
 use clap::Args;
 
 mod check_boundary;
+mod docker_build;
 
 pub(crate) use check_boundary::{CheckBoundaryArgs, check_boundary};
-
-#[derive(Debug, Args)]
-pub(crate) struct DockerBuildArgs;
+pub(crate) use docker_build::{DockerBuildArgs, docker_build};
 
 #[derive(Debug, Args)]
 pub(crate) struct ReleaseArgs;
@@ -16,10 +15,6 @@ pub(crate) struct RefreshSpaArgs;
 
 #[derive(Debug, Args)]
 pub(crate) struct CheckSpaBudgetsArgs;
-
-pub(crate) fn docker_build(_args: DockerBuildArgs) -> Result<()> {
-    not_yet_implemented("docker-build")
-}
 
 pub(crate) fn release(_args: ReleaseArgs) -> Result<()> {
     not_yet_implemented("release")

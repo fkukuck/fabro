@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 mod check_boundary;
+mod docker_build;
 
 fn fabro_dev() -> assert_cmd::Command {
     assert_cmd::cargo::cargo_bin_cmd!("fabro-dev")

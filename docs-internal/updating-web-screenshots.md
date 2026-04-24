@@ -11,7 +11,7 @@ Screenshots of the Fabro web UI are embedded in the public docs. This guide cove
 - Docker installed
 - Chrome running with DevTools MCP or similar screenshot tool
 - Header-injection tool (browser extension or proxy) to send `X-Fabro-Demo: 1`
-- The `fabro` Docker image built locally: `bin/dev/docker-build.sh`
+- The `fabro` Docker image built locally: `cargo dev docker-build`
 
 ## Boot the demo environment
 
@@ -28,7 +28,7 @@ curl -s -H "X-Fabro-Demo: 1" -o /dev/null -w "%{http_code}" http://localhost/run
 
 ## Applying temporary UI changes for screenshots
 
-With the SPA baked into the binary, there's no in-container edit path. Commit the nav change on a local branch, rerun `bin/dev/docker-build.sh`, then `docker compose up -d --force-recreate`.
+With the SPA baked into the binary, there's no in-container edit path. Commit the nav change on a local branch, rerun `cargo dev docker-build`, then `docker compose up -d --force-recreate`.
 
 ## Updating logos
 
