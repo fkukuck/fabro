@@ -7776,7 +7776,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     #[cfg(unix)]
     use std::process::Stdio;
-    use std::sync::Once;
 
     use axum::body::Body;
     use axum::http::{Method, Request, header};
@@ -7785,14 +7784,7 @@ mod tests {
     use fabro_config::ServerSettingsBuilder;
     use fabro_config::bind::Bind;
     use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
-    use fabro_llm::Error as LlmError;
-    use fabro_llm::client::Client as LlmClient;
-    use fabro_llm::generate::set_default_client;
-    use fabro_llm::provider::{ProviderAdapter, StreamEventStream};
-    use fabro_llm::types::{
-        FinishReason, Message as LlmMessage, Request as LlmRequest, Response as LlmResponse,
-        StreamEvent, TokenCounts,
-    };
+    use fabro_llm::types::{Message as LlmMessage, Request as LlmRequest};
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
     use fabro_types::{
@@ -9126,6 +9118,14 @@ strategy = "token"
         token: Option<&str>,
         github_api_base_url: Option<String>,
     ) -> Arc<AppState> {
+        create_github_token_app_state_with_env_lookup(token, github_api_base_url, |_| None)
+    }
+
+    fn create_github_token_app_state_with_env_lookup(
+        token: Option<&str>,
+        github_api_base_url: Option<String>,
+        env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+    ) -> Arc<AppState> {
         let (store, artifact_store) = test_store_bundle();
         let vault_path = test_secret_store_path();
         let server_env_path = vault_path.with_file_name("server.env");
@@ -9140,7 +9140,7 @@ strategy = "token"
             artifact_store,
             vault_path,
             server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-            env_lookup: Arc::new(|_| None),
+            env_lookup: Arc::new(env_lookup),
             github_api_base_url,
             http_client: Some(
                 fabro_http::test_http_client().expect("test HTTP client should build"),
@@ -9227,91 +9227,6 @@ strategy = "token"
             },
         ])
         .await;
-    }
-
-    struct MockLlmProvider {
-        response_text: String,
-    }
-
-    impl MockLlmProvider {
-        fn new(text: &str) -> Self {
-            Self {
-                response_text: text.to_string(),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProviderAdapter for MockLlmProvider {
-        fn name(&self) -> &'static str {
-            "anthropic"
-        }
-
-        async fn complete(&self, _request: &LlmRequest) -> Result<LlmResponse, LlmError> {
-            Ok(LlmResponse {
-                id:            "resp_1".into(),
-                model:         "mock-model".into(),
-                provider:      "anthropic".into(),
-                message:       LlmMessage::assistant(&self.response_text),
-                finish_reason: FinishReason::Stop,
-                usage:         TokenCounts {
-                    input_tokens: 10,
-                    output_tokens: 20,
-                    ..Default::default()
-                },
-                raw:           None,
-                warnings:      vec![],
-                rate_limit:    None,
-            })
-        }
-
-        async fn stream(&self, _request: &LlmRequest) -> Result<StreamEventStream, LlmError> {
-            let text = self.response_text.clone();
-            let response = LlmResponse {
-                id:            "resp_1".into(),
-                model:         "mock-model".into(),
-                provider:      "anthropic".into(),
-                message:       LlmMessage::assistant(&text),
-                finish_reason: FinishReason::Stop,
-                usage:         TokenCounts {
-                    input_tokens: 10,
-                    output_tokens: 20,
-                    ..Default::default()
-                },
-                raw:           None,
-                warnings:      vec![],
-                rate_limit:    None,
-            };
-            Ok(Box::pin(tokio_stream::iter(vec![
-                Ok(StreamEvent::text_delta(&text, Some("t1".into()))),
-                Ok(StreamEvent::finish(
-                    FinishReason::Stop,
-                    TokenCounts {
-                        input_tokens: 10,
-                        output_tokens: 20,
-                        ..Default::default()
-                    },
-                    response,
-                )),
-            ])))
-        }
-    }
-
-    fn install_mock_llm() {
-        static INIT: Once = Once::new();
-
-        INIT.call_once(|| {
-            let mut providers: HashMap<String, Arc<dyn ProviderAdapter>> = HashMap::new();
-            providers.insert(
-                "anthropic".to_string(),
-                Arc::new(MockLlmProvider::new("Narrative from mock.")),
-            );
-            set_default_client(LlmClient::new(
-                providers,
-                Some("anthropic".to_string()),
-                vec![],
-            ));
-        });
     }
 
     async fn create_completed_run_ready_for_pull_request(
@@ -10137,8 +10052,6 @@ slug = "fabro"
 
     #[tokio::test]
     async fn create_run_pull_request_creates_and_persists_record() {
-        install_mock_llm();
-
         let github = MockServer::start();
         let create_mock = github.mock(|when, then| {
             when.method("POST")
@@ -10155,10 +10068,46 @@ slug = "fabro"
                     .to_string(),
                 );
         });
-        let (_state, app, run_id) = pr_test_app_with_completed_run(
+        let llm = MockServer::start_async().await;
+        let response_mock = llm
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/v1/responses")
+                    .header("authorization", "Bearer openai-key");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(openai_responses_payload("Narrative from mock."));
+            })
+            .await;
+        let openai_base_url = llm.url("/v1");
+        let state = create_github_token_app_state_with_env_lookup(
             Some("ghu_test"),
             Some(github.base_url()),
+            move |name| match name {
+                "OPENAI_BASE_URL" => Some(openai_base_url.clone()),
+                _ => None,
+            },
+        );
+        state
+            .vault
+            .write()
+            .await
+            .set(
+                "openai_codex",
+                &serde_json::to_string(&openai_api_key_credential("openai-key")).unwrap(),
+                SecretType::Credential,
+                None,
+            )
+            .unwrap();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = fixtures::RUN_1;
+        create_completed_run_ready_for_pull_request(
+            &state,
+            run_id,
             Some("git@github.com:acme/widgets.git"),
+            Some("main"),
+            Some("fabro/run/42"),
+            "diff --git a/src/lib.rs b/src/lib.rs\n+fn shipped() {}\n",
         )
         .await;
 
@@ -10172,7 +10121,7 @@ slug = "fabro"
                     .body(Body::from(
                         json!({
                             "force": false,
-                            "model": "claude-sonnet-4-6"
+                            "model": "gpt-5.4"
                         })
                         .to_string(),
                     ))
@@ -10201,6 +10150,7 @@ slug = "fabro"
         assert_eq!(state_body["pull_request"]["number"], 42);
         assert!(state_body["pull_request"]["title"].as_str().is_some());
 
+        response_mock.assert_async().await;
         create_mock.assert();
     }
 
