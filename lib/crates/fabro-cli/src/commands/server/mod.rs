@@ -247,6 +247,7 @@ fn announce_install_mode(bind: &Bind, token: &str, styles: &Styles, printer: Pri
     }
     fabro_util::printerr!(printer, "");
     fabro_util::printerr!(printer, "  If prompted, paste the install token:");
+    fabro_util::printerr!(printer, "");
     fabro_util::printerr!(printer, "    {}", styles.bold_cyan.apply_to(token));
     fabro_util::printerr!(printer, "");
     fabro_util::printerr!(
