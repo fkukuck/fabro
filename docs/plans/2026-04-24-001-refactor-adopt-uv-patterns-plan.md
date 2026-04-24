@@ -591,7 +591,7 @@ Solid arrows are real dependencies. Dashed lines show phases that are independen
 
 ---
 
-- [ ] **Unit 5.2: Port `check-boundary.sh` to `fabro-dev check-boundary`**
+- [x] **Unit 5.2: Port `check-boundary.sh` to `fabro-dev check-boundary`**
 
 **Goal:** Replace `bin/dev/check-boundary.sh` with a Rust subcommand that enforces the same allowlist check.
 
