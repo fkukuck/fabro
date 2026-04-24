@@ -535,12 +535,11 @@ pub struct RunPullRequestLayer {
     /// Enable GitHub auto-merge for created pull requests. Implies `draft =
     /// false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[option(name = "auto_merge", default = "false", value_type = "boolean")]
+    #[option(default = "false", value_type = "boolean")]
     pub auto_merge:     Option<bool>,
     /// Merge method to configure for the pull request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[option(
-        name = "merge_strategy",
         default = "\"squash\"",
         value_type = "\"merge\" | \"squash\" | \"rebase\""
     )]

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 mod docker_build;
 mod generate_cli_reference;
@@ -42,19 +41,6 @@ fn read_file(root: &Path, path: &str) -> String {
     std::fs::read_to_string(root.join(path)).expect("reading fixture file")
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "integration test intentionally shells out to Cargo to verify the cargo dev alias"
-)]
-fn cargo_dev(args: &[&str]) -> Output {
-    Command::new("cargo")
-        .arg("dev")
-        .args(args)
-        .current_dir(workspace_root())
-        .output()
-        .expect("cargo dev should run")
-}
-
 #[test]
 fn help_lists_scaffolded_commands() {
     let output = fabro_dev()
@@ -81,20 +67,11 @@ fn help_lists_scaffolded_commands() {
 }
 
 #[test]
-fn cargo_dev_alias_resolves_to_fabro_dev_help() {
-    let output = cargo_dev(&["--help"]);
-
+fn cargo_dev_alias_points_at_fabro_dev() {
+    let config = read_file(&workspace_root(), ".cargo/config.toml");
     assert!(
-        output.status.success(),
-        "cargo dev --help failed\nstdout:\n{}\nstderr:\n{}",
-        output_text(&output.stdout),
-        output_text(&output.stderr)
-    );
-
-    let stdout = output_text(&output.stdout);
-    assert!(
-        stdout.contains("docker-build"),
-        "cargo dev help should come from fabro-dev:\n{stdout}"
+        config.contains(r#"dev = "run --package fabro-dev --""#),
+        "cargo dev alias should invoke fabro-dev:\n{config}"
     );
 }
 

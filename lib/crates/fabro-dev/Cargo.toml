@@ -20,7 +20,8 @@ clap.workspace = true
 fabro-cli = { path = "../fabro-cli" }
 fabro-config = { path = "../fabro-config" }
 fabro-options-metadata.workspace = true
-regex.workspace = true
+shlex = "1"
+toml_edit.workspace = true
 tracing-subscriber.workspace = true
 walkdir.workspace = true
 

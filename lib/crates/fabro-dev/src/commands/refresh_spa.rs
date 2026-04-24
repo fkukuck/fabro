@@ -17,17 +17,21 @@ pub(crate) struct RefreshSpaArgs {
     skip_build: bool,
 }
 
+pub(crate) fn refresh_spa(args: RefreshSpaArgs) -> Result<()> {
+    let root = args.root.unwrap_or_else(workspace_root);
+    refresh_spa_root(&root, args.skip_build)
+}
+
 #[expect(
     clippy::print_stdout,
     reason = "dev refresh-spa command reports progress directly"
 )]
-pub(crate) fn refresh_spa(args: RefreshSpaArgs) -> Result<()> {
-    let root = args.root.unwrap_or_else(workspace_root);
+pub(super) fn refresh_spa_root(root: &Path, skip_build: bool) -> Result<()> {
     let web_dir = root.join("apps/fabro-web");
     let dist_dir = web_dir.join("dist");
     let asset_dir = root.join("lib/crates/fabro-spa/assets");
 
-    if !args.skip_build {
+    if !skip_build {
         println!("Running bun run build in apps/fabro-web...");
         run_bun_build(&web_dir)?;
     }

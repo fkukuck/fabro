@@ -30,7 +30,7 @@ pub(crate) fn generate_cli_reference(args: GenerateCliReferenceArgs) -> Result<(
     let path = root.join(CLI_REFERENCE_PATH);
     let current =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let generated = render_cli_reference(fabro_cli::command_for_reference());
+    let generated = render_cli_reference(fabro_cli::command_for_reference())?;
     let updated = replace_generated_region(
         &current,
         &generated,
@@ -54,17 +54,22 @@ pub(crate) fn generate_cli_reference(args: GenerateCliReferenceArgs) -> Result<(
     Ok(())
 }
 
-fn render_cli_reference(mut command: Command) -> String {
+fn render_cli_reference(mut command: Command) -> Result<String> {
     command.build();
 
     let mut output = String::new();
-    render_command(&mut output, &command, &[], 2);
-    output.trim_end().to_string()
+    render_command(&mut output, &command, &[], 2)?;
+    Ok(output.trim_end().to_string())
 }
 
-fn render_command(output: &mut String, command: &Command, parents: &[&str], level: usize) {
+fn render_command(
+    output: &mut String,
+    command: &Command,
+    parents: &[&str],
+    level: usize,
+) -> Result<()> {
     if command.is_hide_set() {
-        return;
+        return Ok(());
     }
 
     let path = command_path(command, parents);
@@ -91,7 +96,7 @@ fn render_command(output: &mut String, command: &Command, parents: &[&str], leve
             output.push_str("| `");
             output.push_str(&argument_name(arg));
             output.push_str("` | ");
-            output.push_str(&arg_help(arg));
+            output.push_str(&arg_help(arg, &path)?);
             output.push_str(" |\n");
         }
         output.push('\n');
@@ -106,7 +111,7 @@ fn render_command(output: &mut String, command: &Command, parents: &[&str], leve
             output.push_str("| `");
             output.push_str(&option_name(arg));
             output.push_str("` | ");
-            output.push_str(&arg_help(arg));
+            output.push_str(&arg_help(arg, &path)?);
             output.push_str(" |\n");
         }
         output.push('\n');
@@ -135,8 +140,10 @@ fn render_command(output: &mut String, command: &Command, parents: &[&str], leve
     let mut next_parents = parents.to_vec();
     next_parents.push(command.get_name());
     for subcommand in visible_subcommands {
-        render_command(output, subcommand, &next_parents, level + 1);
+        render_command(output, subcommand, &next_parents, level + 1)?;
     }
+
+    Ok(())
 }
 
 fn command_path(command: &Command, parents: &[&str]) -> String {
@@ -216,7 +223,7 @@ fn option_takes_value(arg: &Arg) -> bool {
     arg.get_num_args().is_some_and(|range| range.takes_values())
 }
 
-fn arg_help(arg: &Arg) -> String {
+fn arg_help(arg: &Arg, command_path: &str) -> Result<String> {
     let mut parts = Vec::new();
     if let Some(help) = arg.get_long_help().or_else(|| arg.get_help()) {
         let help = help.to_string();
@@ -248,10 +255,12 @@ fn arg_help(arg: &Arg) -> String {
     }
 
     if parts.is_empty() {
-        "TODO: add CLI help text.".to_string()
-    } else {
-        parts.join("<br />")
+        bail!(
+            "{command_path} argument `{}` is missing help text",
+            arg.get_id()
+        )
     }
+    Ok(parts.join("<br />"))
 }
 
 fn is_boolean_switch(arg: &Arg) -> bool {

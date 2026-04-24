@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 
-use super::{PlannedCommand, command, shell_arg, workspace_root};
+use super::{PlannedCommand, run_command, shell_arg, workspace_root};
 
 const ZIG_VERSION: &str = "0.13.0";
 
@@ -103,7 +103,7 @@ impl DockerBuildPlan {
             self.arch.target()
         );
         let build_command = self.build_command();
-        self.run_command(&build_command)?;
+        run_command(&self.workspace_root, &build_command)?;
 
         println!("Extracting binary from builder cache...");
         std::fs::create_dir_all(self.context_dir()).with_context(|| {
@@ -113,7 +113,7 @@ impl DockerBuildPlan {
             )
         })?;
         let extract_command = self.extract_command();
-        self.run_command(&extract_command)?;
+        run_command(&self.workspace_root, &extract_command)?;
 
         if self.compile_only {
             println!(
@@ -125,7 +125,7 @@ impl DockerBuildPlan {
 
         println!("Building Docker image as {}...", self.tag);
         let image_build_command = self.image_build_command();
-        self.run_command(&image_build_command)
+        run_command(&self.workspace_root, &image_build_command)
     }
 
     fn dry_run_lines(&self) -> Vec<String> {
@@ -198,19 +198,6 @@ impl DockerBuildPlan {
             .arg("-t")
             .arg(&self.tag)
             .arg(".")
-    }
-
-    fn run_command(&self, planned: &PlannedCommand) -> Result<()> {
-        let status = command(planned)
-            .current_dir(&self.workspace_root)
-            .status()
-            .with_context(|| format!("running {}", planned.to_shell_line()))?;
-
-        if !status.success() {
-            bail!("command failed with {status}: {}", planned.to_shell_line());
-        }
-
-        Ok(())
     }
 
     fn context_dir(&self) -> PathBuf {

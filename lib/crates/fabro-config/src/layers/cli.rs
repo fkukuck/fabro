@@ -64,7 +64,7 @@ pub struct CliAuthLayer {
 pub struct CliExecLayer {
     /// Prevent idle sleep on macOS while an exec run is in flight.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[option(name = "prevent_idle_sleep", default = "false", value_type = "boolean")]
+    #[option(default = "false", value_type = "boolean")]
     pub prevent_idle_sleep: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model:              Option<CliExecModelLayer>,

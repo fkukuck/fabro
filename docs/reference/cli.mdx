@@ -230,6 +230,7 @@ fabro auth login [OPTIONS]
 
 | Option | Description |
 | --- | --- |
+| `--dev-token <dev_token>` | Log in with a dev-token instead of browser OAuth |
 | `--no-browser` | Print the browser URL instead of opening it automatically |
 | `--server <server>` | Fabro server target: http(s) URL or absolute Unix socket path |
 | `--timeout <timeout>` | Timeout in seconds waiting for the browser flow to complete<br />Default: `300` |
@@ -972,8 +973,8 @@ fabro secret set [OPTIONS] <KEY> [VALUE]
 
 | Option | Description |
 | --- | --- |
-| `--description <description>` | TODO: add CLI help text. |
-| `--type <type>` | Values: `environment`, `file`<br />Default: `environment` |
+| `--description <description>` | Optional human-readable description |
+| `--type <type>` | Secret storage type<br />Values: `environment`, `file`<br />Default: `environment` |
 | `--value-stdin` | Read the secret value from stdin |
 
 ### `fabro server`

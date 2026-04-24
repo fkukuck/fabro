@@ -130,6 +130,36 @@ impl OptionSet {
         self.record(&mut visitor);
         visitor.entry
     }
+
+    /// Returns all field entries flattened by dotted name.
+    pub fn fields(&self) -> BTreeMap<String, OptionField> {
+        struct FieldsVisitor<'a> {
+            entries: &'a mut BTreeMap<String, OptionField>,
+            prefix:  String,
+        }
+
+        impl Visit for FieldsVisitor<'_> {
+            fn record_field(&mut self, name: &str, field: OptionField) {
+                self.entries
+                    .insert(format!("{}{}", self.prefix, name), field);
+            }
+
+            fn record_set(&mut self, name: &str, set: OptionSet) {
+                let previous = self.prefix.clone();
+                self.prefix.push_str(name);
+                self.prefix.push('.');
+                set.record(self);
+                self.prefix = previous;
+            }
+        }
+
+        let mut entries = BTreeMap::new();
+        self.record(&mut FieldsVisitor {
+            entries: &mut entries,
+            prefix:  String::new(),
+        });
+        entries
+    }
 }
 
 impl PartialEq for OptionSet {
@@ -185,31 +215,7 @@ impl Serialize for OptionSet {
     where
         S: Serializer,
     {
-        struct SerializeVisitor<'a> {
-            entries: &'a mut BTreeMap<String, OptionField>,
-        }
-
-        impl Visit for SerializeVisitor<'_> {
-            fn record_field(&mut self, name: &str, field: OptionField) {
-                self.entries.insert(name.to_string(), field);
-            }
-
-            fn record_set(&mut self, name: &str, set: OptionSet) {
-                let mut nested = BTreeMap::new();
-                set.record(&mut SerializeVisitor {
-                    entries: &mut nested,
-                });
-                for (key, value) in nested {
-                    self.entries.insert(format!("{name}.{key}"), value);
-                }
-            }
-        }
-
-        let mut entries = BTreeMap::new();
-        self.record(&mut SerializeVisitor {
-            entries: &mut entries,
-        });
-        entries.serialize(serializer)
+        self.fields().serialize(serializer)
     }
 }
 
@@ -393,6 +399,36 @@ mod tests {
         assert_eq!(
             json["nested.dry-run"]["doc"],
             serde_json::json!("Preview the work.")
+        );
+    }
+
+    #[test]
+    fn option_set_fields_flatten_nested_fields_with_dot_keys() {
+        struct Root;
+        struct Nested;
+
+        impl OptionsMetadata for Root {
+            fn record(visit: &mut dyn Visit) {
+                visit.record_field("verbose", field(Some("Enable verbose output.")));
+                visit.record_set("nested", Nested::metadata());
+            }
+        }
+
+        impl OptionsMetadata for Nested {
+            fn record(visit: &mut dyn Visit) {
+                visit.record_field("dry-run", field(Some("Preview the work.")));
+            }
+        }
+
+        let fields = Root::metadata().fields();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(
+            fields.get("nested.dry-run"),
+            Some(&field(Some("Preview the work.")))
+        );
+        assert_eq!(
+            fields.get("verbose"),
+            Some(&field(Some("Enable verbose output.")))
         );
     }
 

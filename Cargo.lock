@@ -1784,8 +1784,9 @@ dependencies = [
  "fabro-cli",
  "fabro-config",
  "fabro-options-metadata",
- "regex",
+ "shlex",
  "tempfile",
+ "toml_edit",
  "tracing-subscriber",
  "walkdir",
 ]

@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use fabro_agent::cli::AgentArgs;
 use fabro_config::{CliLayer, CliLoggingLayer, CliOutputLayer, CliUpdatesLayer};
 use fabro_server::serve::DEFAULT_TCP_PORT;
@@ -20,6 +20,31 @@ pub(crate) const LONG_VERSION: &str = concat!(
     env!("FABRO_BUILD_PROFILE_SUFFIX"),
     ")"
 );
+
+#[derive(Parser)]
+#[command(name = "fabro", version, long_version = LONG_VERSION)]
+pub(crate) struct Cli {
+    #[command(flatten)]
+    pub(crate) globals: GlobalArgs,
+
+    #[command(subcommand)]
+    pub(crate) command: Option<Box<Commands>>,
+}
+
+impl Cli {
+    pub(crate) fn parse() -> Self {
+        <Self as Parser>::parse()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_parse_from<I, T>(args: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        <Self as Parser>::try_parse_from(args)
+    }
+}
 
 #[derive(Args)]
 pub(crate) struct GlobalArgs {
@@ -573,8 +598,10 @@ pub(crate) struct SecretSetArgs {
     /// Read the secret value from stdin
     #[arg(long, conflicts_with = "value")]
     pub(crate) value_stdin: bool,
+    /// Secret storage type
     #[arg(long, value_enum, default_value = "environment")]
     pub(crate) r#type:      SecretTypeArg,
+    /// Optional human-readable description
     #[arg(long)]
     pub(crate) description: Option<String>,
 }

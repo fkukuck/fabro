@@ -6,7 +6,7 @@ mod refresh_spa;
 mod release;
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use anyhow::{Context, Result};
 pub(crate) use check_spa_budgets::{CheckSpaBudgetsArgs, check_spa_budgets};
@@ -123,14 +123,29 @@ pub(crate) fn command(planned: &PlannedCommand) -> Command {
     command
 }
 
-pub(crate) fn shell_arg(arg: impl AsRef<str>) -> String {
-    let arg = arg.as_ref();
-    if arg
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || "_-./:=@".contains(ch))
-    {
-        return arg.to_string();
+pub(crate) fn run_command(cwd: &Path, planned: &PlannedCommand) -> Result<()> {
+    let status = command(planned)
+        .current_dir(cwd)
+        .status()
+        .with_context(|| format!("running {}", planned.to_shell_line()))?;
+    if !status.success() {
+        anyhow::bail!("command failed with {status}: {}", planned.to_shell_line());
     }
 
-    format!("'{}'", arg.replace('\'', "'\\''"))
+    Ok(())
+}
+
+pub(crate) fn capture_command(cwd: &Path, planned: &PlannedCommand) -> Result<Output> {
+    command(planned)
+        .current_dir(cwd)
+        .output()
+        .with_context(|| format!("running {}", planned.to_shell_line()))
+}
+
+pub(crate) fn shell_arg(arg: impl AsRef<str>) -> String {
+    let arg = arg.as_ref();
+    shlex::try_quote(arg).map_or_else(
+        |_| format!("'{}'", arg.replace('\'', "'\\''")),
+        std::borrow::Cow::into_owned,
+    )
 }

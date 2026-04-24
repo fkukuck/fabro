@@ -1,12 +1,12 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::process::Output;
 
 use anyhow::{Context, Result, bail};
 use chrono::{Local, NaiveDate};
 use clap::{Args, ValueEnum};
 
-use super::{PlannedCommand, command, workspace_root};
+use super::refresh_spa::refresh_spa_root;
+use super::{PlannedCommand, capture_command, run_command, workspace_root};
 
 const RELEASE_EPOCH: &str = "2026-01-01";
 const RELEASE_TEST_SEGMENT_WRITE_KEY: &str = "fake-for-local-smoke";
@@ -86,26 +86,30 @@ pub(crate) fn release(args: ReleaseArgs) -> Result<()> {
     update_version(&cargo_toml, &current_version, &new_version)?;
     println!("Updated {}", cargo_toml.display());
 
-    plan.run_command(
+    run_command(
+        &plan.root,
         &PlannedCommand::new("cargo")
             .arg("update")
             .arg("--workspace"),
     )?;
     println!("Updated Cargo.lock");
 
-    plan.run_command(
+    run_command(
+        &plan.root,
         &PlannedCommand::new("git")
             .arg("add")
             .arg("Cargo.toml")
             .arg("Cargo.lock"),
     )?;
-    plan.run_command(
+    run_command(
+        &plan.root,
         &PlannedCommand::new("git")
             .arg("commit")
             .arg("-m")
             .arg(format!("Bump version to {new_version}")),
     )?;
-    plan.run_command(
+    run_command(
+        &plan.root,
         &PlannedCommand::new("git")
             .arg("tag")
             .arg("-a")
@@ -113,7 +117,8 @@ pub(crate) fn release(args: ReleaseArgs) -> Result<()> {
             .arg("-m")
             .arg(&tag),
     )?;
-    plan.run_command(
+    run_command(
+        &plan.root,
         &PlannedCommand::new("git")
             .arg("push")
             .arg("origin")
@@ -167,7 +172,8 @@ impl ReleasePlan {
     }
 
     fn ensure_clean_worktree(&self) -> Result<()> {
-        let output = self.capture_command(
+        let output = capture_command(
+            &self.root,
             &PlannedCommand::new("git")
                 .arg("status")
                 .arg("--porcelain")
@@ -187,8 +193,8 @@ impl ReleasePlan {
     }
 
     fn verify_spa_assets(&self) -> Result<()> {
-        self.run_command(&Self::refresh_spa_command())?;
-        let output = self.capture_command(&Self::spa_assets_diff_command())?;
+        refresh_spa_root(&self.root, false)?;
+        let output = capture_command(&self.root, &Self::spa_assets_diff_command())?;
         if !output.status.success() {
             bail!("fabro-spa assets are stale. Commit the refreshed assets before releasing.");
         }
@@ -207,7 +213,7 @@ impl ReleasePlan {
         }
 
         println!("Running release-mode test smoke (SEGMENT_WRITE_KEY baked in)...");
-        self.run_command(&Self::release_tests_command())
+        run_command(&self.root, &Self::release_tests_command())
     }
 
     #[expect(
@@ -283,7 +289,8 @@ impl ReleasePlan {
     }
 
     fn tag_exists(&self, tag: &str) -> Result<bool> {
-        let output = self.capture_command(
+        let output = capture_command(
+            &self.root,
             &PlannedCommand::new("git")
                 .arg("rev-parse")
                 .arg("--verify")
@@ -291,25 +298,6 @@ impl ReleasePlan {
                 .arg(format!("refs/tags/{tag}")),
         )?;
         Ok(output.status.success())
-    }
-
-    fn run_command(&self, planned: &PlannedCommand) -> Result<()> {
-        let status = command(planned)
-            .current_dir(&self.root)
-            .status()
-            .with_context(|| format!("running {}", planned.to_shell_line()))?;
-        if !status.success() {
-            bail!("command failed with {status}: {}", planned.to_shell_line());
-        }
-
-        Ok(())
-    }
-
-    fn capture_command(&self, planned: &PlannedCommand) -> Result<Output> {
-        command(planned)
-            .current_dir(&self.root)
-            .output()
-            .with_context(|| format!("running {}", planned.to_shell_line()))
     }
 }
 
@@ -320,20 +308,10 @@ impl ReleasePlan {
 fn read_current_version(cargo_toml: &Path) -> Result<String> {
     let contents = std::fs::read_to_string(cargo_toml)
         .with_context(|| format!("reading {}", cargo_toml.display()))?;
-    for line in contents.lines().map(str::trim) {
-        let Some(rest) = line.strip_prefix("version = \"") else {
-            continue;
-        };
-        let Some(version) = rest.strip_suffix('"') else {
-            continue;
-        };
-        return Ok(version.to_string());
-    }
-
-    bail!(
-        "could not find workspace package version in {}",
-        cargo_toml.display()
-    )
+    let manifest = contents
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing {}", cargo_toml.display()))?;
+    workspace_package_version(&manifest, cargo_toml).map(ToOwned::to_owned)
 }
 
 #[expect(
@@ -343,15 +321,32 @@ fn read_current_version(cargo_toml: &Path) -> Result<String> {
 fn update_version(cargo_toml: &Path, current_version: &str, new_version: &str) -> Result<()> {
     let contents = std::fs::read_to_string(cargo_toml)
         .with_context(|| format!("reading {}", cargo_toml.display()))?;
-    let needle = format!("version = \"{current_version}\"");
-    let replacement = format!("version = \"{new_version}\"");
-    if !contents.contains(&needle) {
+    let mut manifest = contents
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing {}", cargo_toml.display()))?;
+    let version = workspace_package_version(&manifest, cargo_toml)?;
+    if version != current_version {
         bail!(
             "could not find current version {current_version} in {}",
             cargo_toml.display()
         );
     }
 
-    std::fs::write(cargo_toml, contents.replacen(&needle, &replacement, 1))
+    manifest["workspace"]["package"]["version"] = toml_edit::value(new_version);
+    std::fs::write(cargo_toml, manifest.to_string())
         .with_context(|| format!("writing {}", cargo_toml.display()))
+}
+
+fn workspace_package_version<'a>(
+    manifest: &'a toml_edit::DocumentMut,
+    cargo_toml: &Path,
+) -> Result<&'a str> {
+    manifest["workspace"]["package"]["version"]
+        .as_str()
+        .with_context(|| {
+            format!(
+                "could not find [workspace.package] version in {}",
+                cargo_toml.display()
+            )
+        })
 }

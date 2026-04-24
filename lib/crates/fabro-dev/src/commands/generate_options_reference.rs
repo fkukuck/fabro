@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use fabro_options_metadata::{OptionField, OptionSet, Visit};
+use fabro_options_metadata::{OptionField, OptionSet};
 
 use super::{markdown_cell, replace_generated_region, workspace_root};
 
@@ -159,7 +159,7 @@ fn render_section(output: &mut String, section: &Section) {
     output.push_str("```toml title=\"settings.toml\"\n");
     output.push_str(section.example);
     output.push_str("\n```\n\n");
-    render_field_table(output, collect_fields(section.set));
+    render_field_table(output, section.set.fields());
 }
 
 fn render_field_table(output: &mut String, fields: BTreeMap<String, OptionField>) {
@@ -179,35 +179,6 @@ fn render_field_table(output: &mut String, fields: BTreeMap<String, OptionField>
         output.push_str(" |\n");
     }
     output.push('\n');
-}
-
-fn collect_fields(set: OptionSet) -> BTreeMap<String, OptionField> {
-    struct CollectVisitor<'a> {
-        prefix:  String,
-        entries: &'a mut BTreeMap<String, OptionField>,
-    }
-
-    impl Visit for CollectVisitor<'_> {
-        fn record_field(&mut self, name: &str, field: OptionField) {
-            self.entries
-                .insert(format!("{}{}", self.prefix, name), field);
-        }
-
-        fn record_set(&mut self, name: &str, set: OptionSet) {
-            let previous = self.prefix.clone();
-            self.prefix.push_str(name);
-            self.prefix.push('.');
-            set.record(self);
-            self.prefix = previous;
-        }
-    }
-
-    let mut entries = BTreeMap::new();
-    set.record(&mut CollectVisitor {
-        prefix:  String::new(),
-        entries: &mut entries,
-    });
-    entries
 }
 
 fn field_type(field: &OptionField) -> String {

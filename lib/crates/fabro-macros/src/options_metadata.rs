@@ -81,7 +81,7 @@ fn handle_option(field: &Field, attr: &Attribute) -> syn::Result<TokenStream> {
         .name
         .clone()
         .or(option_long_name(field)?)
-        .unwrap_or_else(|| ident.to_string().replace('_', "-"));
+        .unwrap_or_else(|| ident.to_string());
     let doc = quote_option_str(doc_string(&field.attrs)?);
     let default = quote_option_str(attrs.default);
     let value_type = quote_option_str(attrs.value_type);
@@ -408,5 +408,18 @@ mod tests {
                 .to_string()
                 .contains("unsupported `option` metadata key")
         );
+    }
+
+    #[test]
+    fn option_metadata_defaults_to_field_name_without_clap_long() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Args {
+                #[option]
+                prevent_idle_sleep: bool,
+            }
+        };
+
+        let tokens = derive_impl(input).expect("metadata should derive");
+        assert!(tokens.to_string().contains("\"prevent_idle_sleep\""));
     }
 }

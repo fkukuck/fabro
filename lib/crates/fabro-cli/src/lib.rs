@@ -5,19 +5,8 @@
 
 mod args;
 
-use args::{Commands, GlobalArgs, LONG_VERSION};
-use clap::{Command, CommandFactory, Parser};
-
-#[derive(Parser)]
-#[command(name = "fabro", version, long_version = LONG_VERSION)]
-struct Cli {
-    #[command(flatten)]
-    globals: GlobalArgs,
-
-    #[command(subcommand)]
-    command: Option<Box<Commands>>,
-}
+use clap::{Command, CommandFactory};
 
 pub fn command_for_reference() -> Command {
-    Cli::command()
+    args::Cli::command()
 }

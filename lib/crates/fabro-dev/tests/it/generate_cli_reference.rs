@@ -48,10 +48,6 @@ Tail copy.
         "generated output should include subcommand reference:\n{contents}"
     );
     assert!(
-        contents.contains("TODO: add CLI help text."),
-        "undocumented clap args should be visible follow-up work:\n{contents}"
-    );
-    assert!(
         !contents.contains("stale"),
         "stale generated content should be replaced:\n{contents}"
     );

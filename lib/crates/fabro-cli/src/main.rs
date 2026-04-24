@@ -18,16 +18,14 @@ mod shared;
 mod sleep_inhibitor;
 mod user_config;
 
-#[cfg(test)]
-use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
 
 use anyhow::Result;
 use args::{
-    Commands, GlobalArgs, LONG_VERSION, RunCommands, ServerCommand, ServerNamespace,
-    global_args_cli_layer, require_no_json_override,
+    Cli, Commands, RunCommands, ServerCommand, ServerNamespace, global_args_cli_layer,
+    require_no_json_override,
 };
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 use fabro_static::EnvVars;
 use fabro_telemetry::{git, panic as tel_panic, sanitize, sender};
 use fabro_util::exit::ExitClass;
@@ -38,31 +36,6 @@ use rustls::crypto::ring::default_provider;
 use tracing::debug;
 
 use crate::command_context::CommandContext;
-
-#[derive(Parser)]
-#[command(name = "fabro", version, long_version = LONG_VERSION)]
-struct Cli {
-    #[command(flatten)]
-    globals: GlobalArgs,
-
-    #[command(subcommand)]
-    command: Option<Box<Commands>>,
-}
-
-impl Cli {
-    fn parse() -> Self {
-        <Self as Parser>::parse()
-    }
-
-    #[cfg(test)]
-    fn try_parse_from<I, T>(args: I) -> Result<Self, clap::Error>
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<OsString> + Clone,
-    {
-        <Self as Parser>::try_parse_from(args)
-    }
-}
 
 #[expect(clippy::print_stderr, reason = "fatal error reporting before exit")]
 #[tokio::main]
