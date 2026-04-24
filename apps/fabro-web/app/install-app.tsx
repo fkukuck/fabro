@@ -84,6 +84,7 @@ type ObjectStoreProvider = "local" | "s3";
 type ObjectStoreCredentialMode = "runtime" | "access_key";
 type ObjectStoreForm = {
   provider: ObjectStoreProvider;
+  localRoot: string;
   bucket: string;
   region: string;
   credentialMode: ObjectStoreCredentialMode;
@@ -120,6 +121,7 @@ export default function InstallApp() {
   const [finishState, setFinishState] = useState<FinishState>(null);
   const [timedOut, setTimedOut] = useState(false);
   const canonicalUrlInputRef = useRef<HTMLInputElement>(null);
+  const localRootInputRef = useRef<HTMLInputElement>(null);
   const bucketInputRef = useRef<HTMLInputElement>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
   const accessKeyIdInputRef = useRef<HTMLInputElement>(null);
@@ -421,7 +423,13 @@ export default function InstallApp() {
           }
           backHref="/install/server"
           onSubmit={async () => {
-            if (objectStoreForm.provider === "s3") {
+            if (objectStoreForm.provider === "local") {
+              if (!objectStoreForm.localRoot.trim()) {
+                setSaveError("Enter the local object-store directory before continuing.");
+                focusInput(localRootInputRef);
+                return;
+              }
+            } else {
               if (!objectStoreForm.bucket.trim()) {
                 setSaveError("Enter the S3 bucket before continuing.");
                 focusInput(bucketInputRef);
@@ -473,6 +481,8 @@ export default function InstallApp() {
               setObjectStoreForm((current) => ({ ...current, provider }));
               if (provider === "s3") {
                 focusInput(bucketInputRef);
+              } else {
+                focusInput(localRootInputRef);
               }
             }}
           />
@@ -574,9 +584,31 @@ export default function InstallApp() {
               )}
             </div>
           ) : (
-            <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
-              Fabro will keep using local disk for both SlateDB and run artifacts.
-            </p>
+            <div className="space-y-3">
+              <Field
+                label="Local directory"
+                hint="Shared root for SlateDB and run artifacts."
+              >
+                <input
+                  ref={localRootInputRef}
+                  name="object_store_local_root"
+                  value={objectStoreForm.localRoot}
+                  onChange={(event) =>
+                    setObjectStoreForm((current) => ({
+                      ...current,
+                      localRoot: event.target.value,
+                    }))
+                  }
+                  className={`${INPUT_CLASS} font-mono`}
+                  placeholder="Local object-store directory"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </Field>
+              <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+                Fabro will store SlateDB and run artifacts under this directory.
+              </p>
+            </div>
           )}
         </StepPanel>
       ) : location.pathname === "/install/github/done" ? (
@@ -1614,9 +1646,10 @@ function defaultProviderSelection(): ProviderSelection {
   );
 }
 
-function defaultObjectStoreForm(): ObjectStoreForm {
+function defaultObjectStoreForm(localRoot = ""): ObjectStoreForm {
   return {
     provider: "local",
+    localRoot,
     bucket: "",
     region: "",
     credentialMode: "runtime",
@@ -1643,10 +1676,13 @@ function hydrateProviderSelection(
 function hydrateObjectStoreForm(session: InstallSessionResponse): ObjectStoreForm {
   const summary = session.object_store;
   if (!summary || summary.provider === "local") {
-    return defaultObjectStoreForm();
+    return defaultObjectStoreForm(
+      summary?.root ?? session.prefill.object_store_local_root,
+    );
   }
   return {
     provider: "s3",
+    localRoot: session.prefill.object_store_local_root,
     bucket: summary.bucket ?? "",
     region: summary.region ?? "",
     credentialMode: summary.credential_mode === "access_key" ? "access_key" : "runtime",
@@ -1658,7 +1694,7 @@ function hydrateObjectStoreForm(session: InstallSessionResponse): ObjectStoreFor
 
 function buildObjectStorePayload(form: ObjectStoreForm): InstallObjectStoreInput {
   if (form.provider === "local") {
-    return { provider: "local" };
+    return { provider: "local", root: form.localRoot.trim() };
   }
 
   const payload: InstallObjectStoreInput = {
@@ -1727,7 +1763,12 @@ function renderObjectStoreSummaryRows(
     return <SummaryRow label="Object store" value="Not configured" />;
   }
   if (objectStore.provider === "local") {
-    return <SummaryRow label="Object store" value="Local disk" />;
+    return (
+      <>
+        <SummaryRow label="Object store" value="Local disk" />
+        <SummaryRow label="Directory" value={objectStore.root ?? "Not set"} mono />
+      </>
+    );
   }
   return (
     <>

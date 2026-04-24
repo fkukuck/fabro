@@ -2556,10 +2556,13 @@ components:
       type: object
       required:
         - canonical_url
+        - object_store_local_root
       properties:
         canonical_url:
           type: string
           format: uri
+        object_store_local_root:
+          type: string
 
     InstallLlmValidationResponse:
       description: Successful response from install-time LLM credential validation.
@@ -2655,6 +2658,8 @@ components:
         provider:
           type: string
           enum: [local, s3]
+        root:
+          type: string
         bucket:
           type: string
         region:
@@ -2676,6 +2681,8 @@ components:
         provider:
           type: string
           enum: [local, s3]
+        root:
+          type: string
         bucket:
           type: string
         region:

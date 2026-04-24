@@ -230,6 +230,7 @@ enum InstallObjectStoreCredentialMode {
 #[derive(Clone, Debug, Deserialize)]
 struct InstallObjectStoreInput {
     provider:          InstallObjectStoreProvider,
+    root:              Option<String>,
     bucket:            Option<String>,
     region:            Option<String>,
     credential_mode:   Option<InstallObjectStoreCredentialMode>,
@@ -297,7 +298,9 @@ impl std::fmt::Debug for InstallAwsCredentialPair {
 
 #[derive(Clone, Debug)]
 enum InstallObjectStoreState {
-    Local,
+    Local {
+        root: String,
+    },
     S3 {
         bucket:             String,
         region:             String,
@@ -309,8 +312,9 @@ enum InstallObjectStoreState {
 impl InstallObjectStoreState {
     fn as_session_value(&self) -> serde_json::Value {
         match self {
-            Self::Local => serde_json::json!({
+            Self::Local { root } => serde_json::json!({
                 "provider": "local",
+                "root": root,
             }),
             Self::S3 {
                 bucket,
@@ -332,7 +336,9 @@ impl InstallObjectStoreState {
 
     fn to_persistence_selection(&self) -> fabro_install::InstallObjectStoreSelection {
         match self {
-            Self::Local => fabro_install::InstallObjectStoreSelection::Local,
+            Self::Local { root } => {
+                fabro_install::InstallObjectStoreSelection::Local { root: root.clone() }
+            }
             Self::S3 {
                 bucket,
                 region,
@@ -648,6 +654,7 @@ async fn get_install_session(
         "github": redacted_github(&pending_install),
         "prefill": {
             "canonical_url": detect_canonical_url(&headers),
+            "object_store_local_root": default_local_object_store_root(&state),
         }
     }))
     .into_response()
@@ -766,7 +773,11 @@ async fn post_install_object_store_test(
 
     let selection = {
         let pending_install = lock_unpoisoned(&state.pending_install, "install session");
-        match resolve_install_object_store_state(pending_install.object_store.as_ref(), input) {
+        match resolve_install_object_store_state(
+            pending_install.object_store.as_ref(),
+            input,
+            &default_local_object_store_root(&state),
+        ) {
             Ok(selection) => selection,
             Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
         }
@@ -793,11 +804,14 @@ async fn put_install_object_store(
     observe_operator(&state, &headers);
 
     let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
-    let selection =
-        match resolve_install_object_store_state(pending_install.object_store.as_ref(), input) {
-            Ok(selection) => selection,
-            Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
-        };
+    let selection = match resolve_install_object_store_state(
+        pending_install.object_store.as_ref(),
+        input,
+        &default_local_object_store_root(&state),
+    ) {
+        Ok(selection) => selection,
+        Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
+    };
 
     pending_install.object_store = Some(selection);
     info!(step = "object_store", "install step completed");
@@ -810,10 +824,21 @@ fn trim_install_field(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn default_local_object_store_root(state: &InstallAppState) -> String {
+    state
+        .storage_dir
+        .as_ref()
+        .join("objects")
+        .display()
+        .to_string()
+}
+
 fn resolve_install_object_store_state(
     current: Option<&InstallObjectStoreState>,
     input: InstallObjectStoreInput,
+    default_local_root: &str,
 ) -> Result<InstallObjectStoreState, String> {
+    let root = trim_install_field(input.root);
     let bucket = trim_install_field(input.bucket);
     let region = trim_install_field(input.region);
     let access_key_id = trim_install_field(input.access_key_id);
@@ -832,7 +857,13 @@ fn resolve_install_object_store_state(
                         .to_string(),
                 );
             }
-            Ok(InstallObjectStoreState::Local)
+            let root = root
+                .or_else(|| match current {
+                    Some(InstallObjectStoreState::Local { root }) => Some(root.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| default_local_root.to_string());
+            Ok(InstallObjectStoreState::Local { root })
         }
         InstallObjectStoreProvider::S3 => {
             let bucket = bucket.ok_or_else(|| "Bucket is required.".to_string())?;
@@ -900,7 +931,7 @@ fn object_store_validation_settings(
     selection: &InstallObjectStoreState,
 ) -> Option<ObjectStoreSettings> {
     match selection {
-        InstallObjectStoreState::Local => None,
+        InstallObjectStoreState::Local { .. } => None,
         InstallObjectStoreState::S3 { bucket, region, .. } => Some(ObjectStoreSettings::S3 {
             bucket:     InterpString::parse(bucket),
             region:     InterpString::parse(region),
@@ -935,7 +966,7 @@ async fn validate_install_object_store_selection(
     };
 
     let (bucket, region, manual_credentials) = match selection {
-        InstallObjectStoreState::Local => return Ok(()),
+        InstallObjectStoreState::Local { .. } => return Ok(()),
         InstallObjectStoreState::S3 {
             bucket,
             region,
@@ -1962,10 +1993,10 @@ mod tests {
     use super::{
         AWS_SESSION_TOKEN_ENV, DEFAULT_INSTALL_GITHUB_API_BASE_URL, InstallAppState,
         InstallAwsCredentialPair, InstallFinishGuard, InstallObjectStoreCredentialMode,
-        InstallObjectStoreInput, InstallObjectStoreProvider, PendingInstall, ServerSecrets,
-        classify_object_store_validation_error, detect_canonical_url, install_object_store_lookup,
-        lock_unpoisoned, resolve_install_object_store_state, token_is_valid,
-        write_artifact_store_metadata,
+        InstallObjectStoreInput, InstallObjectStoreProvider, InstallObjectStoreState,
+        PendingInstall, ServerSecrets, classify_object_store_validation_error,
+        detect_canonical_url, install_object_store_lookup, lock_unpoisoned,
+        resolve_install_object_store_state, token_is_valid, write_artifact_store_metadata,
     };
 
     #[test]
@@ -2080,14 +2111,19 @@ methods = ["dev-token"]
 
     #[test]
     fn resolve_install_object_store_state_rejects_local_with_s3_fields() {
-        let err = resolve_install_object_store_state(None, InstallObjectStoreInput {
-            provider:          InstallObjectStoreProvider::Local,
-            bucket:            Some("fabro-data".to_string()),
-            region:            None,
-            credential_mode:   None,
-            access_key_id:     None,
-            secret_access_key: None,
-        })
+        let err = resolve_install_object_store_state(
+            None,
+            InstallObjectStoreInput {
+                provider:          InstallObjectStoreProvider::Local,
+                root:              Some("/srv/fabro/objects".to_string()),
+                bucket:            Some("fabro-data".to_string()),
+                region:            None,
+                credential_mode:   None,
+                access_key_id:     None,
+                secret_access_key: None,
+            },
+            "/srv/fabro/objects",
+        )
         .expect_err("local mode should reject S3-only fields");
 
         assert_eq!(
@@ -2097,15 +2133,43 @@ methods = ["dev-token"]
     }
 
     #[test]
+    fn resolve_install_object_store_state_uses_local_root() {
+        let selection = resolve_install_object_store_state(
+            None,
+            InstallObjectStoreInput {
+                provider:          InstallObjectStoreProvider::Local,
+                root:              Some(" /srv/fabro/objects ".to_string()),
+                bucket:            None,
+                region:            None,
+                credential_mode:   None,
+                access_key_id:     None,
+                secret_access_key: None,
+            },
+            "/default/fabro/objects",
+        )
+        .expect("local mode should accept a root");
+
+        assert!(matches!(
+            selection,
+            InstallObjectStoreState::Local { ref root } if root == "/srv/fabro/objects"
+        ));
+    }
+
+    #[test]
     fn resolve_install_object_store_state_rejects_runtime_with_submitted_access_keys() {
-        let err = resolve_install_object_store_state(None, InstallObjectStoreInput {
-            provider:          InstallObjectStoreProvider::S3,
-            bucket:            Some("fabro-data".to_string()),
-            region:            Some("us-east-1".to_string()),
-            credential_mode:   Some(InstallObjectStoreCredentialMode::Runtime),
-            access_key_id:     Some("AKIA_FAKE_VALUE".to_string()),
-            secret_access_key: Some("fake-secret-value".to_string()),
-        })
+        let err = resolve_install_object_store_state(
+            None,
+            InstallObjectStoreInput {
+                provider:          InstallObjectStoreProvider::S3,
+                root:              None,
+                bucket:            Some("fabro-data".to_string()),
+                region:            Some("us-east-1".to_string()),
+                credential_mode:   Some(InstallObjectStoreCredentialMode::Runtime),
+                access_key_id:     Some("AKIA_FAKE_VALUE".to_string()),
+                secret_access_key: Some("fake-secret-value".to_string()),
+            },
+            "/srv/fabro/objects",
+        )
         .expect_err("runtime mode should reject submitted access keys");
 
         assert_eq!(

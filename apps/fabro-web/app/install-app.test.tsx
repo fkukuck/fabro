@@ -6,6 +6,10 @@ import InstallApp from "./install-app";
 
 const INSTALL_ERROR_MESSAGE =
   "GitHub App setup failed before Fabro could save the app credentials. Continue again to retry the callback.";
+const INSTALL_PREFILL = {
+  canonical_url: "https://fabro.example.com",
+  object_store_local_root: "/home/test/.fabro/storage/objects",
+};
 
 const SESSION_RESPONSE = {
   completed_steps: ["server", "object_store", "llm"],
@@ -13,7 +17,7 @@ const SESSION_RESPONSE = {
   server: { canonical_url: "https://fabro.example.com" },
   object_store: { provider: "local" },
   github: null,
-  prefill: { canonical_url: "https://fabro.example.com" },
+  prefill: INSTALL_PREFILL,
 };
 
 type TestWindow = {
@@ -201,7 +205,7 @@ describe("InstallApp", () => {
           slug: "fabro-brynary",
           allowed_username: "brynary",
         },
-        prefill: { canonical_url: "https://fabro.example.com" },
+        prefill: INSTALL_PREFILL,
       };
       const fetchMock = mock((input: RequestInfo | URL) => {
         expect(String(input)).toBe("/install/session");
@@ -270,7 +274,7 @@ describe("InstallApp", () => {
                 server: { canonical_url: "https://fabro.example.com" },
                 object_store: null,
                 github: null,
-                prefill: { canonical_url: "https://fabro.example.com" },
+                prefill: INSTALL_PREFILL,
               }),
               {
                 status: 200,
@@ -291,7 +295,7 @@ describe("InstallApp", () => {
                 server: { canonical_url: "https://fabro.example.com" },
                 object_store: { provider: "local" },
                 github: null,
-                prefill: { canonical_url: "https://fabro.example.com" },
+                prefill: INSTALL_PREFILL,
               }),
               {
                 status: 200,
@@ -345,7 +349,12 @@ describe("InstallApp", () => {
         "/install/object-store",
         "/install/session",
       ]);
-      expect(fetchCalls[1]?.init?.body).toBe(JSON.stringify({ provider: "local" }));
+      expect(fetchCalls[1]?.init?.body).toBe(
+        JSON.stringify({
+          provider: "local",
+          root: INSTALL_PREFILL.object_store_local_root,
+        }),
+      );
 
       await act(async () => {
         renderer?.unmount();
@@ -384,7 +393,7 @@ describe("InstallApp", () => {
                 manual_credentials_saved: true,
               },
               github: null,
-              prefill: { canonical_url: "https://fabro.example.com" },
+              prefill: INSTALL_PREFILL,
             }),
             {
               status: 200,
@@ -459,7 +468,7 @@ describe("InstallApp", () => {
                 manual_credentials_saved: true,
               },
               github: { strategy: "token", username: "octocat" },
-              prefill: { canonical_url: "https://fabro.example.com" },
+              prefill: INSTALL_PREFILL,
             }),
             {
               status: 200,

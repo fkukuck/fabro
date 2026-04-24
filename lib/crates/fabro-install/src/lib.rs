@@ -41,7 +41,9 @@ pub enum InstallObjectStoreCredentialMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallObjectStoreSelection {
-    Local,
+    Local {
+        root: String,
+    },
     S3 {
         bucket:            String,
         region:            String,
@@ -287,15 +289,44 @@ fn write_s3_store_settings(
     Ok(())
 }
 
+fn write_local_store_settings(
+    server: &mut toml::Table,
+    domain: &str,
+    prefix: &str,
+    root: &str,
+) -> Result<()> {
+    let store = ensure_table(server, domain)?;
+    store.insert(
+        "provider".to_string(),
+        toml::Value::String("local".to_string()),
+    );
+    store.insert(
+        "prefix".to_string(),
+        toml::Value::String(prefix.to_string()),
+    );
+    let local = ensure_table(store, "local")?;
+    local.insert("root".to_string(), toml::Value::String(root.to_string()));
+    Ok(())
+}
+
 pub fn write_object_store_settings(
     doc: &mut toml::Value,
     selection: &InstallObjectStoreSelection,
 ) -> Result<InstallObjectStoreEnvPlan> {
     match selection {
-        InstallObjectStoreSelection::Local => Ok(InstallObjectStoreEnvPlan {
-            writes:   Vec::new(),
-            removals: object_store_env_removals(),
-        }),
+        InstallObjectStoreSelection::Local { root } => {
+            let root = root.trim();
+            if !root.is_empty() {
+                let root_table = root_table_mut(doc)?;
+                let server = ensure_table(root_table, "server")?;
+                write_local_store_settings(server, "artifacts", "artifacts", root)?;
+                write_local_store_settings(server, "slatedb", "slatedb", root)?;
+            }
+            Ok(InstallObjectStoreEnvPlan {
+                writes:   Vec::new(),
+                removals: object_store_env_removals(),
+            })
+        }
         InstallObjectStoreSelection::S3 {
             bucket,
             region,
@@ -671,14 +702,84 @@ name = "custom"
     #[test]
     fn write_object_store_settings_keeps_local_defaults_and_removes_managed_keys() {
         let mut doc = toml::Value::Table(toml::Table::default());
-        let plan = write_object_store_settings(&mut doc, &InstallObjectStoreSelection::Local)
-            .expect("local object store selection should succeed");
+        let plan = write_object_store_settings(&mut doc, &InstallObjectStoreSelection::Local {
+            root: String::new(),
+        })
+        .expect("local object store selection should succeed");
 
         assert!(
             doc.get("server")
                 .and_then(toml::Value::as_table)
                 .and_then(|server| server.get("artifacts"))
                 .is_none()
+        );
+        assert!(plan.writes.is_empty());
+        assert_eq!(plan.removals.len(), 2);
+    }
+
+    #[test]
+    fn write_object_store_settings_configures_local_root() {
+        let mut doc = toml::Value::Table(toml::Table::default());
+        let plan = write_object_store_settings(&mut doc, &InstallObjectStoreSelection::Local {
+            root: "/srv/fabro/objects".to_string(),
+        })
+        .expect("local object store selection should succeed");
+
+        let server = doc
+            .get("server")
+            .and_then(toml::Value::as_table)
+            .expect("server table should exist");
+        assert_eq!(
+            server
+                .get("artifacts")
+                .and_then(toml::Value::as_table)
+                .and_then(|artifacts| artifacts.get("provider"))
+                .and_then(toml::Value::as_str),
+            Some("local")
+        );
+        assert_eq!(
+            server
+                .get("artifacts")
+                .and_then(toml::Value::as_table)
+                .and_then(|artifacts| artifacts.get("prefix"))
+                .and_then(toml::Value::as_str),
+            Some("artifacts")
+        );
+        assert_eq!(
+            server
+                .get("artifacts")
+                .and_then(toml::Value::as_table)
+                .and_then(|artifacts| artifacts.get("local"))
+                .and_then(toml::Value::as_table)
+                .and_then(|local| local.get("root"))
+                .and_then(toml::Value::as_str),
+            Some("/srv/fabro/objects")
+        );
+        assert_eq!(
+            server
+                .get("slatedb")
+                .and_then(toml::Value::as_table)
+                .and_then(|slatedb| slatedb.get("provider"))
+                .and_then(toml::Value::as_str),
+            Some("local")
+        );
+        assert_eq!(
+            server
+                .get("slatedb")
+                .and_then(toml::Value::as_table)
+                .and_then(|slatedb| slatedb.get("prefix"))
+                .and_then(toml::Value::as_str),
+            Some("slatedb")
+        );
+        assert_eq!(
+            server
+                .get("slatedb")
+                .and_then(toml::Value::as_table)
+                .and_then(|slatedb| slatedb.get("local"))
+                .and_then(toml::Value::as_table)
+                .and_then(|local| local.get("root"))
+                .and_then(toml::Value::as_str),
+            Some("/srv/fabro/objects")
         );
         assert!(plan.writes.is_empty());
         assert_eq!(plan.removals.len(), 2);

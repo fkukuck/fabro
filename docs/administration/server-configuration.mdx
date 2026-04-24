@@ -192,8 +192,9 @@ region = "us-east-1"
 ```
 
 The browser install wizard's `Object store` step manages both `[server.slatedb]` and
-`[server.artifacts]` together. `Local disk` leaves both sections implicit and keeps the built-in
-local defaults. `AWS S3` writes one shared bucket with fixed prefixes `slatedb` and `artifacts`.
+`[server.artifacts]` together. `Local disk` uses the detected local object-store root, defaulting
+to `<storage_root>/objects`, with fixed prefixes `slatedb` and `artifacts`. `AWS S3` writes one
+shared bucket with the same fixed prefixes.
 
 The wizard only covers AWS S3 bucket/region plus one of:
 
