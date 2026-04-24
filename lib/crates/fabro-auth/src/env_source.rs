@@ -74,44 +74,32 @@ impl EnvCredentialSource {
                     org_id: None,
                     project_id: None,
                 }),
-            Provider::Kimi => self.lookup("KIMI_API_KEY").map(|key| ApiCredential {
-                provider,
-                auth_header: ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url: None,
-                codex_mode: false,
-                org_id: None,
-                project_id: None,
-            }),
-            Provider::Zai => self.lookup("ZAI_API_KEY").map(|key| ApiCredential {
-                provider,
-                auth_header: ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url: None,
-                codex_mode: false,
-                org_id: None,
-                project_id: None,
-            }),
-            Provider::Minimax => self.lookup("MINIMAX_API_KEY").map(|key| ApiCredential {
-                provider,
-                auth_header: ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url: None,
-                codex_mode: false,
-                org_id: None,
-                project_id: None,
-            }),
-            Provider::Inception => self.lookup("INCEPTION_API_KEY").map(|key| ApiCredential {
-                provider,
-                auth_header: ApiKeyHeader::Bearer(key),
-                extra_headers: HashMap::new(),
-                base_url: None,
-                codex_mode: false,
-                org_id: None,
-                project_id: None,
-            }),
+            Provider::Kimi => self
+                .lookup("KIMI_API_KEY")
+                .map(|key| bearer_credential(provider, key)),
+            Provider::Zai => self
+                .lookup("ZAI_API_KEY")
+                .map(|key| bearer_credential(provider, key)),
+            Provider::Minimax => self
+                .lookup("MINIMAX_API_KEY")
+                .map(|key| bearer_credential(provider, key)),
+            Provider::Inception => self
+                .lookup("INCEPTION_API_KEY")
+                .map(|key| bearer_credential(provider, key)),
             Provider::OpenAiCompatible => None,
         }
+    }
+}
+
+fn bearer_credential(provider: Provider, key: String) -> ApiCredential {
+    ApiCredential {
+        provider,
+        auth_header: ApiKeyHeader::Bearer(key),
+        extra_headers: HashMap::new(),
+        base_url: None,
+        codex_mode: false,
+        org_id: None,
+        project_id: None,
     }
 }
 
