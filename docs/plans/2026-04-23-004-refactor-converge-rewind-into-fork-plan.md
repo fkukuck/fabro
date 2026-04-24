@@ -97,7 +97,7 @@ Not needed. This is an internal refactor with no external contract surfaces; tim
 
 - **Remove `RewindInput.current_status` and the old in-place-rewind's `ensure_not_archived` call.** Rationale: in the server-endpoint design, archived-source rejection happens at `reject_if_archived` (handler step 1, 409 Conflict) and non-terminal rejection happens at the explicit status pre-check (handler step 3, 409 Conflict). The old `RewindInput.current_status` precondition is subsumed. Other `ensure_not_archived` call sites (resume, etc.) stay untouched.
 
-- **Keep distinct rewind vs fork CLI output text.** Rewind prints "Rewound <source>... new run <new>"; fork prints "Forked <source> -> <new>". Both output the new RunId and a `fabro resume <new>` hint. Rationale: the archive-source side effect is invisible from the new-run's branches, so the message is how users learn their source was archived.
+- **Keep distinct rewind vs fork CLI output text.** Rewind prints `"Rewound <source>... new run <new>"`; fork prints `"Forked <source> -> <new>"`. Both output the new RunId and a `fabro resume <new>` hint. Rationale: the archive-source side effect is invisible from the new-run's branches, so the message is how users learn their source was archived.
 
 ## Open Questions
 
@@ -512,7 +512,7 @@ struct RewindResponse {
 
 | Risk | Mitigation |
 |------|------------|
-| Users/scripts relying on rewind preserving the source RunId break silently. | Output text explicitly states "new run <id>" so the change is loud; `--json` output includes both `source_run_id` and `new_run_id` so scripts can adapt without parsing prose. User-facing docs are updated in Unit 6 so the documented contract matches new behavior. |
+| Users/scripts relying on rewind preserving the source RunId break silently. | Output text explicitly states `"new run <id>"` so the change is loud; `--json` output includes both `source_run_id` and `new_run_id` so scripts can adapt without parsing prose. User-facing docs are updated in Unit 6 so the documented contract matches new behavior. |
 | Fork-succeeded-then-archive-failed leaves an extra run on the server. | Pre-check before fork eliminates the precondition-failure case. Transport-level archive failures produce `archived: false` in the response so the CLI can surface a warning while still giving the user the new RunId. Archive is idempotent — retrying the CLI command against the same source archives it cleanly on the second attempt. |
 | Recovery scenario changes miss a subtle assertion. | Unit 5 splits into two focused scenarios and explicitly asserts new-RunId resumability and the event count delta. Run locally before merging. |
 | Stale `insta` snapshots silently accept changed output. | Follow CLAUDE.md discipline: `cargo insta pending-snapshots` before `cargo insta accept`; accept per-file, never globally. |

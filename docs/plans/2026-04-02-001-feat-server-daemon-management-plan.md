@@ -249,7 +249,7 @@ Units 1 and 3 can run in parallel. Unit 2 depends on Unit 3 (for the `Bind` enum
   - Define `Bind` enum in `bind.rs`: `Bind::Unix(PathBuf) | Bind::Tcp(SocketAddr)` with `Serialize`/`Deserialize` (serde tagged enum), `Display`, `Clone`, `Debug`, `PartialEq`. This type is used by both `serve_command` and `ServerRecord` (Unit 2)
   - `parse_bind(bind: &str) -> Result<Bind>`. Contains `/` -> Unix socket; otherwise `host:port` parsed as `SocketAddr`. Validate Unix socket path length (104 bytes on macOS, 108 on Linux)
   - `Bind::display()` shows the address for human-readable output (used in proctitle, status, logs)
-  - Replace `--host` and `--port` on `ServeArgs` with `--bind` (Option<String>, no default in clap -- default computed at runtime from resolved storage dir using the socket path)
+  - Replace `--host` and `--port` on `ServeArgs` with `--bind` (`Option<String>`, no default in clap -- default computed at runtime from resolved storage dir using the socket path)
   - In `serve_command`, branch on `Bind` variant: `UnixListener::bind` vs `TcpListener::bind`
   - For Unix sockets: remove stale socket file before bind, skip TLS codepath (log warning if TLS configured)
   - Wire `axum::serve(listener, router).with_graceful_shutdown(shutdown_signal())` for the non-TLS path, where `shutdown_signal` awaits SIGTERM or SIGINT. **Note:** The TLS path (`serve_tls`) uses a manual accept loop and cannot use `with_graceful_shutdown` -- document as known limitation, SIGTERM will still cause process exit
@@ -290,7 +290,7 @@ Units 1 and 3 can run in parallel. Unit 2 depends on Unit 3 (for the `Bind` enum
   **Approach:**
   - **`ServerCommand::__Serve(ServeChildArgs)`**: Hidden subcommand with `--record-path`, `--bind`, plus forwarded args (`--model`, `--provider`, `--dry-run`, `--sandbox`, `--max-concurrent-runs`, `--config`, `--storage-dir`). Dispatches to `foreground.rs`.
   - **`foreground.rs`**: `title_init()` + `title_set("fabro: server {bind}")`, `scopeguard::guard(record_path, remove_server_record)`, then calls `serve_command()`. Mirrors `detached.rs` wrapping workflow operations.
-  - **`start.rs` daemon path**: Open `server.lock`, retry `try_flock_exclusive` in a loop (50ms intervals, 5s timeout); check `active_server_record`; if running, print "already running" and exit 1; rotate `server.log` to `server.log.prev`; spawn self with `fabro server __serve --record-path <path> --bind <addr> ...` using `pre_exec_setsid`, stdout/stderr to `server.log`, stdin null, `env_remove("FABRO_JSON")`; write `server.json` with child PID; check `try_wait()` for immediate failure; poll-connect to bind address (50ms intervals, 5s timeout); on success print "server started (pid N) on <bind>", exit 0; on failure print error + tail of log, clean up, exit 1
+  - **`start.rs` daemon path**: Open `server.lock`, retry `try_flock_exclusive` in a loop (50ms intervals, 5s timeout); check `active_server_record`; if running, print "already running" and exit 1; rotate `server.log` to `server.log.prev`; spawn self with `fabro server __serve --record-path <path> --bind <addr> ...` using `pre_exec_setsid`, stdout/stderr to `server.log`, stdin null, `env_remove("FABRO_JSON")`; write `server.json` with child PID; check `try_wait()` for immediate failure; poll-connect to bind address (50ms intervals, 5s timeout); on success print `"server started (pid N) on <bind>"`, exit 0; on failure print error + tail of log, clean up, exit 1
   - **`start.rs` foreground path** (`--foreground`): Write `server.json`, register scopeguard for cleanup, then call `serve_command()` directly (no re-exec)
   - **Forward all relevant args to child**: `--storage-dir`, `--config`, `--model`, `--provider`, `--dry-run`, `--sandbox`, `--max-concurrent-runs`
 
@@ -366,7 +366,7 @@ Units 1 and 3 can run in parallel. Unit 2 depends on Unit 3 (for the `Bind` enum
   **Approach:**
   - Read `active_server_record` -- if None, print "not running", exit 1
   - Compute uptime from `started_at`
-  - Human output: "running (pid N) on <bind>, started X ago"
+  - Human output: `"running (pid N) on <bind>, started X ago"`
   - `--json`: `{ "status": "running", "pid": N, "bind": "...", "started_at": "...", "uptime_seconds": N }`
   - Exit code: 0 = running, 1 = not running (same as `pg_ctl status`)
 

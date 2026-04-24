@@ -6,7 +6,7 @@ date: 2026-04-19
 origin: docs/brainstorms/2026-04-19-run-files-changed-tab-requirements.md
 ---
 
-<!--
+{/*
 Implementation status (2026-04-19): all 13 units shipped on main.
 
 - [x] Unit 1: OpenAPI spec + schema extensions
@@ -31,7 +31,7 @@ Deferred follow-ups (not blocking ship):
   handling.
 - Wrap large diff lists in `<Virtualizer>` once a run with >50 files
   demonstrates a measurable rendering regression.
--->
+*/}
 
 
 # feat: Files Changed tab for workflow runs
@@ -803,7 +803,7 @@ flowchart TB
   - 4xx transient (429, 503) → retry affordance
   - 404 → treat as empty (R4(c)) — should not reach here in practice since 404 returns `null` via `apiJsonOrNull`
   - 401/403 → "You don't have access to this run's files."
-  - 500 with request ID → "Something went wrong. Request ID: <id>. Contact support."
+  - 500 with request ID → `"Something went wrong. Request ID: <id>. Contact support."`
 - **Refresh (R6)**:
   - Toolbar Refresh button triggers `useRevalidator().revalidate()`.
   - Disabled when `lastResponse.meta.to_sha === currentlyDisplayed.to_sha` (both non-null). When `meta.to_sha === null` (rare — degraded response with no `git_commit_sha`), the button stays enabled; refresh attempts to re-query, which is the reasonable default.
@@ -857,7 +857,7 @@ flowchart TB
 - Create: `apps/fabro-web/app/routes/run-files/keyboard.test.ts`
 
 **Approach:**
-- **Deep link** (R7): on mount, read `window.location.hash` → if it matches `#file=<encoded-path>`, scroll the matching file into view and expand it (via `@pierre/diffs` `expandUnchanged` option or an internal "focus on this file" mechanism). If the file is truncated/binary/sensitive, scroll to the placeholder and highlight. If the file is absent, show a transient inline toast "File <path> not in this run" that dismisses after 5 s; preserve the hash so refresh can resolve it.
+- **Deep link** (R7): on mount, read `window.location.hash` → if it matches `#file=<encoded-path>`, scroll the matching file into view and expand it (via `@pierre/diffs` `expandUnchanged` option or an internal "focus on this file" mechanism). If the file is truncated/binary/sensitive, scroll to the placeholder and highlight. If the file is absent, show a transient inline toast `"File <path> not in this run"` that dismisses after 5 s; preserve the hash so refresh can resolve it.
 - **Keyboard nav** (R8): `j`/`k` move focus to next/prev file row in the tab. Focus outline visible; `Enter` or `Space` expands/collapses. Do not hijack default browser scroll behavior; the hook listens on document and checks `document.activeElement` to avoid intercepting text inputs.
 - **Responsive** (R8): a `useEffect` with `window.matchMedia('(max-width: 768px)')` flips the rendered `diffStyle` to `"unified"` below the breakpoint without writing localStorage. Above the breakpoint, honor the persisted preference. Below `md`, toolbar controls (Refresh, split/unified toggle, disable-background toggle) have a minimum **44×44 px** touch-target (WCAG 2.5.5 AAA), implemented via Tailwind `min-h-[44px] min-w-[44px]`. Long diff lines scroll horizontally within the file panel, not the viewport. `prefers-reduced-motion` disables the loading skeleton's shimmer animation in favor of a static placeholder.
 - **Focus management**: after `useRevalidator` completes a refresh, focus returns to the Refresh button (or the previously-focused file if the user was mid-navigation).
@@ -922,7 +922,7 @@ flowchart TB
 
 - **Interaction graph:** The new handler calls into `state.store` (SlateDB), `reconnect_run_sandbox`, the new `sandbox_git::diff_inspector` helpers, and the new `CoalescingRegistry`. It does **not** touch `state.runs`, `artifact_store`, or any lifecycle machinery — strictly additive on the server side.
 - **Error propagation:** 400/404 from `parse_run_id_path` and `load_run_record`. 503 from sandbox subprocess timeouts. 500 with request ID from anything else. Reconnect failure → internal fallback (not 409) because we have `final_patch` as a second path.
-- **State lifecycle risks:** None for the endpoint itself — it's read-only. Unit 2 adds one new lifecycle write (capture `final_patch` on Failed) which is idempotent (set-only, Option<String>).
+- **State lifecycle risks:** None for the endpoint itself — it's read-only. Unit 2 adds one new lifecycle write (capture `final_patch` on Failed) which is idempotent (set-only, `Option<String>`).
 - **API surface parity:** TS client is regenerated; downstream consumers of the generated types get the new fields for free. `PaginationMeta` (shared) is untouched; `PaginatedRunFileList.meta` now uses the new `RunFilesMeta` type — this is a name change at the spec level that could surface as a TS type alias update in any place that imports `PaginatedRunFileList['meta']`. Grep for such usages during Unit 1.
 - **Integration coverage:** Concurrent viewers on the same run, lifecycle hook firing mid-HTTP-request, SSE revalidation triggering mid-render, and md-breakpoint resize during active keyboard nav — all exercised in the tests above.
 - **Unchanged invariants:**
