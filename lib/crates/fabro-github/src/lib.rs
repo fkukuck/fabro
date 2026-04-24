@@ -471,7 +471,7 @@ pub struct CreatedPullRequest {
     reason = "Creating a pull request needs explicit repo, branch, and body fields."
 )]
 pub async fn create_pull_request(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     base: &str,
@@ -568,7 +568,7 @@ fn merge_method_as_graphql_value(method: fabro_types::MergeMethod) -> &'static s
 /// Requires the PR's `node_id` (from the REST API response) and a merge method.
 /// The repository must have auto-merge enabled in its settings.
 pub async fn enable_auto_merge(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     pr_node_id: &str,
@@ -695,7 +695,7 @@ fn normalize_https_host_path(url: &str) -> String {
 /// Uses a GitHub App installation token to query the branches API.
 /// Returns `true` if the branch exists, `false` if it doesn't (404).
 pub async fn branch_exists(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     branch: &str,
@@ -706,7 +706,7 @@ pub async fn branch_exists(
 
 async fn branch_exists_with_client(
     client: &impl HttpClient,
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     branch: &str,
@@ -848,7 +848,7 @@ pub async fn update_app_webhook_config(
 /// Always generates a token regardless of repo visibility, since the token
 /// is needed for pushing from the sandbox.
 pub async fn resolve_clone_credentials(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
 ) -> Result<(Option<String>, Option<String>), String> {
@@ -883,7 +883,7 @@ pub fn embed_token_in_url(url: &str, token: &str) -> String {
 /// Parses owner/repo from the URL, obtains a fresh installation access token,
 /// and returns the URL with embedded credentials.
 pub async fn resolve_authenticated_url(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     url: &str,
 ) -> Result<String, String> {
     let (owner, repo) = parse_github_owner_repo(url)?;
@@ -896,7 +896,7 @@ pub async fn resolve_authenticated_url(
 
 /// Fetch detailed information about a pull request.
 pub async fn get_pull_request(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -907,7 +907,7 @@ pub async fn get_pull_request(
 
 async fn get_pull_request_with_client(
     client: &impl HttpClient,
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -963,7 +963,7 @@ async fn get_pull_request_with_client(
 
 /// Merge a pull request.
 pub async fn merge_pull_request(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -975,7 +975,7 @@ pub async fn merge_pull_request(
 
 async fn merge_pull_request_with_client(
     client: &impl HttpClient,
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -1029,7 +1029,7 @@ async fn merge_pull_request_with_client(
 
 /// Close a pull request.
 pub async fn close_pull_request(
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -1040,7 +1040,7 @@ pub async fn close_pull_request(
 
 async fn close_pull_request_with_client(
     client: &impl HttpClient,
-    ctx: GitHubContext<'_>,
+    ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
     number: u64,
@@ -1549,7 +1549,7 @@ mod tests {
         });
         let result = branch_exists_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             "my-branch",
@@ -1587,7 +1587,7 @@ mod tests {
         });
         let result = branch_exists_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             "no-such-branch",
@@ -1625,7 +1625,7 @@ mod tests {
         });
         let result = branch_exists_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             "broken",
@@ -1648,7 +1648,7 @@ mod tests {
         let creds = GitHubCredentials::Token("ghu_test".to_string());
         let result = branch_exists_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             "my-branch",
@@ -1786,7 +1786,7 @@ mod tests {
         });
         let detail = get_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             42,
@@ -1831,7 +1831,7 @@ mod tests {
         });
         let err = get_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             999,
@@ -1865,7 +1865,7 @@ mod tests {
         let creds = GitHubCredentials::Token("ghu_test".to_string());
         let detail = get_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             42,
@@ -1881,7 +1881,7 @@ mod tests {
         let creds = GitHubCredentials::Token("ghu_test".to_string());
 
         let credentials =
-            resolve_clone_credentials(GitHubContext::new(&creds, ""), "owner", "repo")
+            resolve_clone_credentials(&GitHubContext::new(&creds, ""), "owner", "repo")
                 .await
                 .unwrap();
 
@@ -1927,7 +1927,7 @@ mod tests {
         });
         merge_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             42,
@@ -1961,7 +1961,7 @@ mod tests {
         });
         let err = merge_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             42,
@@ -1996,7 +1996,7 @@ mod tests {
         });
         let err = merge_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             42,
@@ -2038,7 +2038,7 @@ mod tests {
             app_id:          "test".to_string(),
             private_key_pem: pem.to_string(),
         });
-        close_pull_request_with_client(&mock, GitHubContext::new(&creds, ""), "owner", "repo", 42)
+        close_pull_request_with_client(&mock, &GitHubContext::new(&creds, ""), "owner", "repo", 42)
             .await
             .unwrap();
     }
@@ -2067,7 +2067,7 @@ mod tests {
         });
         let err = close_pull_request_with_client(
             &mock,
-            GitHubContext::new(&creds, ""),
+            &GitHubContext::new(&creds, ""),
             "owner",
             "repo",
             999,

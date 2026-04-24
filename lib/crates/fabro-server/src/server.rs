@@ -5438,7 +5438,7 @@ async fn get_run_pull_request(
     };
 
     match fabro_github::get_pull_request(
-        fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
+        &fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
         &ctx.owner,
         &ctx.repo,
         ctx.record.number,
@@ -5468,7 +5468,7 @@ async fn merge_run_pull_request(
     };
 
     match fabro_github::merge_pull_request(
-        fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
+        &fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
         &ctx.owner,
         &ctx.repo,
         ctx.record.number,
@@ -5500,7 +5500,7 @@ async fn close_run_pull_request(
     };
 
     match fabro_github::close_pull_request(
-        fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
+        &fabro_github::GitHubContext::new(&ctx.creds, state.github_api_base_url.as_str()),
         &ctx.owner,
         &ctx.repo,
         ctx.record.number,

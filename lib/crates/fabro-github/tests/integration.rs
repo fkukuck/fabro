@@ -39,7 +39,7 @@ fn standard_app_state() -> GitHubAppState {
 async fn create_and_get_pull_request() {
     let twin = TwinGitHub::start(standard_app_state()).await;
     let creds = github_credentials();
-    let ctx = GitHubContext::new(&creds, &twin.base_url);
+    let ctx = &GitHubContext::new(&creds, &twin.base_url);
 
     let created = create_pull_request(
         ctx,
@@ -70,7 +70,7 @@ async fn create_and_get_pull_request() {
 async fn create_merge_and_verify_state() {
     let twin = TwinGitHub::start(standard_app_state()).await;
     let creds = github_credentials();
-    let ctx = GitHubContext::new(&creds, &twin.base_url);
+    let ctx = &GitHubContext::new(&creds, &twin.base_url);
 
     let created = create_pull_request(
         ctx, "acme", "widgets", "main", "feature", "Merge me", "PR body", false,
@@ -97,7 +97,7 @@ async fn create_close_and_verify_state() {
     let twin = TwinGitHub::start(standard_app_state()).await;
     let creds = github_credentials();
 
-    let ctx = GitHubContext::new(&creds, &twin.base_url);
+    let ctx = &GitHubContext::new(&creds, &twin.base_url);
 
     let created = create_pull_request(
         ctx, "acme", "widgets", "main", "feature", "Close me", "PR body", false,
@@ -123,7 +123,7 @@ async fn enable_auto_merge_persists() {
     let twin = TwinGitHub::start(standard_app_state()).await;
     let creds = github_credentials();
 
-    let ctx = GitHubContext::new(&creds, &twin.base_url);
+    let ctx = &GitHubContext::new(&creds, &twin.base_url);
 
     let created = create_pull_request(
         ctx,
@@ -187,7 +187,7 @@ async fn resolve_authenticated_url_embeds_token() {
     let creds = github_credentials();
 
     let url = resolve_authenticated_url(
-        GitHubContext::new(&creds, &twin.base_url),
+        &GitHubContext::new(&creds, &twin.base_url),
         "https://github.com/acme/widgets.git",
     )
     .await
@@ -205,7 +205,7 @@ async fn resolve_authenticated_url_errors_on_non_github_url() {
     let creds = github_credentials();
 
     let error = resolve_authenticated_url(
-        GitHubContext::new(&creds, &twin.base_url),
+        &GitHubContext::new(&creds, &twin.base_url),
         "https://gitlab.com/foo/bar",
     )
     .await

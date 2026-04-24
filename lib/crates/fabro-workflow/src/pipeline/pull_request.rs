@@ -467,7 +467,7 @@ pub async fn maybe_open_pull_request(
     let title = pr_title_from_goal(req.goal);
 
     let created = github_app::create_pull_request(
-        req.github,
+        &req.github,
         &owner,
         &repo,
         req.base_branch,
@@ -487,7 +487,7 @@ pub async fn maybe_open_pull_request(
             MergeStrategy::Rebase => fabro_types::MergeMethod::Rebase,
         };
         match github_app::enable_auto_merge(
-            req.github,
+            &req.github,
             &owner,
             &repo,
             &created.node_id,

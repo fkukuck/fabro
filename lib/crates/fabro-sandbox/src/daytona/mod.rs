@@ -534,7 +534,7 @@ impl Sandbox for DaytonaSandbox {
                                     err
                                 })?;
                             fabro_github::resolve_clone_credentials(
-                                fabro_github::GitHubContext::new(
+                                &fabro_github::GitHubContext::new(
                                     creds,
                                     &fabro_github::github_api_base_url(),
                                 ),
@@ -816,7 +816,7 @@ impl Sandbox for DaytonaSandbox {
         };
 
         let auth_url = fabro_github::resolve_authenticated_url(
-            fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
+            &fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
             origin_url,
         )
         .await
