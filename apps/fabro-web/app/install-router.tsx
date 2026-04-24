@@ -10,6 +10,10 @@ export const installRoutes: RouteObject[] = [
     ErrorBoundary: RootErrorBoundary,
     children: [
       {
+        index: true,
+        Component: InstallApp,
+      },
+      {
         path: "*",
         Component: InstallApp,
       },
