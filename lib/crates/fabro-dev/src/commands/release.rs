@@ -1,11 +1,9 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use chrono::{Local, NaiveDate};
-use clap::{Args, ValueEnum};
+use clap::Args;
 
-use super::refresh_spa::refresh_spa_root;
 use super::{PlannedCommand, capture_command, run_command, workspace_root};
 
 const RELEASE_EPOCH: &str = "2026-01-01";
@@ -13,42 +11,29 @@ const RELEASE_TEST_SEGMENT_WRITE_KEY: &str = "fake-for-local-smoke";
 
 #[derive(Debug, Args)]
 pub(crate) struct ReleaseArgs {
-    /// Pre-release label to create.
-    #[arg(value_enum)]
-    prerelease_label: Option<PrereleaseLabel>,
+    /// Cut a nightly prerelease instead of a stable release.
+    #[arg(long)]
+    nightly:      bool,
     /// Print planned release steps without mutating git or running Cargo.
     #[arg(long)]
-    dry_run:          bool,
+    dry_run:      bool,
     /// Skip the release-mode test smoke.
     #[arg(long)]
-    skip_tests:       bool,
+    skip_tests:   bool,
     /// Release date to use for version computation.
     #[arg(long, value_name = "YYYY-MM-DD", env = "FABRO_RELEASE_DATE")]
-    release_date:     Option<NaiveDate>,
+    release_date: Option<NaiveDate>,
     /// Repository root to release.
     #[arg(long, hide = true)]
-    root:             Option<PathBuf>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum PrereleaseLabel {
-    Nightly,
-}
-
-impl fmt::Display for PrereleaseLabel {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Nightly => formatter.write_str("nightly"),
-        }
-    }
+    root:         Option<PathBuf>,
 }
 
 struct ReleasePlan {
-    prerelease_label: Option<PrereleaseLabel>,
-    release_date:     NaiveDate,
-    dry_run:          bool,
-    skip_tests:       bool,
-    root:             PathBuf,
+    nightly:      bool,
+    release_date: NaiveDate,
+    dry_run:      bool,
+    skip_tests:   bool,
+    root:         PathBuf,
 }
 
 #[expect(
@@ -57,13 +42,13 @@ struct ReleasePlan {
 )]
 pub(crate) fn release(args: ReleaseArgs) -> Result<()> {
     let plan = ReleasePlan {
-        prerelease_label: args.prerelease_label,
-        release_date:     args
+        nightly:      args.nightly,
+        release_date: args
             .release_date
             .unwrap_or_else(|| Local::now().date_naive()),
-        dry_run:          args.dry_run,
-        skip_tests:       args.skip_tests,
-        root:             args.root.unwrap_or_else(workspace_root),
+        dry_run:      args.dry_run,
+        skip_tests:   args.skip_tests,
+        root:         args.root.unwrap_or_else(workspace_root),
     };
 
     let cargo_toml = plan.root.join("Cargo.toml");
@@ -157,13 +142,13 @@ impl ReleasePlan {
     }
 
     fn compute_release_version(&self, base_version: &str) -> Result<String> {
-        let Some(prerelease_label) = self.prerelease_label else {
+        if !self.nightly {
             return Ok(base_version.to_string());
-        };
+        }
 
         let mut prerelease_number = 0;
         loop {
-            let version = format!("{base_version}-{prerelease_label}.{prerelease_number}");
+            let version = format!("{base_version}-nightly.{prerelease_number}");
             if !self.tag_exists(&format!("v{version}"))? {
                 return Ok(version);
             }
@@ -193,13 +178,7 @@ impl ReleasePlan {
     }
 
     fn verify_spa_assets(&self) -> Result<()> {
-        refresh_spa_root(&self.root, false)?;
-        let output = capture_command(&self.root, &Self::spa_assets_diff_command())?;
-        if !output.status.success() {
-            bail!("fabro-spa assets are stale. Commit the refreshed assets before releasing.");
-        }
-
-        Ok(())
+        run_command(&self.root, &Self::spa_check_command())
     }
 
     #[expect(
@@ -222,8 +201,7 @@ impl ReleasePlan {
     )]
     fn print_dry_run(&self, current_version: &str, new_version: &str, tag: &str) {
         println!("DRY RUN: would verify SPA assets:");
-        println!("{}", Self::refresh_spa_command().to_shell_line());
-        println!("{}", Self::spa_assets_diff_command().to_shell_line());
+        println!("{}", Self::spa_check_command().to_shell_line());
 
         if self.skip_tests {
             println!("--skip-tests set, would skip release-mode test smoke");
@@ -261,16 +239,11 @@ impl ReleasePlan {
         }
     }
 
-    fn refresh_spa_command() -> PlannedCommand {
-        PlannedCommand::new("cargo").arg("dev").arg("refresh-spa")
-    }
-
-    fn spa_assets_diff_command() -> PlannedCommand {
-        PlannedCommand::new("git")
-            .arg("diff")
-            .arg("--exit-code")
-            .arg("--")
-            .arg("lib/crates/fabro-spa/assets")
+    fn spa_check_command() -> PlannedCommand {
+        PlannedCommand::new("cargo")
+            .arg("dev")
+            .arg("spa")
+            .arg("check")
     }
 
     fn release_tests_command() -> PlannedCommand {

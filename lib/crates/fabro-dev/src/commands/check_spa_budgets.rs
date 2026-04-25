@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -5,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use walkdir::WalkDir;
 
+use super::refresh_spa::{TempDir, mirror_dist, run_bun_build};
 use super::workspace_root;
 
 const DEFAULT_ASSET_BUDGET_BYTES: u64 = 15 * 1024 * 1024;
@@ -21,16 +23,53 @@ pub(crate) struct CheckSpaBudgetsArgs {
     /// Override the estimated gzip payload budget.
     #[arg(long, hide = true, default_value_t = DEFAULT_PAYLOAD_BUDGET_BYTES)]
     payload_budget_bytes: u64,
+    /// Skip bun run build and compare an existing dist directory.
+    #[arg(long, hide = true)]
+    skip_build:           bool,
 }
 
 #[expect(
     clippy::print_stdout,
-    reason = "dev check-spa-budgets command reports measured budgets directly"
+    reason = "dev spa check command reports measured budgets directly"
 )]
 pub(crate) fn check_spa_budgets(args: CheckSpaBudgetsArgs) -> Result<()> {
     let root = args.root.unwrap_or_else(workspace_root);
+    let web_dir = root.join("apps/fabro-web");
+    let dist_dir = web_dir.join("dist");
     let asset_dir = root.join("lib/crates/fabro-spa/assets");
-    let report = budget_report(&asset_dir)?;
+    check_spa_asset_budgets(
+        &asset_dir,
+        args.asset_budget_bytes,
+        args.payload_budget_bytes,
+    )?;
+
+    if !args.skip_build {
+        println!("Running bun run build in apps/fabro-web...");
+        run_bun_build(&web_dir)?;
+    }
+
+    let staging = TempDir::new(&root, "check")?;
+    mirror_dist(&dist_dir, staging.path())?;
+    check_spa_asset_budgets(
+        staging.path(),
+        args.asset_budget_bytes,
+        args.payload_budget_bytes,
+    )?;
+    ensure_assets_match(staging.path(), &asset_dir)?;
+
+    Ok(())
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "dev spa commands report measured budgets directly"
+)]
+pub(super) fn check_spa_asset_budgets(
+    asset_dir: &Path,
+    asset_budget_bytes: u64,
+    payload_budget_bytes: u64,
+) -> Result<()> {
+    let report = budget_report(asset_dir)?;
 
     println!("fabro-spa asset bytes: {}", report.asset_bytes);
     println!(
@@ -38,19 +77,19 @@ pub(crate) fn check_spa_budgets(args: CheckSpaBudgetsArgs) -> Result<()> {
         report.compressed_payload_bytes
     );
 
-    if report.asset_bytes > args.asset_budget_bytes {
+    if report.asset_bytes > asset_budget_bytes {
         bail!(
-            "fabro-spa committed assets exceed budget: {} > {}",
+            "fabro-spa assets exceed budget: {} > {}",
             report.asset_bytes,
-            args.asset_budget_bytes
+            asset_budget_bytes
         );
     }
 
-    if report.compressed_payload_bytes > args.payload_budget_bytes {
+    if report.compressed_payload_bytes > payload_budget_bytes {
         bail!(
             "fabro-spa compressed payload exceeds budget: {} > {}",
             report.compressed_payload_bytes,
-            args.payload_budget_bytes
+            payload_budget_bytes
         );
     }
 
@@ -106,7 +145,7 @@ fn budget_report(asset_dir: &Path) -> Result<BudgetReport> {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "dev check-spa-budgets intentionally shells out to gzip to match the legacy script"
+    reason = "dev spa check intentionally shells out to gzip to match the legacy script"
 )]
 fn gzip_size(file: &Path) -> Result<u64> {
     let output = Command::new("gzip")
@@ -128,4 +167,43 @@ fn ensure_gzip_success(file: &Path, output: &Output) -> Result<u64> {
     }
 
     Ok(output.stdout.len() as u64)
+}
+
+fn ensure_assets_match(expected_dir: &Path, actual_dir: &Path) -> Result<()> {
+    let expected = directory_snapshot(expected_dir)?;
+    let actual = directory_snapshot(actual_dir)?;
+
+    if expected != actual {
+        bail!("fabro-spa assets are stale; run `cargo dev spa refresh`");
+    }
+
+    Ok(())
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "dev spa check compares generated asset directories synchronously"
+)]
+fn directory_snapshot(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
+    if !root.is_dir() {
+        bail!("fabro-spa assets directory is missing: {}", root.display());
+    }
+
+    let mut snapshot = BTreeMap::new();
+    for entry in WalkDir::new(root) {
+        let entry = entry.context("walking fabro-spa assets")?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(root)
+            .with_context(|| format!("{} is not under {}", path.display(), root.display()))?
+            .to_path_buf();
+        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        snapshot.insert(relative, bytes);
+    }
+
+    Ok(snapshot)
 }

@@ -1,22 +1,20 @@
 mod check_spa_budgets;
 mod docker_build;
+mod docs;
 mod generate_cli_reference;
 mod generate_options_reference;
 mod refresh_spa;
 mod release;
+mod spa;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result};
-pub(crate) use check_spa_budgets::{CheckSpaBudgetsArgs, check_spa_budgets};
 pub(crate) use docker_build::{DockerBuildArgs, docker_build};
-pub(crate) use generate_cli_reference::{GenerateCliReferenceArgs, generate_cli_reference};
-pub(crate) use generate_options_reference::{
-    GenerateOptionsReferenceArgs, generate_options_reference,
-};
-pub(crate) use refresh_spa::{RefreshSpaArgs, refresh_spa};
+pub(crate) use docs::{DocsArgs, docs};
 pub(crate) use release::{ReleaseArgs, release};
+pub(crate) use spa::{SpaArgs, spa};
 
 pub(crate) fn workspace_root() -> PathBuf {
     let mut root = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();

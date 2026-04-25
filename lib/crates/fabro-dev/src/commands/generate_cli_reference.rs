@@ -1,32 +1,21 @@
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use clap::{Arg, ArgAction, Command};
 
-use super::{markdown_cell, replace_generated_region, workspace_root};
+use super::{markdown_cell, replace_generated_region};
 
 const CLI_REFERENCE_PATH: &str = "docs/reference/cli.mdx";
 const FENCE_START: &str = "<!-- generated:cli -->";
 const FENCE_END: &str = "<!-- /generated:cli -->";
-
-#[derive(Debug, clap::Args)]
-pub(crate) struct GenerateCliReferenceArgs {
-    /// Verify docs/reference/cli.mdx is up to date without rewriting it.
-    #[arg(long)]
-    check: bool,
-    /// Workspace root containing docs/reference/cli.mdx.
-    #[arg(long, hide = true)]
-    root:  Option<PathBuf>,
-}
 
 #[expect(
     clippy::print_stdout,
     clippy::disallowed_methods,
     reason = "dev generator reports the generated docs path directly and intentionally uses sync filesystem I/O"
 )]
-pub(crate) fn generate_cli_reference(args: GenerateCliReferenceArgs) -> Result<()> {
-    let root = args.root.unwrap_or_else(workspace_root);
+pub(crate) fn generate_cli_reference_root(root: &Path, check: bool) -> Result<()> {
     let path = root.join(CLI_REFERENCE_PATH);
     let current =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -39,9 +28,9 @@ pub(crate) fn generate_cli_reference(args: GenerateCliReferenceArgs) -> Result<(
         FENCE_END,
     )?;
 
-    if args.check {
+    if check {
         if current != updated {
-            bail!("{CLI_REFERENCE_PATH} is stale; run `cargo dev generate-cli-reference`");
+            bail!("{CLI_REFERENCE_PATH} is stale; run `cargo dev docs refresh`");
         }
         println!("{CLI_REFERENCE_PATH} is up to date.");
         return Ok(());

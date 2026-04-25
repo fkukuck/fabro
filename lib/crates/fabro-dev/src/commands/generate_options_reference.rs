@@ -1,33 +1,21 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use fabro_options_metadata::{OptionField, OptionSet};
 
-use super::{markdown_cell, replace_generated_region, workspace_root};
+use super::{markdown_cell, replace_generated_region};
 
 const OPTIONS_REFERENCE_PATH: &str = "docs/reference/user-configuration.mdx";
 const FENCE_START: &str = "<!-- generated:options -->";
 const FENCE_END: &str = "<!-- /generated:options -->";
-
-#[derive(Debug, clap::Args)]
-pub(crate) struct GenerateOptionsReferenceArgs {
-    /// Verify docs/reference/user-configuration.mdx is up to date without
-    /// rewriting it.
-    #[arg(long)]
-    check: bool,
-    /// Workspace root containing docs/reference/user-configuration.mdx.
-    #[arg(long, hide = true)]
-    root:  Option<PathBuf>,
-}
 
 #[expect(
     clippy::print_stdout,
     clippy::disallowed_methods,
     reason = "dev generator reports the generated docs path directly and intentionally uses sync filesystem I/O"
 )]
-pub(crate) fn generate_options_reference(args: GenerateOptionsReferenceArgs) -> Result<()> {
-    let root = args.root.unwrap_or_else(workspace_root);
+pub(crate) fn generate_options_reference_root(root: &Path, check: bool) -> Result<()> {
     let path = root.join(OPTIONS_REFERENCE_PATH);
     let current =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -40,9 +28,9 @@ pub(crate) fn generate_options_reference(args: GenerateOptionsReferenceArgs) -> 
         FENCE_END,
     )?;
 
-    if args.check {
+    if check {
         if current != updated {
-            bail!("{OPTIONS_REFERENCE_PATH} is stale; run `cargo dev generate-options-reference`");
+            bail!("{OPTIONS_REFERENCE_PATH} is stale; run `cargo dev docs refresh`");
         }
         println!("{OPTIONS_REFERENCE_PATH} is up to date.");
         return Ok(());

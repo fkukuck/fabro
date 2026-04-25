@@ -87,8 +87,7 @@ jobs:
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           cache-on-failure: true
-      - run: cargo dev generate-cli-reference --check
-      - run: cargo dev generate-options-reference --check
+      - run: cargo dev docs check
 
   test:
     name: Test (Linux)

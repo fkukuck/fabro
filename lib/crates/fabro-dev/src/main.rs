@@ -20,27 +20,21 @@ struct Cli {
 enum Command {
     /// Build Fabro Docker images with the release pipeline layout.
     DockerBuild(commands::DockerBuildArgs),
-    /// Generate docs/reference/cli.mdx from the Fabro clap command tree.
-    GenerateCliReference(commands::GenerateCliReferenceArgs),
-    /// Generate docs/reference/user-configuration.mdx from settings metadata.
-    GenerateOptionsReference(commands::GenerateOptionsReferenceArgs),
+    /// Manage generated reference documentation.
+    Docs(commands::DocsArgs),
     /// Run Fabro release automation.
     Release(commands::ReleaseArgs),
-    /// Refresh the embedded Fabro web SPA bundle.
-    RefreshSpa(commands::RefreshSpaArgs),
-    /// Check embedded Fabro web SPA asset budgets.
-    CheckSpaBudgets(commands::CheckSpaBudgetsArgs),
+    /// Manage embedded Fabro web SPA assets.
+    Spa(commands::SpaArgs),
 }
 
 impl Command {
     fn run(self) -> Result<()> {
         match self {
             Self::DockerBuild(args) => commands::docker_build(args),
-            Self::GenerateCliReference(args) => commands::generate_cli_reference(args),
-            Self::GenerateOptionsReference(args) => commands::generate_options_reference(args),
+            Self::Docs(args) => commands::docs(args),
             Self::Release(args) => commands::release(args),
-            Self::RefreshSpa(args) => commands::refresh_spa(args),
-            Self::CheckSpaBudgets(args) => commands::check_spa_budgets(args),
+            Self::Spa(args) => commands::spa(args),
         }
     }
 }
