@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { isVisibleStage } from "../data/runs";
-import { formatDurationSecs } from "../lib/format";
 import { graphTheme } from "../lib/graph-theme";
 import { useRun, useRunGraph, useRunStages } from "../lib/queries";
 import { StageSidebar } from "../components/stage-sidebar";
@@ -12,18 +10,9 @@ import {
   GraphToolbar,
 } from "../components/graph-toolbar";
 import { EmptyState } from "../components/state";
+import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
 
 export const handle = { wide: true };
-
-function mapStages(stagesResult: ReturnType<typeof useRunStages>["data"]): Stage[] {
-  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
-    id: s.id,
-    name: s.name,
-    status: s.status as Stage["status"],
-    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
-    dotId: s.dot_id ?? s.id,
-  }));
-}
 
 type Direction = "LR" | "TB";
 
@@ -33,7 +22,10 @@ export default function RunOverview() {
   const stagesQuery = useRunStages(id);
   const graphQuery = useRunGraph(id, direction);
   const runQuery = useRun(id);
-  const stages = mapStages(stagesQuery.data);
+  const stages = useMemo(
+    () => mapRunStagesToSidebarStages(stagesQuery.data),
+    [stagesQuery.data],
+  );
   const graphSvg = graphQuery.data;
   const runStatus = runQuery.data?.status?.kind ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -193,7 +185,9 @@ export default function RunOverview() {
       <StageSidebar stages={stages} runId={id!} />
 
       <div className="min-w-0 flex-1">
-        {graphSvg ? (
+        {graphSvg === undefined && graphQuery.isLoading ? (
+          <div className="py-12" />
+        ) : graphSvg ? (
           <div className="graph-svg relative rounded-md border border-line bg-panel-alt">
             <GraphToolbar
               direction={direction}

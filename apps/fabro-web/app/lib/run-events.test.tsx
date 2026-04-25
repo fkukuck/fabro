@@ -51,10 +51,10 @@ describe("subscribeToRunEvents", () => {
     const firstCleanup = subscribeToRunEvents("run-refcount", mutate, (url) => {
       created.push(url);
       return source;
-    });
+    }, { debounceMs: 0 });
     const secondCleanup = subscribeToRunEvents("run-refcount", mutate, () => {
       throw new Error("source should be reused");
-    });
+    }, { debounceMs: 0 });
 
     expect(created).toEqual(["/api/v1/runs/run-refcount/attach"]);
 
@@ -78,6 +78,7 @@ describe("subscribeToRunEvents", () => {
         return Promise.resolve();
       },
       () => source,
+      { debounceMs: 0 },
     );
 
     source.emit({ event: "run.failed" });
@@ -102,6 +103,7 @@ describe("subscribeToRunEvents", () => {
         return Promise.resolve();
       },
       () => sources.shift()!,
+      { debounceMs: 0 },
     );
     firstSource.emitRaw("{broken");
     firstCleanup();
@@ -113,6 +115,7 @@ describe("subscribeToRunEvents", () => {
         return Promise.resolve();
       },
       () => sources.shift()!,
+      { debounceMs: 0 },
     );
     secondCleanup();
 

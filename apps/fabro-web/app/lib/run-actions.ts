@@ -1,6 +1,7 @@
 import type { ErrorResponseEntry, RunStatusResponse } from "@qltysh/fabro-api-client";
 
 import { apiRequest } from "./api-client";
+import { queryKeys } from "./query-keys";
 import type { RunStatus } from "../data/runs";
 
 export type LifecycleAction = "cancel" | "archive" | "unarchive";
@@ -89,11 +90,11 @@ async function runLifecycleAction(
   action: LifecycleAction,
   request?: Request,
 ): Promise<RunStatusResponse> {
-  const response = await apiRequest(`/runs/${id}/${action}`, {
+  const response = await apiRequest(queryKeys.runs[action](id), {
     init: {
       method: "POST",
-      ...(request?.signal ? { signal: request.signal } : {}),
     },
+    request,
   });
 
   if (!response.ok) {
@@ -128,7 +129,7 @@ async function parseLifecycleActionError(response: Response): Promise<LifecycleA
   }
 }
 
-function isLifecycleActionError(value: unknown): value is LifecycleActionError {
+export function isLifecycleActionError(value: unknown): value is LifecycleActionError {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return typeof record.status === "number" && Array.isArray(record.errors);

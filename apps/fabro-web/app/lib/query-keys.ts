@@ -21,6 +21,7 @@ export const queryKeys = {
   },
   system: {
     info: () => "/api/v1/system/info",
+    attach: () => "/api/v1/attach",
   },
   boards: {
     runs: () => "/api/v1/boards/runs",
@@ -46,6 +47,7 @@ export const queryKeys = {
     cancel: (id: string) => `/api/v1/runs/${pathSegment(id)}/cancel`,
     archive: (id: string) => `/api/v1/runs/${pathSegment(id)}/archive`,
     unarchive: (id: string) => `/api/v1/runs/${pathSegment(id)}/unarchive`,
+    attach: (id: string) => `/api/v1/runs/${pathSegment(id)}/attach`,
   },
   workflows: {
     list: () => "/api/v1/workflows",

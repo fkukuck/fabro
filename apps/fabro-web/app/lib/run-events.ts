@@ -1,28 +1,23 @@
 import { useEffect } from "react";
-import { useSWRConfig, type MutatorCallback } from "swr";
+import { useSWRConfig } from "swr";
 
 import { queryKeys } from "./query-keys";
+import {
+  createBrowserEventSource,
+  subscribeToSharedEventSource,
+  type EventPayload,
+  type EventSourceLike,
+  type MutateFn,
+  type SharedEventSubscription,
+} from "./sse";
 
-type MutateFn = (key: string) => ReturnType<MutatorCallback>;
-
-interface RunEventPayload {
+interface RunEventPayload extends EventPayload {
   event?: string;
   node_id?: string;
   properties?: Record<string, unknown>;
 }
 
-interface RunEventSourceLike {
-  onmessage: ((event: { data: string }) => void) | null;
-  close(): void;
-}
-
-interface RunSubscription {
-  source: RunEventSourceLike;
-  refcount: number;
-  mutators: Map<MutateFn, number>;
-}
-
-const subscriptions = new Map<string, RunSubscription>();
+const subscriptions = new Map<string, SharedEventSubscription>();
 
 const TERMINAL_EVENTS = new Set(["run.completed", "run.failed"]);
 const RUN_SUMMARY_EVENTS = new Set([
@@ -39,10 +34,6 @@ const RUN_SUMMARY_EVENTS = new Set([
 ]);
 const STAGE_EVENTS = new Set(["stage.started", "stage.completed", "stage.failed"]);
 const COMMAND_EVENTS = new Set(["command.started", "command.completed"]);
-
-function createBrowserEventSource(url: string): RunEventSourceLike {
-  return new EventSource(url);
-}
 
 export function queryKeysForRunEvent(
   runId: string,
@@ -99,78 +90,36 @@ export function queryKeysForRunEvent(
 export function subscribeToRunEvents(
   runId: string,
   mutate: MutateFn,
-  eventSourceFactory: (url: string) => RunEventSourceLike = createBrowserEventSource,
+  eventSourceFactory: (url: string) => EventSourceLike = createBrowserEventSource,
+  { debounceMs = 300 }: { debounceMs?: number } = {},
 ): () => void {
-  let subscription = subscriptions.get(runId);
-  if (!subscription) {
-    const source = eventSourceFactory(`/api/v1/runs/${runId}/attach`);
-    subscription = {
-      source,
-      refcount: 0,
-      mutators: new Map(),
-    };
-    subscriptions.set(runId, subscription);
-
-    source.onmessage = (message) => {
-      let payload: RunEventPayload;
-      try {
-        payload = JSON.parse(message.data) as RunEventPayload;
-      } catch {
-        return;
-      }
-
+  return subscribeToSharedEventSource<RunEventPayload>({
+    subscriptions,
+    subscriptionKey: runId,
+    url: queryKeys.runs.attach(runId),
+    mutate,
+    eventSourceFactory,
+    debounceMs,
+    resolveInvalidation: (payload) => {
       const event = payload.event;
-      if (!event) return;
+      if (!event) return { keys: [] };
 
       const stageId = stageIdFromPayload(payload);
       const keys = queryKeysForRunEvent(runId, event, stageId);
-      if (keys.length > 0) {
-        const current = subscriptions.get(runId);
-        for (const mutator of current?.mutators.keys() ?? []) {
-          for (const key of keys) {
-            void mutator(key);
-          }
-        }
-      }
-
-      if (TERMINAL_EVENTS.has(event)) {
-        closeRunSubscription(runId);
-      }
-    };
-  }
-
-  subscription.refcount += 1;
-  subscription.mutators.set(mutate, (subscription.mutators.get(mutate) ?? 0) + 1);
-
-  return () => {
-    const current = subscriptions.get(runId);
-    if (!current) return;
-
-    const mutateCount = current.mutators.get(mutate) ?? 0;
-    if (mutateCount <= 1) {
-      current.mutators.delete(mutate);
-    } else {
-      current.mutators.set(mutate, mutateCount - 1);
-    }
-
-    current.refcount -= 1;
-    if (current.refcount <= 0) {
-      closeRunSubscription(runId);
-    }
-  };
+      const terminal = TERMINAL_EVENTS.has(event);
+      return {
+        keys,
+        close: terminal,
+        immediate: terminal,
+      };
+    },
+  });
 }
 
 function stageIdFromPayload(payload: RunEventPayload): string | undefined {
   if (typeof payload.node_id === "string") return payload.node_id;
   const nodeId = payload.properties?.node_id;
   return typeof nodeId === "string" ? nodeId : undefined;
-}
-
-function closeRunSubscription(runId: string) {
-  const subscription = subscriptions.get(runId);
-  if (!subscription) return;
-  subscription.source.close();
-  subscriptions.delete(runId);
 }
 
 export function useRunEvents(runId: string | undefined) {

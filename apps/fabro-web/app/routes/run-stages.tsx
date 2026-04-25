@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Marked } from "marked";
 
@@ -39,10 +39,10 @@ import { StageSidebar, statusConfig } from "../components/stage-sidebar";
 import type { Stage } from "../components/stage-sidebar";
 import { EmptyState } from "../components/state";
 import { CopyButton } from "../components/ui";
-import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
 import { useRunEventsList, useRunStageTurns, useRunStages } from "../lib/queries";
-import type { PaginatedRunStageList, StageTurn as ApiStageTurn, PaginatedStageTurnList, PaginatedEventList } from "@qltysh/fabro-api-client";
+import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
+import type { StageTurn as ApiStageTurn, PaginatedStageTurnList, PaginatedEventList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
 
@@ -145,15 +145,6 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
   }
 
   return turns;
-}
-
-function mapStages(stagesResult: PaginatedRunStageList | null | undefined): Stage[] {
-  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
-    id: s.id,
-    name: s.name,
-    status: s.status as Stage["status"],
-    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
-  }));
 }
 
 function mapTurns(
@@ -365,34 +356,56 @@ function CommandBlock({ turn }: { turn: Extract<TurnType, { kind: "command" }> }
   );
 }
 
-export default function RunStages() {
-  const { id, stageId } = useParams();
-  const stagesQuery = useRunStages(id);
-  const stages = mapStages(stagesQuery.data);
-
-  const selectedStage = stages.find((s: Stage) => s.id === stageId) ?? stages[0];
-  const turnsQuery = useRunStageTurns(id, selectedStage?.id);
-  const eventsQuery = useRunEventsList(id, !!selectedStage?.id && !turnsQuery.data?.data?.length);
-  const turns = mapTurns(turnsQuery.data, eventsQuery.data, selectedStage?.id);
-  const isRunning = selectedStage?.status === "running";
-
-  // Ticking timer for running stage header
-  const runningStartRef = useRef(isRunning ? Date.now() : 0);
+function RunningStageDuration({
+  isRunning,
+  duration,
+}: {
+  isRunning: boolean;
+  duration: string;
+}) {
+  const [startedAt, setStartedAt] = useState<number | null>(() =>
+    isRunning ? Date.now() : null,
+  );
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    if (isRunning && runningStartRef.current === 0) {
-      runningStartRef.current = Date.now();
-    } else if (!isRunning) {
-      runningStartRef.current = 0;
-    }
+    setStartedAt((current) => {
+      if (!isRunning) return null;
+      return current ?? Date.now();
+    });
   }, [isRunning]);
 
   useEffect(() => {
     if (!isRunning) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
+    const interval = setInterval(() => setTick((tick) => tick + 1), 1000);
     return () => clearInterval(interval);
   }, [isRunning]);
+
+  if (isRunning && startedAt) {
+    return formatDurationSecs(Math.floor((Date.now() - startedAt) / 1000));
+  }
+  return duration;
+}
+
+export default function RunStages() {
+  const { id, stageId } = useParams();
+  const stagesQuery = useRunStages(id);
+  const stages = useMemo(
+    () => mapRunStagesToSidebarStages(stagesQuery.data),
+    [stagesQuery.data],
+  );
+
+  const selectedStage = stages.find((s: Stage) => s.id === stageId) ?? stages[0];
+  const turnsQuery = useRunStageTurns(id, selectedStage?.id);
+  const hasStageTurns = (turnsQuery.data?.data.length ?? 0) > 0;
+  const shouldLoadEventFallback =
+    !!selectedStage?.id && !turnsQuery.isLoading && !turnsQuery.error && !hasStageTurns;
+  const eventsQuery = useRunEventsList(id, shouldLoadEventFallback);
+  const turns = useMemo(
+    () => mapTurns(turnsQuery.data, eventsQuery.data, selectedStage?.id),
+    [eventsQuery.data, selectedStage?.id, turnsQuery.data],
+  );
+  const isRunning = selectedStage?.status === "running";
 
   if (!stages.length) {
     return (
@@ -407,9 +420,6 @@ export default function RunStages() {
 
   const selectedConfig = statusConfig[selectedStage.status];
   const SelectedIcon = selectedConfig.icon;
-  const headerDuration = isRunning && runningStartRef.current
-    ? formatDurationSecs(Math.floor((Date.now() - runningStartRef.current) / 1000))
-    : selectedStage.duration;
 
   return (
     <div className="flex gap-6">
@@ -419,7 +429,12 @@ export default function RunStages() {
         <div className="sticky top-0 z-10 -mx-2 flex items-center gap-2 bg-page/85 px-2 py-2 backdrop-blur">
           <SelectedIcon className={`size-5 ${selectedConfig.color} ${isRunning ? "animate-spin" : ""}`} />
           <h3 className="text-base font-semibold text-fg">{selectedStage.name}</h3>
-          <span className="font-mono text-xs tabular-nums text-fg-muted">{headerDuration}</span>
+          <span className="font-mono text-xs tabular-nums text-fg-muted">
+            <RunningStageDuration
+              isRunning={isRunning}
+              duration={selectedStage.duration}
+            />
+          </span>
         </div>
 
         {turns.map((turn: TurnType, i: number) => {

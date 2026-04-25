@@ -28,7 +28,6 @@ import {
 import { useFileKeyboardNav } from "./run-files/keyboard";
 import { Toolbar, type DiffStyle } from "./run-files/toolbar";
 import { ApiError, extractRequestId } from "../lib/api-client";
-import { useRunEvents } from "../lib/run-events";
 import { useRun, useRunFiles } from "../lib/queries";
 
 export { extractRequestId };
@@ -210,8 +209,6 @@ export default function RunFiles() {
 
   const data: PaginatedRunFileList | null =
     filesQuery.data ?? lastGoodDataRef.current;
-
-  useRunEvents(params.id);
 
   const isInitialLoading = filesQuery.isLoading && !data;
   const isRevalidating = filesQuery.isValidating;

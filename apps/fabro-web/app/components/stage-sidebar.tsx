@@ -9,7 +9,6 @@ import {
 } from "@heroicons/react/24/solid";
 import { DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
 import { formatDurationSecs } from "../lib/format";
-import { useRunEvents } from "../lib/run-events";
 
 export type StageStatus = "completed" | "running" | "pending" | "failed" | "cancelled";
 
@@ -40,9 +39,6 @@ export function StageSidebar({ stages, runId, selectedStageId, activeLink }: Sta
   // Track when we first observed each running stage (for ticking timer)
   const runningStartRef = useRef<Map<string, number>>(new Map());
   const [, setTick] = useState(0);
-
-  // Subscribe to run-specific SSE for live stage updates
-  useRunEvents(runId);
 
   // Track start times for running stages
   useEffect(() => {

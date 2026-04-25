@@ -1,4 +1,5 @@
 import { isRouteErrorResponse, useRouteError } from "react-router";
+import { extractRequestId } from "../../lib/api-client";
 
 /**
  * R4 empty-state taxonomy. See plan § Unit 11:
@@ -187,7 +188,7 @@ export function RunFilesErrorBoundary() {
   if (isRouteErrorResponse(error)) {
     return renderStatusError({
       status:    error.status,
-      requestId: extractRequestIdFromUnknown(error.data),
+      requestId: extractRequestId(error.data),
       onRetry:   () => window.location.reload(),
     });
   }
@@ -199,29 +200,4 @@ export function RunFilesErrorBoundary() {
       Something went wrong loading this run's files.
     </div>
   );
-}
-
-/**
- * Request-ID parser used only by the ErrorBoundary path. The loader path
- * already extracts request_id into `RunFilesLoaderResult.error.requestId`
- * via `run-files.tsx::extractRequestId` — this is the body shape
- * react-router hands us in `useRouteError().data` for non-Response errors.
- */
-function extractRequestIdFromUnknown(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-  const b = body as Record<string, unknown>;
-  if (typeof b.request_id === "string") return b.request_id;
-  const errors = b.errors;
-  if (Array.isArray(errors) && errors.length > 0) {
-    const first = errors[0];
-    if (first && typeof first === "object") {
-      const rec = first as Record<string, unknown>;
-      if (typeof rec.request_id === "string") return rec.request_id;
-      if (typeof rec.detail === "string") {
-        const match = rec.detail.match(/request[_ ]id[=:]?\s*([a-zA-Z0-9-_]+)/i);
-        if (match) return match[1];
-      }
-    }
-  }
-  return null;
 }

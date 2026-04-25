@@ -1,28 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { graphTheme } from "../lib/graph-theme";
-import { isVisibleStage } from "../data/runs";
-import { formatDurationSecs } from "../lib/format";
 import { useRunGraph, useRunStages } from "../lib/queries";
 import { StageSidebar } from "../components/stage-sidebar";
-import type { Stage } from "../components/stage-sidebar";
 import {
   GRAPH_DEFAULT_ZOOM_INDEX,
   GRAPH_ZOOM_STEPS,
   GraphToolbar,
 } from "../components/graph-toolbar";
+import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
 
 export const handle = { wide: true };
-
-function mapStages(stagesResult: ReturnType<typeof useRunStages>["data"]): Stage[] {
-  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
-    id: s.id,
-    name: s.name,
-    dotId: s.dot_id ?? s.id,
-    status: s.status as Stage["status"],
-    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
-  }));
-}
 
 type Direction = "LR" | "TB";
 
@@ -86,7 +74,10 @@ export default function RunGraph() {
   const [direction, setDirection] = useState<Direction>("LR");
   const stagesQuery = useRunStages(id);
   const graphQuery = useRunGraph(id, direction);
-  const stages = mapStages(stagesQuery.data);
+  const stages = useMemo(
+    () => mapRunStagesToSidebarStages(stagesQuery.data),
+    [stagesQuery.data],
+  );
   const graphSvg = graphQuery.data;
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -98,10 +89,19 @@ export default function RunGraph() {
   const zoom = GRAPH_ZOOM_STEPS[zoomIndex];
 
   useEffect(() => {
+    if (graphSvg === undefined && !graphQuery.error) return;
+
     let cancelled = false;
 
     async function render() {
       try {
+        setError(null);
+
+        if (graphQuery.error) {
+          setError("Failed to load graph");
+          return;
+        }
+
         let svg: SVGSVGElement;
 
         if (graphSvg) {
@@ -135,7 +135,7 @@ export default function RunGraph() {
     setPan({ x: 0, y: 0 });
     render();
     return () => { cancelled = true; };
-  }, [direction, graphSvg, id]);
+  }, [direction, graphQuery.error, graphSvg]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;

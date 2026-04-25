@@ -1,29 +1,21 @@
+import { useMemo } from "react";
 import { useParams } from "react-router";
 import { CollapsibleFile } from "../components/collapsible-file";
 import { StageSidebar } from "../components/stage-sidebar";
-import type { Stage } from "../components/stage-sidebar";
-import { isVisibleStage } from "../data/runs";
-import { formatDurationSecs } from "../lib/format";
 import { useRunSettings, useRunStages } from "../lib/queries";
-import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
+import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
 
 export const handle = { wide: true };
 type WorkflowSettingsSnapshot = Record<string, unknown>;
-
-function mapStages(stagesResult: PaginatedRunStageList | null | undefined): Stage[] {
-  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
-    id: s.id,
-    name: s.name,
-    status: s.status as Stage["status"],
-    duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
-  }));
-}
 
 export default function RunSettingsPage() {
   const { id } = useParams();
   const stagesQuery = useRunStages(id);
   const settingsQuery = useRunSettings<WorkflowSettingsSnapshot>(id);
-  const stages = mapStages(stagesQuery.data);
+  const stages = useMemo(
+    () => mapRunStagesToSidebarStages(stagesQuery.data),
+    [stagesQuery.data],
+  );
   const settings = settingsQuery.data ?? {};
 
   return (

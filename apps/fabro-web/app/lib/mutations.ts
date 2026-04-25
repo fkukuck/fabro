@@ -1,17 +1,17 @@
 import useSWRMutation from "swr/mutation";
 import { useSWRConfig } from "swr";
 import type {
-  ErrorResponseEntry,
   PreviewUrlResponse,
   RunStatusResponse,
 } from "@qltysh/fabro-api-client";
 
-import { apiJsonMutation, apiRequest } from "./api-client";
+import { apiJsonMutation } from "./api-client";
 import { queryKeys } from "./query-keys";
 import type { LifecycleAction, LifecycleActionError } from "./run-actions";
 import {
   archiveRun,
   cancelRun,
+  isLifecycleActionError,
   unarchiveRun,
 } from "./run-actions";
 
@@ -78,7 +78,7 @@ function useLifecycleMutation(
         return {
           intent,
           ok: false,
-          error: serializeLifecycleActionError(error),
+          error: isLifecycleActionError(error) ? error : null,
         };
       }
     },
@@ -98,18 +98,7 @@ export function useToggleDemoMode() {
   return useSWRMutation(
     queryKeys.demo.toggle(),
     async (key: string, { arg }: { arg: { enabled: boolean } }) => {
-      const response = await apiRequest(key, {
-        init: {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(arg),
-        },
-      });
-      if (!response.ok) {
-        throw new Error(response.statusText || `HTTP ${response.status}`);
-      }
-      return response;
+      await apiJsonMutation<void, { enabled: boolean }>(key, { arg });
     },
     {
       onSuccess: () => {
@@ -134,28 +123,5 @@ export function useLoginDevToken() {
       }
       return response.json() as Promise<{ ok: boolean }>;
     },
-  );
-}
-
-function serializeLifecycleActionError(error: unknown): LifecycleActionError | null {
-  if (!error || typeof error !== "object") return null;
-  const record = error as Record<string, unknown>;
-  if (typeof record.status !== "number" || !Array.isArray(record.errors)) {
-    return null;
-  }
-
-  return {
-    status: record.status,
-    errors: record.errors.filter(isErrorResponseEntry),
-  };
-}
-
-function isErrorResponseEntry(value: unknown): value is ErrorResponseEntry {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.status === "string" &&
-    typeof record.title === "string" &&
-    typeof record.detail === "string"
   );
 }

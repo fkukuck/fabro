@@ -43,10 +43,10 @@ describe("subscribeToBoardEvents", () => {
     const firstCleanup = subscribeToBoardEvents(mutate, (url) => {
       created.push(url);
       return source;
-    });
+    }, { debounceMs: 0 });
     const secondCleanup = subscribeToBoardEvents(mutate, () => {
       throw new Error("source should be reused");
-    });
+    }, { debounceMs: 0 });
 
     source.emit({ event: "run.running" });
 
