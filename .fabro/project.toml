@@ -47,10 +47,10 @@ ENV PATH="/root/.bun/bin:${PATH}"
 WORKDIR /root
 """
 
-[[run.hooks]]
-id = "cargo-fmt"
-name = "cargo-fmt"
-event = "post_tool_use"
-matcher = "write_file|edit_file|apply_patch"
-script = "cargo fmt"
-blocking = true
+# [[run.hooks]]
+# id = "cargo-fmt"
+# name = "cargo-fmt"
+# event = "post_tool_use"
+# matcher = "write_file|edit_file|apply_patch"
+# script = "cargo +nightly-2026-04-14 fmt"
+# blocking = true
