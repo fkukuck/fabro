@@ -16,14 +16,12 @@ import {
   RectangleStackIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { Link, Outlet, useLocation, useMatches, useRevalidator } from "react-router";
-import { getAuthMe } from "../api";
+import { Link, Outlet, useLocation, useMatches } from "react-router";
+import { ErrorState } from "../components/state";
 import { ToastProvider } from "../components/toast";
 import { DemoModeProvider } from "../lib/demo-mode";
-
-export async function loader() {
-  return getAuthMe();
-}
+import { useToggleDemoMode } from "../lib/mutations";
+import { useAuthMe } from "../lib/queries";
 
 const allNavigation = [
   { name: "Workflows", href: "/workflows", icon: RectangleStackIcon, demoOnly: true },
@@ -40,11 +38,28 @@ function classNames(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-export default function AppShell({ loaderData }: any) {
-  const { user, provider, demoMode } = loaderData;
+export default function AppShell() {
+  const { data: auth, error, isLoading } = useAuthMe();
   const { pathname } = useLocation();
   const matches = useMatches();
-  const revalidator = useRevalidator();
+  const toggleDemoModeMutation = useToggleDemoMode();
+
+  if (isLoading && !auth) {
+    return <div className="min-h-full bg-page" />;
+  }
+
+  if (error || !auth) {
+    return (
+      <div className="min-h-full bg-page py-12">
+        <ErrorState
+          title="Couldn't load your session"
+          description="Refresh the page or sign in again."
+        />
+      </div>
+    );
+  }
+
+  const { user, provider, demoMode } = auth;
   const navigation = getVisibleNavigation(demoMode);
   const currentNav = navigation.find((item) => pathname.startsWith(item.href));
   const title = currentNav?.name ?? "";
@@ -56,13 +71,7 @@ export default function AppShell({ loaderData }: any) {
   const maxWidth = wide ? "" : "max-w-5xl";
 
   async function toggleDemoMode() {
-    await fetch("/api/v1/demo/toggle", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !demoMode }),
-    });
-    revalidator.revalidate();
+    await toggleDemoModeMutation.trigger({ enabled: !demoMode });
   }
 
   return (

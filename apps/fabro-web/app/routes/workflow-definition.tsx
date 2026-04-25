@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { useOutletContext, useParams } from "react-router";
 import type { BundledLanguage } from "@pierre/diffs";
 import { registerDotLanguage } from "../data/register-dot-language";
-import { workflowData } from "./workflow-detail";
+import { workflowData, type WorkflowEntry } from "./workflow-detail";
 import { CollapsibleFile } from "../components/collapsible-file";
 
 export default function WorkflowDefinition() {
   const { name } = useParams();
-  const workflow = workflowData[name ?? ""];
+  const context = useOutletContext<{ workflow?: WorkflowEntry } | null>();
+  const workflow = context?.workflow ?? workflowData[name ?? ""];
   const [dotReady, setDotReady] = useState(false);
 
   useEffect(() => {

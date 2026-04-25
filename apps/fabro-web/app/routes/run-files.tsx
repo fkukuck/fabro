@@ -6,12 +6,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import {
-  useMatches,
-  useNavigation,
-  useParams,
-  useRevalidator,
-} from "react-router";
+import { useParams } from "react-router";
 import * as PierreDiffs from "@pierre/diffs/react";
 import { useToast } from "../components/toast";
 import type {
@@ -32,7 +27,11 @@ import {
 } from "./run-files/states";
 import { useFileKeyboardNav } from "./run-files/keyboard";
 import { Toolbar, type DiffStyle } from "./run-files/toolbar";
-import { useRunEventSource } from "../lib/sse";
+import { ApiError, extractRequestId } from "../lib/api-client";
+import { useRunEvents } from "../lib/run-events";
+import { useRun, useRunFiles } from "../lib/queries";
+
+export { extractRequestId };
 
 const { MultiFileDiff, PatchDiff } = PierreDiffs;
 const maybeVirtualizer = (PierreDiffs as Record<string, unknown>).Virtualizer;
@@ -43,109 +42,6 @@ const Virtualizer = typeof maybeVirtualizer === "function"
     };
 
 export const handle = { wide: true };
-
-/**
- * Loader return type. Both initial loads and revalidations flow through the
- * same discriminated union so a revalidation failure does NOT unmount to
- * the route ErrorBoundary — it stays in-band as `{ data: null, error }`
- * and the component keeps showing the last-good data with an inline
- * banner.
- *
- * `error.requestId` is extracted from the 500-response body so the UI can
- * surface it verbatim ("Request ID: xyz. Contact support.") rather than
- * just the bare status code.
- */
-export type RunFilesLoaderResult = {
-  data: PaginatedRunFileList | null;
-  error: {
-    status:    number;
-    message:   string;
-    requestId: string | null;
-  } | null;
-};
-
-export async function loader({
-  request,
-  params,
-}: any): Promise<RunFilesLoaderResult> {
-  // Avoid apiJsonOrNull's `throw new Response(null, ...)` pattern — it
-  // strips the response body, and we need the body to parse request_id
-  // out of 500s per R5.
-  const response = await fetch(`/api/v1/runs/${params.id}/files`, {
-    credentials: "include",
-    ...(request?.signal ? { signal: request.signal } : {}),
-  });
-
-  if (response.status === 404 || response.status === 501) {
-    return { data: null, error: null };
-  }
-  if (response.ok) {
-    const data = (await response.json()) as PaginatedRunFileList;
-    return { data, error: null };
-  }
-
-  // Parse the body once. 500 responses carry request_id per the server's
-  // uniform error envelope; other statuses may not.
-  let bodyText = "";
-  try {
-    bodyText = await response.text();
-  } catch {
-    // Body read failed — fall through with an empty string; the error
-    // surface still reports the status.
-  }
-  let bodyJson: unknown = null;
-  if (bodyText) {
-    try {
-      bodyJson = JSON.parse(bodyText);
-    } catch {
-      // non-JSON body is fine; we still got the status
-    }
-  }
-
-  return {
-    data:  null,
-    error: {
-      status:    response.status,
-      message:   response.statusText || `HTTP ${response.status}`,
-      requestId: extractRequestId(bodyJson),
-    },
-  };
-}
-
-/**
- * Pull request_id out of the server's uniform error envelope:
- *   { "errors": [{ "status": "500", "title": "...", "detail": "..." }] }
- * Some deployments tag request_id at top level or within errors[].detail.
- *
- * Exported for unit testing; callers should prefer the already-extracted
- * value on `RunFilesLoaderResult.error.requestId`.
- */
-export function extractRequestId(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-  const b = body as Record<string, unknown>;
-  if (typeof b.request_id === "string") return b.request_id;
-  const errors = b.errors;
-  if (Array.isArray(errors) && errors.length > 0) {
-    const first = errors[0];
-    if (first && typeof first === "object") {
-      const rec = first as Record<string, unknown>;
-      if (typeof rec.request_id === "string") return rec.request_id;
-      if (typeof rec.detail === "string") {
-        const m = rec.detail.match(/request[_ ]id[=:]?\s*([a-zA-Z0-9-_]+)/i);
-        if (m) return m[1];
-      }
-    }
-  }
-  return null;
-}
-
-// Events that should trigger a revalidation. CheckpointCompleted is the
-// canonical signal; terminal events cover the final-state transitions too.
-const REFRESH_EVENTS = new Set([
-  "checkpoint.completed",
-  "run.completed",
-  "run.failed",
-]);
 
 const MD_BREAKPOINT_PX = 768;
 const DIFF_STYLE_STORAGE_KEY = "fabro.run-files.diff-style";
@@ -163,13 +59,6 @@ function useNarrowViewport(): boolean {
     return () => mql.removeEventListener("change", apply);
   }, []);
   return narrow;
-}
-
-function useSseRevalidation(runId: string | undefined) {
-  useRunEventSource(runId, {
-    allowlist: REFRESH_EVENTS,
-    debounceMs: 500,
-  });
 }
 
 function useFreshness(
@@ -293,38 +182,13 @@ export function deepLinkToastMessage(
   return resolveDeepLinkToast(hashFile, data)?.message ?? null;
 }
 
-/**
- * Extract the lifecycle status from whichever ancestor match carries it.
- * The Run Detail loader (apps/fabro-web/app/routes/run-detail.tsx) returns
- * `{ run: { lifecycleStatus: string | null, ... } }` where
- * `lifecycleStatus` is the raw workflow status — "submitted", "running",
- * "succeeded", "failed", etc. `run.status` on the same object is the
- * ColumnStatus derived from checks and is NOT the right field to drive the
- * empty-state taxonomy from.
- */
-function resolveRunStatus(matches: ReturnType<typeof useMatches>): string | undefined {
-  for (const match of matches) {
-    const data = match.data as any;
-    if (!data) continue;
-    if (typeof data?.run?.lifecycleStatus === "string") {
-      return data.run.lifecycleStatus as string;
-    }
-    if (typeof data?.lifecycleStatus === "string") {
-      return data.lifecycleStatus as string;
-    }
-  }
-  return undefined;
-}
-
-export default function RunFiles({ loaderData }: any) {
+export default function RunFiles() {
   const params = useParams();
-  const navigation = useNavigation();
-  const revalidator = useRevalidator();
-  const matches = useMatches();
+  const filesQuery = useRunFiles(params.id);
+  const runQuery = useRun(params.id);
   const { push } = useToast();
-  const result = loaderData as RunFilesLoaderResult | null;
   const narrow = useNarrowViewport();
-  const runStatus = resolveRunStatus(matches);
+  const runStatus = runQuery.data?.status?.kind;
 
   // Preserve the last successful payload so a failed revalidation can keep
   // rendering the previous files while surfacing an inline banner.
@@ -332,36 +196,37 @@ export default function RunFiles({ loaderData }: any) {
   const lastFetchedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!result?.data) return;
+    if (!filesQuery.data) return;
     const message = emptyTransitionToastMessage(
       lastGoodDataRef.current?.data.length ?? null,
-      result.data.data.length,
+      filesQuery.data.data.length,
     );
     if (message) {
       push({ message });
     }
-    lastGoodDataRef.current = result.data;
+    lastGoodDataRef.current = filesQuery.data;
     lastFetchedAtRef.current = Date.now();
-  }, [push, result?.data]);
+  }, [push, filesQuery.data]);
 
   const data: PaginatedRunFileList | null =
-    result?.data ?? lastGoodDataRef.current;
+    filesQuery.data ?? lastGoodDataRef.current;
 
-  useSseRevalidation(params.id);
+  useRunEvents(params.id);
 
-  const isInitialLoading = navigation.state === "loading" && !loaderData;
-  const isRevalidating = revalidator.state === "loading";
+  const isInitialLoading = filesQuery.isLoading && !data;
+  const isRevalidating = filesQuery.isValidating;
 
   // Revalidation error is whatever the most recent loader call returned;
   // the inline banner renders when we still have prior data to show. When
   // there's no prior data AND this is the initial load, we render a
   // full-panel error state instead (the Toolbar would have nothing to act
   // on with no data).
+  const apiError = filesQuery.error instanceof ApiError ? filesQuery.error : null;
   const revalidationError =
-    result?.error && lastGoodDataRef.current
-      ? `Couldn't refresh (${result.error.status}).`
+    apiError && lastGoodDataRef.current
+      ? `Couldn't refresh (${apiError.status}).`
       : null;
-  const initialError = result?.error && !lastGoodDataRef.current ? result.error : null;
+  const initialError = apiError && !lastGoodDataRef.current ? apiError : null;
 
   const freshness = useFreshness(data?.meta ?? null, lastFetchedAtRef.current);
 
@@ -493,7 +358,7 @@ export default function RunFiles({ loaderData }: any) {
     return renderStatusError({
       status:    initialError.status,
       requestId: initialError.requestId,
-      onRetry:   () => revalidator.revalidate(),
+      onRetry:   () => void filesQuery.mutate(),
     });
   }
 
@@ -521,7 +386,7 @@ export default function RunFiles({ loaderData }: any) {
 
   const toolbar = (
     <Toolbar
-      onRefresh={() => revalidator.revalidate()}
+      onRefresh={() => void filesQuery.mutate()}
       refreshing={isRevalidating}
       refreshDisabled={refreshDisabled}
       freshness={freshness}
@@ -540,7 +405,7 @@ export default function RunFiles({ loaderData }: any) {
         {revalidationError ? (
           <InlineErrorBanner
             message={revalidationError}
-            onRetry={() => revalidator.revalidate()}
+            onRetry={() => void filesQuery.mutate()}
           />
         ) : null}
         <DegradedBanner reason={meta.degraded_reason} />
@@ -585,7 +450,7 @@ export default function RunFiles({ loaderData }: any) {
       {revalidationError ? (
         <InlineErrorBanner
           message={revalidationError}
-          onRetry={() => revalidator.revalidate()}
+          onRetry={() => void filesQuery.mutate()}
         />
       ) : null}
       {body}

@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Link, useRevalidator } from "react-router";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { Link } from "react-router";
 import { ChevronDownIcon, ChevronRightIcon, CommandLineIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import {
   DndContext,
@@ -20,9 +20,12 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { ciConfig, columnStatusDisplay, deriveCiStatus, mapRunListItem } from "../data/runs";
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
-import { apiPaginatedJson, getAuthConfig } from "../api";
 import { EmptyState } from "../components/state";
+import { shouldRefreshBoardForEvent, useBoardEvents } from "../lib/board-events";
+import { useAuthConfig, useBoardsRuns } from "../lib/queries";
 import type { PaginatedBoardRunList } from "@qltysh/fabro-api-client";
+
+export { shouldRefreshBoardForEvent };
 
 export function meta({}: any) {
   return [{ title: "Runs — Fabro" }];
@@ -60,30 +63,6 @@ type Column = {
   items: RunItem[];
 };
 
-const BOARD_STATUS_EVENTS = new Set([
-  "run.submitted",
-  "run.queued",
-  "run.starting",
-  "run.running",
-  "run.removing",
-  "run.paused",
-  "run.unpaused",
-  "run.blocked",
-  "run.unblocked",
-  "run.completed",
-  "run.failed",
-  "run.archived",
-  "run.unarchived",
-  "interview.started",
-  "interview.completed",
-  "interview.timeout",
-  "interview.interrupted",
-]);
-
-export function shouldRefreshBoardForEvent(event: string) {
-  return BOARD_STATUS_EVENTS.has(event);
-}
-
 export function buildBoardColumns(response: BoardRunsResponse): Column[] {
   const grouped = new Map<string, RunItem[]>();
   for (const col of response.columns) {
@@ -107,22 +86,6 @@ export function buildBoardColumns(response: BoardRunsResponse): Column[] {
       items: grouped.get(col.id) ?? [],
     };
   });
-}
-
-export async function loader({ request }: any) {
-  const [response, authConfig] = await Promise.all([
-    apiPaginatedJson<
-      PaginatedBoardRunList["data"][number],
-      { columns: BoardRunsResponse["columns"] }
-    >("/boards/runs", { request }),
-    // Failure here only affects the blank-slate quick-start hint.
-    // Default to no auth step rather than blocking the page.
-    getAuthConfig().catch(() => ({ methods: [] as string[] })),
-  ]);
-  return {
-    columns: buildBoardColumns(response),
-    hasGitHubAuth: authConfig.methods.includes("github"),
-  };
 }
 
 function boardLifecycleStatusLabel(run: Pick<RunItem, "column" | "lifecycleStatusLabel">): string | null {
@@ -682,9 +645,14 @@ function RunsLandingEmpty({ hasGitHubAuth }: { hasGitHubAuth: boolean }) {
   );
 }
 
-export default function Runs({ loaderData }: any) {
-  const initialColumns = loaderData.columns;
-  const hasGitHubAuth: boolean = loaderData.hasGitHubAuth === true;
+export default function Runs() {
+  const boardRuns = useBoardsRuns();
+  const authConfig = useAuthConfig();
+  const initialColumns = useMemo(
+    () => boardRuns.data ? buildBoardColumns(boardRuns.data) : [],
+    [boardRuns.data],
+  );
+  const hasGitHubAuth = authConfig.data?.methods.includes("github") === true;
   const allRepos = [
     ...new Set(
       initialColumns.flatMap((col: Column) => col.items.map((item: RunItem) => String(item.repo))),
@@ -696,29 +664,7 @@ export default function Runs({ loaderData }: any) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [columns, setColumns] = useState(initialColumns);
   const lowerQuery = query.toLowerCase();
-  const revalidator = useRevalidator();
-
-  useEffect(() => {
-    const source = new EventSource("/api/v1/attach");
-    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-    source.onmessage = (msg) => {
-      try {
-        const payload = JSON.parse(msg.data);
-        if (shouldRefreshBoardForEvent(payload.event)) {
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => revalidator.revalidate(), 500);
-        }
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    return () => {
-      clearTimeout(debounceTimer);
-      source.close();
-    };
-  }, []);
+  useBoardEvents();
 
   useEffect(() => {
     setColumns(initialColumns);

@@ -13,7 +13,7 @@ import {
   WrenchIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router";
-import { apiJsonOrNull } from "../api";
+import { useWorkflows } from "../lib/queries";
 import { timeAgo, timeUntil } from "../lib/time";
 import type { PaginatedWorkflowListResponse } from "../lib/workflow-api";
 
@@ -104,8 +104,7 @@ interface WorkflowData {
   nextRun?: string;
 }
 
-export async function loader({ request }: any) {
-  const result = await apiJsonOrNull<PaginatedWorkflowListResponse>("/workflows", { request });
+function mapWorkflows(result: PaginatedWorkflowListResponse | null | undefined) {
   const apiWorkflows = result?.data ?? [];
   const workflows: WorkflowData[] = apiWorkflows.map((w) => ({
     name: w.name,
@@ -116,7 +115,7 @@ export async function loader({ request }: any) {
     schedule: w.schedule?.expression,
     nextRun: w.schedule?.next_run ? timeUntil(w.schedule.next_run) : undefined,
   }));
-  return { workflows };
+  return workflows;
 }
 
 function enrichWorkflows(data: WorkflowData[]): Workflow[] {
@@ -202,8 +201,9 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
 
 type TriggerFilter = "all" | "scheduled" | "manual";
 
-export default function Workflows({ loaderData }: any) {
-  const workflows = enrichWorkflows(loaderData.workflows);
+export default function Workflows() {
+  const workflowsQuery = useWorkflows();
+  const workflows = enrichWorkflows(mapWorkflows(workflowsQuery.data));
   const [query, setQuery] = useState("");
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>("all");
   const filtered = workflows.filter(

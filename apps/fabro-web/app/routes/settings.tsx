@@ -1,18 +1,14 @@
 import type { ServerSettings } from "@qltysh/fabro-api-client";
-import { apiJson } from "../api";
 import { CollapsibleFile } from "../components/collapsible-file";
+import { useServerSettings } from "../lib/queries";
 
 export function meta({}: any) {
   return [{ title: "Settings — Fabro" }];
 }
 
-export async function loader({ request }: any) {
-  const settings = await apiJson<ServerSettings>("/settings", { request });
-  return { settings };
-}
-
-export default function Settings({ loaderData }: any) {
-  const { settings } = loaderData;
+export default function Settings() {
+  const settingsQuery = useServerSettings();
+  const settings = (settingsQuery.data ?? {}) as ServerSettings;
 
   return (
     <>

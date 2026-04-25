@@ -16,17 +16,12 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { getSystemInfo } from "../api";
+import { useSystemInfo } from "../lib/queries";
 
 export const handle = { hideHeader: true, wide: true };
 
 export function meta({}: any) {
   return [{ title: "Start — Fabro" }];
-}
-
-export async function loader({ request }: any) {
-  const { features } = await getSystemInfo();
-  return { features };
 }
 
 const projects = [
@@ -49,8 +44,12 @@ function BranchIcon({ className }: { className?: string }) {
   );
 }
 
-export default function Start({ loaderData }: any) {
-  const { features } = loaderData;
+export default function Start() {
+  const systemInfo = useSystemInfo();
+  const features = systemInfo.data?.features ?? {
+    session_sandboxes: false,
+    retros: false,
+  };
   const [prompt, setPrompt] = useState("");
   const [project, setProject] = useState(projects[0]);
   const [branch, setBranch] = useState(branches[0]);

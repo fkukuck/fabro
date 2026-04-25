@@ -3,13 +3,12 @@ import { ChevronDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outlin
 import { Link, useParams } from "react-router";
 import { ciConfig, columnForStatus, columnStatusDisplay, deriveCiStatus, mapRunSummaryToRunItem } from "../data/runs";
 import type { ColumnStatus, RunWithStatus } from "../data/runs";
-import { apiJsonOrNull } from "../api";
+import { useWorkflowRuns } from "../lib/queries";
 import type { PaginatedRunList } from "@qltysh/fabro-api-client";
 
-export async function loader({ request, params }: any) {
-  const result = await apiJsonOrNull<PaginatedRunList>(`/workflows/${params.name}/runs`, { request });
+function mapWorkflowRuns(result: PaginatedRunList | null | undefined): RunWithStatus[] {
   const apiRuns = result?.data ?? [];
-  const runs: RunWithStatus[] = apiRuns
+  return apiRuns
     .map((r) => {
       const column = columnForStatus(r.status);
       if (column == null) return null;
@@ -20,7 +19,6 @@ export async function loader({ request, params }: any) {
       };
     })
     .filter((run): run is RunWithStatus => run != null);
-  return { runs };
 }
 
 function GitPullRequestIcon({ className }: { className?: string }) {
@@ -74,8 +72,10 @@ function RunRow({ run }: { run: RunWithStatus }) {
   );
 }
 
-export default function WorkflowRuns({ loaderData }: any) {
-  const { runs } = loaderData;
+export default function WorkflowRuns() {
+  const { name } = useParams();
+  const runsQuery = useWorkflowRuns(name);
+  const runs = mapWorkflowRuns(runsQuery.data);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ColumnStatus | "all">("all");
   const filtered = runs.filter(

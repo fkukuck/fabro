@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
-import { apiJson } from "../api";
+import { useInsightsHistory, useInsightsQueries } from "../lib/queries";
 import { timeAgo } from "../lib/time";
 import type { PaginatedSavedQueryList, PaginatedHistoryEntryList } from "@qltysh/fabro-api-client";
 
@@ -28,28 +28,29 @@ export interface HistoryEntry {
   rowsReturned: number;
 }
 
-export async function loader({ request }: any) {
-  const [{ data: apiQueries }, { data: apiHistory }] = await Promise.all([
-    apiJson<PaginatedSavedQueryList>("/insights/queries", { request }),
-    apiJson<PaginatedHistoryEntryList>("/insights/history", { request }),
-  ]);
-  const savedQueries: SavedQuery[] = apiQueries.map((q) => ({
+function mapSavedQueries(result: PaginatedSavedQueryList | undefined): SavedQuery[] {
+  return (result?.data ?? []).map((q) => ({
     id: q.id,
     name: q.name,
     sql: q.sql,
   }));
-  const historyEntries: HistoryEntry[] = apiHistory.map((h) => ({
+}
+
+function mapHistoryEntries(result: PaginatedHistoryEntryList | undefined): HistoryEntry[] {
+  return (result?.data ?? []).map((h) => ({
     id: h.id,
     sql: h.sql,
     timestamp: h.timestamp,
     elapsed: h.elapsed,
     rowsReturned: h.row_count,
   }));
-  return { savedQueries, historyEntries };
 }
 
-export default function InsightsLayout({ loaderData }: any) {
-  const { savedQueries, historyEntries } = loaderData;
+export default function InsightsLayout() {
+  const savedQueriesQuery = useInsightsQueries();
+  const historyQuery = useInsightsHistory();
+  const savedQueries = mapSavedQueries(savedQueriesQuery.data as PaginatedSavedQueryList | undefined);
+  const historyEntries = mapHistoryEntries(historyQuery.data as PaginatedHistoryEntryList | undefined);
   const navigate = useNavigate();
 
   return (

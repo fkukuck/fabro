@@ -1,6 +1,6 @@
-import { apiJson } from "../api";
 import { EmptyState } from "../components/state";
 import { formatDurationSecs } from "../lib/format";
+import { useRunBilling } from "../lib/queries";
 import type { RunBilling } from "@qltysh/fabro-api-client";
 
 function formatTokens(n: number) {
@@ -11,8 +11,18 @@ function formatUsdMicros(usdMicros?: number) {
   return usdMicros == null ? "-" : `$${(usdMicros / 1_000_000).toFixed(2)}`;
 }
 
-export async function loader({ request, params }: any) {
-  const billing = await apiJson<RunBilling>(`/runs/${params.id}/billing`, { request });
+function mapBilling(billing: RunBilling | undefined) {
+  if (!billing) {
+    return {
+      stages: [],
+      totalRuntime: formatDurationSecs(0),
+      totalUsdMicros: undefined,
+      totalInput: 0,
+      totalOutput: 0,
+      modelBreakdown: [],
+    };
+  }
+
   const stages = billing.stages.map((stage) => ({
     stage: stage.stage.name,
     model: stage.model.id,
@@ -37,7 +47,9 @@ export async function loader({ request, params }: any) {
   return { stages, totalRuntime, totalUsdMicros, totalInput, totalOutput, modelBreakdown };
 }
 
-export default function RunBilling({ loaderData }: any) {
+export default function RunBilling({ params }: { params: { id: string } }) {
+  const billingQuery = useRunBilling(params.id);
+  const loaderData = mapBilling(billingQuery.data);
   const { stages, totalRuntime, totalUsdMicros, totalInput, totalOutput, modelBreakdown } =
     loaderData;
 

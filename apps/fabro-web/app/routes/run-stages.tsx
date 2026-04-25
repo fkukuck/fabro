@@ -38,10 +38,10 @@ import type { ToolUse } from "../components/tool-use";
 import { StageSidebar, statusConfig } from "../components/stage-sidebar";
 import type { Stage } from "../components/stage-sidebar";
 import { EmptyState } from "../components/state";
-import { apiJson, apiJsonOrNull } from "../api";
 import { CopyButton } from "../components/ui";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
+import { useRunEventsList, useRunStageTurns, useRunStages } from "../lib/queries";
 import type { PaginatedRunStageList, StageTurn as ApiStageTurn, PaginatedStageTurnList, PaginatedEventList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
@@ -147,26 +147,23 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
   return turns;
 }
 
-export async function loader({ request, params }: any) {
-  const stagesResult = await apiJsonOrNull<PaginatedRunStageList>(`/runs/${params.id}/stages`, { request });
-  const stages: Stage[] = (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
+function mapStages(stagesResult: PaginatedRunStageList | null | undefined): Stage[] {
+  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
     id: s.id,
     name: s.name,
     status: s.status as Stage["status"],
     duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
   }));
+}
 
-  const selectedStageId = params.stageId ?? stages[0]?.id;
-
-  // Try demo turns endpoint first, fall back to events.
-  let turns: TurnType[] = [];
-  if (selectedStageId) {
-    const turnsResult = await apiJsonOrNull<PaginatedStageTurnList>(
-      `/runs/${params.id}/stages/${selectedStageId}/turns`,
-      { request },
-    );
-    if (turnsResult?.data?.length) {
-      turns = turnsResult.data.map((t: ApiStageTurn): TurnType => {
+function mapTurns(
+  turnsResult: PaginatedStageTurnList | null | undefined,
+  eventsResult: PaginatedEventList | null | undefined,
+  selectedStageId: string | undefined,
+): TurnType[] {
+  if (!selectedStageId) return [];
+  if (turnsResult?.data?.length) {
+    return turnsResult.data.map((t: ApiStageTurn): TurnType => {
         if (t.kind === "tool" && t.tools) {
           return {
             kind: "tool",
@@ -182,19 +179,11 @@ export async function loader({ request, params }: any) {
         }
         return { kind: t.kind as "system" | "assistant", content: t.content ?? "" };
       });
-    } else {
-      // Fetch events and build turns from them.
-      const eventsResult = await apiJsonOrNull<PaginatedEventList>(
-        `/runs/${params.id}/events?limit=1000`,
-        { request },
-      );
-      if (eventsResult?.data) {
-        turns = turnsFromEvents(eventsResult.data as unknown as RawEvent[], selectedStageId);
-      }
-    }
   }
-
-  return { stages, turns };
+  if (eventsResult?.data) {
+    return turnsFromEvents(eventsResult.data as unknown as RawEvent[], selectedStageId);
+  }
+  return [];
 }
 
 function Markdown({ content }: { content: string }) {
@@ -376,11 +365,15 @@ function CommandBlock({ turn }: { turn: Extract<TurnType, { kind: "command" }> }
   );
 }
 
-export default function RunStages({ loaderData }: any) {
+export default function RunStages() {
   const { id, stageId } = useParams();
-  const { stages, turns } = loaderData;
+  const stagesQuery = useRunStages(id);
+  const stages = mapStages(stagesQuery.data);
 
   const selectedStage = stages.find((s: Stage) => s.id === stageId) ?? stages[0];
+  const turnsQuery = useRunStageTurns(id, selectedStage?.id);
+  const eventsQuery = useRunEventsList(id, !!selectedStage?.id && !turnsQuery.data?.data?.length);
+  const turns = mapTurns(turnsQuery.data, eventsQuery.data, selectedStage?.id);
   const isRunning = selectedStage?.status === "running";
 
   // Ticking timer for running stage header

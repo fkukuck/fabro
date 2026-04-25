@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { graphTheme } from "../lib/graph-theme";
-import { apiFetch, apiJsonOrNull } from "../api";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationSecs } from "../lib/format";
+import { useRunGraph, useRunStages } from "../lib/queries";
 import { StageSidebar } from "../components/stage-sidebar";
 import type { Stage } from "../components/stage-sidebar";
 import {
@@ -11,24 +11,17 @@ import {
   GRAPH_ZOOM_STEPS,
   GraphToolbar,
 } from "../components/graph-toolbar";
-import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
 
-export async function loader({ request, params }: any) {
-  const [stagesResult, graphRes] = await Promise.all([
-    apiJsonOrNull<PaginatedRunStageList>(`/runs/${params.id}/stages`, { request }),
-    apiFetch(`/runs/${params.id}/graph`, { request }),
-  ]);
-  const stages: Stage[] = (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
+function mapStages(stagesResult: ReturnType<typeof useRunStages>["data"]): Stage[] {
+  return (stagesResult?.data ?? []).filter((s) => isVisibleStage(s.id)).map((s) => ({
     id: s.id,
     name: s.name,
     dotId: s.dot_id ?? s.id,
     status: s.status as Stage["status"],
     duration: s.duration_secs != null ? formatDurationSecs(s.duration_secs) : "--",
   }));
-  const graphSvg = graphRes.ok ? await graphRes.text() : null;
-  return { stages, graphSvg };
 }
 
 type Direction = "LR" | "TB";
@@ -88,15 +81,18 @@ function stripGraphTitle(svg: SVGSVGElement) {
   title.remove();
 }
 
-export default function RunGraph({ loaderData }: any) {
+export default function RunGraph() {
   const { id } = useParams();
-  const { stages, graphSvg } = loaderData;
+  const [direction, setDirection] = useState<Direction>("LR");
+  const stagesQuery = useRunStages(id);
+  const graphQuery = useRunGraph(id, direction);
+  const stages = mapStages(stagesQuery.data);
+  const graphSvg = graphQuery.data;
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomIndex, setZoomIndex] = useState(GRAPH_DEFAULT_ZOOM_INDEX);
-  const [direction, setDirection] = useState<Direction>("LR");
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragState = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const zoom = GRAPH_ZOOM_STEPS[zoomIndex];
@@ -109,13 +105,8 @@ export default function RunGraph({ loaderData }: any) {
         let svg: SVGSVGElement;
 
         if (graphSvg) {
-          // Re-fetch from server with direction param.
-          const res = await fetch(`/api/v1/runs/${id}/graph?direction=${direction}`, { credentials: "include" });
-          if (cancelled) return;
-          if (!res.ok) { setError("Failed to load graph"); return; }
-          const svgText = await res.text();
           const parser = new DOMParser();
-          const doc = parser.parseFromString(svgText, "image/svg+xml");
+          const doc = parser.parseFromString(graphSvg, "image/svg+xml");
           const parsed = doc.documentElement;
           if (!(parsed instanceof SVGSVGElement)) {
             setError("Invalid SVG from server");

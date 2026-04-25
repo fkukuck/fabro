@@ -1,6 +1,6 @@
 import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link, Outlet, useLocation, useParams } from "react-router";
-import { apiJsonOrNull } from "../api";
+import { useWorkflow } from "../lib/queries";
 import type {
   WorkflowSettingsSnapshot,
   WorkflowDetailResponse as ApiWorkflowDetail,
@@ -224,9 +224,9 @@ const tabs = [
 
 export const handle = { hideHeader: true };
 
-export async function loader({ request, params }: any) {
-  const apiWorkflow = await apiJsonOrNull<ApiWorkflowDetail>(`/workflows/${params.name}`, { request });
-  const workflow: WorkflowEntry = apiWorkflow
+function resolveWorkflow(name: string | undefined, apiWorkflow: ApiWorkflowDetail | null | undefined): WorkflowEntry {
+  const workflowName = name ?? "";
+  return apiWorkflow
     ? {
         name: apiWorkflow.name,
         slug: apiWorkflow.slug,
@@ -235,15 +235,14 @@ export async function loader({ request, params }: any) {
         settings: apiWorkflow.settings,
         graph: apiWorkflow.graph,
       }
-    : workflowData[params.name] ?? {
-        name: params.name,
-        slug: params.name,
+    : workflowData[workflowName] ?? {
+        name: workflowName,
+        slug: workflowName,
         description: "",
-        filename: `${params.name}.fabro`,
+        filename: `${workflowName}.fabro`,
         settings: {},
         graph: "",
       };
-  return { workflow };
 }
 
 export function meta({ data }: any) {
@@ -251,10 +250,11 @@ export function meta({ data }: any) {
   return [{ title: `${title} — Fabro` }];
 }
 
-export default function WorkflowDetail({ loaderData }: any) {
+export default function WorkflowDetail() {
   const { name } = useParams();
+  const workflowQuery = useWorkflow(name);
   const { pathname } = useLocation();
-  const workflow = loaderData.workflow;
+  const workflow = resolveWorkflow(name, workflowQuery.data);
   const basePath = `/workflows/${name}`;
 
   return (
@@ -308,7 +308,7 @@ export default function WorkflowDetail({ loaderData }: any) {
       </div>
 
       <div className="mt-6">
-        <Outlet />
+        <Outlet context={{ workflow }} />
       </div>
     </div>
   );

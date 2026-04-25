@@ -6,14 +6,13 @@ import {
   INPUT_CLASS,
   PRIMARY_BUTTON_CLASS,
 } from "../components/ui";
-import { getAuthConfig, loginDevToken } from "../api";
+import { useLoginDevToken } from "../lib/mutations";
+import { useAuthConfig } from "../lib/queries";
 
-export async function loader() {
-  return getAuthConfig();
-}
-
-export default function AuthLogin({ loaderData }: any) {
-  const methods = loaderData?.methods ?? [];
+export default function AuthLogin() {
+  const { data: authConfig } = useAuthConfig();
+  const loginDevToken = useLoginDevToken();
+  const methods = authConfig?.methods ?? [];
   const hasDevToken = methods.includes("dev-token");
   const hasGitHub = methods.includes("github");
   const navigate = useNavigate();
@@ -25,7 +24,7 @@ export default function AuthLogin({ loaderData }: any) {
     setError(null);
 
     try {
-      await loginDevToken(token);
+      await loginDevToken.trigger({ token });
       navigate("/runs");
     } catch {
       setError("Invalid dev token.");

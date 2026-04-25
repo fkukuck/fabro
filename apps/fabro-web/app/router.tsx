@@ -1,10 +1,5 @@
 import { createElement } from "react";
-import {
-  type RouteObject,
-  useActionData,
-  useLoaderData,
-  useParams,
-} from "react-router";
+import { type RouteObject, useParams } from "react-router";
 
 import Root, { ErrorBoundary as RootErrorBoundary } from "./root";
 import * as RedirectHome from "./routes/redirect-home";
@@ -29,34 +24,27 @@ import * as InsightsEditor from "./routes/insights-editor";
 import * as InsightsNew from "./routes/insights-new";
 import * as Settings from "./routes/settings";
 import AppShellModule from "./layouts/app-shell";
-import { loader as appShellLoader } from "./layouts/app-shell";
 
 type RouteModule = {
   default: React.ComponentType<any>;
-  loader?: RouteObject["loader"];
-  action?: RouteObject["action"];
   handle?: RouteObject["handle"];
   ErrorBoundary?: React.ComponentType<any>;
 };
 
 function withRouteModule(module: RouteModule) {
   return function WrappedRouteComponent() {
-    const loaderData = useLoaderData();
-    const actionData = useActionData();
     const params = useParams();
-    return createElement(module.default, { loaderData, actionData, params });
+    return createElement(module.default, { params });
   };
 }
 
 function route(
   path: string,
   module: RouteModule,
-  extra: Omit<RouteObject, "path" | "Component" | "loader" | "action" | "index"> = {},
+  extra: Omit<RouteObject, "path" | "Component" | "index"> = {},
 ): RouteObject {
   return {
     path,
-    loader: module.loader,
-    action: module.action,
     handle: module.handle,
     Component: withRouteModule(module),
     ErrorBoundary: module.ErrorBoundary,
@@ -67,8 +55,6 @@ function route(
 function indexRoute(module: RouteModule): RouteObject {
   return {
     index: true,
-    loader: module.loader,
-    action: module.action,
     handle: module.handle,
     Component: withRouteModule(module),
     ErrorBoundary: module.ErrorBoundary,
@@ -85,7 +71,6 @@ export const routes: RouteObject[] = [
       route("setup", Setup),
       route("login", AuthLogin),
       {
-        loader: appShellLoader,
         Component: withRouteModule({
           default: AppShellModule,
         }),

@@ -1,6 +1,6 @@
 import type { ErrorResponseEntry, RunStatusResponse } from "@qltysh/fabro-api-client";
 
-import { apiFetch } from "../api";
+import { apiRequest } from "./api-client";
 import type { RunStatus } from "../data/runs";
 
 export type LifecycleAction = "cancel" | "archive" | "unarchive";
@@ -89,7 +89,7 @@ async function runLifecycleAction(
   action: LifecycleAction,
   request?: Request,
 ): Promise<RunStatusResponse> {
-  const response = await apiFetch(`/runs/${id}/${action}`, {
+  const response = await apiRequest(`/runs/${id}/${action}`, {
     init: {
       method: "POST",
       ...(request?.signal ? { signal: request.signal } : {}),
