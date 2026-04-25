@@ -363,8 +363,7 @@ async fn execute_daemon(
                         pid,
                         daemon.bind
                     );
-                    if let Bind::Tcp(addr) = &daemon.bind {
-                        let url = format!("http://{addr}");
+                    if let Some(url) = super::bind_to_browser_url(&daemon.bind) {
                         let styled = match styles {
                             Some(s) => format!("{}", s.cyan.apply_to(&url)),
                             None => url,
