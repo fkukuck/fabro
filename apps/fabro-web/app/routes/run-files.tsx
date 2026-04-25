@@ -22,6 +22,7 @@ import {
 import {
   deriveEmptyKind,
   EmptyState,
+  FileTreeSidebarSkeleton,
   InlineErrorBanner,
   LoadingSkeleton,
   renderStatusError,
@@ -51,6 +52,10 @@ export const handle = { wide: true };
 
 const MD_BREAKPOINT_PX = 768;
 const DIFF_STYLE_STORAGE_KEY = "fabro.run-files.diff-style";
+// Minimum time the Refresh button keeps spinning after a click. SWR can
+// resolve a cached/304 refetch in tens of ms, leaving the user unsure
+// whether the click registered.
+const MIN_REFRESH_SPIN_MS = 500;
 
 export const ErrorBoundary = RunFilesErrorBoundary;
 
@@ -261,15 +266,32 @@ export default function RunFiles() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastDeepLinkToastRef = useRef<string | null>(null);
 
-  // Return focus to the Refresh button after a revalidation completes so
+  const [minSpinUntil, setMinSpinUntil] = useState(0);
+  const handleRefresh = useCallback(() => {
+    setMinSpinUntil(Date.now() + MIN_REFRESH_SPIN_MS);
+    void filesQuery.mutate();
+  }, [filesQuery]);
+  useEffect(() => {
+    if (minSpinUntil === 0) return;
+    const remaining = minSpinUntil - Date.now();
+    if (remaining <= 0) {
+      setMinSpinUntil(0);
+      return;
+    }
+    const id = window.setTimeout(() => setMinSpinUntil(0), remaining);
+    return () => window.clearTimeout(id);
+  }, [minSpinUntil]);
+  const showRefreshing = isRevalidating || minSpinUntil > 0;
+
+  // Return focus to the Refresh button after a refresh visibly completes so
   // keyboard-first users stay oriented.
   const refreshingPrev = useRef(false);
   useEffect(() => {
-    if (refreshingPrev.current && !isRevalidating) {
+    if (refreshingPrev.current && !showRefreshing) {
       refreshButtonRef.current?.focus({ preventScroll: true });
     }
-    refreshingPrev.current = isRevalidating;
-  }, [isRevalidating]);
+    refreshingPrev.current = showRefreshing;
+  }, [showRefreshing]);
 
   const fileCount = data?.data.length ?? 0;
   useFileKeyboardNav(containerRef, fileCount);
@@ -367,7 +389,7 @@ export default function RunFiles() {
   );
 
   if (isInitialLoading) {
-    return <LoadingSkeleton />;
+    return <LoadingSkeleton reserveSidebar={!narrow} />;
   }
 
   // Initial load failed with no prior data to fall back on. The route
@@ -410,8 +432,8 @@ export default function RunFiles() {
         additions: meta.stats.additions,
         deletions: meta.stats.deletions,
       }}
-      onRefresh={() => void filesQuery.mutate()}
-      refreshing={isRevalidating}
+      onRefresh={handleRefresh}
+      refreshing={showRefreshing}
       refreshDisabled={refreshDisabled}
       freshness={freshness}
       refreshButtonRef={refreshButtonRef}
@@ -479,7 +501,7 @@ export default function RunFiles() {
       ) : null}
       <div className="flex gap-4">
         {!narrow ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<FileTreeSidebarSkeleton />}>
             <FileTreeSidebar
               files={files}
               selectedPath={hashFile}

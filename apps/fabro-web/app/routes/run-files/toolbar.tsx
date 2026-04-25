@@ -87,7 +87,7 @@ export function Toolbar({
           className="relative inline-flex size-7 items-center justify-center rounded-md border border-line bg-panel text-fg-3 transition-colors hover:bg-overlay hover:text-fg disabled:cursor-default disabled:opacity-60 disabled:hover:bg-panel disabled:hover:text-fg-3"
         >
           <ArrowPathIcon
-            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+            className={`size-3.5 ${refreshing ? "animate-spin [animation-duration:450ms]" : ""}`}
             aria-hidden="true"
           />
           <span

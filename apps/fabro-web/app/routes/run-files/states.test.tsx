@@ -172,6 +172,19 @@ describe("component rendering", () => {
     expect(labeled.length).toBeGreaterThan(0);
   });
 
+  test("LoadingSkeleton can reserve desktop sidebar space", () => {
+    let tree: TestRenderer.ReactTestRenderer | undefined;
+    TestRenderer.act(() => {
+      tree = TestRenderer.create(<LoadingSkeleton reserveSidebar />);
+    });
+    const sidebarSkeleton = tree!.root.findAll(
+      (node) =>
+        node.props?.["aria-hidden"] === "true" &&
+        String(node.props?.className ?? "").includes("w-72"),
+    );
+    expect(sidebarSkeleton.length).toBe(1);
+  });
+
   test("InlineErrorBanner fires onRetry when clicked", () => {
     let clicked = 0;
     let tree: TestRenderer.ReactTestRenderer | undefined;
