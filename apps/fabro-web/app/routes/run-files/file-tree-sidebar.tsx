@@ -184,15 +184,9 @@ export function FileTreeSidebar({
         className="w-full rounded-md border border-line bg-panel px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:outline-2 focus:outline-focus focus:outline-offset-2"
       />
       {paths.length > 0 ? (
-        <FileTree
-          model={model}
-          className="min-h-0 flex-1 overflow-hidden rounded-md border border-line bg-panel"
-        />
+        <FileTree model={model} className="min-h-0 flex-1 overflow-hidden" />
       ) : (
-        <div
-          role="status"
-          className="min-h-0 flex-1 rounded-md border border-line bg-panel px-3 py-2 text-sm text-fg-muted"
-        >
+        <div role="status" className="min-h-0 flex-1 px-3 py-2 text-sm text-fg-muted">
           No matching files
         </div>
       )}
