@@ -510,4 +510,75 @@ describe("InstallApp", () => {
       console.error = originalConsoleError;
     }
   });
+
+  test("shows the GitHub App callback URL on the review step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchMock = mock((input: RequestInfo | URL) => {
+        expect(String(input)).toBe("/install/session");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              completed_steps: ["server", "object_store", "llm", "github"],
+              llm: {
+                providers: [{ provider: "anthropic" }],
+              },
+              server: { canonical_url: "https://fabro.example.com" },
+              object_store: { provider: "local" },
+              github: {
+                strategy: "app",
+                owner: { kind: "personal" },
+                app_name: "octocat-fabro",
+                slug: "octocat-fabro",
+                allowed_username: "octocat",
+              },
+              prefill: INSTALL_PREFILL,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/review");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/review"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        const text = renderTreeText(renderer!.toJSON());
+        expect(text).toContain("GitHub callback URL");
+        expect(text).toContain("https://fabro.example.com/auth/callback/github");
+      });
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
 });

@@ -27,6 +27,7 @@ use fabro_store::ArtifactStore;
 use fabro_types::ServerSettings;
 use fabro_types::settings::interp::InterpString;
 use fabro_types::settings::server::ObjectStoreSettings;
+use fabro_types::settings::{is_wildcard_host, validate_public_url_with_label};
 use fabro_util::version::FABRO_VERSION;
 use fabro_util::{Home, dev_token, session_secret};
 use fabro_vault::SecretType as VaultSecretType;
@@ -1620,7 +1621,34 @@ fn detect_canonical_url(headers: &HeaderMap) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or("127.0.0.1:32276");
 
-    format!("{scheme}://{host}")
+    format!("{scheme}://{}", sanitize_client_facing_host(host))
+}
+
+fn sanitize_client_facing_host(host: &str) -> String {
+    let host = host.trim();
+    if let Some(end) = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.find(']').map(|end| end + 1))
+    {
+        let address = &host[1..end];
+        let suffix = &host[end + 1..];
+        if is_wildcard_host(address) {
+            return format!("localhost{suffix}");
+        }
+        return host.to_string();
+    }
+
+    if let Some((address, port)) = host.rsplit_once(':') {
+        if !address.contains(':') && is_wildcard_host(address) {
+            return format!("localhost:{port}");
+        }
+    }
+
+    if is_wildcard_host(host) {
+        return "localhost".to_string();
+    }
+
+    host.to_string()
 }
 
 fn completed_steps(pending_install: &PendingInstall) -> Vec<&'static str> {
@@ -1692,33 +1720,8 @@ fn install_error_response(status: StatusCode, message: impl Into<String>) -> Res
     ApiError::new(status, message).into_response()
 }
 
-#[expect(
-    clippy::disallowed_types,
-    reason = "Install canonical_url validation parses a public origin and rejects query/fragment credentials before storage."
-)]
 fn validate_canonical_url(value: &str) -> Result<(), String> {
-    let trimmed = value.trim();
-    let parsed = fabro_http::Url::parse(trimmed).map_err(|err| err.to_string())?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        other => return Err(format!("canonical_url must use http or https, got {other}")),
-    }
-    if parsed.host_str().is_none() {
-        return Err("canonical_url must include a host".to_string());
-    }
-    if trimmed.ends_with('/') {
-        return Err("canonical_url must not end with a trailing slash".to_string());
-    }
-    if parsed.path() != "/" {
-        return Err("canonical_url must not include a path".to_string());
-    }
-    if parsed.query().is_some() {
-        return Err("canonical_url must not include a query string".to_string());
-    }
-    if parsed.fragment().is_some() {
-        return Err("canonical_url must not include a fragment".to_string());
-    }
-    Ok(())
+    validate_public_url_with_label(value, "canonical_url").map(|_| ())
 }
 
 fn generate_ephemeral_secret() -> String {

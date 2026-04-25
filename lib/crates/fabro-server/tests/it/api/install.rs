@@ -263,6 +263,27 @@ async fn install_session_requires_valid_install_token() {
 }
 
 #[tokio::test]
+async fn install_session_sanitizes_wildcard_host_prefill() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session")
+                .header("authorization", "Bearer test-install-token")
+                .header("host", "0.0.0.0:32276")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response_json(response, StatusCode::OK, "GET /install/session").await;
+    assert_eq!(body["prefill"]["canonical_url"], "http://localhost:32276");
+}
+
+#[tokio::test]
 async fn install_endpoints_reject_missing_and_wrong_tokens() {
     let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
     let cases = [
@@ -1717,6 +1738,44 @@ async fn install_server_rejects_trailing_slash_canonical_urls() {
         body["errors"][0]["detail"],
         "canonical_url must not end with a trailing slash"
     );
+}
+
+#[tokio::test]
+async fn install_server_rejects_wildcard_canonical_urls() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+
+    for canonical_url in [
+        "http://0.0.0.0:32276",
+        "http://[::]:32276",
+        "http://0:32276",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/install/server")
+                    .header("authorization", "Bearer test-install-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"canonical_url":"{canonical_url}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response_json(
+            response,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "PUT /install/server",
+        )
+        .await;
+        assert_eq!(
+            body["errors"][0]["detail"],
+            "canonical_url must not use a wildcard host"
+        );
+    }
 }
 
 #[tokio::test]

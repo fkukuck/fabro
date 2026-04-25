@@ -1166,7 +1166,7 @@ function ReviewScreen({
         />
         {renderObjectStoreSummaryRows(session?.object_store)}
         <SummaryRow label="LLM providers" value={providers || "Not configured"} />
-        {renderGithubSummaryRows(session?.github)}
+        {renderGithubSummaryRows(session?.github, serverUrl)}
       </dl>
       {error ? <ErrorMessage message={error} /> : null}
       <div className="flex items-center justify-between gap-3 pt-2">
@@ -1727,6 +1727,7 @@ function describeProvider(id: string): string {
 
 function renderGithubSummaryRows(
   github: InstallSessionResponse["github"],
+  serverUrl: string,
 ): ReactNode {
   if (!github) {
     return <SummaryRow label="GitHub" value="Not configured" />;
@@ -1741,6 +1742,11 @@ function renderGithubSummaryRows(
           value={github.allowed_username ? `@${github.allowed_username}` : "Not set"}
           mono={Boolean(github.allowed_username)}
         />
+        <SummaryRow
+          label="GitHub callback URL"
+          value={githubCallbackUrl(serverUrl)}
+          mono
+        />
       </>
     );
   }
@@ -1754,6 +1760,10 @@ function renderGithubSummaryRows(
       />
     </>
   );
+}
+
+function githubCallbackUrl(serverUrl: string): string {
+  return `${serverUrl.replace(/\/+$/, "")}/auth/callback/github`;
 }
 
 function renderObjectStoreSummaryRows(

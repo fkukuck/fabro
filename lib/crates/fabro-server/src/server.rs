@@ -8244,7 +8244,12 @@ url = "{url}"
 
     #[test]
     fn replace_settings_rejects_invalid_canonical_origin_and_keeps_previous_settings() {
-        for invalid in ["", "/relative/path", "ftp://fabro.example.com"] {
+        for invalid in [
+            "",
+            "/relative/path",
+            "ftp://fabro.example.com",
+            "http://0.0.0.0:32276",
+        ] {
             let state = create_app_state_with_env_lookup(
                 canonical_origin_settings("http://valid.example.com"),
                 RunLayer::default(),
