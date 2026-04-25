@@ -196,10 +196,15 @@ function useFreshness(
   const fetched = lastFetchedAt
     ? `Fetched ${formatRelative(new Date(lastFetchedAt).toISOString(), now)}`
     : null;
-  if (meta.degraded && captured && fetched) {
-    return `${captured} · ${fetched}`;
-  }
-  return captured ?? fetched ?? null;
+  // GitHub-style short SHA. The OpenAPI pattern guarantees at least 7 hex
+  // chars, but degraded responses with no captured commit may have null
+  // here — fall through to just the timestamp(s) in that case.
+  const shortSha = meta.to_sha ? meta.to_sha.slice(0, 7) : null;
+  const timeLabel = meta.degraded && captured && fetched
+    ? `${captured} · ${fetched}`
+    : captured ?? fetched;
+  if (timeLabel && shortSha) return `${timeLabel} · ${shortSha}`;
+  return timeLabel ?? shortSha;
 }
 
 function formatRelative(iso: string | null, now: number): string {
