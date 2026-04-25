@@ -26,7 +26,8 @@ use shlex::try_quote;
 
 use crate::support::unique_run_id;
 
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+const LOCAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+const CI_COMMAND_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub(crate) use fabro_store::RunProjection;
 
@@ -66,6 +67,14 @@ pub(crate) struct WorkflowGate {
 enum GitWorkflowKind {
     Changed,
     Noop,
+}
+
+fn command_timeout() -> Duration {
+    if std::env::var_os("CI").is_some() {
+        CI_COMMAND_TIMEOUT
+    } else {
+        LOCAL_COMMAND_TIMEOUT
+    }
 }
 
 /// Returns the repo-relative path to a test fixture.
@@ -142,7 +151,7 @@ pub(crate) fn run_success(context: &TestContext, args: &[&str]) -> Output {
 fn run_success_in(context: &TestContext, args: &[&str], cwd: &Path) -> Output {
     let mut cmd = context.command();
     cmd.current_dir(cwd);
-    cmd.timeout(COMMAND_TIMEOUT);
+    cmd.timeout(command_timeout());
     cmd.args(args);
     let output = cmd.output().expect("command should execute");
     if !output.status.success() {
@@ -170,7 +179,7 @@ fn run_completed_dry_run(context: &TestContext, workflow: &Path) -> RunSetup {
     let run_id = unique_run_id();
     let mut cmd = context.run_cmd();
     cmd.current_dir(&context.temp_dir);
-    cmd.timeout(COMMAND_TIMEOUT);
+    cmd.timeout(command_timeout());
     cmd.args([
         "--run-id",
         run_id.as_str(),
@@ -215,7 +224,7 @@ fn run_created_dry_run(context: &TestContext, workflow: &Path) -> RunSetup {
     let run_id = unique_run_id();
     let mut cmd = context.create_cmd();
     cmd.current_dir(&context.temp_dir);
-    cmd.timeout(COMMAND_TIMEOUT);
+    cmd.timeout(command_timeout());
     cmd.args([
         "--run-id",
         run_id.as_str(),
@@ -274,7 +283,7 @@ pub(crate) fn setup_detached_dry_run(context: &TestContext) -> RunSetup {
     let run_id = unique_run_id();
     let mut cmd = context.run_cmd();
     cmd.current_dir(&context.temp_dir);
-    cmd.timeout(COMMAND_TIMEOUT);
+    cmd.timeout(command_timeout());
     cmd.args([
         "--run-id",
         run_id.as_str(),
@@ -297,7 +306,7 @@ pub(crate) fn setup_detached_dry_run(context: &TestContext) -> RunSetup {
     }
     assert_eq!(stdout(&output).trim(), run_id);
     let run = resolve_run(context, &run_id);
-    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let deadline = Instant::now() + command_timeout();
     while run_events(&run.run_dir).is_empty() {
         assert!(
             Instant::now() < deadline,
@@ -424,7 +433,7 @@ fn run_local_workflow(context: &TestContext, workspace_dir: &Path, workflow: &st
     let run_id = unique_run_id();
     let mut cmd = context.run_cmd();
     cmd.current_dir(workspace_dir);
-    cmd.timeout(COMMAND_TIMEOUT);
+    cmd.timeout(command_timeout());
     cmd.env("OPENAI_API_KEY", "test");
     cmd.args([
         "--run-id",
@@ -512,7 +521,7 @@ pub(crate) fn write_gated_workflow(path: &Path, name: &str, goal: &str) -> Workf
     reason = "This sync integration helper polls stored run status without requiring a Tokio runtime."
 )]
 pub(crate) fn wait_for_status(run_dir: &Path, expected: &[&str]) -> String {
-    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let deadline = Instant::now() + command_timeout();
     loop {
         if let Some(status) = run_state(run_dir).status.map(|status| match status {
             fabro_types::RunStatus::Submitted => "submitted",
@@ -594,7 +603,7 @@ pub(crate) fn git_filters(context: &TestContext) -> Vec<(String, String)> {
     reason = "This sync integration helper polls for the run directory to appear without requiring a Tokio runtime."
 )]
 pub(crate) fn resolve_run(context: &TestContext, run_id: &str) -> RunSetup {
-    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let deadline = Instant::now() + command_timeout();
     loop {
         if let Some(run_dir) = find_run_dir(&context.storage_dir, run_id) {
             return RunSetup {
@@ -760,7 +769,7 @@ pub(crate) fn run_events(run_dir: &Path) -> Vec<EventEnvelope> {
     reason = "This sync integration helper polls stored events without requiring a Tokio runtime."
 )]
 pub(crate) fn wait_for_event_names(run_dir: &Path, expected: &[&str]) {
-    let deadline = std::time::Instant::now() + COMMAND_TIMEOUT;
+    let deadline = std::time::Instant::now() + command_timeout();
 
     loop {
         let event_names = run_events(run_dir)
