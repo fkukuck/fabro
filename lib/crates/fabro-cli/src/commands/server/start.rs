@@ -23,8 +23,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::task::spawn_blocking;
 use tokio::time;
 
-use crate::local_server;
-use crate::logging::{self, ServerLogDestination};
+use crate::{local_server, logging};
 
 pub(crate) struct ForegroundServerLogBootstrap {
     #[expect(dead_code, reason = "held for its Drop to release the server lock")]
@@ -68,7 +67,7 @@ pub(crate) async fn execute(
 
 pub(crate) async fn prepare_foreground_server_log(
     runtime_directory: &RuntimeDirectory,
-    destination: &ServerLogDestination,
+    destination: LogDestination,
 ) -> Result<ForegroundServerLogBootstrap> {
     let lock_file = acquire_lock(runtime_directory).await?;
     if let Some(existing) = ServerDaemon::load_running(runtime_directory)? {
@@ -79,12 +78,13 @@ pub(crate) async fn prepare_foreground_server_log(
         );
     }
 
-    if let ServerLogDestination::File(log_path) = destination {
+    if destination == LogDestination::File {
+        let log_path = runtime_directory.log_path();
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating log directory {}", parent.display()))?;
         }
-        std::fs::File::create(log_path)
+        std::fs::File::create(&log_path)
             .with_context(|| format!("creating server log file {}", log_path.display()))?;
     }
 
@@ -498,6 +498,7 @@ mod tests {
     use fabro_config::bind::BindRequest;
     use fabro_server::serve::ServeArgs;
     use fabro_static::EnvVars;
+    use fabro_types::settings::LogDestination;
     use fabro_util::Home;
     use fabro_util::printer::Printer;
     use temp_env::with_var;
@@ -506,7 +507,6 @@ mod tests {
     use super::{
         ensure_storage_server_autostart_allowed, execute_daemon, prepare_foreground_server_log,
     };
-    use crate::logging::ServerLogDestination;
 
     fn runtime() -> Runtime {
         Runtime::new().expect("runtime should build")
@@ -580,7 +580,7 @@ destination = "{destination}"
         let _bootstrap = runtime()
             .block_on(prepare_foreground_server_log(
                 &runtime_directory,
-                &ServerLogDestination::Stdout,
+                LogDestination::Stdout,
             ))
             .expect("stdout foreground bootstrap should succeed");
 

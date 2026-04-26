@@ -20,13 +20,11 @@ const LOG_RETENTION_DAYS: u32 = 7;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum InternalLogSink {
     Cli,
-    Server { destination: ServerLogDestination },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ServerLogDestination {
-    File(PathBuf),
-    Stdout,
+    /// `Some(path)` writes the server log to a file at `path`; `None` writes to
+    /// stdout.
+    Server {
+        log_path: Option<PathBuf>,
+    },
 }
 
 pub(crate) fn init_tracing(
@@ -60,14 +58,14 @@ pub(crate) fn init_tracing(
             cleanup_old_logs(&log_dir, "cli", LOG_RETENTION_DAYS);
             init_subscriber(filter, file_appender);
         }
-        InternalLogSink::Server { destination } => match destination {
-            ServerLogDestination::File(path) => {
-                init_subscriber(filter, FixedFileAppender::open(path)?);
-            }
-            ServerLogDestination::Stdout => {
-                init_subscriber(filter, std::io::stdout);
-            }
-        },
+        InternalLogSink::Server {
+            log_path: Some(path),
+        } => {
+            init_subscriber(filter, FixedFileAppender::open(path)?);
+        }
+        InternalLogSink::Server { log_path: None } => {
+            init_subscriber(filter, std::io::stdout);
+        }
     }
 
     Ok(())
@@ -92,16 +90,6 @@ pub(crate) fn resolve_log_destination_with_env(
             )
         }),
         None => Ok(config_destination),
-    }
-}
-
-pub(crate) fn server_log_destination(
-    destination: LogDestination,
-    log_path: PathBuf,
-) -> ServerLogDestination {
-    match destination {
-        LogDestination::File => ServerLogDestination::File(log_path),
-        LogDestination::Stdout => ServerLogDestination::Stdout,
     }
 }
 

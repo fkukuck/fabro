@@ -28,6 +28,7 @@ use args::{
 use clap::CommandFactory;
 use fabro_static::EnvVars;
 use fabro_telemetry::{git, panic as tel_panic, sanitize, sender};
+use fabro_types::settings::LogDestination;
 use fabro_util::exit::ExitClass;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -464,24 +465,21 @@ async fn prepare_server_bootstrap(
     let log_destination = logging::resolve_log_destination(
         local_config.config_log_destination().unwrap_or_default(),
     )?;
-    let server_log_destination =
-        logging::server_log_destination(log_destination, runtime_directory.log_path());
     let foreground_server_log_bootstrap = if foreground {
         Some(
             commands::server::start::prepare_foreground_server_log(
                 &runtime_directory,
-                &server_log_destination,
+                log_destination,
             )
             .await?,
         )
     } else {
         None
     };
+    let log_path = (log_destination == LogDestination::File).then(|| runtime_directory.log_path());
 
     Ok(PreTracingBootstrap {
-        sink: logging::InternalLogSink::Server {
-            destination: server_log_destination,
-        },
+        sink: logging::InternalLogSink::Server { log_path },
         config_log_level: local_config.config_log_level().map(str::to_owned),
         foreground_server_log_bootstrap,
     })
@@ -691,7 +689,7 @@ destination = "{destination}"
             .expect("bootstrap should resolve");
 
         assert_eq!(bootstrap.sink, logging::InternalLogSink::Server {
-            destination: logging::ServerLogDestination::Stdout,
+            log_path: None,
         });
         assert_eq!(bootstrap.config_log_level.as_deref(), Some("warn"));
         assert!(bootstrap.foreground_server_log_bootstrap.is_some());
@@ -722,7 +720,7 @@ destination = "{destination}"
             .expect("bootstrap should resolve");
 
         assert_eq!(bootstrap.sink, logging::InternalLogSink::Server {
-            destination: logging::ServerLogDestination::Stdout,
+            log_path: None,
         });
         assert_eq!(bootstrap.config_log_level.as_deref(), Some("warn"));
         assert!(bootstrap.foreground_server_log_bootstrap.is_some());
@@ -751,7 +749,7 @@ destination = "{destination}"
             .expect("bootstrap should resolve");
 
         assert_eq!(bootstrap.sink, logging::InternalLogSink::Server {
-            destination: logging::ServerLogDestination::Stdout,
+            log_path: None,
         });
         assert_eq!(bootstrap.config_log_level.as_deref(), Some("warn"));
         assert!(bootstrap.foreground_server_log_bootstrap.is_none());
@@ -783,7 +781,7 @@ destination = "{destination}"
                 .expect("bootstrap should resolve");
 
             assert_eq!(bootstrap.sink, logging::InternalLogSink::Server {
-                destination: logging::ServerLogDestination::Stdout,
+                log_path: None,
             });
         });
     }
