@@ -91,6 +91,14 @@ export function useRunGraph(id: string | undefined, direction?: "LR" | "TB") {
   );
 }
 
+export function useRunLogs(id: string | undefined, refreshInterval?: number) {
+  return useSWR<string | null>(
+    id ? queryKeys.runs.logs(id) : null,
+    apiNullableTextFetcher,
+    refreshInterval ? { refreshInterval } : undefined,
+  );
+}
+
 export function useRunSettings<T = Record<string, unknown>>(id: string | undefined) {
   return useSWR<T>(
     id ? queryKeys.runs.settings(id) : null,
