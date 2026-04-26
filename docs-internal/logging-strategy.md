@@ -1,6 +1,6 @@
 # Fabro Logging Strategy
 
-Fabro uses the `tracing` crate for structured, file-based logging. Logs write to `~/.fabro/logs/{prefix}.YYYY-MM-DD.log` (e.g. `cli.2026-04-06.log`, `server.2026-04-06.log`), rotated daily by `tracing-appender`. Logs older than 7 days are cleaned up on startup. Controlled by the `FABRO_LOG` env var (default: `info`). Logs are for **developers debugging issues after the fact** — they are not user-facing output.
+Fabro uses the `tracing` crate for structured logging. By default, logs write to `~/.fabro/logs/{prefix}.YYYY-MM-DD.log` (e.g. `cli.2026-04-06.log`, `server.2026-04-06.log`), rotated daily by `tracing-appender`, and entries older than 7 days are cleaned up on startup. The server log destination is configurable: set `[server.logging].destination = "stdout"` (or `FABRO_LOG_DESTINATION=stdout`) to stream the server log to stdout instead — required for container deployments where the platform captures stdout. The level is controlled by `FABRO_LOG` (default: `info`). Logs are for **developers debugging issues after the fact** — they are not user-facing output.
 
 Production runs at INFO level. INFO should be low-volume and high-signal — the summary of what happened. When something goes wrong, developers enable `FABRO_LOG=debug` to get the full picture. DEBUG can be as verbose as needed since it's only turned on temporarily.
 

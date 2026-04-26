@@ -234,11 +234,16 @@ Merge rules follow the normative matrix: `[run.inputs]` replaces wholesale, `[ru
 
 ### `[server.logging]` section
 
-Configure the default server log level. Precedence: `FABRO_LOG` env var > `--debug` flag > `[server.logging].level` > `"info"`.
+Configure the server log level and destination.
 
 | Key | Description | Default |
 |---|---|---|
 | `level` | Log level: `error`, `warn`, `info`, `debug`, `trace` | `"info"` |
+| `destination` | Where server logs are written: `file` (rotated daily under `<storage>/logs/`) or `stdout` | `"file"` |
+
+Level precedence: `FABRO_LOG` env var > `--debug` flag > `[server.logging].level` > `"info"`.
+
+Destination precedence: `FABRO_LOG_DESTINATION` env var > `[server.logging].destination` > `"file"`. `stdout` is incompatible with daemon mode — use `fabro server start --foreground` (which is what container images do).
 
 The CLI has its own `[cli.logging]` section.
 
@@ -404,3 +409,4 @@ Fabro resolves these from `process env -> server.env`.
 | Variable | Default | Description |
 |---|---|---|
 | `FABRO_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug` |
+| `FABRO_LOG_DESTINATION` | `file` | Server log destination: `file` or `stdout` (containers default to `stdout`) |
