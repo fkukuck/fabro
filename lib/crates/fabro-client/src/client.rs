@@ -873,6 +873,35 @@ impl Client {
         convert_type(response.into_inner())
     }
 
+    pub async fn get_run_logs(&self, run_id: &RunId) -> Result<Option<Vec<u8>>> {
+        let response = self
+            .current_state()
+            .client
+            .get_run_logs()
+            .id(run_id.to_string())
+            .send()
+            .await;
+        match response {
+            Ok(response) => {
+                let mut stream = response.into_inner();
+                let mut bytes = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok(Some(bytes))
+            }
+            Err(err) => {
+                let err = map_api_error(err);
+                if is_not_found_error(&err) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
     pub async fn create_run_pull_request(
         &self,
         run_id: &RunId,
