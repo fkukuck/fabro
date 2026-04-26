@@ -206,6 +206,10 @@ impl DaytonaSandbox {
             .ok_or_else(|| "Daytona sandbox not initialized — call initialize() first".to_string())
     }
 
+    fn repo_cloned(&self) -> bool {
+        self.repo_cloned.get().copied().unwrap_or(false)
+    }
+
     /// Build `SandboxBaseParams` from config, generating a unique sandbox name.
     fn base_params(&self) -> daytona_sdk::SandboxBaseParams {
         let name = if let Some(ref id) = self.run_id {
@@ -339,27 +343,6 @@ impl DaytonaSandbox {
             "Timed out waiting for snapshot '{name}' to become active"
         ))
     }
-}
-
-/// Parameters for cloning a git repo into the sandbox during initialization.
-#[derive(Clone, Debug)]
-pub struct GitCloneParams {
-    /// Clean HTTPS URL (no embedded credentials).
-    pub url:    String,
-    /// Branch to clone. If None, uses the remote's default.
-    pub branch: Option<String>,
-}
-
-pub fn detect_clone_params(cwd: &Path) -> Option<GitCloneParams> {
-    let (detected_url, branch) = match detect_repo_info(cwd) {
-        Ok(info) => info,
-        Err(err) => {
-            tracing::warn!("No git repo detected for sandbox clone: {err}");
-            return None;
-        }
-    };
-    let url = fabro_github::ssh_url_to_https(&detected_url);
-    Some(GitCloneParams { url, branch })
 }
 
 /// Detect the git remote URL and current branch from a local repository.
@@ -780,14 +763,14 @@ impl Sandbox for DaytonaSandbox {
     }
 
     async fn setup_git_for_run(&self, run_id: &str) -> Result<Option<crate::GitRunInfo>, String> {
-        if !self.repo_cloned.get().copied().unwrap_or(false) {
+        if !self.repo_cloned() {
             return Ok(None);
         }
         crate::setup_git_via_exec(self, run_id).await.map(Some)
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
-        if !self.repo_cloned.get().copied().unwrap_or(false) {
+        if !self.repo_cloned() {
             return Vec::new();
         }
         vec![format!(
@@ -798,7 +781,7 @@ impl Sandbox for DaytonaSandbox {
     }
 
     async fn git_push_branch(&self, branch: &str) -> bool {
-        if !self.repo_cloned.get().copied().unwrap_or(false) {
+        if !self.repo_cloned() {
             return false;
         }
         crate::git_push_via_exec(self, branch).await
@@ -825,7 +808,7 @@ impl Sandbox for DaytonaSandbox {
     }
 
     fn origin_url(&self) -> Option<&str> {
-        if !self.repo_cloned.get().copied().unwrap_or(false) {
+        if !self.repo_cloned() {
             return None;
         }
         self.origin_url.get().map(String::as_str)
@@ -852,7 +835,7 @@ impl Sandbox for DaytonaSandbox {
     }
 
     async fn refresh_push_credentials(&self) -> Result<(), String> {
-        if !self.repo_cloned.get().copied().unwrap_or(false) {
+        if !self.repo_cloned() {
             return Ok(());
         }
         let Some(origin_url) = self.origin_url.get() else {

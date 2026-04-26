@@ -28,7 +28,7 @@ use crate::{
     format_lines_numbered, shell_quote,
 };
 
-pub const WORKING_DIRECTORY: &str = "/workspace";
+const WORKING_DIRECTORY: &str = "/workspace";
 
 const MANAGED_LABEL: &str = "sh.fabro.managed";
 const RUN_ID_LABEL: &str = "sh.fabro.run_id";
@@ -899,9 +899,7 @@ impl Sandbox for DockerSandbox {
         });
         let start = Instant::now();
 
-        let container_id = if let Some(id) = self.container_id.get() {
-            id.clone()
-        } else {
+        let Some(container_id) = self.container_id.get().cloned() else {
             let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
             self.emit(SandboxEvent::CleanupCompleted {
                 provider: "docker".into(),

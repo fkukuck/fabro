@@ -43,8 +43,7 @@ pub(crate) fn decide_clone(
         });
     };
 
-    let origin_url = clean_clone_origin_for_record(Some(origin_url))
-        .expect("origin URL is present after filter");
+    let origin_url = fabro_github::normalize_repo_origin_url(origin_url);
     if let Err(err) = fabro_github::parse_github_owner_repo(&origin_url) {
         return Err(format!(
             "Clone-based sandboxes currently support GitHub repository origins only: {err}"

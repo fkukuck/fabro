@@ -500,13 +500,9 @@ fn build_manifest_git(repo_path: &Path) -> Option<types::ManifestGit> {
     Some(types::ManifestGit {
         branch,
         clean,
-        origin_url: sanitize_origin_url(&origin_url),
+        origin_url: fabro_github::normalize_repo_origin_url(&origin_url),
         sha,
     })
-}
-
-fn sanitize_origin_url(origin_url: &str) -> String {
-    fabro_github::normalize_repo_origin_url(origin_url)
 }
 
 fn normalize_absolute_path(base_dir: &Path, reference: &str) -> Option<PathBuf> {
