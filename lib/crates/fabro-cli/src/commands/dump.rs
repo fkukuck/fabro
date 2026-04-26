@@ -83,7 +83,7 @@ async fn write_run_dump(
     let mut dump = RunDump::from_store_state_and_events(state, &events)?;
 
     if let Some(log) = client.get_run_logs(run_id).await? {
-        dump.add_file_bytes("run.log", log.into_bytes());
+        dump.add_file_bytes("run.log", log);
     }
 
     dump.hydrate_referenced_blobs_with_reader(|blob_id| {

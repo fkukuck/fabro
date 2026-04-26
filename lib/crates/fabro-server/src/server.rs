@@ -5285,10 +5285,7 @@ async fn get_run_logs(
         .runtime_dir()
         .join("server.log");
     match fs::read(&path).await {
-        Ok(bytes) => {
-            let body = String::from_utf8_lossy(&bytes).into_owned();
-            ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
-        }
+        Ok(bytes) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes).into_response(),
         Err(err) if err.kind() == ErrorKind::NotFound => {
             ApiError::not_found("Run log not available.").into_response()
         }

@@ -73,7 +73,6 @@ impl Drop for BufferedFileGuard {
         }
         if let Ok(mut file) = self.file.lock() {
             let _ = file.write_all(&self.buf);
-            let _ = file.flush();
         }
     }
 }

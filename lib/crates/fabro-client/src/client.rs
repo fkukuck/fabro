@@ -873,35 +873,32 @@ impl Client {
         convert_type(response.into_inner())
     }
 
-    #[expect(
-        clippy::disallowed_types,
-        reason = "Client builds raw server API request URLs for wire transit; logging redaction is handled at log boundaries."
-    )]
-    pub async fn get_run_logs(&self, run_id: &RunId) -> Result<Option<String>> {
-        let base_url = self.base_url();
-        let mut url = fabro_http::Url::parse(&base_url)
-            .with_context(|| format!("invalid server base URL {base_url}"))?;
-        url.path_segments_mut()
-            .map_err(|()| anyhow!("server base URL cannot accept path segments"))?
-            .extend(["api", "v1", "runs", &run_id.to_string(), "logs"]);
-        let request_url = url.clone();
-
+    pub async fn get_run_logs(&self, run_id: &RunId) -> Result<Option<Vec<u8>>> {
         let response = self
-            .send_http_response(move |client| {
-                let url = request_url.clone();
-                async move { client.get(url).send().await }
-            })
-            .await?;
+            .current_state()
+            .client
+            .get_run_logs()
+            .id(run_id.to_string())
+            .send()
+            .await;
         match response {
             Ok(response) => {
-                let bytes = response
-                    .bytes()
-                    .await
-                    .context("failed to read run logs response body")?;
-                Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+                let mut stream = response.into_inner();
+                let mut bytes = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok(Some(bytes))
             }
-            Err(failure) if failure.status == fabro_http::StatusCode::NOT_FOUND => Ok(None),
-            Err(failure) => Err(raw_response_failure_error(&failure)),
+            Err(err) => {
+                let err = map_api_error(err);
+                if is_not_found_error(&err) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
         }
     }
 
