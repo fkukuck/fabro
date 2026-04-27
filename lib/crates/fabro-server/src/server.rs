@@ -949,6 +949,7 @@ pub fn build_router(state: Arc<AppState>, auth_mode: AuthMode) -> Router {
 #[derive(Clone, Debug)]
 pub struct RouterOptions {
     pub web_enabled:                 bool,
+    pub static_asset_root:           Option<PathBuf>,
     pub github_endpoints:            Option<Arc<GithubEndpoints>>,
     pub github_webhook_ip_allowlist: Option<Arc<IpAllowlistConfig>>,
 }
@@ -957,6 +958,7 @@ impl Default for RouterOptions {
     fn default() -> Self {
         Self {
             web_enabled:                 true,
+            static_asset_root:           None,
             github_endpoints:            None,
             github_webhook_ip_allowlist: None,
         }
@@ -976,6 +978,7 @@ pub fn build_router_with_options(
 ) -> Router {
     start_optional_slack_service(&state);
     let web_enabled = options.web_enabled;
+    let static_asset_root = options.static_asset_root.clone();
     let webhook_ip_allowlist = options.github_webhook_ip_allowlist;
     let translation_state = Arc::clone(&state);
     let state_for_canonical_host = Arc::clone(&state);
@@ -1043,6 +1046,7 @@ pub fn build_router_with_options(
         .route("/health", get(health))
         .fallback_service(service_fn(move |req: axum_extract::Request| {
             let dispatch = dispatch.clone();
+            let static_asset_root = static_asset_root.clone();
             async move {
                 let path = req.uri().path().to_string();
                 let dispatch_path = path.starts_with("/api/")
@@ -1054,7 +1058,14 @@ pub fn build_router_with_options(
                     Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
                 } else if web_enabled && matches!(req.method(), &Method::GET | &Method::HEAD) {
                     let headers = req.headers().clone();
-                    Ok::<_, std::convert::Infallible>(static_files::serve(&path, &headers).await)
+                    Ok::<_, std::convert::Infallible>(
+                        static_files::serve_with_asset_root(
+                            &path,
+                            &headers,
+                            static_asset_root.as_deref(),
+                        )
+                        .await,
+                    )
                 } else {
                     Ok::<_, std::convert::Infallible>(StatusCode::NOT_FOUND.into_response())
                 }
@@ -7971,7 +7982,6 @@ mod tests {
     use std::collections::HashMap;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    #[cfg(unix)]
     use std::path::{Path, PathBuf};
     #[cfg(unix)]
     use std::process::Stdio;
@@ -8037,7 +8047,19 @@ mod tests {
 
     fn test_app_with() -> Router {
         let state = create_app_state();
-        build_router(state, AuthMode::Disabled)
+        build_router_with_options(
+            state,
+            &AuthMode::Disabled,
+            Arc::new(IpAllowlistConfig::default()),
+            RouterOptions {
+                static_asset_root: Some(spa_fixture_root()),
+                ..RouterOptions::default()
+            },
+        )
+    }
+
+    fn spa_fixture_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/spa")
     }
 
     fn test_app_with_scheduler(state: Arc<AppState>) -> Router {
