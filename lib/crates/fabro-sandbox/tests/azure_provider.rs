@@ -41,6 +41,9 @@ async fn azure_reconnect_uses_saved_resource_id() {
         identifier: Some("/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ContainerInstance/containerGroups/fabro-run-1".to_string()),
         host_working_directory: None,
         container_mount_point: None,
+        repo_cloned: None,
+        clone_origin_url: None,
+        clone_branch: None,
     };
     let sandbox = reconnect::reconnect(&record, None).await.unwrap();
     assert_eq!(sandbox.working_directory(), "/workspace");

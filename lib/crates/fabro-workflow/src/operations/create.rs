@@ -429,7 +429,7 @@ mod tests {
     use chrono::{Local, TimeZone, Utc};
     use fabro_config::{
         ReplaceMap, RunExecutionLayer, RunGoalLayer, RunLayer, RunModelLayer, RunPullRequestLayer,
-        WorkflowSettingsBuilder,
+        RunScmLayer, ScmGitHubLayer, WorkflowSettingsBuilder,
     };
     use fabro_graphviz::graph::AttrValue;
     use fabro_store::Database;
@@ -1004,93 +1004,91 @@ mod tests {
     #[tokio::test]
     async fn create_drops_missing_host_repo_path_from_request() {
         let dir = tempfile::tempdir().unwrap();
+        let storage_root = dir.path().join("storage");
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
 
         let store = memory_store();
-        let created = create(&store, CreateRunInput {
-            workflow: WorkflowInput::DotSource {
-                source:   MINIMAL_DOT.to_string(),
-                base_dir: None,
-            },
-            settings: {
-                use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-                SettingsLayer {
-                    run: Some(RunLayer {
-                        working_dir: Some(InterpString::parse("workspace")),
-                        execution: Some(RunExecutionLayer {
-                            mode: Some(RunMode::DryRun),
-                            ..RunExecutionLayer::default()
-                        }),
-                        ..RunLayer::default()
+        let created = create(
+            &store,
+            CreateRunInput {
+                workflow: WorkflowInput::DotSource {
+                    source:   MINIMAL_DOT.to_string(),
+                    base_dir: None,
+                },
+                settings: settings_from_run_layer(RunLayer {
+                    working_dir: Some(InterpString::parse("workspace")),
+                    execution: Some(RunExecutionLayer {
+                        mode: Some(RunMode::DryRun),
+                        ..RunExecutionLayer::default()
                     }),
-                    ..SettingsLayer::default()
-                }
+                    ..RunLayer::default()
+                }),
+                cwd: dir.path().to_path_buf(),
+                workflow_slug: None,
+                workflow_path: None,
+                workflow_bundle: None,
+                submitted_manifest_bytes: None,
+                run_id: Some(fixtures::RUN_2),
+                host_repo_path: Some("/definitely/missing/on/remote/server".to_string()),
+                repo_origin_url: None,
+                base_branch: None,
+                provenance: None,
+                configured_providers: Vec::new(),
             },
-            cwd: dir.path().to_path_buf(),
-            workflow_slug: None,
-            workflow_path: None,
-            workflow_bundle: None,
-            submitted_manifest_bytes: None,
-            run_id: Some(fixtures::RUN_2),
-            host_repo_path: Some("/definitely/missing/on/remote/server".to_string()),
-            repo_origin_url: None,
-            base_branch: None,
-            provenance: None,
-            configured_providers: Vec::new(),
-        })
+            storage_root,
+        )
         .await
         .unwrap();
 
-        assert_eq!(created.persisted.run_record().working_directory, workspace);
-        assert_eq!(created.persisted.run_record().host_repo_path, None);
+        assert_eq!(created.persisted.run_spec().working_directory, workspace);
+        assert_eq!(created.persisted.run_spec().host_repo_path, None);
     }
 
     #[tokio::test]
     async fn create_drops_non_repo_host_repo_path_from_request() {
         let dir = tempfile::tempdir().unwrap();
+        let storage_root = dir.path().join("storage");
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         let non_repo = dir.path().join("not-a-repo");
         std::fs::create_dir_all(&non_repo).unwrap();
 
         let store = memory_store();
-        let created = create(&store, CreateRunInput {
-            workflow: WorkflowInput::DotSource {
-                source:   MINIMAL_DOT.to_string(),
-                base_dir: None,
-            },
-            settings: {
-                use fabro_types::settings::run::{RunExecutionLayer, RunLayer, RunMode};
-                SettingsLayer {
-                    run: Some(RunLayer {
-                        working_dir: Some(InterpString::parse("workspace")),
-                        execution: Some(RunExecutionLayer {
-                            mode: Some(RunMode::DryRun),
-                            ..RunExecutionLayer::default()
-                        }),
-                        ..RunLayer::default()
+        let created = create(
+            &store,
+            CreateRunInput {
+                workflow: WorkflowInput::DotSource {
+                    source:   MINIMAL_DOT.to_string(),
+                    base_dir: None,
+                },
+                settings: settings_from_run_layer(RunLayer {
+                    working_dir: Some(InterpString::parse("workspace")),
+                    execution: Some(RunExecutionLayer {
+                        mode: Some(RunMode::DryRun),
+                        ..RunExecutionLayer::default()
                     }),
-                    ..SettingsLayer::default()
-                }
+                    ..RunLayer::default()
+                }),
+                cwd: dir.path().to_path_buf(),
+                workflow_slug: None,
+                workflow_path: None,
+                workflow_bundle: None,
+                submitted_manifest_bytes: None,
+                run_id: Some(fixtures::RUN_2),
+                host_repo_path: Some(non_repo.to_string_lossy().to_string()),
+                repo_origin_url: None,
+                base_branch: None,
+                provenance: None,
+                configured_providers: Vec::new(),
             },
-            cwd: dir.path().to_path_buf(),
-            workflow_slug: None,
-            workflow_path: None,
-            workflow_bundle: None,
-            submitted_manifest_bytes: None,
-            run_id: Some(fixtures::RUN_2),
-            host_repo_path: Some(non_repo.to_string_lossy().to_string()),
-            repo_origin_url: None,
-            base_branch: None,
-            provenance: None,
-            configured_providers: Vec::new(),
-        })
+            storage_root,
+        )
         .await
         .unwrap();
 
-        assert_eq!(created.persisted.run_record().working_directory, workspace);
-        assert_eq!(created.persisted.run_record().host_repo_path, None);
+        assert_eq!(created.persisted.run_spec().working_directory, workspace);
+        assert_eq!(created.persisted.run_spec().host_repo_path, None);
     }
 
     #[tokio::test]

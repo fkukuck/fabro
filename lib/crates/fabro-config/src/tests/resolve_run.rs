@@ -83,7 +83,7 @@ name = "sonnet"
 
 #[test]
 fn resolves_run_scm_github_permissions() {
-    let file = parse(
+    let settings = WorkflowSettingsBuilder::from_toml(
         r#"
 _version = 1
 
@@ -91,9 +91,9 @@ _version = 1
 contents = "write"
 issues = "read"
 "#,
-    );
-
-    let settings = fabro_config::resolve_run_from_file(&file).expect("run settings should resolve");
+    )
+    .expect("run settings should resolve")
+    .run;
 
     let github = settings
         .scm
