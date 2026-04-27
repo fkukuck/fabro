@@ -76,7 +76,7 @@ fabro [OPTIONS] [COMMAND]
 | `fabro fork` | Fork a workflow run from an earlier checkpoint into a new run |
 | `fabro graph` | Render a workflow graph as SVG |
 | `fabro inspect` | Show detailed information about a workflow run |
-| `fabro install` | Set up the Fabro environment (LLMs, certs, GitHub) |
+| `fabro install` | Set up the Fabro environment (server settings, Azure, object store, LLMs, GitHub) |
 | `fabro logs` | View the event log of a workflow run |
 | `fabro model` | List and test LLM models |
 | `fabro pr` | Pull request operations |
@@ -430,7 +430,7 @@ fabro inspect [OPTIONS] <RUN>
 
 ### `fabro install`
 
-Set up the Fabro environment (LLMs, certs, GitHub)
+Set up the Fabro environment (server settings, Azure, object store, LLMs, GitHub)
 
 ```bash
 fabro install [OPTIONS] [COMMAND]
