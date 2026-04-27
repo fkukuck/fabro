@@ -55,7 +55,7 @@ import { LoadingState } from "./components/state";
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
   { id: "server", label: "Server", href: "/install/server" },
-  { id: "object_store", label: "Object store", href: "/install/object-store" },
+  { id: "object_store", label: "Storage", href: "/install/object-store" },
   { id: "sandbox", label: "Sandbox", href: "/install/sandbox" },
   { id: "llm", label: "LLMs", href: "/install/llm" },
   { id: "github", label: "GitHub", href: "/install/github" },

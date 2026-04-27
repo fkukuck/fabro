@@ -22,6 +22,7 @@ import { ciConfig, columnStatusDisplay, deriveCiStatus, mapRunListItem } from ".
 import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnStatus } from "../data/runs";
 import { EmptyState } from "../components/state";
 import { shouldRefreshBoardForEvent, useBoardEvents } from "../lib/board-events";
+import { useDemoMode } from "../lib/demo-mode";
 import { useAuthConfig, useBoardsRuns } from "../lib/queries";
 import type { PaginatedBoardRunList } from "@qltysh/fabro-api-client";
 
@@ -90,6 +91,7 @@ export function buildBoardColumns(response: BoardRunsResponse): Column[] {
 
 function boardLifecycleStatusLabel(run: Pick<RunItem, "column" | "lifecycleStatusLabel">): string | null {
   if (run.lifecycleStatusLabel == null) return null;
+  if (run.column === "initializing") return null;
   if (run.column != null && columnStatusDisplay[run.column]?.label === run.lifecycleStatusLabel) {
     return null;
   }
@@ -431,6 +433,10 @@ function SortablePrCard({
 
 function BoardColumn({ column }: { column: Column }) {
   const Icon = iconMap[column.iconType];
+  const demoMode = useDemoMode();
+  const actions = demoMode
+    ? column.actions
+    : column.actions.filter((label) => label !== "Steer");
   return (
     <div className="flex min-w-0 flex-col">
       <div className="mb-3 flex items-center gap-3">
@@ -451,7 +457,7 @@ function BoardColumn({ column }: { column: Column }) {
               pr={pr}
               icon={Icon}
               iconColor={column.text}
-              actions={column.actions}
+              actions={actions}
             />
           ))}
         </div>
