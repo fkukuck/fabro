@@ -9,9 +9,9 @@ use fabro_types::run_event::{
 };
 use fabro_types::{
     BilledModelUsage, Checkpoint, Conclusion, EventBody, FailureSignature, InterviewQuestionRecord,
-    InterviewQuestionType, NodeStatusRecord, Outcome, PendingInterviewRecord, PullRequestRecord,
-    RunControlAction, RunId, RunProjection, RunSpec, RunStatus, RunSummary, SandboxRecord,
-    StageStatus, StartRecord, TerminalStatus,
+    NodeStatusRecord, Outcome, PendingInterviewRecord, PullRequestRecord, RunControlAction, RunId,
+    RunProjection, RunSpec, RunStatus, RunSummary, SandboxRecord, StageStatus, StartRecord,
+    TerminalStatus,
 };
 use serde_json::Value;
 
@@ -252,9 +252,7 @@ impl RunProjectionReducer for RunProjection {
                             id:              props.question_id.clone(),
                             text:            props.question.clone(),
                             stage:           props.stage.clone(),
-                            question_type:   InterviewQuestionType::from_wire_name(
-                                &props.question_type,
-                            ),
+                            question_type:   props.question_type.parse().unwrap_or_default(),
                             options:         props.options.clone(),
                             allow_freeform:  props.allow_freeform,
                             timeout_seconds: props.timeout_seconds,
@@ -374,41 +372,42 @@ pub(crate) fn build_summary(state: &RunProjection, run_id: &RunId) -> RunSummary
             spec.graph.name.clone()
         }
     });
-    let goal = state.spec.as_ref().and_then(|spec| {
-        let goal = spec.graph.goal();
-        (!goal.is_empty()).then(|| goal.to_string())
-    });
-    RunSummary {
-        run_id: *run_id,
+    let goal = state
+        .spec
+        .as_ref()
+        .map(|spec| spec.graph.goal().to_string())
+        .unwrap_or_default();
+    RunSummary::new(
+        *run_id,
         workflow_name,
-        workflow_slug: state
+        state
             .spec
             .as_ref()
             .and_then(|spec| spec.workflow_slug.clone()),
         goal,
-        labels: state
+        state
             .spec
             .as_ref()
             .map(|spec| spec.labels.clone())
             .unwrap_or_default(),
-        host_repo_path: state
+        state
             .spec
             .as_ref()
             .and_then(|spec| spec.host_repo_path.clone()),
-        start_time: state.start.as_ref().map(|start| start.start_time),
-        status: state.status.unwrap_or(RunStatus::Submitted),
-        pending_control: state.pending_control,
-        duration_ms: state
+        state.start.as_ref().map(|start| start.start_time),
+        state.status.unwrap_or(RunStatus::Submitted),
+        state.pending_control,
+        state
             .conclusion
             .as_ref()
             .map(|conclusion| conclusion.duration_ms),
-        total_usd_micros: state
+        state
             .conclusion
             .as_ref()
             .and_then(|conclusion| conclusion.billing.as_ref())
             .and_then(|billing| billing.total_usd_micros),
-        superseded_by: state.superseded_by,
-    }
+        state.superseded_by,
+    )
 }
 
 fn checkpoint_from_props(props: &CheckpointCompletedProps, timestamp: DateTime<Utc>) -> Checkpoint {

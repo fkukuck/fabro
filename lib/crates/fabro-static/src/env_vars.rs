@@ -32,6 +32,7 @@ impl EnvVars {
     pub const FABRO_SUPPRESS_OPEN_BROWSER: &'static str = "FABRO_SUPPRESS_OPEN_BROWSER";
     pub const FABRO_TELEMETRY: &'static str = "FABRO_TELEMETRY";
     pub const FABRO_TEST_IN_MEMORY_STORE: &'static str = "FABRO_TEST_IN_MEMORY_STORE";
+    pub const FABRO_TEST_DISABLE_SPA_ASSETS: &'static str = "FABRO_TEST_DISABLE_SPA_ASSETS";
     pub const FABRO_TEST_MODE: &'static str = "FABRO_TEST_MODE";
     pub const FABRO_VERBOSE: &'static str = "FABRO_VERBOSE";
     pub const FABRO_WEB_URL: &'static str = "FABRO_WEB_URL";
@@ -168,6 +169,7 @@ mod tests {
             EnvVars::FABRO_SUPPRESS_OPEN_BROWSER,
             EnvVars::FABRO_TELEMETRY,
             EnvVars::FABRO_TEST_IN_MEMORY_STORE,
+            EnvVars::FABRO_TEST_DISABLE_SPA_ASSETS,
             EnvVars::FABRO_TEST_MODE,
             EnvVars::FABRO_VERBOSE,
             EnvVars::FABRO_WEB_URL,

@@ -266,7 +266,7 @@ fn ensure_provider_registered(client: &Client, provider: Provider) -> anyhow::Re
     if client
         .provider_names()
         .iter()
-        .any(|name| *name == provider.as_str())
+        .any(|name| *name == <&'static str>::from(provider))
     {
         return Ok(());
     }

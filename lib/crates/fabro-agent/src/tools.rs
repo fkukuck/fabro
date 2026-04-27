@@ -605,7 +605,7 @@ pub(crate) fn make_web_fetch_tool(summarizer: Option<WebFetchSummarizer>) -> Reg
                         let request = Request {
                             model: s.model_id.model_id().to_string(),
                             messages: vec![Message::user(summarization_prompt)],
-                            provider: Some(s.model_id.provider().as_str().to_string()),
+                            provider: Some(s.model_id.provider().to_string()),
                             tools: None,
                             tool_choice: None,
                             response_format: None,

@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use fabro_client::{AuthEntry, AuthStore, DevTokenEntry, ServerTarget};
@@ -15,6 +15,7 @@ use fabro_config::bind::{self, Bind, BindRequest};
 use fabro_config::user::{active_settings_path, default_storage_dir};
 use fabro_server::install::{self, InstallAppState, InstallFinishHook, InstallFinishInfo};
 use fabro_server::serve::{self, ServeArgs};
+use fabro_server::static_files;
 use fabro_static::EnvVars;
 use fabro_util::browser;
 use fabro_util::printer::Printer;
@@ -171,6 +172,10 @@ fn maybe_install_bootstrap(
     storage_dir: Option<&std::path::Path>,
     serve_args: &ServeArgs,
 ) -> Result<Option<InstallBootstrap>> {
+    if serve_args.no_web {
+        return Ok(None);
+    }
+
     if explicit_config.is_some() || has_config_env_override() {
         return Ok(None);
     }
@@ -178,6 +183,12 @@ fn maybe_install_bootstrap(
     let config_path = active_settings_path(None);
     if config_path.exists() {
         return Ok(None);
+    }
+
+    if !static_files::assets_available() {
+        bail!(
+            "browser install mode requires web UI assets, but none were found.\n\nRun one of:\n  cargo dev build    # build a binary with the web UI\n  fabro install      # terminal wizard\n  fabro server start --no-web"
+        );
     }
 
     let bind_request = match serve_args.bind.as_deref() {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -58,6 +58,7 @@ pub struct InstallAppState {
     first_operator:     Arc<Mutex<Option<InstallOperatorFingerprint>>>,
     finish_in_progress: Arc<AtomicBool>,
     upstreams:          InstallUpstreamConfig,
+    static_asset_root:  Option<Arc<Path>>,
     on_finish:          Option<Arc<dyn Fn() + Send + Sync>>,
     finish_hook:        Option<InstallFinishHook>,
 }
@@ -105,6 +106,7 @@ impl InstallAppState {
             first_operator:     Arc::new(Mutex::new(None)),
             finish_in_progress: Arc::new(AtomicBool::new(false)),
             upstreams:          InstallUpstreamConfig::default(),
+            static_asset_root:  None,
             on_finish:          None,
             finish_hook:        None,
         }
@@ -146,6 +148,7 @@ impl InstallAppState {
             first_operator:     Arc::new(Mutex::new(None)),
             finish_in_progress: Arc::new(AtomicBool::new(false)),
             upstreams:          InstallUpstreamConfig::default(),
+            static_asset_root:  None,
             on_finish:          None,
             finish_hook:        None,
         }
@@ -170,6 +173,12 @@ impl InstallAppState {
     #[must_use]
     pub fn with_home(mut self, home: Home) -> Self {
         self.home = Some(home);
+        self
+    }
+
+    #[must_use]
+    pub fn with_static_asset_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.static_asset_root = Some(Arc::from(root.into()));
         self
     }
 
@@ -513,8 +522,8 @@ impl TryFrom<GithubAppOwnerInput> for GitHubAppOwner {
     }
 }
 
-pub async fn build_install_router(state: InstallAppState) -> Router {
-    static_files::assert_install_mode_shell_ready().await;
+pub fn build_install_router(state: InstallAppState) -> Router {
+    let static_asset_root = state.static_asset_root.clone();
 
     Router::new()
         .route("/health", get(health))
@@ -551,15 +560,25 @@ pub async fn build_install_router(state: InstallAppState) -> Router {
         )
         .route("/install/finish", post(post_install_finish))
         .with_state(state)
-        .fallback_service(service_fn(move |req: Request| async move {
-            let path = req.uri().path().to_string();
-            if path.starts_with("/api/") {
-                Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
-            } else if matches!(req.method(), &Method::GET | &Method::HEAD) {
-                let headers = req.headers().clone();
-                Ok::<_, Infallible>(static_files::serve_install(&path, &headers).await)
-            } else {
-                Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
+        .fallback_service(service_fn(move |req: Request| {
+            let static_asset_root = static_asset_root.clone();
+            async move {
+                let path = req.uri().path().to_string();
+                if path.starts_with("/api/") {
+                    Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
+                } else if matches!(req.method(), &Method::GET | &Method::HEAD) {
+                    let headers = req.headers().clone();
+                    Ok::<_, Infallible>(
+                        static_files::serve_install_with_asset_root(
+                            &path,
+                            &headers,
+                            static_asset_root.as_deref(),
+                        )
+                        .await,
+                    )
+                } else {
+                    Ok::<_, Infallible>(StatusCode::NOT_FOUND.into_response())
+                }
             }
         }))
         .layer(middleware::from_fn(security_headers::layer))
@@ -608,7 +627,7 @@ where
     let bound_listener = bind_install_listener(&bind_request).await?;
     state.set_install_bind(&bound_listener.bind);
     let state = state.with_finish_callback(finish_callback);
-    let router = build_install_router(state).await;
+    let router = build_install_router(state);
     let bind = bound_listener.bind.clone();
     on_ready(&bind)?;
 
@@ -700,7 +719,7 @@ async fn post_install_llm_test(
     match validate_llm_provider(&state, &input).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(err) => {
-            warn!(provider = %input.provider.as_str(), error = %err, "install LLM validation failed");
+            warn!(provider = %input.provider, error = %err, "install LLM validation failed");
             install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err)
         }
     }
@@ -732,7 +751,7 @@ async fn put_install_llm(
         if provider.api_key.trim().is_empty() {
             return install_error_response(
                 StatusCode::UNPROCESSABLE_ENTITY,
-                format!("api_key is required for {}", provider.provider.as_str()),
+                format!("api_key is required for {}", provider.provider),
             );
         }
     }
@@ -1526,8 +1545,17 @@ async fn post_install_finish(
     (StatusCode::ACCEPTED, Json(body)).into_response()
 }
 
-async fn render_install_shell(headers: HeaderMap, uri: OriginalUri) -> Response {
-    static_files::serve_install(uri.path(), &headers).await
+async fn render_install_shell(
+    State(state): State<InstallAppState>,
+    headers: HeaderMap,
+    uri: OriginalUri,
+) -> Response {
+    static_files::serve_install_with_asset_root(
+        uri.path(),
+        &headers,
+        state.static_asset_root.as_deref(),
+    )
+    .await
 }
 
 fn token_is_valid(state: &InstallAppState, headers: &HeaderMap, query_token: Option<&str>) -> bool {
@@ -1675,7 +1703,7 @@ fn redacted_llm(pending_install: &PendingInstall) -> serde_json::Value {
         |llm| {
             serde_json::json!({
                 "providers": llm.providers.iter().map(|provider| serde_json::json!({
-                    "provider": provider.provider.as_str(),
+                    "provider": <&'static str>::from(provider.provider),
                     "configured": true,
                 })).collect::<Vec<_>>()
             })
@@ -1834,7 +1862,7 @@ async fn validate_llm_provider(
         | Provider::OpenAiCompatible => {
             return Err(format!(
                 "{} is not supported by install validation",
-                input.provider.as_str()
+                input.provider
             ));
         }
     };
@@ -1860,7 +1888,7 @@ async fn validate_llm_provider(
     } else {
         Err(format!(
             "{} model lookup failed ({})",
-            input.provider.as_str(),
+            input.provider,
             response.status()
         ))
     }

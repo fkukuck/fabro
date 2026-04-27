@@ -625,6 +625,7 @@ methods = ["dev-token"]
                 web_enabled:                 false,
                 github_endpoints:            None,
                 github_webhook_ip_allowlist: None,
+                static_asset_root:           None,
             },
         );
 

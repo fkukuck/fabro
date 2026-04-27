@@ -58,7 +58,7 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
     let retro_prompt = build_retro_prompt(RETRO_DATA_DIR);
     services.emitter.emit(&Event::RetroStarted {
         prompt:   Some(retro_prompt),
-        provider: Some(services.provider.as_str().to_string()),
+        provider: Some(services.provider.to_string()),
         model:    Some(options.model.clone()),
     });
 

@@ -67,7 +67,7 @@ async fn ensure_cli(
 ) -> Result<(), Error> {
     let start = std::time::Instant::now();
     let cli_name = cli.name();
-    let provider_str = provider.as_str();
+    let provider_str = <&'static str>::from(provider);
 
     emitter.emit(&Event::CliEnsureStarted {
         cli_name: cli_name.to_string(),
@@ -520,7 +520,7 @@ impl CodergenBackend for AgentCliBackend {
                 node_id:  node.id.clone(),
                 visit:    stage_scope.visit,
                 mode:     "cli".to_string(),
-                provider: provider.as_str().to_string(),
+                provider: provider.to_string(),
                 model:    model.to_string(),
                 command:  command.clone(),
             },

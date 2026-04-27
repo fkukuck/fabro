@@ -4,6 +4,7 @@
 )]
 
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -27,6 +28,10 @@ use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::{Layer, Registry};
 
 use crate::helpers::{checked_response, response_json, response_status, response_text};
+
+fn spa_fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/spa")
+}
 
 #[derive(Default)]
 struct EventCapture {
@@ -172,7 +177,9 @@ async fn configure_token_install(app: &axum::Router, token: &str) {
 
 #[tokio::test]
 async fn install_router_isolated_from_normal_api_surface() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(
+        InstallAppState::for_test("test-install-token").with_static_asset_root(spa_fixture_root()),
+    );
 
     let health_response = app
         .clone()
@@ -222,7 +229,7 @@ async fn install_router_isolated_from_normal_api_surface() {
 
 #[tokio::test]
 async fn install_session_requires_valid_install_token() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let unauthorized = app
         .clone()
@@ -264,7 +271,7 @@ async fn install_session_requires_valid_install_token() {
 
 #[tokio::test]
 async fn install_session_sanitizes_wildcard_host_prefill() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let response = app
         .oneshot(
@@ -285,7 +292,7 @@ async fn install_session_sanitizes_wildcard_host_prefill() {
 
 #[tokio::test]
 async fn install_endpoints_reject_missing_and_wrong_tokens() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
     let cases = [
         ("GET", "/install/session", None),
         (
@@ -380,7 +387,7 @@ async fn install_endpoints_reject_missing_and_wrong_tokens() {
 
 #[tokio::test]
 async fn install_endpoints_accept_query_token_when_authorization_header_is_wrong() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let response = app
         .oneshot(
@@ -399,7 +406,7 @@ async fn install_endpoints_accept_query_token_when_authorization_header_is_wrong
 
 #[tokio::test]
 async fn object_store_local_validation_and_save_update_install_session() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let validation_response = app
         .clone()
@@ -449,7 +456,7 @@ async fn object_store_local_validation_and_save_update_install_session() {
 
 #[tokio::test]
 async fn object_store_validation_rejects_runtime_mode_access_keys_without_echoing_secrets() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
     let access_key_id = "AKIA_RUNTIME_SHOULD_NOT_LEAK";
     let secret_access_key = "runtime-secret-should-not-leak";
 
@@ -485,7 +492,7 @@ async fn object_store_validation_rejects_runtime_mode_access_keys_without_echoin
 
 #[tokio::test]
 async fn install_finish_requires_object_store_step() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
     put_install_llm(&app, "test-install-token").await;
@@ -522,8 +529,7 @@ async fn manual_object_store_session_is_redacted_and_blank_resubmit_preserves_cr
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
 
     put_install_object_store(
         &app,
@@ -604,8 +610,7 @@ async fn switching_object_store_from_manual_to_runtime_clears_saved_manual_crede
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
 
     put_install_object_store(
         &app,
@@ -690,8 +695,7 @@ async fn runtime_object_store_finish_removes_managed_aws_keys_but_keeps_unmarked
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
     put_install_object_store(
@@ -735,8 +739,7 @@ async fn token_install_finish_persists_settings_env_and_vault() {
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
     configure_token_install(&app, "test-install-token").await;
 
     let finish_response = app
@@ -812,8 +815,7 @@ async fn token_install_finish_invokes_finish_hook_before_response_returns() {
     let app = build_install_router(
         InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
             .with_finish_hook(hook),
-    )
-    .await;
+    );
     configure_token_install(&app, "test-install-token").await;
 
     let finish_response = app
@@ -874,8 +876,7 @@ async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
         InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
             .with_home(home.clone())
             .with_github_api_base_url(github_mock.url("")),
-    )
-    .await;
+    );
 
     let llm_response = app
         .clone()
@@ -1024,8 +1025,7 @@ async fn token_install_finish_invokes_shutdown_callback_after_accepting() {
             .with_finish_callback(Arc::new(move || {
                 callback_flag.store(true, Ordering::Release);
             })),
-    )
-    .await;
+    );
 
     configure_token_install(&app, "test-install-token").await;
 
@@ -1087,8 +1087,7 @@ async fn install_validation_endpoints_validate_credentials_and_github_token() {
         InstallAppState::for_test("test-install-token")
             .with_provider_base_url(Provider::Anthropic, format!("{}/v1", llm_mock.url("")))
             .with_github_api_base_url(github_mock.url("")),
-    )
-    .await;
+    );
 
     let llm_response = app
         .clone()
@@ -1153,8 +1152,7 @@ async fn github_app_manifest_round_trip_updates_install_session() {
     let app = build_install_router(
         InstallAppState::for_test("test-install-token")
             .with_github_api_base_url(github_mock.url("")),
-    )
-    .await;
+    );
 
     let server_response = app
         .clone()
@@ -1271,7 +1269,7 @@ async fn github_app_manifest_round_trip_updates_install_session() {
 
 #[tokio::test]
 async fn github_app_manifest_retry_replaces_pending_and_preserves_prior_token_strategy() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let server_response = app
         .clone()
@@ -1443,8 +1441,7 @@ async fn github_app_redirect_rejects_invalid_or_missing_state_without_mutating_s
     let app = build_install_router(
         InstallAppState::for_test("test-install-token")
             .with_github_api_base_url(github_mock.url("")),
-    )
-    .await;
+    );
 
     let server_response = app
         .clone()
@@ -1604,8 +1601,7 @@ async fn github_app_redirect_exchange_failure_returns_to_wizard_and_keeps_pendin
     let app = build_install_router(
         InstallAppState::for_test("test-install-token")
             .with_github_api_base_url(github_mock.url("")),
-    )
-    .await;
+    );
 
     let server_response = app
         .clone()
@@ -1711,7 +1707,7 @@ async fn github_app_redirect_exchange_failure_returns_to_wizard_and_keeps_pendin
 
 #[tokio::test]
 async fn install_server_rejects_trailing_slash_canonical_urls() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     let response = app
         .oneshot(
@@ -1742,7 +1738,7 @@ async fn install_server_rejects_trailing_slash_canonical_urls() {
 
 #[tokio::test]
 async fn install_server_rejects_wildcard_canonical_urls() {
-    let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
     for canonical_url in [
         "http://0.0.0.0:32276",
@@ -1798,8 +1794,7 @@ async fn install_finish_failure_restores_settings_and_vault_but_leaves_env_keys(
             .with_finish_callback(Arc::new(move || {
                 callback_flag.store(true, Ordering::Release);
             })),
-    )
-    .await;
+    );
 
     configure_token_install(&app, "test-install-token").await;
 
@@ -1891,8 +1886,7 @@ async fn install_finish_failure_with_manual_credentials_does_not_leak_values() {
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
 
     let access_key_id = "AKIA_FINISH_SHOULD_NOT_LEAK";
     let secret_access_key = "finish-secret-should-not-leak";
@@ -1971,8 +1965,7 @@ async fn install_finish_failure_reports_only_env_keys_actually_removed() {
         "test-install-token",
         temp_dir.path(),
         &config_path,
-    ))
-    .await;
+    ));
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
     put_install_object_store(
@@ -2032,8 +2025,7 @@ async fn install_finish_failure_does_not_create_home_dev_token() {
     let app = build_install_router(
         InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
             .with_home(home.clone()),
-    )
-    .await;
+    );
 
     configure_token_install(&app, "test-install-token").await;
 
