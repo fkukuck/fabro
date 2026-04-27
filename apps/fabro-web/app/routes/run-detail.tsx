@@ -138,9 +138,8 @@ export default function RunDetail({ params }: { params: { id: string } }) {
       archiveMutation.data,
       lifecycleToastStateRef.current,
       { push, dismiss },
-      () => void unarchiveMutation.trigger(),
     );
-  }, [archiveMutation.data, dismiss, push, unarchiveMutation]);
+  }, [archiveMutation.data, dismiss, push]);
 
   useEffect(() => {
     lifecycleToastStateRef.current = handleLifecycleToastResult(
@@ -322,7 +321,6 @@ export function handleLifecycleToastResult(
   result: RunDetailActionResult | undefined,
   state: LifecycleToastState,
   toastApi: ToastApi,
-  onUnarchive?: () => void,
 ): LifecycleToastState {
   if (!result || result.intent !== intent) return state;
   if (state.lastProcessed[intent] === result) return state;
@@ -349,15 +347,9 @@ export function handleLifecycleToastResult(
   }
 
   if (intent === "archive") {
-    const archiveToast: Parameters<ToastApi["push"]>[0] = {
-      message: "Run archived.",
-    };
-    if (onUnarchive) {
-      archiveToast.action = { label: "Unarchive", onClick: onUnarchive };
-    }
     return {
       ...nextState,
-      activeArchiveToastId: toastApi.push(archiveToast),
+      activeArchiveToastId: toastApi.push({ message: "Run archived." }),
     };
   }
 
