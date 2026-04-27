@@ -787,6 +787,46 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
+         * Returns the raw Graphviz DOT source for the workflow graph (the contents of the workflow\'s `.fabro` file).
+         * @summary Retrieve Graphviz DOT source
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveRunGraphSource: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('retrieveRunGraphSource', 'id', id)
+            const localVarPath = `/api/v1/runs/{id}/graph/source`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'text/vnd.graphviz,application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * Creates a new run from an earlier checkpoint of a terminal source run, archives the source run, and records `run.superseded_by` on the source after archive succeeds. Returns 207 when the new run was created but the source archive step failed. 
          * @summary Rewind Run
          * @param {string} id Unique run identifier (ULID).
@@ -1231,6 +1271,19 @@ export const RunsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Returns the raw Graphviz DOT source for the workflow graph (the contents of the workflow\'s `.fabro` file).
+         * @summary Retrieve Graphviz DOT source
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async retrieveRunGraphSource(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveRunGraphSource(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.retrieveRunGraphSource']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Creates a new run from an earlier checkpoint of a terminal source run, archives the source run, and records `run.superseded_by` on the source after archive succeeds. Returns 207 when the new run was created but the source archive step failed. 
          * @summary Rewind Run
          * @param {string} id Unique run identifier (ULID).
@@ -1484,6 +1537,16 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.retrieveRunGraph(id, options).then((request) => request(axios, basePath));
         },
         /**
+         * Returns the raw Graphviz DOT source for the workflow graph (the contents of the workflow\'s `.fabro` file).
+         * @summary Retrieve Graphviz DOT source
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveRunGraphSource(id: string, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+            return localVarFp.retrieveRunGraphSource(id, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Creates a new run from an earlier checkpoint of a terminal source run, archives the source run, and records `run.superseded_by` on the source after archive succeeds. Returns 207 when the new run was created but the source archive step failed. 
          * @summary Rewind Run
          * @param {string} id Unique run identifier (ULID).
@@ -1734,6 +1797,17 @@ export class RunsApi extends BaseAPI {
      */
     public retrieveRunGraph(id: string, options?: RawAxiosRequestConfig) {
         return RunsApiFp(this.configuration).retrieveRunGraph(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Returns the raw Graphviz DOT source for the workflow graph (the contents of the workflow\'s `.fabro` file).
+     * @summary Retrieve Graphviz DOT source
+     * @param {string} id Unique run identifier (ULID).
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public retrieveRunGraphSource(id: string, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).retrieveRunGraphSource(id, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

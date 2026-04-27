@@ -1138,6 +1138,7 @@ fn demo_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/pause", post(demo::pause_stub))
         .route("/runs/{id}/unpause", post(demo::unpause_stub))
         .route("/runs/{id}/graph", get(demo::get_run_graph))
+        .route("/runs/{id}/graph/source", get(demo::get_run_graph_source))
         .route("/runs/{id}/stages", get(demo::get_run_stages))
         .route("/runs/{id}/artifacts", get(demo::list_run_artifacts_stub))
         .route("/runs/{id}/files", get(demo::list_run_files_stub))
@@ -1238,6 +1239,7 @@ fn real_routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/timeline", get(run_timeline))
         .route("/runs/{id}/unarchive", post(unarchive_run))
         .route("/runs/{id}/graph", get(get_graph))
+        .route("/runs/{id}/graph/source", get(get_graph_source))
         .route("/runs/{id}/stages", get(list_run_stages))
         .route("/runs/{id}/artifacts", get(list_run_artifacts))
         .route("/runs/{id}/files", get(list_run_files))
@@ -7931,6 +7933,33 @@ struct GraphParams {
     direction: Option<String>,
 }
 
+async fn load_run_dot_source(state: &AppState, id: &RunId) -> Result<String, Response> {
+    let live_dot_source = {
+        let runs = state.runs.lock().expect("runs lock poisoned");
+        runs.get(id).map(|managed_run| managed_run.dot_source.clone())
+    };
+
+    let dot_source = if let Some(dot) = live_dot_source.filter(|d| !d.is_empty()) {
+        Some(dot)
+    } else {
+        match state.store.open_run_reader(id).await {
+            Ok(run_store) => match run_store.state().await {
+                Ok(run_state) => run_state.graph_source,
+                Err(err) => {
+                    return Err(
+                        ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+                    );
+                }
+            },
+            Err(_) => return Err(ApiError::not_found("Run not found.").into_response()),
+        }
+    };
+
+    dot_source.ok_or_else(|| {
+        ApiError::new(StatusCode::NOT_FOUND, "Graph not found.").into_response()
+    })
+}
+
 async fn get_graph(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
@@ -7942,28 +7971,9 @@ async fn get_graph(
         Err(response) => return response,
     };
 
-    let live_dot_source = {
-        let runs = state.runs.lock().expect("runs lock poisoned");
-        runs.get(&id)
-            .map(|managed_run| managed_run.dot_source.clone())
-    };
-
-    let dot_source = if let Some(dot) = live_dot_source.filter(|d| !d.is_empty()) {
-        Some(dot)
-    } else {
-        match state.store.open_run_reader(&id).await {
-            Ok(run_store) => match run_store.state().await {
-                Ok(run_state) => run_state.graph_source,
-                Err(err) => {
-                    return ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()).into_response();
-                }
-            },
-            Err(_) => return ApiError::not_found("Run not found.").into_response(),
-        }
-    };
-
-    let Some(dot) = dot_source else {
-        return ApiError::new(StatusCode::NOT_FOUND, "Graph not found.").into_response();
+    let dot = match load_run_dot_source(&state, &id).await {
+        Ok(dot) => dot,
+        Err(response) => return response,
     };
 
     let dot = match params.direction.as_deref() {
@@ -7975,6 +7985,22 @@ async fn get_graph(
     };
 
     render_graph_bytes(&dot).await
+}
+
+async fn get_graph_source(
+    _auth: AuthenticatedService,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    let id = match parse_run_id_path(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    match load_run_dot_source(&state, &id).await {
+        Ok(dot) => (StatusCode::OK, [("content-type", "text/vnd.graphviz")], dot).into_response(),
+        Err(response) => response,
+    }
 }
 
 #[cfg(test)]
@@ -11784,6 +11810,7 @@ slug = "fabro"
             (Method::POST, format!("/runs/{run_id}/archive")),
             (Method::POST, format!("/runs/{run_id}/unarchive")),
             (Method::GET, format!("/runs/{run_id}/graph")),
+            (Method::GET, format!("/runs/{run_id}/graph/source")),
             (Method::GET, format!("/runs/{run_id}/stages")),
             (Method::GET, format!("/runs/{run_id}/artifacts")),
             (Method::GET, format!("/runs/{run_id}/files")),
@@ -12118,6 +12145,60 @@ slug = "fabro"
             "expected SVG content, got: {}",
             &svg[..svg.len().min(200)]
         );
+    }
+
+    #[tokio::test]
+    async fn get_graph_source_returns_dot() {
+        let state = create_app_state();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(api("/runs"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_string(&serde_json::json!({
+                    "version": 1,
+                    "cwd": "/tmp",
+                    "target": {
+                        "identifier": "workflow.fabro",
+                        "path": "workflow.fabro",
+                    },
+                    "workflows": {
+                        "workflow.fabro": {
+                            "source": MINIMAL_DOT,
+                            "files": {},
+                        },
+                    },
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body = body_json(response.into_body()).await;
+        let run_id = body["id"].as_str().unwrap().parse::<RunId>().unwrap();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api(&format!("/runs/{run_id}/graph/source")))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        let response = checked_response!(response, StatusCode::OK).await;
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .expect("content-type header should be present")
+            .to_str()
+            .unwrap();
+        assert_eq!(content_type, "text/vnd.graphviz");
+
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let dot = String::from_utf8(bytes.to_vec()).unwrap();
+        assert_eq!(dot, MINIMAL_DOT);
     }
 
     #[tokio::test]

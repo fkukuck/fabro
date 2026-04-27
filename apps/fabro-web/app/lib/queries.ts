@@ -91,6 +91,13 @@ export function useRunGraph(id: string | undefined, direction?: "LR" | "TB") {
   );
 }
 
+export function useRunGraphSource(id: string | undefined, enabled: boolean) {
+  return useSWR<string | null>(
+    id && enabled ? queryKeys.runs.graphSource(id) : null,
+    apiNullableTextFetcher,
+  );
+}
+
 export function useRunLogs(id: string | undefined, refreshInterval?: number) {
   return useSWR<string | null>(
     id ? queryKeys.runs.logs(id) : null,

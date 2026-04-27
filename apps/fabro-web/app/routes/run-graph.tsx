@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { graphTheme } from "../lib/graph-theme";
-import { useRunGraph, useRunStages } from "../lib/queries";
+import { useRunGraph, useRunGraphSource, useRunStages } from "../lib/queries";
+import { CopyButton } from "../components/ui";
+import { LoadingState } from "../components/state";
 import { StageSidebar } from "../components/stage-sidebar";
 import {
   GRAPH_DEFAULT_ZOOM_INDEX,
@@ -69,11 +71,15 @@ function stripGraphTitle(svg: SVGSVGElement) {
   title.remove();
 }
 
+type View = "graph" | "source";
+
 export default function RunGraph() {
   const { id } = useParams();
   const [direction, setDirection] = useState<Direction>("LR");
+  const [view, setView] = useState<View>("graph");
   const stagesQuery = useRunStages(id);
   const graphQuery = useRunGraph(id, direction);
+  const sourceQuery = useRunGraphSource(id, view === "source");
   const stages = useMemo(
     () => mapRunStagesToSidebarStages(stagesQuery.data),
     [stagesQuery.data],
@@ -184,35 +190,94 @@ export default function RunGraph() {
     <div className="flex gap-6">
       <StageSidebar stages={stages} runId={id!} activeLink="graph" />
 
-      <div className="min-w-0 flex-1">
-        <div className="graph-svg relative rounded-md border border-line bg-panel-alt">
-          <GraphToolbar
-            direction={direction}
-            setDirection={setDirection}
-            fitToWindow={fitToWindow}
-            zoomIndex={zoomIndex}
-            setZoomIndex={setZoomIndex}
-          />
+      <div className="min-w-0 flex-1 space-y-3">
+        <ViewToggle view={view} setView={setView} />
 
-          <div
-            ref={containerRef}
-            className="overflow-hidden p-6"
-            style={{ cursor: dragState.current ? "grabbing" : "grab" }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-          >
+        {view === "graph" ? (
+          <div className="graph-svg relative rounded-md border border-line bg-panel-alt">
+            <GraphToolbar
+              direction={direction}
+              setDirection={setDirection}
+              fitToWindow={fitToWindow}
+              zoomIndex={zoomIndex}
+              setZoomIndex={setZoomIndex}
+            />
+
             <div
-              ref={innerRef}
-              className="flex items-center justify-center"
-              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
+              ref={containerRef}
+              className="overflow-hidden p-6"
+              style={{ cursor: dragState.current ? "grabbing" : "grab" }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
             >
-              <p className="text-sm text-fg-muted">Loading diagram...</p>
+              <div
+                ref={innerRef}
+                className="flex items-center justify-center"
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
+              >
+                <p className="text-sm text-fg-muted">Loading diagram...</p>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <SourcePanel source={sourceQuery.data} loading={sourceQuery.data === undefined && !sourceQuery.error} />
+        )}
       </div>
+    </div>
+  );
+}
+
+function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void }) {
+  const btn =
+    "rounded px-3 py-1.5 text-xs font-medium transition-colors";
+  return (
+    <div role="group" aria-label="Graph view" className="inline-flex rounded-md border border-line bg-panel/80 p-0.5">
+      <button
+        type="button"
+        onClick={() => setView("graph")}
+        aria-pressed={view === "graph"}
+        className={`${btn} ${view === "graph" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
+      >
+        Graph
+      </button>
+      <button
+        type="button"
+        onClick={() => setView("source")}
+        aria-pressed={view === "source"}
+        className={`${btn} ${view === "source" ? "bg-overlay text-teal-500" : "text-fg-muted hover:text-fg-3"}`}
+      >
+        Source
+      </button>
+    </div>
+  );
+}
+
+function SourcePanel({ source, loading }: { source: string | null | undefined; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-md border border-line bg-panel-alt p-4">
+        <LoadingState label="Loading graph source…" />
+      </div>
+    );
+  }
+  if (!source) {
+    return (
+      <div className="rounded-md border border-line bg-panel-alt p-4">
+        <p className="text-sm text-fg-muted">No graph source available for this run.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line bg-panel-alt">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+        <span className="font-mono text-xs text-fg-muted">workflow.fabro</span>
+        <CopyButton value={source} label="Copy graph source" />
+      </div>
+      <pre className="max-h-[70vh] overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-fg-2">
+        {source}
+      </pre>
     </div>
   );
 }

@@ -1049,6 +1049,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/runs/{id}/graph/source:
+    get:
+      operationId: retrieveRunGraphSource
+      tags: [Runs]
+      summary: Retrieve Graphviz DOT source
+      description: Returns the raw Graphviz DOT source for the workflow graph (the contents of the workflow's `.fabro` file).
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Graphviz DOT source
+          content:
+            text/vnd.graphviz:
+              schema:
+                type: string
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/v1/runs/{id}/checkpoint:
     get:
       operationId: retrieveRunCheckpoint
