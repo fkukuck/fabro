@@ -1096,16 +1096,19 @@ mod tests {
         }
     }
 
-    async fn preflight_for_settings(settings: SettingsLayer) -> Result<(CheckReport, bool)> {
+    async fn preflight_for_settings(source: &str) -> Result<(CheckReport, bool)> {
         let state = crate::server::create_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),
-            source: Some(toml::to_string(&settings).unwrap()),
+            source: Some(source.to_string()),
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared = prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false)?;
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )?;
         let validated = validate_prepared_manifest(&prepared)?;
         build_preflight_report(state.as_ref(), &prepared, &validated).await
     }
@@ -1332,6 +1335,9 @@ provider = "local"
                 r#"
 _version = 1
 
+[run.sandbox]
+provider = "local"
+
 [run.scm.github.permissions]
 issues = "read"
 "#
@@ -1340,8 +1346,11 @@ issues = "read"
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared =
-            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
@@ -1368,6 +1377,9 @@ issues = "read"
                 r#"
 _version = 1
 
+[run.sandbox]
+provider = "local"
+
 [server.integrations.github.permissions]
 issues = "read"
 "#
@@ -1376,8 +1388,11 @@ issues = "read"
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared =
-            prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false).unwrap();
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
         let validated = validate_prepared_manifest(&prepared).unwrap();
 
         let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
@@ -1444,16 +1459,13 @@ provider = "daytona"
             "FABRO_AZURE_STORAGE_KEY",
             "FABRO_AZURE_ACR_SERVER",
         ]);
-        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
-            r#"
+        let settings = r#"
             [run.sandbox]
             provider = "azure"
 
             [run.sandbox.azure]
             image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
-            "#,
-        )
-        .unwrap();
+            "#;
 
         let (report, ok) = preflight_for_settings(settings).await.unwrap();
         assert!(!ok);

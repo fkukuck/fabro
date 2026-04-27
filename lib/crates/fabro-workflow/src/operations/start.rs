@@ -1275,7 +1275,7 @@ mod tests {
 
     #[test]
     fn resolved_github_permissions_for_sandbox_reads_run_scm_github_permissions() {
-        let settings = fabro_config::parse_settings_layer(
+        let settings = WorkflowSettingsBuilder::from_toml(
             r#"
 _version = 1
 
@@ -1284,10 +1284,10 @@ contents = "write"
 pull_requests = "write"
 "#,
         )
-        .unwrap();
-        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+        .unwrap()
+        .run;
 
-        let permissions = resolved_github_permissions_for_sandbox(&resolved)
+        let permissions = resolved_github_permissions_for_sandbox(&settings)
             .expect("github permissions should be present");
 
         assert_eq!(

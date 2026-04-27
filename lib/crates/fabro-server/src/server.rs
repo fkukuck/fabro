@@ -12719,7 +12719,7 @@ level = "debug"
 
     #[test]
     fn run_requests_github_credentials_when_run_scm_permissions_are_present() {
-        let settings = fabro_config::parse_settings_layer(
+        let settings = fabro_config::WorkflowSettingsBuilder::from_toml(
             r#"
 _version = 1
 
@@ -12730,10 +12730,10 @@ mode = "normal"
 issues = "read"
 "#,
         )
-        .unwrap();
-        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+        .unwrap()
+        .run;
 
-        assert!(run_requests_github_credentials(&resolved));
+        assert!(run_requests_github_credentials(&settings));
     }
 
     #[tokio::test]

@@ -74,7 +74,10 @@ async fn resolve_worktree_plan(options: &mut InitOptions) -> Result<Option<Workt
         }
     }
 
-    let host_repo_path = options.sandbox.host_repo_path();
+    let host_repo_path = options
+        .sandbox
+        .host_repo_path()
+        .or_else(|| options.run_options.host_repo_path.clone());
     let git_status = if let Some(path) = host_repo_path.as_ref() {
         let path = path.clone();
         let base_branch = options.run_options.base_branch.clone();
