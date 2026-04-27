@@ -443,7 +443,7 @@ impl SlackService {
                     id:              props.question_id.clone(),
                     text:            props.question.clone(),
                     stage:           props.stage.clone(),
-                    question_type:   InterviewQuestionType::from_wire_name(&props.question_type),
+                    question_type:   props.question_type.parse().unwrap_or_default(),
                     options:         props.options.clone(),
                     allow_freeform:  props.allow_freeform,
                     timeout_seconds: props.timeout_seconds,
@@ -7532,11 +7532,8 @@ async fn test_model(
     {
         return ApiError::bad_request(auth_issue_message(info.provider, issue)).into_response();
     }
-    if !llm_result
-        .client
-        .provider_names()
-        .contains(&info.provider.as_str())
-    {
+    let provider_name = <&'static str>::from(info.provider);
+    if !llm_result.client.provider_names().contains(&provider_name) {
         return Json(serde_json::json!({
             "model_id": info.id,
             "status": "skip",
@@ -7548,7 +7545,7 @@ async fn test_model(
     let outcome = run_model_test(info, mode, client).await;
     Json(serde_json::json!({
         "model_id": info.id,
-        "status": outcome.status.as_str(),
+        "status": <&'static str>::from(outcome.status),
         "error_message": outcome.error_message,
     }))
     .into_response()

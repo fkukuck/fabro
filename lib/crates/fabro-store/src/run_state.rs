@@ -9,9 +9,9 @@ use fabro_types::run_event::{
 };
 use fabro_types::{
     BilledModelUsage, Checkpoint, Conclusion, EventBody, FailureSignature, InterviewQuestionRecord,
-    InterviewQuestionType, NodeStatusRecord, Outcome, PendingInterviewRecord, PullRequestRecord,
-    RunControlAction, RunId, RunProjection, RunSpec, RunStatus, RunSummary, SandboxRecord,
-    StageStatus, StartRecord, TerminalStatus,
+    NodeStatusRecord, Outcome, PendingInterviewRecord, PullRequestRecord, RunControlAction, RunId,
+    RunProjection, RunSpec, RunStatus, RunSummary, SandboxRecord, StageStatus, StartRecord,
+    TerminalStatus,
 };
 use serde_json::Value;
 
@@ -252,9 +252,7 @@ impl RunProjectionReducer for RunProjection {
                             id:              props.question_id.clone(),
                             text:            props.question.clone(),
                             stage:           props.stage.clone(),
-                            question_type:   InterviewQuestionType::from_wire_name(
-                                &props.question_type,
-                            ),
+                            question_type:   props.question_type.parse().unwrap_or_default(),
                             options:         props.options.clone(),
                             allow_freeform:  props.allow_freeform,
                             timeout_seconds: props.timeout_seconds,

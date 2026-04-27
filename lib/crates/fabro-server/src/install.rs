@@ -700,7 +700,7 @@ async fn post_install_llm_test(
     match validate_llm_provider(&state, &input).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(err) => {
-            warn!(provider = %input.provider.as_str(), error = %err, "install LLM validation failed");
+            warn!(provider = %input.provider, error = %err, "install LLM validation failed");
             install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err)
         }
     }
@@ -732,7 +732,7 @@ async fn put_install_llm(
         if provider.api_key.trim().is_empty() {
             return install_error_response(
                 StatusCode::UNPROCESSABLE_ENTITY,
-                format!("api_key is required for {}", provider.provider.as_str()),
+                format!("api_key is required for {}", provider.provider),
             );
         }
     }
@@ -1675,7 +1675,7 @@ fn redacted_llm(pending_install: &PendingInstall) -> serde_json::Value {
         |llm| {
             serde_json::json!({
                 "providers": llm.providers.iter().map(|provider| serde_json::json!({
-                    "provider": provider.provider.as_str(),
+                    "provider": <&'static str>::from(provider.provider),
                     "configured": true,
                 })).collect::<Vec<_>>()
             })
@@ -1834,7 +1834,7 @@ async fn validate_llm_provider(
         | Provider::OpenAiCompatible => {
             return Err(format!(
                 "{} is not supported by install validation",
-                input.provider.as_str()
+                input.provider
             ));
         }
     };
@@ -1860,7 +1860,7 @@ async fn validate_llm_provider(
     } else {
         Err(format!(
             "{} model lookup failed ({})",
-            input.provider.as_str(),
+            input.provider,
             response.status()
         ))
     }

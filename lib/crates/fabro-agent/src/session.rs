@@ -726,7 +726,7 @@ impl Session {
             // Call LLM (streaming) with retry for transient errors
             let retry_emitter = self.event_emitter.clone();
             let retry_session_id = self.id.clone();
-            let retry_provider = self.provider_profile.provider().as_str().to_string();
+            let retry_provider = self.provider_profile.provider().to_string();
             let retry_model = self.provider_profile.model().to_string();
             let retry_policy = RetryPolicy {
                 max_retries: 3,
@@ -991,7 +991,7 @@ impl Session {
         Request {
             model: self.provider_profile.model().to_string(),
             messages,
-            provider: Some(self.provider_profile.provider().as_str().to_string()),
+            provider: Some(self.provider_profile.provider().to_string()),
             tools: if has_tools { Some(tools) } else { None },
             tool_choice: if has_tools {
                 Some(ToolChoice::Auto)
