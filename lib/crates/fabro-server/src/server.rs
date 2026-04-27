@@ -2798,8 +2798,19 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         http_client,
     } = config;
 
-    let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path)?));
+    let loaded_vault = Vault::load(vault_path)?;
     let server_storage_root = resolved_server_storage_root(&resolved_settings, &env_lookup)?;
+    let current_server_settings = Arc::new(resolved_settings.server_settings);
+    let current_manifest_run_defaults = Arc::new(resolved_settings.manifest_run_defaults);
+    let current_manifest_run_settings = resolved_settings.manifest_run_settings;
+    write_azure_platform_snapshot(
+        &Storage::new(&server_storage_root).runtime_directory(),
+        resolve_azure_platform_config(&current_server_settings.server, &|name| {
+            loaded_vault.get(name).map(str::to_string)
+        })
+        .map_err(anyhow::Error::msg)?,
+    )?;
+    let vault = Arc::new(AsyncRwLock::new(loaded_vault));
     let llm_source: Arc<dyn CredentialSource> = Arc::new(VaultCredentialSource::with_env_lookup(
         Arc::clone(&vault),
         {
@@ -2808,16 +2819,6 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         },
     ));
     let (global_event_tx, _) = broadcast::channel(4096);
-    let current_server_settings = Arc::new(resolved_settings.server_settings);
-    let current_manifest_run_defaults = Arc::new(resolved_settings.manifest_run_defaults);
-    let current_manifest_run_settings = resolved_settings.manifest_run_settings;
-    write_azure_platform_snapshot(
-        &Storage::new(&server_storage_root).runtime_directory(),
-        resolve_azure_platform_config(&current_server_settings.server, &|name| {
-            vault.blocking_read().get(name).map(str::to_string)
-        })
-        .map_err(anyhow::Error::msg)?,
-    )?;
     let slack_service = {
         current_server_settings
             .server
@@ -9347,6 +9348,46 @@ methods = ["dev-token"]
         assert!(err.to_string().contains(
             "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
         ));
+    }
+
+    #[tokio::test]
+    async fn build_app_state_writes_azure_snapshot_without_blocking_runtime() {
+        let storage_dir = tempfile::tempdir().unwrap();
+        let source = format!(
+            r#"
+_version = 1
+
+[server.storage]
+root = "{}"
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.sandbox.azure.platform]
+subscription_id = "sub-1"
+resource_group = "rg-1"
+location = "eastus"
+subnet_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
+acr_server = "fabro.azurecr.io"
+"#,
+            storage_dir.path().display()
+        );
+
+        let _state = create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
+            server_settings_from_toml(&source),
+            manifest_run_defaults_from_toml(&source),
+            5,
+            |_| None,
+            &HashMap::from([(
+                EnvVars::SESSION_SECRET.to_string(),
+                TEST_SESSION_SECRET.to_string(),
+            )]),
+        );
+
+        assert!(Storage::new(storage_dir.path())
+            .runtime_directory()
+            .azure_platform_config_path()
+            .exists());
     }
 
     fn worker_command_test_state(
