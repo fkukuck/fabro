@@ -11,7 +11,7 @@ DigitalOcean is a good fit for self-hosting Fabro on a Droplet — a plain Linux
 
 - `docker-compose.yaml` pulls the pre-built image from GHCR and declares a named volume for `/storage`
 - `docker-compose.prod.yaml` adds a [Caddy](https://caddyserver.com) sidecar that terminates TLS and auto-provisions Let's Encrypt certificates
-- `Caddyfile` reverse-proxies HTTPS traffic to the Fabro server
+- `docker/Caddyfile` reverse-proxies HTTPS traffic to the Fabro server
 
 <Note>
   **Why not App Platform?** DigitalOcean App Platform has no persistent volumes — it is designed for stateless workloads that offload state to managed Postgres or Spaces. Fabro writes runs, checkpoints, sessions, and JWT keys to `/storage`, so a Droplet (or any VPS) is the right fit. If you prefer Kubernetes, DOKS works too — that path is not documented here.
