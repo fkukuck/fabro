@@ -6,7 +6,9 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use fabro_config::Storage;
 use fabro_github::GitHubCredentials;
+use fabro_static::EnvVars;
 use fabro_types::RunId;
 use tokio::sync::OnceCell;
 use tokio::{fs, time};
@@ -58,7 +60,7 @@ impl AzureSandbox {
         clone_origin_url: Option<String>,
         clone_branch: Option<String>,
     ) -> Result<Self, String> {
-        let platform = AzurePlatformConfig::from_env()?;
+        let platform = load_platform_from_worker_storage_root()?;
         let arm = AzureArmClient::new(platform.clone())?;
         Ok(Self {
             runtime,
@@ -75,8 +77,8 @@ impl AzureSandbox {
         })
     }
 
-    pub fn reconnect(resource_id: &str) -> Result<Self, String> {
-        let platform = AzurePlatformConfig::from_env()?;
+    pub fn reconnect(resource_id: &str, storage_root: &Path) -> Result<Self, String> {
+        let platform = load_platform_from_storage_root(storage_root)?;
         let arm = AzureArmClient::new(platform.clone())?;
         let parsed = ContainerGroupResourceId::parse(resource_id)?;
         let resource_id_cell = OnceCell::new();
@@ -206,10 +208,7 @@ impl AzureSandbox {
         let auth_url = match &self.github_app {
             Some(creds) => Some(
                 fabro_github::resolve_authenticated_url(
-                    &fabro_github::GitHubContext::new(
-                        creds,
-                        &fabro_github::github_api_base_url(),
-                    ),
+                    &fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
                     &url,
                 )
                 .await
@@ -288,6 +287,23 @@ impl AzureSandbox {
             duration_ms: response.duration_ms,
         })
     }
+}
+
+fn load_platform_from_worker_storage_root() -> Result<AzurePlatformConfig, String> {
+    let storage_root = std::env::var(EnvVars::FABRO_STORAGE_ROOT).map_err(|_| {
+        format!(
+            "{} is required to load Azure platform config",
+            EnvVars::FABRO_STORAGE_ROOT
+        )
+    })?;
+    load_platform_from_storage_root(Path::new(&storage_root))
+}
+
+fn load_platform_from_storage_root(storage_root: &Path) -> Result<AzurePlatformConfig, String> {
+    let path = Storage::new(storage_root)
+        .runtime_directory()
+        .azure_platform_config_path();
+    AzurePlatformConfig::load_from_path(&path)
 }
 
 #[async_trait]

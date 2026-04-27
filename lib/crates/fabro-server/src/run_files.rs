@@ -648,7 +648,13 @@ async fn try_reconnect_run_sandbox(
         return Ok(None);
     };
     let daytona_api_key = state.vault_or_env_pub(EnvVars::DAYTONA_API_KEY);
-    match reconnect(&record, daytona_api_key).await {
+    match reconnect(
+        &record,
+        daytona_api_key,
+        Some(state.server_storage_dir().as_path()),
+    )
+    .await
+    {
         Ok(sandbox) => Ok(Some(sandbox)),
         Err(_) => Ok(None),
     }
