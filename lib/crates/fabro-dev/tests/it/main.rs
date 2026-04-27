@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
 mod docker_build;
+#[cfg(unix)]
+mod docker_entrypoint;
 mod docs;
 mod release;
 mod spa;
