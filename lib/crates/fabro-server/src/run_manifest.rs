@@ -13,7 +13,6 @@ use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_model::Catalog;
-use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_sandbox::config::{
     AzureConfig, DaytonaNetwork, DaytonaSnapshotSettings,
     DockerfileSource as SandboxDockerfileSource,
@@ -36,6 +35,7 @@ use fabro_workflow::pipeline::Validated;
 use fabro_workflow::run_materialization::materialize_run;
 use fabro_workflow::workflow_bundle::{BundledWorkflow, WorkflowBundle};
 
+use crate::azure_platform::resolve_azure_platform_config;
 use crate::server::AppState;
 
 #[derive(Clone)]
@@ -441,6 +441,53 @@ async fn build_preflight_report(
     };
 
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
+    if sandbox_provider == SandboxProvider::Azure {
+        let server_settings = state.server_settings();
+        let azure_platform = resolve_azure_platform_config(&server_settings.server, &|name| {
+            state.vault_or_env_pub(name)
+        });
+        if let Err(err) = azure_platform {
+            checks.push(CheckResult {
+                name:        "Sandbox".into(),
+                status:      CheckStatus::Error,
+                summary:     "failed".into(),
+                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
+                remediation: Some(err),
+            });
+            return Ok((
+                CheckReport {
+                    title:    "Run Preflight".into(),
+                    sections: vec![CheckSection {
+                        title: String::new(),
+                        checks,
+                    }],
+                },
+                false,
+            ));
+        }
+        if azure_platform.unwrap().is_none() {
+            checks.push(CheckResult {
+                name:        "Sandbox".into(),
+                status:      CheckStatus::Error,
+                summary:     "failed".into(),
+                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
+                remediation: Some(
+                    "Azure platform config is not configured. Run fabro install to complete the Azure step."
+                        .to_string(),
+                ),
+            });
+            return Ok((
+                CheckReport {
+                    title:    "Run Preflight".into(),
+                    sections: vec![CheckSection {
+                        title: String::new(),
+                        checks,
+                    }],
+                },
+                false,
+            ));
+        }
+    }
     let sandbox_ok = run_sandbox_check(
         &mut checks,
         sandbox_provider,
@@ -557,19 +604,6 @@ async fn run_sandbox_check(
 ) -> bool {
     let daytona_config = resolve_daytona_config(resolved_run);
     let docker_config = resolve_docker_config(resolved_run);
-
-    if sandbox_provider == SandboxProvider::Azure {
-        if let Err(err) = AzurePlatformConfig::from_env() {
-            checks.push(CheckResult {
-                name:        "Sandbox".into(),
-                status:      CheckStatus::Error,
-                summary:     "failed".into(),
-                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
-                remediation: Some(err),
-            });
-            return false;
-        }
-    }
     let sandbox_result: Result<Arc<dyn Sandbox>, String> = match sandbox_provider {
         SandboxProvider::Local => SandboxSpec::Local {
             working_directory: prepared.working_directory.clone(),
@@ -1448,7 +1482,7 @@ provider = "daytona"
     }
 
     #[tokio::test]
-    async fn preflight_azure_without_platform_env_returns_report() {
+    async fn preflight_azure_without_platform_config_returns_report() {
         let _guard = EnvGuard::clear(&[
             "FABRO_AZURE_SUBSCRIPTION_ID",
             "FABRO_AZURE_RESOURCE_GROUP",
@@ -1473,7 +1507,7 @@ provider = "daytona"
             check
                 .remediation
                 .as_deref()
-                .is_some_and(|text| text.contains("FABRO_AZURE_SUBSCRIPTION_ID"))
+                .is_some_and(|text| text.contains("Azure platform config is not configured"))
         }));
     }
 }

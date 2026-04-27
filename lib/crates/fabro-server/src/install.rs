@@ -17,8 +17,9 @@ use fabro_config::Storage;
 use fabro_config::bind::{Bind, BindRequest};
 use fabro_config::envfile::EnvFileUpdate;
 use fabro_install::{
-    InstallListenConfig, OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV,
-    PendingSettingsWrite, VaultSecretWrite, merge_server_settings, persist_install_outputs_direct,
+    InstallAzurePlatformSelection, InstallListenConfig, OBJECT_STORE_ACCESS_KEY_ID_ENV,
+    OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite, VaultSecretWrite,
+    merge_server_settings, persist_install_outputs_direct, write_azure_platform_settings,
     write_github_app_settings, write_object_store_settings, write_token_settings,
 };
 use fabro_model::Provider;
@@ -209,6 +210,7 @@ struct InstallTokenQuery {
 struct PendingInstall {
     llm:                Option<LlmProvidersInput>,
     server:             Option<ServerConfigInput>,
+    azure:              Option<InstallAzureState>,
     object_store:       Option<InstallObjectStoreState>,
     github:             Option<GithubInstallState>,
     pending_github_app: Option<PendingGithubApp>,
@@ -228,6 +230,68 @@ struct LlmProviderInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct ServerConfigInput {
     canonical_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct InstallAzureInput {
+    subscription_id: String,
+    resource_group:  String,
+    location:        String,
+    subnet_id:       String,
+    acr_server:      String,
+    sandboxd_port:   Option<u16>,
+    acr_username:    Option<String>,
+    acr_password:    Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct InstallAzureState {
+    subscription_id: String,
+    resource_group:  String,
+    location:        String,
+    subnet_id:       String,
+    acr_server:      String,
+    sandboxd_port:   u16,
+    acr_username:    Option<String>,
+    acr_password:    Option<String>,
+}
+
+impl InstallAzureState {
+    fn from_input(input: InstallAzureInput) -> Self {
+        Self {
+            subscription_id: input.subscription_id,
+            resource_group:  input.resource_group,
+            location:        input.location,
+            subnet_id:       input.subnet_id,
+            acr_server:      input.acr_server,
+            sandboxd_port:   input.sandboxd_port.unwrap_or(7777),
+            acr_username:    input.acr_username,
+            acr_password:    input.acr_password,
+        }
+    }
+
+    fn as_session_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "subscription_id": self.subscription_id,
+            "resource_group": self.resource_group,
+            "location": self.location,
+            "subnet_id": self.subnet_id,
+            "acr_server": self.acr_server,
+            "sandboxd_port": self.sandboxd_port,
+            "acr_credentials_saved": self.acr_username.is_some() && self.acr_password.is_some(),
+        })
+    }
+
+    fn to_platform_selection(&self) -> InstallAzurePlatformSelection {
+        InstallAzurePlatformSelection {
+            subscription_id: self.subscription_id.clone(),
+            resource_group:  self.resource_group.clone(),
+            location:        self.location.clone(),
+            subnet_id:       self.subnet_id.clone(),
+            acr_server:      self.acr_server.clone(),
+            sandboxd_port:   self.sandboxd_port,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, strum::IntoStaticStr)]
@@ -529,6 +593,10 @@ pub async fn build_install_router(state: InstallAppState) -> Router {
             get(render_install_shell).put(put_install_server),
         )
         .route(
+            "/install/azure",
+            get(render_install_shell).put(put_install_azure),
+        )
+        .route(
             "/install/object-store/test",
             post(post_install_object_store_test),
         )
@@ -669,6 +737,7 @@ async fn get_install_session(
         "completed_steps": completed_steps(&pending_install),
         "llm": redacted_llm(&pending_install),
         "server": pending_install.server,
+        "azure": redacted_azure(&pending_install),
         "object_store": redacted_object_store(&pending_install),
         "github": redacted_github(&pending_install),
         "prefill": {
@@ -777,6 +846,54 @@ async fn put_install_server(
 
     lock_unpoisoned(&state.pending_install, "install session").server = Some(input);
     info!(step = "server", "install step completed");
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn put_install_azure(
+    State(state): State<InstallAppState>,
+    headers: HeaderMap,
+    Query(query): Query<InstallTokenQuery>,
+    Json(mut input): Json<InstallAzureInput>,
+) -> Response {
+    if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
+        return response;
+    }
+    observe_operator(&state, &headers);
+
+    let require_field = |label: &'static str, value: &mut String| -> Result<(), String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            Err(format!("{label} is required"))
+        } else {
+            *value = trimmed.to_string();
+            Ok(())
+        }
+    };
+
+    for (label, value) in [
+        ("subscription_id", &mut input.subscription_id),
+        ("resource_group", &mut input.resource_group),
+        ("location", &mut input.location),
+        ("subnet_id", &mut input.subnet_id),
+        ("acr_server", &mut input.acr_server),
+    ] {
+        if let Err(err) = require_field(label, value) {
+            return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err);
+        }
+    }
+
+    input.acr_username = trim_install_field(input.acr_username);
+    input.acr_password = trim_install_field(input.acr_password);
+    if input.acr_username.is_some() ^ input.acr_password.is_some() {
+        return install_error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "acr_username and acr_password must be provided together",
+        );
+    }
+
+    lock_unpoisoned(&state.pending_install, "install session").azure =
+        Some(InstallAzureState::from_input(input));
+    info!(step = "azure", "install step completed");
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -1305,6 +1422,9 @@ async fn post_install_finish(
     let Some(server) = pending_install.server else {
         return missing_step_response("server");
     };
+    let Some(azure) = pending_install.azure else {
+        return missing_step_response("azure");
+    };
     let Some(object_store) = pending_install.object_store else {
         return missing_step_response("object_store");
     };
@@ -1322,6 +1442,11 @@ async fn post_install_finish(
     {
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
+    if let Err(err) =
+        write_azure_platform_settings(&mut settings_doc, &azure.to_platform_selection())
+    {
+        return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+    }
     let object_store_env_plan = match write_object_store_settings(
         &mut settings_doc,
         &object_store.to_persistence_selection(),
@@ -1332,6 +1457,20 @@ async fn post_install_finish(
         }
     };
     let mut vault_secrets = Vec::new();
+    if let (Some(acr_username), Some(acr_password)) = (azure.acr_username, azure.acr_password) {
+        vault_secrets.push(VaultSecretWrite {
+            name:        EnvVars::FABRO_AZURE_ACR_USERNAME.to_string(),
+            value:       acr_username,
+            secret_type: VaultSecretType::Environment,
+            description: None,
+        });
+        vault_secrets.push(VaultSecretWrite {
+            name:        EnvVars::FABRO_AZURE_ACR_PASSWORD.to_string(),
+            value:       acr_password,
+            secret_type: VaultSecretType::Environment,
+            description: None,
+        });
+    }
     for provider in llm.providers {
         let credential = AuthCredential {
             provider: provider.provider,
@@ -1657,6 +1796,9 @@ fn completed_steps(pending_install: &PendingInstall) -> Vec<&'static str> {
     if pending_install.server.is_some() {
         steps.push("server");
     }
+    if pending_install.azure.is_some() {
+        steps.push("azure");
+    }
     if pending_install.object_store.is_some() {
         steps.push("object_store");
     }
@@ -1680,6 +1822,13 @@ fn redacted_llm(pending_install: &PendingInstall) -> serde_json::Value {
                 })).collect::<Vec<_>>()
             })
         },
+    )
+}
+
+fn redacted_azure(pending_install: &PendingInstall) -> serde_json::Value {
+    pending_install.azure.as_ref().map_or_else(
+        || serde_json::Value::Null,
+        InstallAzureState::as_session_value,
     )
 }
 

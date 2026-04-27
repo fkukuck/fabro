@@ -22,19 +22,20 @@ pub use project::ProjectLayer;
 pub use run::{
     AzureSandboxLayer, DaytonaDockerfileLayer, DaytonaSandboxLayer, DaytonaSnapshotLayer,
     DockerSandboxLayer, GitAuthorLayer, HookAgentMarker, HookEntry, HookTlsMode,
-    InterviewProviderLayer, InterviewsLayer, LocalSandboxLayer, McpEntryLayer,
-    ModelRefOrSplice, NotificationProviderLayer, NotificationRouteLayer, PrepareStep,
-    RunAgentLayer, RunArtifactsLayer, RunCheckpointLayer, RunExecutionLayer, RunGitLayer,
-    RunGoalLayer, RunLayer, RunModelLayer, RunPrepareLayer, RunPullRequestLayer,
-    RunSandboxLayer, RunScmLayer, ScmGitHubLayer, StringOrSplice,
+    InterviewProviderLayer, InterviewsLayer, LocalSandboxLayer, McpEntryLayer, ModelRefOrSplice,
+    NotificationProviderLayer, NotificationRouteLayer, PrepareStep, RunAgentLayer,
+    RunArtifactsLayer, RunCheckpointLayer, RunExecutionLayer, RunGitLayer, RunGoalLayer, RunLayer,
+    RunModelLayer, RunPrepareLayer, RunPullRequestLayer, RunSandboxLayer, RunScmLayer,
+    ScmGitHubLayer, StringOrSplice,
 };
 pub use server::{
     DiscordIntegrationLayer, GithubIntegrationLayer, IntegrationWebhooksLayer,
     ObjectStoreLocalLayer, ObjectStoreS3Layer, ServerApiLayer, ServerArtifactsLayer,
-    ServerAuthGithubLayer, ServerAuthLayer, ServerIntegrationsLayer, ServerIpAllowlistLayer,
-    ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer, ServerLoggingLayer,
-    ServerSchedulerLayer, ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer,
-    SlackIntegrationLayer, TeamsIntegrationLayer,
+    ServerAuthGithubLayer, ServerAuthLayer, ServerAzurePlatformLayer, ServerAzureSandboxLayer,
+    ServerIntegrationsLayer, ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerLayer,
+    ServerListenLayer, ServerLoggingLayer, ServerSandboxLayer, ServerSchedulerLayer,
+    ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer, SlackIntegrationLayer,
+    TeamsIntegrationLayer,
 };
 pub(crate) use settings::SettingsLayer;
 pub use workflow::WorkflowLayer;

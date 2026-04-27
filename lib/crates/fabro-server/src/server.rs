@@ -114,6 +114,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use ulid::Ulid;
 
 use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
+use crate::azure_platform::{resolve_azure_platform_config, write_azure_platform_snapshot};
 use crate::canonical_origin::resolve_canonical_origin;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -2769,6 +2770,20 @@ fn worker_token_keys_from_server_secrets(
         .map_err(|err| jwt_auth::session_secret_key_error(&err))
 }
 
+fn resolved_server_storage_root(
+    settings: &ResolvedAppStateSettings,
+    env_lookup: &EnvLookup,
+) -> anyhow::Result<PathBuf> {
+    settings
+        .server_settings
+        .server
+        .storage
+        .root
+        .resolve(|name| env_lookup(name))
+        .map(|resolved| PathBuf::from(resolved.value))
+        .map_err(anyhow::Error::from)
+}
+
 pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppState>> {
     let AppStateConfig {
         resolved_settings,
@@ -2784,6 +2799,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
     } = config;
 
     let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path)?));
+    let server_storage_root = resolved_server_storage_root(&resolved_settings, &env_lookup)?;
     let llm_source: Arc<dyn CredentialSource> = Arc::new(VaultCredentialSource::with_env_lookup(
         Arc::clone(&vault),
         {
@@ -2795,6 +2811,13 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
     let current_server_settings = Arc::new(resolved_settings.server_settings);
     let current_manifest_run_defaults = Arc::new(resolved_settings.manifest_run_defaults);
     let current_manifest_run_settings = resolved_settings.manifest_run_settings;
+    write_azure_platform_snapshot(
+        &Storage::new(&server_storage_root).runtime_directory(),
+        resolve_azure_platform_config(&current_server_settings.server, &|name| {
+            vault.blocking_read().get(name).map(str::to_string)
+        })
+        .map_err(anyhow::Error::msg)?,
+    )?;
     let slack_service = {
         current_server_settings
             .server
@@ -3954,6 +3977,7 @@ fn worker_command(
     }
     let value: &'static str = server_destination.into();
     cmd.env(EnvVars::FABRO_LOG_DESTINATION, value);
+    cmd.env(EnvVars::FABRO_STORAGE_ROOT, &storage_dir);
     cmd.env_remove(EnvVars::FABRO_WORKER_TOKEN);
     cmd.env(EnvVars::FABRO_WORKER_TOKEN, worker_token);
 
@@ -6682,9 +6706,13 @@ async fn reconnect_run_sandbox(
 ) -> Result<Box<dyn Sandbox>, Response> {
     let record = load_run_sandbox_record(state, run_id).await?;
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
-    reconnect(&record, daytona_api_key)
-        .await
-        .map_err(|err| ApiError::new(StatusCode::CONFLICT, format!("{err}")).into_response())
+    reconnect(
+        &record,
+        daytona_api_key,
+        Some(state.server_storage_dir().as_path()),
+    )
+    .await
+    .map_err(|err| ApiError::new(StatusCode::CONFLICT, format!("{err}")).into_response())
 }
 
 async fn reconnect_daytona_sandbox(

@@ -24,6 +24,7 @@ import {
   finishInstall,
   getInstallSession,
   persistInstallToken,
+  putInstallAzure,
   putInstallGithubToken,
   putInstallLlm,
   putInstallObjectStore,
@@ -52,6 +53,7 @@ import { LoadingState } from "./components/state";
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
   { id: "server", label: "Server", href: "/install/server" },
+  { id: "azure", label: "Azure", href: "/install/azure" },
   { id: "object_store", label: "Object store", href: "/install/object-store" },
   { id: "llm", label: "LLMs", href: "/install/llm" },
   { id: "github", label: "GitHub", href: "/install/github" },
@@ -93,6 +95,18 @@ type ObjectStoreForm = {
   manualCredentialsSaved: boolean;
 };
 
+type AzureForm = {
+  subscriptionId: string;
+  resourceGroup: string;
+  location: string;
+  subnetId: string;
+  acrServer: string;
+  sandboxdPort: string;
+  acrUsername: string;
+  acrPassword: string;
+  acrCredentialsSaved: boolean;
+};
+
 export default function InstallApp() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -108,6 +122,7 @@ export default function InstallApp() {
   const [objectStoreForm, setObjectStoreForm] = useState<ObjectStoreForm>(() =>
     defaultObjectStoreForm(),
   );
+  const [azureForm, setAzureForm] = useState<AzureForm>(() => defaultAzureForm());
   const [canonicalUrl, setCanonicalUrl] = useState("");
   const [githubStrategy, setGithubStrategy] = useState<GithubStrategy>("token");
   const [tokenForm, setTokenForm] = useState<TokenForm>({ token: "", username: "" });
@@ -121,6 +136,12 @@ export default function InstallApp() {
   const [finishState, setFinishState] = useState<FinishState>(null);
   const [timedOut, setTimedOut] = useState(false);
   const canonicalUrlInputRef = useRef<HTMLInputElement>(null);
+  const azureSubscriptionIdInputRef = useRef<HTMLInputElement>(null);
+  const azureResourceGroupInputRef = useRef<HTMLInputElement>(null);
+  const azureLocationInputRef = useRef<HTMLInputElement>(null);
+  const azureSubnetIdInputRef = useRef<HTMLInputElement>(null);
+  const azureAcrServerInputRef = useRef<HTMLInputElement>(null);
+  const azureSandboxdPortInputRef = useRef<HTMLInputElement>(null);
   const localRootInputRef = useRef<HTMLInputElement>(null);
   const bucketInputRef = useRef<HTMLInputElement>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +184,7 @@ export default function InstallApp() {
         setCanonicalUrl((current) =>
           current || nextSession.server?.canonical_url || nextSession.prefill.canonical_url,
         );
+        setAzureForm(hydrateAzureForm(nextSession));
         setObjectStoreForm(hydrateObjectStoreForm(nextSession));
         setLlmSelection((current) =>
           hydrateProviderSelection(current, nextSession),
@@ -391,7 +413,7 @@ export default function InstallApp() {
             await runStepSubmit({
               action:   () => putInstallServer(installToken, canonicalUrl.trim()),
               fallback: "Failed to save server settings.",
-              next:     "/install/object-store",
+              next:     "/install/azure",
             });
           }}
         >
@@ -412,6 +434,200 @@ export default function InstallApp() {
             />
           </Field>
         </StepPanel>
+      ) : location.pathname === "/install/azure" ? (
+        <StepPanel
+          title="Connect Azure"
+          description="Save the Azure platform settings Fabro needs for sandbox startup. ACR credentials are optional and stored separately from the config file."
+          error={saveError}
+          submitting={submitting}
+          backHref="/install/server"
+          onSubmit={async () => {
+            if (!azureForm.subscriptionId.trim()) {
+              setSaveError("Enter the Azure subscription ID before continuing.");
+              focusInput(azureSubscriptionIdInputRef);
+              return;
+            }
+            if (!azureForm.resourceGroup.trim()) {
+              setSaveError("Enter the Azure resource group before continuing.");
+              focusInput(azureResourceGroupInputRef);
+              return;
+            }
+            if (!azureForm.location.trim()) {
+              setSaveError("Enter the Azure location before continuing.");
+              focusInput(azureLocationInputRef);
+              return;
+            }
+            if (!azureForm.subnetId.trim()) {
+              setSaveError("Enter the Azure subnet resource ID before continuing.");
+              focusInput(azureSubnetIdInputRef);
+              return;
+            }
+            if (!azureForm.acrServer.trim()) {
+              setSaveError("Enter the Azure Container Registry server before continuing.");
+              focusInput(azureAcrServerInputRef);
+              return;
+            }
+
+            const acrUsername = azureForm.acrUsername.trim();
+            const acrPassword = azureForm.acrPassword.trim();
+            if ((acrUsername && !acrPassword) || (!acrUsername && acrPassword)) {
+              setSaveError("Enter both ACR username and password, or leave both blank.");
+              return;
+            }
+
+            await runStepSubmit({
+              action: () =>
+                putInstallAzure(installToken, {
+                  subscription_id: azureForm.subscriptionId.trim(),
+                  resource_group: azureForm.resourceGroup.trim(),
+                  location: azureForm.location.trim(),
+                  subnet_id: azureForm.subnetId.trim(),
+                  acr_server: azureForm.acrServer.trim(),
+                  sandboxd_port: azureForm.sandboxdPort.trim()
+                    ? Number(azureForm.sandboxdPort.trim())
+                    : 7777,
+                  acr_username: acrUsername || undefined,
+                  acr_password: acrPassword || undefined,
+                }),
+              fallback: "Failed to save Azure settings.",
+              next:     "/install/object-store",
+            });
+          }}
+        >
+          <div className="space-y-5">
+            <Field label="Subscription ID">
+              <input
+                ref={azureSubscriptionIdInputRef}
+                name="azure_subscription_id"
+                value={azureForm.subscriptionId}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    subscriptionId: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="sub-00000000"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
+            <Field label="Resource group">
+              <input
+                ref={azureResourceGroupInputRef}
+                name="azure_resource_group"
+                value={azureForm.resourceGroup}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    resourceGroup: event.target.value,
+                  }))
+                }
+                className={INPUT_CLASS}
+                placeholder="fabro-prod"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Location">
+              <input
+                ref={azureLocationInputRef}
+                name="azure_location"
+                value={azureForm.location}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    location: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="eastus"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
+            <Field label="Subnet resource ID">
+              <input
+                ref={azureSubnetIdInputRef}
+                name="azure_subnet_id"
+                value={azureForm.subnetId}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    subnetId: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="/subscriptions/.../subnets/aci"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
+            <Field label="ACR server">
+              <input
+                ref={azureAcrServerInputRef}
+                name="azure_acr_server"
+                value={azureForm.acrServer}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    acrServer: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="fabro.azurecr.io"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
+            <Field label="Sandboxd port">
+              <input
+                ref={azureSandboxdPortInputRef}
+                type="number"
+                name="azure_sandboxd_port"
+                value={azureForm.sandboxdPort}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    sandboxdPort: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="7777"
+                min={1}
+                max={65535}
+              />
+            </Field>
+            <Field label="ACR username" hint="Optional">
+              <input
+                name="azure_acr_username"
+                value={azureForm.acrUsername}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    acrUsername: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="registry user"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
+            <Field label="ACR password" hint="Optional">
+              <PasswordInput
+                name="azure_acr_password"
+                value={azureForm.acrPassword}
+                onChange={(value) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    acrPassword: value,
+                  }))
+                }
+                placeholder="registry password"
+              />
+            </Field>
+          </div>
+        </StepPanel>
       ) : location.pathname === "/install/object-store" ? (
         <StepPanel
           title="Choose the shared object store"
@@ -421,7 +637,7 @@ export default function InstallApp() {
           submittingLabel={
             objectStoreForm.provider === "s3" ? "Checking access..." : "Saving..."
           }
-          backHref="/install/server"
+          backHref="/install/azure"
           onSubmit={async () => {
             if (objectStoreForm.provider === "local") {
               if (!objectStoreForm.localRoot.trim()) {
@@ -1017,13 +1233,18 @@ function WelcomeScreen() {
         Set up your Fabro server
       </h1>
       <p className="mt-4 max-w-[56ch] text-base/7 text-fg-3 text-pretty sm:text-[0.9375rem]/7">
-        A short walkthrough to confirm the public server URL, choose the shared
-        object store, validate your LLM credentials, and connect GitHub. When
-        you finish, Fabro restarts into normal mode.
+        A short walkthrough to confirm the public server URL, save the Azure
+        sandbox platform settings, choose the shared object store, validate
+        your LLM credentials, and connect GitHub. When you finish, Fabro
+        restarts into normal mode.
       </p>
       <ol role="list" className="mt-10 divide-y divide-line border-y border-line">
         {[
           ["Server URL", "Confirm where operators will reach Fabro."],
+          [
+            "Azure",
+            "Save the Azure subscription, subnet, registry, and sandbox port.",
+          ],
           [
             "Object store",
             "Choose local disk or AWS S3 for SlateDB and artifacts.",
@@ -1164,6 +1385,7 @@ function ReviewScreen({
           mono
           action={<CopyButton value={serverUrl} label="Copy server URL" />}
         />
+        {renderAzureSummaryRows(session?.azure)}
         {renderObjectStoreSummaryRows(session?.object_store)}
         <SummaryRow label="LLM providers" value={providers || "Not configured"} />
         {renderGithubSummaryRows(session?.github, serverUrl)}
@@ -1659,6 +1881,20 @@ function defaultObjectStoreForm(localRoot = ""): ObjectStoreForm {
   };
 }
 
+function defaultAzureForm(): AzureForm {
+  return {
+    subscriptionId: "",
+    resourceGroup: "",
+    location: "",
+    subnetId: "",
+    acrServer: "",
+    sandboxdPort: "7777",
+    acrUsername: "",
+    acrPassword: "",
+    acrCredentialsSaved: false,
+  };
+}
+
 function hydrateProviderSelection(
   current: ProviderSelection,
   session: InstallSessionResponse,
@@ -1689,6 +1925,24 @@ function hydrateObjectStoreForm(session: InstallSessionResponse): ObjectStoreFor
     accessKeyId: "",
     secretAccessKey: "",
     manualCredentialsSaved: Boolean(summary.manual_credentials_saved),
+  };
+}
+
+function hydrateAzureForm(session: InstallSessionResponse): AzureForm {
+  const summary = session.azure;
+  if (!summary) {
+    return defaultAzureForm();
+  }
+  return {
+    subscriptionId: summary.subscription_id,
+    resourceGroup: summary.resource_group,
+    location: summary.location,
+    subnetId: summary.subnet_id,
+    acrServer: summary.acr_server,
+    sandboxdPort: String(summary.sandboxd_port),
+    acrUsername: "",
+    acrPassword: "",
+    acrCredentialsSaved: Boolean(summary.acr_credentials_saved),
   };
 }
 
@@ -1757,6 +2011,29 @@ function renderGithubSummaryRows(
         label="User"
         value={github.username ? `@${github.username}` : "Not set"}
         mono={Boolean(github.username)}
+      />
+    </>
+  );
+}
+
+function renderAzureSummaryRows(
+  azure: InstallSessionResponse["azure"],
+): ReactNode {
+  if (!azure) {
+    return <SummaryRow label="Azure" value="Not configured" />;
+  }
+
+  return (
+    <>
+      <SummaryRow label="Azure subscription" value={azure.subscription_id} mono />
+      <SummaryRow label="Resource group" value={azure.resource_group} mono />
+      <SummaryRow label="Location" value={azure.location} mono />
+      <SummaryRow label="Subnet" value={azure.subnet_id} mono />
+      <SummaryRow label="ACR server" value={azure.acr_server} mono />
+      <SummaryRow label="Sandboxd port" value={String(azure.sandboxd_port)} mono />
+      <SummaryRow
+        label="ACR credentials"
+        value={azure.acr_credentials_saved ? "Saved in vault" : "Not provided"}
       />
     </>
   );

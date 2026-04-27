@@ -79,6 +79,8 @@ models/github-integration-strategy.ts
 models/health-response.ts
 models/history-entry.ts
 models/index.ts
+models/install-azure-config-input.ts
+models/install-azure-summary.ts
 models/install-finish-response.ts
 models/install-github-app-manifest-input.ts
 models/install-github-app-manifest-response.ts

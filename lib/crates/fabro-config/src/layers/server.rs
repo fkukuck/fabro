@@ -26,6 +26,8 @@ pub struct ServerLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage:      Option<ServerStorageLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox:      Option<ServerSandboxLayer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifacts:    Option<ServerArtifactsLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slatedb:      Option<ServerSlateDbLayer>,
@@ -116,6 +118,37 @@ pub struct ServerIpAllowlistOverrideLayer {
 pub struct ServerStorageLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<InterpString>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, fabro_macros::Combine)]
+#[serde(deny_unknown_fields)]
+pub struct ServerSandboxLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure: Option<ServerAzureSandboxLayer>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, fabro_macros::Combine)]
+#[serde(deny_unknown_fields)]
+pub struct ServerAzureSandboxLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<ServerAzurePlatformLayer>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, fabro_macros::Combine)]
+#[serde(deny_unknown_fields)]
+pub struct ServerAzurePlatformLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_group:  Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location:        Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet_id:       Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acr_server:      Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandboxd_port:   Option<u16>,
 }
 
 /// `[server.artifacts]` — object-store-backed artifact storage.

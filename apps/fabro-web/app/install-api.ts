@@ -1,4 +1,5 @@
 import type {
+  InstallAzureConfigInput,
   InstallFinishResponse,
   InstallGithubAppManifestInput,
   InstallGithubAppManifestResponse,
@@ -10,6 +11,7 @@ import type {
 } from "@qltysh/fabro-api-client";
 
 export type {
+  InstallAzureConfigInput,
   InstallFinishResponse,
   InstallGithubAppManifestInput,
   InstallGithubAppManifestResponse,
@@ -130,6 +132,18 @@ export async function putInstallServer(token: string, canonicalUrl: string): Pro
     method:        "PUT",
     body:          { canonical_url: canonicalUrl },
     errorFallback: "install server request failed",
+  });
+}
+
+export async function putInstallAzure(
+  token: string,
+  input: InstallAzureConfigInput,
+): Promise<void> {
+  await installRequest(token, {
+    path:          "/install/azure",
+    method:        "PUT",
+    body:          input,
+    errorFallback: "install azure request failed",
   });
 }
 

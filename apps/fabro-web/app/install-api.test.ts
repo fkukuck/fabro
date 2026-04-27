@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  putInstallAzure,
   putInstallObjectStore,
   readInstallError,
   testInstallObjectStore,
@@ -90,5 +91,29 @@ describe("install object-store requests", () => {
     await expect(
       putInstallObjectStore("test-install-token", { provider: "s3" }),
     ).rejects.toThrow("Bucket is required.");
+  });
+});
+
+describe("install azure requests", () => {
+  test("putInstallAzure posts the Azure config to /install/azure", async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input, init });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }) as typeof fetch;
+
+    await putInstallAzure("token-1", {
+      subscription_id: "sub-1",
+      resource_group: "rg-1",
+      location: "eastus",
+      subnet_id: "/subscriptions/sub-1/.../aci",
+      acr_server: "fabro.azurecr.io",
+      sandboxd_port: 7777,
+      acr_username: "azure-user",
+      acr_password: "azure-pass",
+    });
+
+    expect(String(calls[0]!.input)).toBe("/install/azure");
+    expect(calls[0]!.init?.method).toBe("PUT");
   });
 });

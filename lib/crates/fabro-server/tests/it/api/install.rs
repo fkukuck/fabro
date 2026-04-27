@@ -159,12 +159,39 @@ async fn put_install_object_store(app: &axum::Router, token: &str, body: &str) {
     .await;
 }
 
+async fn put_install_azure(app: &axum::Router, token: &str, body: &str) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/azure")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("azure install request should build"),
+        )
+        .await
+        .unwrap();
+    response_status(response, StatusCode::NO_CONTENT, "PUT /install/azure").await;
+}
+
+async fn put_install_azure_default(app: &axum::Router, token: &str) {
+    put_install_azure(
+        app,
+        token,
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777}"#,
+    )
+    .await;
+}
+
 async fn put_install_object_store_local(app: &axum::Router, token: &str) {
     put_install_object_store(app, token, r#"{"provider":"local"}"#).await;
 }
 
 async fn configure_token_install(app: &axum::Router, token: &str) {
     put_install_server(app, token, "https://fabro.example.com").await;
+    put_install_azure_default(app, token).await;
     put_install_object_store_local(app, token).await;
     put_install_llm(app, token).await;
     put_install_github_token(app, token, "brynary").await;
@@ -302,6 +329,13 @@ async fn install_endpoints_reject_missing_and_wrong_tokens() {
             "PUT",
             "/install/server",
             Some(r#"{"canonical_url":"https://fabro.example.com"}"#),
+        ),
+        (
+            "PUT",
+            "/install/azure",
+            Some(
+                r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io"}"#,
+            ),
         ),
         (
             "POST",
@@ -488,6 +522,7 @@ async fn install_finish_requires_object_store_step() {
     let app = build_install_router(InstallAppState::for_test("test-install-token")).await;
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_llm(&app, "test-install-token").await;
     put_install_github_token(&app, "test-install-token", "brynary").await;
 
@@ -512,6 +547,89 @@ async fn install_finish_requires_object_store_step() {
         finish_body["errors"][0]["detail"],
         "install step 'object_store' is incomplete"
     );
+}
+
+#[tokio::test]
+async fn install_session_redacts_saved_azure_acr_credentials() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let app = build_install_router(InstallAppState::for_test_with_paths(
+        "test-install-token",
+        temp_dir.path(),
+        &config_path,
+    ))
+    .await;
+
+    put_install_azure(
+        &app,
+        "test-install-token",
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777,"acr_username":"azure-user","acr_password":"azure-pass"}"#,
+    )
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response_json(response, StatusCode::OK, "GET /install/session").await;
+    assert_eq!(body["azure"]["subscription_id"], "sub-1");
+    assert_eq!(body["azure"]["acr_credentials_saved"], true);
+    assert!(!body.to_string().contains("azure-pass"));
+}
+
+#[tokio::test]
+async fn token_install_finish_persists_azure_platform_settings_and_acr_vault_secrets() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let app = build_install_router(InstallAppState::for_test_with_paths(
+        "test-install-token",
+        temp_dir.path(),
+        &config_path,
+    ))
+    .await;
+
+    put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure(
+        &app,
+        "test-install-token",
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777,"acr_username":"azure-user","acr_password":"azure-pass"}"#,
+    )
+    .await;
+    put_install_object_store(
+        &app,
+        "test-install-token",
+        r#"{"provider":"local","root":"/tmp/objects"}"#,
+    )
+    .await;
+    put_install_llm(&app, "test-install-token").await;
+    put_install_github_token(&app, "test-install-token", "brynary").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response_status(response, StatusCode::ACCEPTED, "POST /install/finish").await;
+
+    let settings = std::fs::read_to_string(&config_path).unwrap();
+    assert!(settings.contains("[server.sandbox.azure.platform]"));
+    let vault = Vault::load(Storage::new(temp_dir.path()).secrets_path()).unwrap();
+    assert_eq!(vault.get("FABRO_AZURE_ACR_USERNAME"), Some("azure-user"));
+    assert_eq!(vault.get("FABRO_AZURE_ACR_PASSWORD"), Some("azure-pass"));
 }
 
 #[tokio::test]
@@ -568,6 +686,7 @@ async fn manual_object_store_session_is_redacted_and_blank_resubmit_preserves_cr
     )
     .await;
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_llm(&app, "test-install-token").await;
     put_install_github_token(&app, "test-install-token", "brynary").await;
 
@@ -645,6 +764,7 @@ async fn switching_object_store_from_manual_to_runtime_clears_saved_manual_crede
     assert!(!rendered_session.contains("switch-secret-value"));
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_llm(&app, "test-install-token").await;
     put_install_github_token(&app, "test-install-token", "brynary").await;
 
@@ -694,6 +814,7 @@ async fn runtime_object_store_finish_removes_managed_aws_keys_but_keeps_unmarked
     .await;
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_object_store(
         &app,
         "test-install-token",
@@ -915,6 +1036,8 @@ async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
         "PUT /install/server",
     )
     .await;
+
+    put_install_azure_default(&app, "test-install-token").await;
 
     put_install_object_store_local(&app, "test-install-token").await;
 
@@ -1898,6 +2021,7 @@ async fn install_finish_failure_with_manual_credentials_does_not_leak_values() {
     let secret_access_key = "finish-secret-should-not-leak";
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_object_store(
         &app,
         "test-install-token",
@@ -1975,6 +2099,7 @@ async fn install_finish_failure_reports_only_env_keys_actually_removed() {
     .await;
 
     put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
     put_install_object_store(
         &app,
         "test-install-token",
