@@ -97,6 +97,9 @@ models/install-object-store-input.ts
 models/install-object-store-summary.ts
 models/install-object-store-validation-response.ts
 models/install-prefill.ts
+models/install-sandbox-input.ts
+models/install-sandbox-summary.ts
+models/install-sandbox-validation-response.ts
 models/install-server-config-input.ts
 models/install-session-response.ts
 models/integration-webhooks-settings.ts

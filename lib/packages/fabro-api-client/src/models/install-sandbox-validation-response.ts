@@ -13,14 +13,11 @@
  */
 
 
-// May contain unused imports in some cases
-// @ts-ignore
-import type { LogDestination } from './log-destination';
 
-export interface ServerLoggingSettings {
-    'level': string | null;
-    'destination': LogDestination;
+/**
+ * Successful response from install-time sandbox validation.
+ */
+export interface InstallSandboxValidationResponse {
+    'ok': boolean;
 }
-
-
 

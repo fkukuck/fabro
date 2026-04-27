@@ -40,6 +40,16 @@ async fn build_daytona_client(
     daytona_sdk::Client::new_with_config(sdk_config).await
 }
 
+/// Validate a Daytona API key by performing a single authenticated call. Used
+/// at install time to confirm the operator-provided credential is accepted by
+/// the Daytona control plane before persisting it. The call requests a single
+/// sandbox listing entry to keep latency and quota impact minimal.
+pub async fn validate_daytona_api_key(api_key: String) -> Result<(), daytona_sdk::DaytonaError> {
+    let client = build_daytona_client(Some(api_key)).await?;
+    client.list(None, Some(1), Some(1)).await?;
+    Ok(())
+}
+
 fn elapsed_ms(start: &Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }

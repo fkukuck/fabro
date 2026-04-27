@@ -2111,6 +2111,7 @@ dependencies = [
  "fabro-install",
  "fabro-interview",
  "fabro-llm",
+ "fabro-macros",
  "fabro-model",
  "fabro-proc",
  "fabro-redact",

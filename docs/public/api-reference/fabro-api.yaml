@@ -247,6 +247,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /install/sandbox/test:
+    post:
+      operationId: testInstallSandbox
+      tags: [Install]
+      summary: Validate install sandbox configuration
+      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSandboxInput"
+      responses:
+        "200":
+          description: Sandbox configuration validated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSandboxValidationResponse"
+        "401":
+          description: Invalid or missing install token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Sandbox validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /install/sandbox:
+    put:
+      operationId: putInstallSandbox
+      tags: [Install]
+      summary: Save install sandbox configuration
+      description: Records the sandbox provider selected during browser install. Requires the one-time install token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSandboxInput"
+      responses:
+        "204":
+          description: Sandbox configuration recorded
+        "401":
+          description: Invalid or missing install token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Invalid install input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /install/github/token/test:
     post:
       operationId: testInstallGithubToken
@@ -2566,6 +2628,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/InstallObjectStoreSummary"
             - type: "null"
+        sandbox:
+          oneOf:
+            - $ref: "#/components/schemas/InstallSandboxSummary"
+            - type: "null"
         github:
           oneOf:
             - $ref: "#/components/schemas/InstallGithubSummary"
@@ -2713,6 +2779,40 @@ components:
           type: string
           enum: [runtime, access_key]
         manual_credentials_saved:
+          type: boolean
+
+    InstallSandboxValidationResponse:
+      description: Successful response from install-time sandbox validation.
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    InstallSandboxInput:
+      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker.
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum: [docker, daytona]
+        api_key:
+          type: string
+
+    InstallSandboxSummary:
+      description: Redacted summary of the sandbox provider selected during browser install.
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum: [docker, daytona]
+        api_key_saved:
           type: boolean
 
     InstallGithubTokenTestInput:
