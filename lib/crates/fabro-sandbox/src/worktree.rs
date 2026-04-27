@@ -110,7 +110,7 @@ impl Sandbox for WorktreeSandbox {
     /// 3. Add the worktree, emit `WorktreeAdded`.
     ///
     /// Does NOT call `inner.initialize()`.
-    async fn initialize(&self) -> Result<(), String> {
+    async fn initialize(&self) -> crate::Result<()> {
         if self
             .initialized
             .swap(true, std::sync::atomic::Ordering::Relaxed)
@@ -145,11 +145,11 @@ impl Sandbox for WorktreeSandbox {
                 .exec_command(&cmd, 30_000, None, None, None)
                 .await?;
             if result.exit_code != 0 {
-                return Err(format!(
+                return Err(crate::Error::message(format!(
                     "git branch --force failed (exit {}): {}",
                     result.exit_code,
                     result.stderr.trim()
-                ));
+                )));
             }
             self.emit(WorktreeEvent::BranchCreated {
                 branch: self.config.branch_name.clone(),
@@ -171,11 +171,11 @@ impl Sandbox for WorktreeSandbox {
                     .exec_command(&rollback_cmd, 30_000, None, None, None)
                     .await;
             }
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "git worktree add failed (exit {}): {}",
                 result.exit_code,
                 result.stderr.trim()
-            ));
+            )));
         }
         self.emit(WorktreeEvent::WorktreeAdded {
             path:   self.config.worktree_path.clone(),
@@ -187,7 +187,7 @@ impl Sandbox for WorktreeSandbox {
 
     /// No-op — the worktree must survive cleanup for `fabro cp` access.
     /// Worktrees are pruned separately by `system prune`.
-    async fn cleanup(&self) -> Result<(), String> {
+    async fn cleanup(&self) -> crate::Result<()> {
         Ok(())
     }
 
@@ -204,7 +204,7 @@ impl Sandbox for WorktreeSandbox {
         working_dir: Option<&str>,
         env_vars: Option<&HashMap<String, String>>,
         cancel_token: Option<CancellationToken>,
-    ) -> Result<ExecResult, String> {
+    ) -> crate::Result<ExecResult> {
         let wd = working_dir.unwrap_or(&self.config.worktree_path);
         self.inner
             .exec_command(command, timeout_ms, Some(wd), env_vars, cancel_token)
@@ -218,22 +218,22 @@ impl Sandbox for WorktreeSandbox {
         path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<String, String> {
+    ) -> crate::Result<String> {
         let resolved = self.resolve_path(path);
         self.inner.read_file(&resolved, offset, limit).await
     }
 
-    async fn write_file(&self, path: &str, content: &str) -> Result<(), String> {
+    async fn write_file(&self, path: &str, content: &str) -> crate::Result<()> {
         let resolved = self.resolve_path(path);
         self.inner.write_file(&resolved, content).await
     }
 
-    async fn delete_file(&self, path: &str) -> Result<(), String> {
+    async fn delete_file(&self, path: &str) -> crate::Result<()> {
         let resolved = self.resolve_path(path);
         self.inner.delete_file(&resolved).await
     }
 
-    async fn file_exists(&self, path: &str) -> Result<bool, String> {
+    async fn file_exists(&self, path: &str) -> crate::Result<bool> {
         let resolved = self.resolve_path(path);
         self.inner.file_exists(&resolved).await
     }
@@ -242,7 +242,7 @@ impl Sandbox for WorktreeSandbox {
         &self,
         path: &str,
         depth: Option<usize>,
-    ) -> Result<Vec<DirEntry>, String> {
+    ) -> crate::Result<Vec<DirEntry>> {
         let resolved = self.resolve_path(path);
         self.inner.list_directory(&resolved, depth).await
     }
@@ -252,12 +252,12 @@ impl Sandbox for WorktreeSandbox {
         pattern: &str,
         path: &str,
         options: &GrepOptions,
-    ) -> Result<Vec<String>, String> {
+    ) -> crate::Result<Vec<String>> {
         let resolved = self.resolve_path(path);
         self.inner.grep(pattern, &resolved, options).await
     }
 
-    async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
+    async fn glob(&self, pattern: &str, path: Option<&str>) -> crate::Result<Vec<String>> {
         let resolved = path.map(|p| self.resolve_path(p));
         let glob_path = resolved.as_deref().unwrap_or(&self.config.worktree_path);
         self.inner.glob(pattern, Some(glob_path)).await
@@ -267,7 +267,7 @@ impl Sandbox for WorktreeSandbox {
         &self,
         remote_path: &str,
         local_path: &Path,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         let resolved = self.resolve_path(remote_path);
         self.inner
             .download_file_to_local(&resolved, local_path)
@@ -278,7 +278,7 @@ impl Sandbox for WorktreeSandbox {
         &self,
         local_path: &Path,
         remote_path: &str,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         let resolved = self.resolve_path(remote_path);
         self.inner
             .upload_file_from_local(local_path, &resolved)
@@ -297,11 +297,11 @@ impl Sandbox for WorktreeSandbox {
         self.inner.sandbox_info()
     }
 
-    async fn refresh_push_credentials(&self) -> Result<(), String> {
+    async fn refresh_push_credentials(&self) -> crate::Result<()> {
         self.inner.refresh_push_credentials().await
     }
 
-    async fn set_autostop_interval(&self, minutes: i32) -> Result<(), String> {
+    async fn set_autostop_interval(&self, minutes: i32) -> crate::Result<()> {
         self.inner.set_autostop_interval(minutes).await
     }
 
@@ -309,7 +309,7 @@ impl Sandbox for WorktreeSandbox {
         Some(&self.config.worktree_path)
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> Result<Option<crate::GitRunInfo>, String> {
+    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
         self.inner.setup_git_for_run(run_id).await
     }
 
@@ -332,7 +332,7 @@ impl Sandbox for WorktreeSandbox {
             .parallel_worktree_path(run_dir, run_id, node_id, key)
     }
 
-    async fn ssh_access_command(&self) -> Result<Option<String>, String> {
+    async fn ssh_access_command(&self) -> crate::Result<Option<String>> {
         self.inner.ssh_access_command().await
     }
 
@@ -343,7 +343,7 @@ impl Sandbox for WorktreeSandbox {
     async fn get_preview_url(
         &self,
         port: u16,
-    ) -> Result<Option<(String, HashMap<String, String>)>, String> {
+    ) -> crate::Result<Option<(String, HashMap<String, String>)>> {
         self.inner.get_preview_url(port).await
     }
 

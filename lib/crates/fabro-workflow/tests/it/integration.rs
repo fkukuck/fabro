@@ -8823,11 +8823,11 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         _path: &str,
         _offset: Option<usize>,
         _limit: Option<usize>,
-    ) -> std::result::Result<String, String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<String> {
+        Err("not implemented".into())
     }
 
-    async fn write_file(&self, path: &str, content: &str) -> std::result::Result<(), String> {
+    async fn write_file(&self, path: &str, content: &str) -> fabro_sandbox::Result<()> {
         self.written
             .lock()
             .unwrap()
@@ -8836,11 +8836,11 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         Ok(())
     }
 
-    async fn delete_file(&self, _path: &str) -> std::result::Result<(), String> {
-        Err("not implemented".to_string())
+    async fn delete_file(&self, _path: &str) -> fabro_sandbox::Result<()> {
+        Err("not implemented".into())
     }
 
-    async fn file_exists(&self, path: &str) -> std::result::Result<bool, String> {
+    async fn file_exists(&self, path: &str) -> fabro_sandbox::Result<bool> {
         Ok(self.existing_paths.lock().unwrap().contains(path))
     }
 
@@ -8848,8 +8848,8 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         &self,
         _path: &str,
         _depth: Option<usize>,
-    ) -> std::result::Result<Vec<fabro_agent::DirEntry>, String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<Vec<fabro_agent::DirEntry>> {
+        Err("not implemented".into())
     }
 
     async fn exec_command(
@@ -8859,8 +8859,8 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         _working_dir: Option<&str>,
         _env_vars: Option<&std::collections::HashMap<String, String>>,
         _cancel_token: Option<tokio_util::sync::CancellationToken>,
-    ) -> std::result::Result<fabro_agent::ExecResult, String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<fabro_agent::ExecResult> {
+        Err("not implemented".into())
     }
 
     async fn grep(
@@ -8868,23 +8868,23 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         _pattern: &str,
         _path: &str,
         _options: &fabro_agent::GrepOptions,
-    ) -> std::result::Result<Vec<String>, String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<Vec<String>> {
+        Err("not implemented".into())
     }
 
     async fn glob(
         &self,
         _pattern: &str,
         _path: Option<&str>,
-    ) -> std::result::Result<Vec<String>, String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<Vec<String>> {
+        Err("not implemented".into())
     }
 
-    async fn initialize(&self) -> std::result::Result<(), String> {
+    async fn initialize(&self) -> fabro_sandbox::Result<()> {
         Ok(())
     }
 
-    async fn cleanup(&self) -> std::result::Result<(), String> {
+    async fn cleanup(&self) -> fabro_sandbox::Result<()> {
         Ok(())
     }
 
@@ -8892,16 +8892,16 @@ impl fabro_agent::Sandbox for RemoteMockEnv {
         &self,
         _: &str,
         _: &std::path::Path,
-    ) -> std::result::Result<(), String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<()> {
+        Err("not implemented".into())
     }
 
     async fn upload_file_from_local(
         &self,
         _: &std::path::Path,
         _: &str,
-    ) -> std::result::Result<(), String> {
-        Err("not implemented".to_string())
+    ) -> fabro_sandbox::Result<()> {
+        Err("not implemented".into())
     }
 
     fn working_directory(&self) -> &str {
@@ -9338,11 +9338,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         _path: &str,
         _offset: Option<usize>,
         _limit: Option<usize>,
-    ) -> Result<String, String> {
+    ) -> fabro_sandbox::Result<String> {
         Ok(String::new())
     }
 
-    async fn write_file(&self, path: &str, content: &str) -> Result<(), String> {
+    async fn write_file(&self, path: &str, content: &str) -> fabro_sandbox::Result<()> {
         self.written_files
             .lock()
             .unwrap()
@@ -9350,11 +9350,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         Ok(())
     }
 
-    async fn delete_file(&self, _path: &str) -> Result<(), String> {
+    async fn delete_file(&self, _path: &str) -> fabro_sandbox::Result<()> {
         Ok(())
     }
 
-    async fn file_exists(&self, _path: &str) -> Result<bool, String> {
+    async fn file_exists(&self, _path: &str) -> fabro_sandbox::Result<bool> {
         Ok(false)
     }
 
@@ -9362,7 +9362,7 @@ impl fabro_agent::Sandbox for CliTestEnv {
         &self,
         _path: &str,
         _depth: Option<usize>,
-    ) -> Result<Vec<fabro_agent::DirEntry>, String> {
+    ) -> fabro_sandbox::Result<Vec<fabro_agent::DirEntry>> {
         Ok(vec![])
     }
 
@@ -9373,7 +9373,7 @@ impl fabro_agent::Sandbox for CliTestEnv {
         _working_dir: Option<&str>,
         _env_vars: Option<&std::collections::HashMap<String, String>>,
         _cancel_token: Option<tokio_util::sync::CancellationToken>,
-    ) -> Result<fabro_agent::ExecResult, String> {
+    ) -> fabro_sandbox::Result<fabro_agent::ExecResult> {
         self.commands.lock().unwrap().push(command.to_string());
 
         // git diff calls: first pair returns empty (before), second pair returns
@@ -9467,28 +9467,40 @@ impl fabro_agent::Sandbox for CliTestEnv {
         _pattern: &str,
         _path: &str,
         _options: &fabro_agent::GrepOptions,
-    ) -> Result<Vec<String>, String> {
+    ) -> fabro_sandbox::Result<Vec<String>> {
         Ok(vec![])
     }
 
-    async fn glob(&self, _pattern: &str, _path: Option<&str>) -> Result<Vec<String>, String> {
+    async fn glob(
+        &self,
+        _pattern: &str,
+        _path: Option<&str>,
+    ) -> fabro_sandbox::Result<Vec<String>> {
         Ok(vec![])
     }
 
-    async fn initialize(&self) -> Result<(), String> {
+    async fn initialize(&self) -> fabro_sandbox::Result<()> {
         Ok(())
     }
 
-    async fn cleanup(&self) -> Result<(), String> {
+    async fn cleanup(&self) -> fabro_sandbox::Result<()> {
         Ok(())
     }
 
-    async fn download_file_to_local(&self, _: &str, _: &std::path::Path) -> Result<(), String> {
-        Err("not implemented".to_string())
+    async fn download_file_to_local(
+        &self,
+        _: &str,
+        _: &std::path::Path,
+    ) -> fabro_sandbox::Result<()> {
+        Err("not implemented".into())
     }
 
-    async fn upload_file_from_local(&self, _: &std::path::Path, _: &str) -> Result<(), String> {
-        Err("not implemented".to_string())
+    async fn upload_file_from_local(
+        &self,
+        _: &std::path::Path,
+        _: &str,
+    ) -> fabro_sandbox::Result<()> {
+        Err("not implemented".into())
     }
 
     fn working_directory(&self) -> &str {
@@ -9664,23 +9676,23 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
             _: &str,
             _: Option<usize>,
             _: Option<usize>,
-        ) -> Result<String, String> {
+        ) -> fabro_sandbox::Result<String> {
             Ok(String::new())
         }
-        async fn write_file(&self, _: &str, _: &str) -> Result<(), String> {
+        async fn write_file(&self, _: &str, _: &str) -> fabro_sandbox::Result<()> {
             Ok(())
         }
-        async fn delete_file(&self, _: &str) -> Result<(), String> {
+        async fn delete_file(&self, _: &str) -> fabro_sandbox::Result<()> {
             Ok(())
         }
-        async fn file_exists(&self, _: &str) -> Result<bool, String> {
+        async fn file_exists(&self, _: &str) -> fabro_sandbox::Result<bool> {
             Ok(false)
         }
         async fn list_directory(
             &self,
             _: &str,
             _: Option<usize>,
-        ) -> Result<Vec<fabro_agent::DirEntry>, String> {
+        ) -> fabro_sandbox::Result<Vec<fabro_agent::DirEntry>> {
             Ok(vec![])
         }
         async fn exec_command(
@@ -9690,7 +9702,7 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
             _: Option<&str>,
             _: Option<&std::collections::HashMap<String, String>>,
             _: Option<tokio_util::sync::CancellationToken>,
-        ) -> Result<fabro_agent::ExecResult, String> {
+        ) -> fabro_sandbox::Result<fabro_agent::ExecResult> {
             if command.starts_with("git") {
                 return Ok(fabro_agent::ExecResult {
                     stdout:      String::new(),
@@ -9743,23 +9755,31 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
             _: &str,
             _: &str,
             _: &fabro_agent::GrepOptions,
-        ) -> Result<Vec<String>, String> {
+        ) -> fabro_sandbox::Result<Vec<String>> {
             Ok(vec![])
         }
-        async fn glob(&self, _: &str, _: Option<&str>) -> Result<Vec<String>, String> {
+        async fn glob(&self, _: &str, _: Option<&str>) -> fabro_sandbox::Result<Vec<String>> {
             Ok(vec![])
         }
-        async fn initialize(&self) -> Result<(), String> {
+        async fn initialize(&self) -> fabro_sandbox::Result<()> {
             Ok(())
         }
-        async fn cleanup(&self) -> Result<(), String> {
+        async fn cleanup(&self) -> fabro_sandbox::Result<()> {
             Ok(())
         }
-        async fn download_file_to_local(&self, _: &str, _: &std::path::Path) -> Result<(), String> {
-            Err("not implemented".to_string())
+        async fn download_file_to_local(
+            &self,
+            _: &str,
+            _: &std::path::Path,
+        ) -> fabro_sandbox::Result<()> {
+            Err("not implemented".into())
         }
-        async fn upload_file_from_local(&self, _: &std::path::Path, _: &str) -> Result<(), String> {
-            Err("not implemented".to_string())
+        async fn upload_file_from_local(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+        ) -> fabro_sandbox::Result<()> {
+            Err("not implemented".into())
         }
         fn working_directory(&self) -> &str {
             "/tmp"

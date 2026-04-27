@@ -6483,7 +6483,8 @@ async fn generate_preview_url(
                 url:   preview.url,
             },
             Err(err) => {
-                return ApiError::new(StatusCode::CONFLICT, err).into_response();
+                return ApiError::new(StatusCode::CONFLICT, err.display_with_causes())
+                    .into_response();
             }
         }
     } else {
@@ -6493,7 +6494,8 @@ async fn generate_preview_url(
                 url:   preview.url,
             },
             Err(err) => {
-                return ApiError::new(StatusCode::CONFLICT, err).into_response();
+                return ApiError::new(StatusCode::CONFLICT, err.display_with_causes())
+                    .into_response();
             }
         }
     };
@@ -6517,7 +6519,7 @@ async fn create_ssh_access(
     };
     match sandbox.create_ssh_access(Some(request.ttl_minutes)).await {
         Ok(command) => (StatusCode::CREATED, Json(SshAccessResponse { command })).into_response(),
-        Err(err) => ApiError::new(StatusCode::CONFLICT, err).into_response(),
+        Err(err) => ApiError::new(StatusCode::CONFLICT, err.display_with_causes()).into_response(),
     }
 }
 
@@ -6547,7 +6549,7 @@ async fn list_sandbox_files(
                 .collect(),
         })
         .into_response(),
-        Err(err) => ApiError::new(StatusCode::NOT_FOUND, err).into_response(),
+        Err(err) => ApiError::new(StatusCode::NOT_FOUND, err.display_with_causes()).into_response(),
     }
 }
 
@@ -6576,7 +6578,7 @@ async fn get_sandbox_file(
         .download_file_to_local(&params.path, temp.path())
         .await
     {
-        return ApiError::new(StatusCode::NOT_FOUND, err).into_response();
+        return ApiError::new(StatusCode::NOT_FOUND, err.display_with_causes()).into_response();
     }
     match fs::read(temp.path()).await {
         Ok(bytes) => octet_stream_response(bytes.into()),
@@ -6619,7 +6621,8 @@ async fn put_sandbox_file(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(err) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+        Err(err) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.display_with_causes())
+            .into_response(),
     }
 }
 
@@ -6629,9 +6632,13 @@ async fn reconnect_run_sandbox(
 ) -> Result<Box<dyn Sandbox>, Response> {
     let record = load_run_sandbox_record(state, run_id).await?;
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
-    reconnect(&record, daytona_api_key)
-        .await
-        .map_err(|err| ApiError::new(StatusCode::CONFLICT, format!("{err}")).into_response())
+    reconnect(&record, daytona_api_key).await.map_err(|err| {
+        let detail = fabro_util::error::render_with_causes(
+            &err.to_string(),
+            &fabro_util::error::collect_causes(err.as_ref()),
+        );
+        ApiError::new(StatusCode::CONFLICT, detail).into_response()
+    })
 }
 
 async fn reconnect_daytona_sandbox(
@@ -6669,7 +6676,7 @@ async fn reconnect_daytona_sandbox(
         record.clone_branch.clone(),
     )
     .await
-    .map_err(|err| ApiError::new(StatusCode::CONFLICT, err.clone()).into_response())
+    .map_err(|err| ApiError::new(StatusCode::CONFLICT, err.display_with_causes()).into_response())
 }
 
 async fn load_run_sandbox_record(

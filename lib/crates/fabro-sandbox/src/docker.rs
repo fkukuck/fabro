@@ -88,9 +88,8 @@ impl DockerSandbox {
         run_id: Option<RunId>,
         clone_origin_url: Option<String>,
         clone_branch: Option<String>,
-    ) -> Result<Self, String> {
-        let docker = Docker::connect_with_local_defaults()
-            .map_err(|e| format!("Failed to connect to Docker daemon: {e}"))?;
+    ) -> crate::Result<Self> {
+        let docker = Docker::connect_with_local_defaults().map_err(crate::Error::docker_connect)?;
         Ok(Self {
             docker,
             config,
@@ -113,7 +112,7 @@ impl DockerSandbox {
         repo_cloned: bool,
         clone_origin_url: Option<String>,
         clone_branch: Option<String>,
-    ) -> Result<Self, String> {
+    ) -> crate::Result<Self> {
         let sandbox = Self::new(
             DockerSandboxOptions::default(),
             None,
@@ -149,11 +148,10 @@ impl DockerSandbox {
         }
     }
 
-    fn container_id(&self) -> Result<&str, String> {
-        self.container_id
-            .get()
-            .map(String::as_str)
-            .ok_or_else(|| "Container not initialized — call initialize() first".to_string())
+    fn container_id(&self) -> crate::Result<&str> {
+        self.container_id.get().map(String::as_str).ok_or_else(|| {
+            crate::Error::message("Container not initialized — call initialize() first")
+        })
     }
 
     fn resolve_container_path(path: &str) -> String {
@@ -169,7 +167,7 @@ impl DockerSandbox {
         cmd: Vec<String>,
         working_dir: Option<&str>,
         env: Option<Vec<String>>,
-    ) -> Result<(String, String, i32), String> {
+    ) -> crate::Result<(String, String, i32)> {
         let container_id = self.container_id()?;
 
         let exec_opts = CreateExecOptions {
@@ -185,13 +183,13 @@ impl DockerSandbox {
             .docker
             .create_exec(container_id, exec_opts)
             .await
-            .map_err(|e| format!("Failed to create exec: {e}"))?;
+            .map_err(|e| crate::Error::message(format!("Failed to create exec: {e}")))?;
 
         let start_result = self
             .docker
             .start_exec(&exec_instance.id, None)
             .await
-            .map_err(|e| format!("Failed to start exec: {e}"))?;
+            .map_err(|e| crate::Error::message(format!("Failed to start exec: {e}")))?;
 
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -206,7 +204,11 @@ impl DockerSandbox {
                         stderr.push_str(&String::from_utf8_lossy(&message));
                     }
                     Ok(_) => {}
-                    Err(e) => return Err(format!("Error reading exec output: {e}")),
+                    Err(e) => {
+                        return Err(crate::Error::message(format!(
+                            "Error reading exec output: {e}"
+                        )));
+                    }
                 }
             }
         }
@@ -215,7 +217,7 @@ impl DockerSandbox {
             .docker
             .inspect_exec(&exec_instance.id)
             .await
-            .map_err(|e| format!("Failed to inspect exec: {e}"))?;
+            .map_err(|e| crate::Error::message(format!("Failed to inspect exec: {e}")))?;
 
         let exit_code = inspect
             .exit_code
@@ -231,7 +233,7 @@ impl DockerSandbox {
         working_dir: Option<&str>,
         env_vars: Option<&HashMap<String, String>>,
         cancel_token: Option<CancellationToken>,
-    ) -> Result<ExecResult, String> {
+    ) -> crate::Result<ExecResult> {
         let start = Instant::now();
         let effective_dir = working_dir.unwrap_or(WORKING_DIRECTORY).to_string();
         let env: Option<Vec<String>> =
@@ -280,13 +282,20 @@ impl DockerSandbox {
         }
     }
 
-    async fn ensure_image(&self) -> Result<(), String> {
+    async fn ensure_image(&self) -> crate::Result<()> {
         if !self.config.auto_pull {
             return Ok(());
         }
 
-        if self.docker.inspect_image(&self.config.image).await.is_ok() {
-            return Ok(());
+        match self.docker.inspect_image(&self.config.image).await {
+            Ok(_) => return Ok(()),
+            Err(e) if docker_not_found(&e) => {}
+            Err(e) => {
+                return Err(crate::Error::docker_image_inspect(
+                    self.config.image.clone(),
+                    e,
+                ));
+            }
         }
 
         let (repo, tag) = if let Some((r, t)) = self.config.image.rsplit_once(':') {
@@ -303,13 +312,13 @@ impl DockerSandbox {
 
         let mut stream = self.docker.create_image(Some(opts), None, None);
         while let Some(result) = stream.next().await {
-            result.map_err(|e| format!("Failed to pull image {}: {e}", self.config.image))?;
+            result.map_err(|e| crate::Error::docker_image_pull(self.config.image.clone(), e))?;
         }
 
         Ok(())
     }
 
-    async fn create_workspace(&self) -> Result<(), String> {
+    async fn create_workspace(&self) -> crate::Result<()> {
         let result = self
             .docker_exec_shell(
                 &format!("mkdir -p {}", shell_quote(WORKING_DIRECTORY)),
@@ -320,23 +329,23 @@ impl DockerSandbox {
             )
             .await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Failed to create Docker workspace (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
         Ok(())
     }
 
-    async fn verify_git_available(&self) -> Result<(), String> {
+    async fn verify_git_available(&self) -> crate::Result<()> {
         let result = self
             .docker_exec_shell("git --version", 10_000, Some("/"), None, None)
             .await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Docker image '{}' must include git for repository clone and git lifecycle operations. Use an image with bash and git, such as buildpack-deps:noble.",
                 self.config.image
-            ));
+            )));
         }
         Ok(())
     }
@@ -345,7 +354,7 @@ impl DockerSandbox {
         &self,
         origin_url: String,
         branch: Option<String>,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         self.verify_git_available().await?;
 
         self.emit(SandboxEvent::GitCloneStarted {
@@ -361,7 +370,11 @@ impl DockerSandbox {
                     &origin_url,
                 )
                 .await
-                .map_err(|e| format!("Failed to get GitHub App credentials for clone: {e}"))?,
+                .map_err(|e| {
+                    crate::Error::message(format!(
+                        "Failed to get GitHub App credentials for clone: {e}"
+                    ))
+                })?,
             ),
             None => None,
         };
@@ -385,16 +398,17 @@ impl DockerSandbox {
             .await?;
         if result.exit_code != 0 {
             let stderr = redact_auth_url(&result.stderr, auth_url.as_ref());
-            let err = if self.github_app.is_none() {
+            let err = crate::Error::message(if self.github_app.is_none() {
                 format!(
                     "Git clone failed: {stderr}. If this is a private repository, configure a GitHub App with `fabro install` and install it for your organization."
                 )
             } else {
                 format!("Failed to clone repo into Docker sandbox: {stderr}")
-            };
+            });
             self.emit(SandboxEvent::GitCloneFailed {
-                url:   origin_url,
-                error: err.clone(),
+                url:    origin_url,
+                error:  err.to_string(),
+                causes: err.causes(),
             });
             return Err(err);
         }
@@ -426,21 +440,23 @@ impl DockerSandbox {
         Ok(())
     }
 
-    async fn validate_managed_container(&self, container_id: &str) -> Result<(), String> {
+    async fn validate_managed_container(&self, container_id: &str) -> crate::Result<()> {
         let labels = self.inspect_labels(container_id).await?;
         verify_managed_labels(container_id, &labels, self.run_id.as_ref())
     }
 
-    async fn inspect_labels(&self, container_id: &str) -> Result<HashMap<String, String>, String> {
+    async fn inspect_labels(&self, container_id: &str) -> crate::Result<HashMap<String, String>> {
         let inspect = self
             .docker
             .inspect_container(container_id, None::<InspectContainerOptions>)
             .await
             .map_err(|e| {
                 if docker_not_found(&e) {
-                    format!("Docker container '{container_id}' is gone")
+                    crate::Error::message(format!("Docker container '{container_id}' is gone"))
                 } else {
-                    format!("Failed to inspect Docker container '{container_id}': {e}")
+                    crate::Error::message(format!(
+                        "Failed to inspect Docker container '{container_id}': {e}"
+                    ))
                 }
             })?;
         Ok(inspect
@@ -449,7 +465,7 @@ impl DockerSandbox {
             .unwrap_or_default())
     }
 
-    async fn ensure_name_available(&self) -> Result<Option<String>, String> {
+    async fn ensure_name_available(&self) -> crate::Result<Option<String>> {
         let Some(run_id) = self.run_id.as_ref() else {
             return Ok(None);
         };
@@ -459,17 +475,17 @@ impl DockerSandbox {
             .inspect_container(&name, None::<InspectContainerOptions>)
             .await
         {
-            Ok(_) => Err(format!(
+            Ok(_) => Err(crate::Error::message(format!(
                 "Docker container name '{name}' already exists for run {run_id}. Remove the stale container manually before retrying."
-            )),
+            ))),
             Err(e) if docker_not_found(&e) => Ok(Some(name)),
-            Err(e) => Err(format!(
+            Err(e) => Err(crate::Error::message(format!(
                 "Failed to check Docker container name '{name}' before creation: {e}"
-            )),
+            ))),
         }
     }
 
-    async fn upload_bytes_to_container(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
+    async fn upload_bytes_to_container(&self, path: &str, bytes: &[u8]) -> crate::Result<()> {
         let container_path = Self::resolve_container_path(path);
         let container_id = self.container_id()?;
         let parent_dir = std::path::Path::new(&container_path)
@@ -477,7 +493,7 @@ impl DockerSandbox {
             .map_or_else(|| "/".to_string(), |p| p.to_string_lossy().to_string());
         let file_name = std::path::Path::new(&container_path)
             .file_name()
-            .ok_or_else(|| format!("Invalid path: {container_path}"))?
+            .ok_or_else(|| crate::Error::message(format!("Invalid path: {container_path}")))?
             .to_string_lossy()
             .to_string();
 
@@ -491,10 +507,10 @@ impl DockerSandbox {
             )
             .await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Failed to create parent dirs for {container_path}: {}",
                 result.stderr
-            ));
+            )));
         }
 
         let tar_bytes = build_single_file_tar(&file_name, bytes)?;
@@ -506,13 +522,14 @@ impl DockerSandbox {
         self.docker
             .upload_to_container(container_id, Some(upload_opts), tar_bytes.into())
             .await
-            .map_err(|e| format!("Failed to upload file to container: {e}"))
+            .map_err(|e| crate::Error::context("Failed to upload file to container", e))
     }
 
-    fn cleanup_error(&self, error: String) -> Result<(), String> {
+    fn cleanup_error(&self, error: crate::Error) -> crate::Result<()> {
         self.emit(SandboxEvent::CleanupFailed {
             provider: "docker".into(),
-            error:    error.clone(),
+            error:    error.to_string(),
+            causes:   error.causes(),
         });
         Err(error)
     }
@@ -567,19 +584,19 @@ fn verify_managed_labels(
     container_id: &str,
     labels: &HashMap<String, String>,
     run_id: Option<&RunId>,
-) -> Result<(), String> {
+) -> crate::Result<()> {
     if labels.get(MANAGED_LABEL).map(String::as_str) != Some("true") {
-        return Err(format!(
+        return Err(crate::Error::message(format!(
             "Refusing to operate on Docker container '{container_id}' because it is missing label {MANAGED_LABEL}=true"
-        ));
+        )));
     }
     if let Some(run_id) = run_id {
         let actual = labels.get(RUN_ID_LABEL).map(String::as_str);
         let expected = run_id.to_string();
         if actual != Some(expected.as_str()) {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Refusing to operate on Docker container '{container_id}' because label {RUN_ID_LABEL}={actual:?} does not match run {run_id}"
-            ));
+            )));
         }
     }
     Ok(())
@@ -612,23 +629,24 @@ fn redact_auth_url(text: &str, auth_url: Option<&fabro_redact::DisplaySafeUrl>) 
     text.replace(&auth_url.raw_string(), &auth_url.redacted_string())
 }
 
-fn build_single_file_tar(file_name: &str, bytes: &[u8]) -> Result<Vec<u8>, String> {
+fn build_single_file_tar(file_name: &str, bytes: &[u8]) -> crate::Result<Vec<u8>> {
     let mut tar_builder = tar::Builder::new(Vec::new());
     let mut header = tar::Header::new_gnu();
     header
         .set_path(file_name)
-        .map_err(|e| format!("Failed to set tar path: {e}"))?;
+        .map_err(|e| crate::Error::message(format!("Failed to set tar path: {e}")))?;
     header.set_size(
-        u64::try_from(bytes.len()).map_err(|_| "file is too large for tar header".to_string())?,
+        u64::try_from(bytes.len())
+            .map_err(|_| crate::Error::message("file is too large for tar header"))?,
     );
     header.set_mode(0o644);
     header.set_cksum();
     tar_builder
         .append(&header, bytes)
-        .map_err(|e| format!("Failed to build tar archive: {e}"))?;
+        .map_err(|e| crate::Error::message(format!("Failed to build tar archive: {e}")))?;
     tar_builder
         .into_inner()
-        .map_err(|e| format!("Failed to finalize tar archive: {e}"))
+        .map_err(|e| crate::Error::message(format!("Failed to finalize tar archive: {e}")))
 }
 
 #[async_trait]
@@ -637,7 +655,7 @@ impl Sandbox for DockerSandbox {
         &self,
         remote_path: &str,
         local_path: &std::path::Path,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         let container_id = self.container_id()?;
         let container_path = Self::resolve_container_path(remote_path);
         let opts = DownloadFromContainerOptions {
@@ -648,8 +666,12 @@ impl Sandbox for DockerSandbox {
             .download_from_container(container_id, Some(opts));
         let mut archive_bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|e| format!("Failed to download {container_path} from container: {e}"))?;
+            let chunk = chunk.map_err(|e| {
+                crate::Error::context(
+                    format!("Failed to download {container_path} from container"),
+                    e,
+                )
+            })?;
             archive_bytes.extend_from_slice(&chunk);
         }
 
@@ -661,51 +683,62 @@ impl Sandbox for DockerSandbox {
             use std::io::Read as _;
 
             let mut archive = tar::Archive::new(Cursor::new(archive_bytes));
-            let entries = archive
-                .entries()
-                .map_err(|e| format!("Failed to read Docker archive for {container_path}: {e}"))?;
+            let entries = archive.entries().map_err(|e| {
+                crate::Error::context(
+                    format!("Failed to read Docker archive for {container_path}"),
+                    e,
+                )
+            })?;
             let mut file_bytes = None;
             for entry in entries {
                 let mut entry = entry.map_err(|e| {
-                    format!("Failed to read Docker archive entry for {container_path}: {e}")
+                    crate::Error::context(
+                        format!("Failed to read Docker archive entry for {container_path}"),
+                        e,
+                    )
                 })?;
                 if !entry.header().entry_type().is_file() {
                     continue;
                 }
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).map_err(|e| {
-                    format!("Failed to read Docker archive file for {container_path}: {e}")
+                    crate::Error::context(
+                        format!("Failed to read Docker archive file for {container_path}"),
+                        e,
+                    )
                 })?;
                 file_bytes = Some(bytes);
                 break;
             }
             file_bytes.ok_or_else(|| {
-                format!("Docker archive for {container_path} did not contain a file")
+                crate::Error::message(format!(
+                    "Docker archive for {container_path} did not contain a file"
+                ))
             })?
         };
 
         if let Some(parent) = local_path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Failed to create parent dirs: {e}"))?;
+                .map_err(|e| crate::Error::context("Failed to create parent dirs", e))?;
         }
-        fs::write(local_path, bytes)
-            .await
-            .map_err(|e| format!("Failed to write {}: {e}", local_path.display()))
+        fs::write(local_path, bytes).await.map_err(|e| {
+            crate::Error::context(format!("Failed to write {}", local_path.display()), e)
+        })
     }
 
     async fn upload_file_from_local(
         &self,
         local_path: &std::path::Path,
         remote_path: &str,
-    ) -> Result<(), String> {
-        let bytes = fs::read(local_path)
-            .await
-            .map_err(|e| format!("Failed to read {}: {e}", local_path.display()))?;
+    ) -> crate::Result<()> {
+        let bytes = fs::read(local_path).await.map_err(|e| {
+            crate::Error::context(format!("Failed to read {}", local_path.display()), e)
+        })?;
         self.upload_bytes_to_container(remote_path, &bytes).await
     }
 
-    async fn initialize(&self) -> Result<(), String> {
+    async fn initialize(&self) -> crate::Result<()> {
         self.emit(SandboxEvent::Initializing {
             provider: "docker".into(),
         });
@@ -719,7 +752,8 @@ impl Sandbox for DockerSandbox {
             let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
             self.emit(SandboxEvent::InitializeFailed {
                 provider: "docker".into(),
-                error: e.clone(),
+                error: e.to_string(),
+                causes: e.causes(),
                 duration_ms,
             });
             return Err(e);
@@ -737,7 +771,8 @@ impl Sandbox for DockerSandbox {
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 self.emit(SandboxEvent::InitializeFailed {
                     provider: "docker".into(),
-                    error: e.clone(),
+                    error: e.to_string(),
+                    causes: e.causes(),
                     duration_ms,
                 });
                 return Err(e);
@@ -752,24 +787,24 @@ impl Sandbox for DockerSandbox {
             .create_container(create_options, container_config(&self.config, self.run_id.as_ref()))
             .await
             .map_err(|e| {
-                let err = if matches!(
+                let message = if matches!(
                     e,
                     DockerError::DockerResponseServerError {
                         status_code: 409,
                         ..
                     }
                 ) {
-                    format!(
-                        "Docker container for run already exists. Remove the stale fabro-run container manually before retrying: {e}"
-                    )
+                    "Docker container for run already exists. Remove the stale fabro-run container manually before retrying.".to_string()
                 } else {
-                    format!("Failed to create container: {e}")
+                    "Failed to create Docker container".to_string()
                 };
+                let err = crate::Error::context(message, e);
                 let duration_ms =
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 self.emit(SandboxEvent::InitializeFailed {
                     provider: "docker".into(),
-                    error: err.clone(),
+                    error: err.to_string(),
+                    causes: err.causes(),
                     duration_ms,
                 });
                 err
@@ -778,18 +813,19 @@ impl Sandbox for DockerSandbox {
         let id = container.id.clone();
         self.container_id
             .set(id.clone())
-            .map_err(|_| "Container already initialized".to_string())?;
+            .map_err(|_| crate::Error::message("Container already initialized"))?;
 
         self.docker
             .start_container(&id, None::<StartContainerOptions<String>>)
             .await
             .map_err(|e| {
-                let err = bash_remediation(&e, &self.config.image);
+                let err = crate::Error::context(bash_remediation(&e, &self.config.image), e);
                 let duration_ms =
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 self.emit(SandboxEvent::InitializeFailed {
                     provider: "docker".into(),
-                    error: err.clone(),
+                    error: err.to_string(),
+                    causes: err.causes(),
                     duration_ms,
                 });
                 err
@@ -807,13 +843,14 @@ impl Sandbox for DockerSandbox {
             )
             .await?;
         if exit_code != 0 || !stdout.contains("ready") {
-            let err = format!(
+            let err = crate::Error::message(format!(
                 "Docker container health check failed. Docker sandboxes require /bin/bash; use an image with bash and git, such as buildpack-deps:noble. {stderr}"
-            );
+            ));
             let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
             self.emit(SandboxEvent::InitializeFailed {
                 provider: "docker".into(),
-                error: err.clone(),
+                error: err.to_string(),
+                causes: err.causes(),
                 duration_ms,
             });
             return Err(err);
@@ -838,7 +875,8 @@ impl Sandbox for DockerSandbox {
                     u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 self.emit(SandboxEvent::InitializeFailed {
                     provider: "docker".into(),
-                    error: e.clone(),
+                    error: e.to_string(),
+                    causes: e.causes(),
                     duration_ms,
                 });
                 return Err(e);
@@ -859,7 +897,8 @@ impl Sandbox for DockerSandbox {
                         u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     self.emit(SandboxEvent::InitializeFailed {
                         provider: "docker".into(),
-                        error: e.clone(),
+                        error: e.to_string(),
+                        causes: e.causes(),
                         duration_ms,
                     });
                     return Err(e);
@@ -872,7 +911,8 @@ impl Sandbox for DockerSandbox {
                         u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     self.emit(SandboxEvent::InitializeFailed {
                         provider: "docker".into(),
-                        error: e.clone(),
+                        error: e.to_string(),
+                        causes: e.causes(),
                         duration_ms,
                     });
                     return Err(e);
@@ -893,7 +933,7 @@ impl Sandbox for DockerSandbox {
         Ok(())
     }
 
-    async fn cleanup(&self) -> Result<(), String> {
+    async fn cleanup(&self) -> crate::Result<()> {
         self.emit(SandboxEvent::CleanupStarted {
             provider: "docker".into(),
         });
@@ -923,8 +963,11 @@ impl Sandbox for DockerSandbox {
             .await
         {
             if !docker_not_found(&e) && !docker_already_stopped(&e) {
-                return self.cleanup_error(format!(
-                    "Failed to stop Docker container '{container_id}' with labels {labels:?}: {e}"
+                return self.cleanup_error(crate::Error::context(
+                    format!(
+                        "Failed to stop Docker container '{container_id}' with labels {labels:?}"
+                    ),
+                    e,
                 ));
             }
         }
@@ -939,8 +982,11 @@ impl Sandbox for DockerSandbox {
             .await
         {
             if !docker_not_found(&e) {
-                return self.cleanup_error(format!(
-                    "Failed to remove Docker container '{container_id}' with labels {labels:?}: {e}"
+                return self.cleanup_error(crate::Error::context(
+                    format!(
+                        "Failed to remove Docker container '{container_id}' with labels {labels:?}"
+                    ),
+                    e,
                 ));
             }
         }
@@ -961,7 +1007,7 @@ impl Sandbox for DockerSandbox {
         working_dir: Option<&str>,
         env_vars: Option<&HashMap<String, String>>,
         cancel_token: Option<CancellationToken>,
-    ) -> Result<ExecResult, String> {
+    ) -> crate::Result<ExecResult> {
         let dir = working_dir.map(Self::resolve_container_path);
         self.docker_exec_shell(command, timeout_ms, dir.as_deref(), env_vars, cancel_token)
             .await
@@ -972,25 +1018,27 @@ impl Sandbox for DockerSandbox {
         path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<String, String> {
+    ) -> crate::Result<String> {
         let container_path = Self::resolve_container_path(path);
         let (stdout, stderr, exit_code) = self
             .docker_exec(vec!["cat".to_string(), container_path.clone()], None, None)
             .await?;
 
         if exit_code != 0 {
-            return Err(format!("Failed to read {container_path}: {stderr}"));
+            return Err(crate::Error::message(format!(
+                "Failed to read {container_path}: {stderr}"
+            )));
         }
 
         Ok(format_lines_numbered(&stdout, offset, limit))
     }
 
-    async fn write_file(&self, path: &str, content: &str) -> Result<(), String> {
+    async fn write_file(&self, path: &str, content: &str) -> crate::Result<()> {
         self.upload_bytes_to_container(path, content.as_bytes())
             .await
     }
 
-    async fn delete_file(&self, path: &str) -> Result<(), String> {
+    async fn delete_file(&self, path: &str) -> crate::Result<()> {
         let container_path = Self::resolve_container_path(path);
         let (_, stderr, exit_code) = self
             .docker_exec(
@@ -1001,12 +1049,14 @@ impl Sandbox for DockerSandbox {
             .await?;
 
         if exit_code != 0 {
-            return Err(format!("Failed to delete {container_path}: {stderr}"));
+            return Err(crate::Error::message(format!(
+                "Failed to delete {container_path}: {stderr}"
+            )));
         }
         Ok(())
     }
 
-    async fn file_exists(&self, path: &str) -> Result<bool, String> {
+    async fn file_exists(&self, path: &str) -> crate::Result<bool> {
         let container_path = Self::resolve_container_path(path);
         let (_, _, exit_code) = self
             .docker_exec(
@@ -1023,7 +1073,7 @@ impl Sandbox for DockerSandbox {
         &self,
         path: &str,
         depth: Option<usize>,
-    ) -> Result<Vec<DirEntry>, String> {
+    ) -> crate::Result<Vec<DirEntry>> {
         let container_path = Self::resolve_container_path(path);
         let max_depth = depth.unwrap_or(1);
         let (stdout, stderr, exit_code) = self
@@ -1044,9 +1094,9 @@ impl Sandbox for DockerSandbox {
             .await?;
 
         if exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Failed to list directory {container_path}: {stderr}"
-            ));
+            )));
         }
 
         let mut entries: Vec<DirEntry> = stdout
@@ -1078,7 +1128,7 @@ impl Sandbox for DockerSandbox {
         pattern: &str,
         path: &str,
         options: &GrepOptions,
-    ) -> Result<Vec<String>, String> {
+    ) -> crate::Result<Vec<String>> {
         let container_path = Self::resolve_container_path(path);
         let use_rg = *self
             .rg_available
@@ -1133,10 +1183,10 @@ impl Sandbox for DockerSandbox {
             return Ok(Vec::new());
         }
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
 
         Ok(result
@@ -1147,7 +1197,7 @@ impl Sandbox for DockerSandbox {
             .collect())
     }
 
-    async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
+    async fn glob(&self, pattern: &str, path: Option<&str>) -> crate::Result<Vec<String>> {
         let base_dir = path.map_or_else(
             || WORKING_DIRECTORY.to_string(),
             Self::resolve_container_path,
@@ -1161,10 +1211,10 @@ impl Sandbox for DockerSandbox {
             .docker_exec_shell(&command, 30_000, None, None, None)
             .await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
 
         Ok(result
@@ -1194,7 +1244,7 @@ impl Sandbox for DockerSandbox {
         self.container_id.get().cloned().unwrap_or_default()
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> Result<Option<crate::GitRunInfo>, String> {
+    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
         if !self.repo_cloned() {
             return Ok(None);
         }
@@ -1242,7 +1292,7 @@ impl Sandbox for DockerSandbox {
         self.origin_url.get().map(String::as_str)
     }
 
-    async fn refresh_push_credentials(&self) -> Result<(), String> {
+    async fn refresh_push_credentials(&self) -> crate::Result<()> {
         if !self.repo_cloned() {
             return Ok(());
         }
@@ -1258,7 +1308,7 @@ impl Sandbox for DockerSandbox {
             origin_url,
         )
         .await
-        .map_err(|e| format!("Failed to refresh GitHub App token: {e}"))?;
+        .map_err(|e| crate::Error::message(format!("Failed to refresh GitHub App token: {e}")))?;
 
         let command = format!(
             "git -c maintenance.auto=0 remote set-url origin {}",
@@ -1269,10 +1319,10 @@ impl Sandbox for DockerSandbox {
             .await?;
         if result.exit_code != 0 {
             let stderr = redact_auth_url(&result.stderr, Some(&auth_url));
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "Failed to set refreshed push credentials (exit {}): {}",
                 result.exit_code, stderr
-            ));
+            )));
         }
 
         Ok(())

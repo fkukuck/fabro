@@ -6,6 +6,10 @@ use crate::sandbox::{Sandbox, format_lines_numbered};
 use crate::tool_registry::RegisteredTool;
 use crate::truncation::{TruncationMode, truncate_output};
 
+fn sandbox_error(error: fabro_sandbox::Error) -> String {
+    error.display_with_causes()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     Remove(String),
@@ -205,11 +209,11 @@ pub async fn apply_patch_operations(
     for op in ops {
         match op {
             PatchOperation::Add { path, content } => {
-                env.write_file(path, content).await?;
+                env.write_file(path, content).await.map_err(sandbox_error)?;
                 results.push(format!("Added file: {path}"));
             }
             PatchOperation::Delete { path } => {
-                env.delete_file(path).await?;
+                env.delete_file(path).await.map_err(sandbox_error)?;
                 results.push(format!("Deleted file: {path}"));
             }
             PatchOperation::Update {
@@ -217,13 +221,18 @@ pub async fn apply_patch_operations(
                 new_path,
                 hunks,
             } => {
-                let original = env.read_file(path, None, None).await?;
+                let original = env
+                    .read_file(path, None, None)
+                    .await
+                    .map_err(sandbox_error)?;
                 let updated = apply_hunks(&original, hunks)
                     .map_err(|err| format_patch_error(&err, path, &original))?;
                 let dest = new_path.as_deref().unwrap_or(path);
-                env.write_file(dest, &updated).await?;
+                env.write_file(dest, &updated)
+                    .await
+                    .map_err(sandbox_error)?;
                 if new_path.is_some() {
-                    env.delete_file(path).await?;
+                    env.delete_file(path).await.map_err(sandbox_error)?;
                     results.push(format!("Moved file: {path} → {dest}"));
                 } else {
                     results.push(format!("Updated file: {path}"));

@@ -690,6 +690,7 @@ mod tests {
         assert_eq!(
             worker_title_phase_for_event(&EventBody::RunFailed(RunFailedProps {
                 error:          "cancelled".to_string(),
+                causes:         Vec::new(),
                 duration_ms:    10,
                 reason:         FailureReason::Cancelled,
                 git_commit_sha: None,
@@ -700,6 +701,7 @@ mod tests {
         assert_eq!(
             worker_title_phase_for_event(&EventBody::RunFailed(RunFailedProps {
                 error:          "boom".to_string(),
+                causes:         Vec::new(),
                 duration_ms:    10,
                 reason:         FailureReason::Terminated,
                 git_commit_sha: None,

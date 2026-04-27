@@ -27,7 +27,7 @@ pub struct GitRunInfo {
 /// delegate_sandbox! {
 ///     MyDecorator => inner {
 ///         // Only provide methods with custom logic — the rest delegate automatically.
-///         async fn read_file(&self, path: &str, offset: Option<usize>, limit: Option<usize>) -> Result<String, String> {
+///         async fn read_file(&self, path: &str, offset: Option<usize>, limit: Option<usize>) -> $crate::Result<String> {
 ///             // custom logic...
 ///         }
 ///     }
@@ -44,7 +44,7 @@ macro_rules! delegate_sandbox {
         impl $crate::Sandbox for $type {
             $($custom)*
 
-            async fn file_exists(&self, path: &str) -> Result<bool, String> {
+            async fn file_exists(&self, path: &str) -> $crate::Result<bool> {
                 self.$field.file_exists(path).await
             }
 
@@ -52,7 +52,7 @@ macro_rules! delegate_sandbox {
                 &self,
                 path: &str,
                 depth: Option<usize>,
-            ) -> Result<Vec<$crate::DirEntry>, String> {
+            ) -> $crate::Result<Vec<$crate::DirEntry>> {
                 self.$field.list_directory(path, depth).await
             }
 
@@ -63,13 +63,13 @@ macro_rules! delegate_sandbox {
                 working_dir: Option<&str>,
                 env_vars: Option<&std::collections::HashMap<String, String>>,
                 cancel_token: Option<tokio_util::sync::CancellationToken>,
-            ) -> Result<$crate::ExecResult, String> {
+            ) -> $crate::Result<$crate::ExecResult> {
                 self.$field
                     .exec_command(command, timeout_ms, working_dir, env_vars, cancel_token)
                     .await
             }
 
-            async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
+            async fn glob(&self, pattern: &str, path: Option<&str>) -> $crate::Result<Vec<String>> {
                 self.$field.glob(pattern, path).await
             }
 
@@ -77,7 +77,7 @@ macro_rules! delegate_sandbox {
                 &self,
                 remote_path: &str,
                 local_path: &std::path::Path,
-            ) -> Result<(), String> {
+            ) -> $crate::Result<()> {
                 self.$field.download_file_to_local(remote_path, local_path).await
             }
 
@@ -85,15 +85,15 @@ macro_rules! delegate_sandbox {
                 &self,
                 local_path: &std::path::Path,
                 remote_path: &str,
-            ) -> Result<(), String> {
+            ) -> $crate::Result<()> {
                 self.$field.upload_file_from_local(local_path, remote_path).await
             }
 
-            async fn initialize(&self) -> Result<(), String> {
+            async fn initialize(&self) -> $crate::Result<()> {
                 self.$field.initialize().await
             }
 
-            async fn cleanup(&self) -> Result<(), String> {
+            async fn cleanup(&self) -> $crate::Result<()> {
                 self.$field.cleanup().await
             }
 
@@ -113,15 +113,15 @@ macro_rules! delegate_sandbox {
                 self.$field.sandbox_info()
             }
 
-            async fn refresh_push_credentials(&self) -> Result<(), String> {
+            async fn refresh_push_credentials(&self) -> $crate::Result<()> {
                 self.$field.refresh_push_credentials().await
             }
 
-            async fn set_autostop_interval(&self, minutes: i32) -> Result<(), String> {
+            async fn set_autostop_interval(&self, minutes: i32) -> $crate::Result<()> {
                 self.$field.set_autostop_interval(minutes).await
             }
 
-            async fn setup_git_for_run(&self, run_id: &str) -> Result<Option<$crate::GitRunInfo>, String> {
+            async fn setup_git_for_run(&self, run_id: &str) -> $crate::Result<Option<$crate::GitRunInfo>> {
                 self.$field.setup_git_for_run(run_id).await
             }
 
@@ -147,7 +147,7 @@ macro_rules! delegate_sandbox {
                 self.$field.parallel_worktree_path(run_dir, run_id, node_id, key)
             }
 
-            async fn ssh_access_command(&self) -> Result<Option<String>, String> {
+            async fn ssh_access_command(&self) -> $crate::Result<Option<String>> {
                 self.$field.ssh_access_command().await
             }
 
@@ -155,7 +155,7 @@ macro_rules! delegate_sandbox {
                 self.$field.origin_url()
             }
 
-            async fn get_preview_url(&self, port: u16) -> Result<Option<(String, std::collections::HashMap<String, String>)>, String> {
+            async fn get_preview_url(&self, port: u16) -> $crate::Result<Option<(String, std::collections::HashMap<String, String>)>> {
                 self.$field.get_preview_url(port).await
             }
 
@@ -164,7 +164,7 @@ macro_rules! delegate_sandbox {
                 path: &str,
                 offset: Option<usize>,
                 limit: Option<usize>,
-            ) -> Result<String, String> {
+            ) -> $crate::Result<String> {
                 self.$field.read_file(path, offset, limit).await
             }
 
@@ -173,7 +173,7 @@ macro_rules! delegate_sandbox {
                 pattern: &str,
                 path: &str,
                 options: &$crate::GrepOptions,
-            ) -> Result<Vec<String>, String> {
+            ) -> $crate::Result<Vec<String>> {
                 self.$field.grep(pattern, path, options).await
             }
         }
@@ -198,6 +198,8 @@ pub enum SandboxEvent {
     InitializeFailed {
         provider:    String,
         error:       String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        causes:      Vec<String>,
         duration_ms: u64,
     },
     CleanupStarted {
@@ -210,6 +212,8 @@ pub enum SandboxEvent {
     CleanupFailed {
         provider: String,
         error:    String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        causes:   Vec<String>,
     },
 
     // -- Docker --
@@ -233,8 +237,10 @@ pub enum SandboxEvent {
         duration_ms: u64,
     },
     SnapshotFailed {
-        name:  String,
-        error: String,
+        name:   String,
+        error:  String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        causes: Vec<String>,
     },
 
     // -- Daytona git --
@@ -247,8 +253,10 @@ pub enum SandboxEvent {
         duration_ms: u64,
     },
     GitCloneFailed {
-        url:   String,
-        error: String,
+        url:    String,
+        error:  String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        causes: Vec<String>,
     },
 }
 
@@ -269,9 +277,10 @@ impl SandboxEvent {
             Self::InitializeFailed {
                 provider,
                 error,
+                causes,
                 duration_ms,
             } => {
-                error!(provider, error, duration_ms, "Sandbox init failed");
+                error!(provider, error, causes = ?causes, duration_ms, "Sandbox init failed");
             }
             Self::CleanupStarted { provider } => {
                 debug!(provider, "Sandbox cleanup started");
@@ -282,8 +291,12 @@ impl SandboxEvent {
             } => {
                 debug!(provider, duration_ms, "Sandbox cleanup completed");
             }
-            Self::CleanupFailed { provider, error } => {
-                warn!(provider, error, "Sandbox cleanup failed");
+            Self::CleanupFailed {
+                provider,
+                error,
+                causes,
+            } => {
+                warn!(provider, error, causes = ?causes, "Sandbox cleanup failed");
             }
             Self::SnapshotPulling { name } => {
                 debug!(name, "Snapshot pulling");
@@ -300,8 +313,12 @@ impl SandboxEvent {
             Self::SnapshotReady { name, duration_ms } => {
                 info!(name, duration_ms, "Snapshot ready");
             }
-            Self::SnapshotFailed { name, error } => {
-                error!(name, error, "Snapshot failed");
+            Self::SnapshotFailed {
+                name,
+                error,
+                causes,
+            } => {
+                error!(name, error, causes = ?causes, "Snapshot failed");
             }
             Self::GitCloneStarted { url, branch } => {
                 debug!(
@@ -313,8 +330,8 @@ impl SandboxEvent {
             Self::GitCloneCompleted { url, duration_ms } => {
                 debug!(url, duration_ms, "Git clone completed");
             }
-            Self::GitCloneFailed { url, error } => {
-                error!(url, error, "Git clone failed");
+            Self::GitCloneFailed { url, error, causes } => {
+                error!(url, error, causes = ?causes, "Git clone failed");
             }
         }
     }
@@ -372,15 +389,15 @@ pub trait Sandbox: Send + Sync {
         path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<String, String>;
-    async fn write_file(&self, path: &str, content: &str) -> Result<(), String>;
-    async fn delete_file(&self, path: &str) -> Result<(), String>;
-    async fn file_exists(&self, path: &str) -> Result<bool, String>;
+    ) -> crate::Result<String>;
+    async fn write_file(&self, path: &str, content: &str) -> crate::Result<()>;
+    async fn delete_file(&self, path: &str) -> crate::Result<()>;
+    async fn file_exists(&self, path: &str) -> crate::Result<bool>;
     async fn list_directory(
         &self,
         path: &str,
         depth: Option<usize>,
-    ) -> Result<Vec<DirEntry>, String>;
+    ) -> crate::Result<Vec<DirEntry>>;
     async fn exec_command(
         &self,
         command: &str,
@@ -388,30 +405,30 @@ pub trait Sandbox: Send + Sync {
         working_dir: Option<&str>,
         env_vars: Option<&std::collections::HashMap<String, String>>,
         cancel_token: Option<CancellationToken>,
-    ) -> Result<ExecResult, String>;
+    ) -> crate::Result<ExecResult>;
     async fn grep(
         &self,
         pattern: &str,
         path: &str,
         options: &GrepOptions,
-    ) -> Result<Vec<String>, String>;
-    async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String>;
+    ) -> crate::Result<Vec<String>>;
+    async fn glob(&self, pattern: &str, path: Option<&str>) -> crate::Result<Vec<String>>;
     /// Copy a file from the sandbox to a local filesystem path.
     /// Handles binary files correctly across all sandbox types.
     async fn download_file_to_local(
         &self,
         remote_path: &str,
         local_path: &Path,
-    ) -> Result<(), String>;
+    ) -> crate::Result<()>;
     /// Copy a file from the local filesystem into the sandbox.
     /// Handles binary files correctly across all sandbox types.
     async fn upload_file_from_local(
         &self,
         local_path: &Path,
         remote_path: &str,
-    ) -> Result<(), String>;
-    async fn initialize(&self) -> Result<(), String>;
-    async fn cleanup(&self) -> Result<(), String>;
+    ) -> crate::Result<()>;
+    async fn initialize(&self) -> crate::Result<()>;
+    async fn cleanup(&self) -> crate::Result<()>;
     fn working_directory(&self) -> &str;
     fn platform(&self) -> &str;
     fn os_version(&self) -> String;
@@ -425,13 +442,13 @@ pub trait Sandbox: Send + Sync {
     /// Refresh git push credentials (e.g. rotate an expiring GitHub App token).
     /// Default is a no-op; Daytona overrides to update the remote URL with a
     /// fresh token.
-    async fn refresh_push_credentials(&self) -> Result<(), String> {
+    async fn refresh_push_credentials(&self) -> crate::Result<()> {
         Ok(())
     }
 
     /// Set the auto-stop interval in minutes (0 to disable).
     /// Default is a no-op; Daytona overrides to call the Daytona API.
-    async fn set_autostop_interval(&self, _minutes: i32) -> Result<(), String> {
+    async fn set_autostop_interval(&self, _minutes: i32) -> crate::Result<()> {
         Ok(())
     }
 
@@ -439,7 +456,7 @@ pub trait Sandbox: Send + Sync {
     /// Sandboxes that manage their own git clone (e.g., remote VMs) should
     /// create a run branch and return the git info. Local sandboxes return
     /// `None`.
-    async fn setup_git_for_run(&self, _run_id: &str) -> Result<Option<GitRunInfo>, String> {
+    async fn setup_git_for_run(&self, _run_id: &str) -> crate::Result<Option<GitRunInfo>> {
         Ok(None)
     }
 
@@ -481,7 +498,7 @@ pub trait Sandbox: Send + Sync {
 
     /// Return an SSH command string for connecting to this sandbox, if
     /// supported.
-    async fn ssh_access_command(&self) -> Result<Option<String>, String> {
+    async fn ssh_access_command(&self) -> crate::Result<Option<String>> {
         Ok(None)
     }
 
@@ -497,7 +514,7 @@ pub trait Sandbox: Send + Sync {
     async fn get_preview_url(
         &self,
         _port: u16,
-    ) -> Result<Option<(String, HashMap<String, String>)>, String> {
+    ) -> crate::Result<Option<(String, HashMap<String, String>)>> {
         Ok(None)
     }
 
@@ -530,12 +547,14 @@ pub fn shell_quote(s: &str) -> String {
 
 /// Helper for sandbox implementations that manage git internally.
 /// Executes git commands inside the sandbox to create a run branch.
-pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> Result<GitRunInfo, String> {
+pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> crate::Result<GitRunInfo> {
     // Get current branch name
     let branch_result = sandbox
         .exec_command("git rev-parse --abbrev-ref HEAD", 10_000, None, None, None)
         .await
-        .map_err(|e| format!("git rev-parse --abbrev-ref HEAD failed: {e}"))?;
+        .map_err(|e| {
+            crate::Error::message(format!("git rev-parse --abbrev-ref HEAD failed: {e}"))
+        })?;
     let base_branch = if branch_result.exit_code == 0 {
         let name = branch_result.stdout.trim().to_string();
         if name.is_empty() || name == "HEAD" {
@@ -551,12 +570,12 @@ pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> Result<G
     let sha_result = sandbox
         .exec_command("git rev-parse HEAD", 10_000, None, None, None)
         .await
-        .map_err(|e| format!("git rev-parse HEAD failed: {e}"))?;
+        .map_err(|e| crate::Error::message(format!("git rev-parse HEAD failed: {e}")))?;
     if sha_result.exit_code != 0 {
-        return Err(format!(
+        return Err(crate::Error::message(format!(
             "git rev-parse HEAD failed (exit {}): {}",
             sha_result.exit_code, sha_result.stderr
-        ));
+        )));
     }
     let base_sha = sha_result.stdout.trim().to_string();
 
@@ -567,12 +586,12 @@ pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> Result<G
     let checkout_result = sandbox
         .exec_command(&checkout_cmd, 10_000, None, None, None)
         .await
-        .map_err(|e| format!("git checkout failed: {e}"))?;
+        .map_err(|e| crate::Error::message(format!("git checkout failed: {e}")))?;
     if checkout_result.exit_code != 0 {
-        return Err(format!(
+        return Err(crate::Error::message(format!(
             "git checkout -b failed (exit {}): {}",
             checkout_result.exit_code, checkout_result.stderr
-        ));
+        )));
     }
 
     Ok(GitRunInfo {
@@ -660,6 +679,7 @@ mod tests {
             SandboxEvent::InitializeFailed {
                 provider:    "docker".into(),
                 error:       "no daemon".into(),
+                causes:      vec!["connection refused".into()],
                 duration_ms: 100,
             },
             SandboxEvent::CleanupStarted {
@@ -672,6 +692,7 @@ mod tests {
             SandboxEvent::CleanupFailed {
                 provider: "docker".into(),
                 error:    "container gone".into(),
+                causes:   Vec::new(),
             },
             SandboxEvent::SnapshotPulling {
                 name: "ubuntu:22.04".into(),
@@ -691,8 +712,9 @@ mod tests {
                 duration_ms: 30000,
             },
             SandboxEvent::SnapshotFailed {
-                name:  "my-snap".into(),
-                error: "build failed".into(),
+                name:   "my-snap".into(),
+                error:  "build failed".into(),
+                causes: Vec::new(),
             },
             SandboxEvent::GitCloneStarted {
                 url:    "https://github.com/org/repo.git".into(),
@@ -703,8 +725,9 @@ mod tests {
                 duration_ms: 8000,
             },
             SandboxEvent::GitCloneFailed {
-                url:   "https://github.com/org/repo.git".into(),
-                error: "auth failed".into(),
+                url:    "https://github.com/org/repo.git".into(),
+                error:  "auth failed".into(),
+                causes: Vec::new(),
             },
         ];
 

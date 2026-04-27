@@ -670,7 +670,7 @@ async fn resolve_head_sha_and_time(
             None,
         )
         .await
-        .map_err(|err| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err))?;
+        .map_err(|err| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.display_with_causes()))?;
     if res.exit_code != 0 {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

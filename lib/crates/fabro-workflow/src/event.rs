@@ -660,7 +660,12 @@ impl Event {
             Self::WorkflowRunFailed {
                 error, duration_ms, ..
             } => {
-                error!(error = %error, duration_ms, "Workflow run failed");
+                error!(
+                    error = %error,
+                    causes = ?error.causes(),
+                    duration_ms,
+                    "Workflow run failed"
+                );
             }
             Self::RunNotice {
                 level,
@@ -1643,6 +1648,7 @@ fn event_body_from_event(event: &Event) -> EventBody {
             final_patch,
         } => EventBody::RunFailed(fabro_types::RunFailedProps {
             error:          error.to_string(),
+            causes:         error.causes(),
             duration_ms:    *duration_ms,
             reason:         *reason,
             git_commit_sha: git_commit_sha.clone(),
@@ -2160,10 +2166,12 @@ fn event_body_from_event(event: &Event) -> EventBody {
             SandboxEvent::InitializeFailed {
                 provider,
                 error,
+                causes,
                 duration_ms,
             } => EventBody::SandboxFailed(fabro_types::SandboxFailedProps {
                 provider:    provider.clone(),
                 error:       error.clone(),
+                causes:      causes.clone(),
                 duration_ms: *duration_ms,
             }),
             SandboxEvent::CleanupStarted { provider } => {
@@ -2178,12 +2186,15 @@ fn event_body_from_event(event: &Event) -> EventBody {
                 provider:    provider.clone(),
                 duration_ms: *duration_ms,
             }),
-            SandboxEvent::CleanupFailed { provider, error } => {
-                EventBody::SandboxCleanupFailed(fabro_types::SandboxCleanupFailedProps {
-                    provider: provider.clone(),
-                    error:    error.clone(),
-                })
-            }
+            SandboxEvent::CleanupFailed {
+                provider,
+                error,
+                causes,
+            } => EventBody::SandboxCleanupFailed(fabro_types::SandboxCleanupFailedProps {
+                provider: provider.clone(),
+                error:    error.clone(),
+                causes:   causes.clone(),
+            }),
             SandboxEvent::SnapshotPulling { name } => {
                 EventBody::SnapshotPulling(fabro_types::SnapshotNameProps { name: name.clone() })
             }
@@ -2205,12 +2216,15 @@ fn event_body_from_event(event: &Event) -> EventBody {
                     duration_ms: *duration_ms,
                 })
             }
-            SandboxEvent::SnapshotFailed { name, error } => {
-                EventBody::SnapshotFailed(fabro_types::SnapshotFailedProps {
-                    name:  name.clone(),
-                    error: error.clone(),
-                })
-            }
+            SandboxEvent::SnapshotFailed {
+                name,
+                error,
+                causes,
+            } => EventBody::SnapshotFailed(fabro_types::SnapshotFailedProps {
+                name:   name.clone(),
+                error:  error.clone(),
+                causes: causes.clone(),
+            }),
             SandboxEvent::GitCloneStarted { url, branch } => {
                 EventBody::GitCloneStarted(fabro_types::GitCloneStartedProps {
                     url:    url.clone(),
@@ -2223,10 +2237,11 @@ fn event_body_from_event(event: &Event) -> EventBody {
                     duration_ms: *duration_ms,
                 })
             }
-            SandboxEvent::GitCloneFailed { url, error } => {
+            SandboxEvent::GitCloneFailed { url, error, causes } => {
                 EventBody::GitCloneFailed(fabro_types::GitCloneFailedProps {
-                    url:   url.clone(),
-                    error: error.clone(),
+                    url:    url.clone(),
+                    error:  error.clone(),
+                    causes: causes.clone(),
                 })
             }
         },
@@ -3164,6 +3179,30 @@ mod tests {
     }
 
     #[test]
+    fn run_event_sandbox_failure_serializes_causes() {
+        let stored = to_run_event(&fixtures::RUN_5, &Event::Sandbox {
+            event: SandboxEvent::InitializeFailed {
+                provider:    "docker".to_string(),
+                error:       "Failed to pull Docker image buildpack-deps:noble".to_string(),
+                causes:      vec!["connection refused".to_string()],
+                duration_ms: 42,
+            },
+        });
+
+        assert_eq!(stored.event_name(), "sandbox.failed");
+        let properties = stored.properties().unwrap();
+        assert_eq!(properties["provider"], "docker");
+        assert_eq!(
+            properties["error"],
+            "Failed to pull Docker image buildpack-deps:noble"
+        );
+        assert_eq!(
+            properties["causes"],
+            serde_json::json!(["connection refused"])
+        );
+    }
+
+    #[test]
     fn run_event_workflow_failure_uses_display_error() {
         let stored = to_run_event(&fixtures::RUN_6, &Event::WorkflowRunFailed {
             error:          Error::handler("boom"),
@@ -3177,6 +3216,39 @@ mod tests {
         let properties = stored.properties().unwrap();
         assert_eq!(properties["error"], "Handler error: boom");
         assert_eq!(properties["duration_ms"], 900);
+    }
+
+    #[derive(Debug)]
+    struct EventTestCause;
+
+    impl std::fmt::Display for EventTestCause {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("connection refused")
+        }
+    }
+
+    impl std::error::Error for EventTestCause {}
+
+    #[test]
+    fn run_event_workflow_failure_serializes_causes() {
+        let source = EventTestCause;
+        let stored = to_run_event(&fixtures::RUN_6, &Event::WorkflowRunFailed {
+            error:          Error::engine_with_source("Failed to initialize sandbox", &source),
+            duration_ms:    900,
+            reason:         FailureReason::WorkflowError,
+            git_commit_sha: None,
+            final_patch:    None,
+        });
+
+        let properties = stored.properties().unwrap();
+        assert_eq!(
+            properties["error"],
+            "Engine error: Failed to initialize sandbox"
+        );
+        assert_eq!(
+            properties["causes"],
+            serde_json::json!(["connection refused"])
+        );
     }
 
     #[tokio::test]

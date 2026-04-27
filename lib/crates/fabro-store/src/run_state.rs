@@ -461,7 +461,10 @@ fn conclusion_from_failed(props: &RunFailedProps, timestamp: DateTime<Utc>) -> C
         timestamp,
         status: StageStatus::Fail,
         duration_ms: props.duration_ms,
-        failure_reason: Some(props.error.clone()),
+        failure_reason: Some(fabro_util::error::render_with_causes(
+            &props.error,
+            &props.causes,
+        )),
         final_git_commit_sha: props.git_commit_sha.clone(),
         stages: Vec::new(),
         billing: None,
@@ -1066,6 +1069,7 @@ mod tests {
                 1,
                 EventBody::RunFailed(RunFailedProps {
                     error:          "boom".to_string(),
+                    causes:         Vec::new(),
                     duration_ms:    42,
                     reason:         FailureReason::WorkflowError,
                     git_commit_sha: Some("abc123".to_string()),
@@ -1076,6 +1080,35 @@ mod tests {
             .unwrap();
 
         assert_eq!(state.final_patch.as_deref(), Some(patch));
+    }
+
+    #[test]
+    fn run_failed_projection_renders_causes() {
+        let mut state = RunProjection::default();
+        state
+            .apply_event(&test_event(
+                1,
+                EventBody::RunFailed(RunFailedProps {
+                    error:          "Engine error: Failed to initialize sandbox".to_string(),
+                    causes:         vec![
+                        "Failed to pull Docker image buildpack-deps:noble".to_string(),
+                        "connection refused".to_string(),
+                    ],
+                    duration_ms:    42,
+                    reason:         FailureReason::WorkflowError,
+                    git_commit_sha: None,
+                    final_patch:    None,
+                }),
+                None,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            state.conclusion.unwrap().failure_reason.as_deref(),
+            Some(
+                "Engine error: Failed to initialize sandbox\n  caused by: Failed to pull Docker image buildpack-deps:noble\n  caused by: connection refused"
+            )
+        );
     }
 
     #[test]

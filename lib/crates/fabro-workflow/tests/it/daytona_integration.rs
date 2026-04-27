@@ -1419,7 +1419,7 @@ async fn daytona_ssh_access_before_init_fails() {
     let result = env.create_ssh_access(Some(60.0)).await;
     assert!(result.is_err(), "should fail before initialize()");
     assert!(
-        result.unwrap_err().contains("not initialized"),
+        result.unwrap_err().to_string().contains("not initialized"),
         "error should mention not initialized"
     );
 }

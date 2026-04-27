@@ -218,7 +218,7 @@ pub(crate) async fn git_diff_with_timeout(
     {
         Ok(r) if r.exit_code == 0 => Ok(r.stdout),
         Ok(r) => Err(exec_err("git diff", &r)),
-        Err(e) => Err(e.clone()),
+        Err(e) => Err(e.display_with_causes()),
     }
 }
 
@@ -401,7 +401,9 @@ pub async fn list_changed_files_raw(
     let res = sandbox
         .exec_command(&cmd, 10_000, None, Some(&env), None)
         .await
-        .map_err(|e| DiffError::Transient { message: e })?;
+        .map_err(|e| DiffError::Transient {
+            message: e.display_with_causes(),
+        })?;
 
     if res.timed_out {
         return Err(DiffError::Transient {
@@ -585,7 +587,9 @@ pub async fn list_diff_numstat(
     let res = sandbox
         .exec_command(&cmd, 10_000, None, Some(&env), None)
         .await
-        .map_err(|e| DiffError::Transient { message: e })?;
+        .map_err(|e| DiffError::Transient {
+            message: e.display_with_causes(),
+        })?;
 
     if res.timed_out {
         return Err(DiffError::Transient {
@@ -674,7 +678,9 @@ pub async fn stream_blob_metadata(
     let res = sandbox
         .exec_command(&cmd, 10_000, None, Some(&env), None)
         .await
-        .map_err(|e| DiffError::Transient { message: e })?;
+        .map_err(|e| DiffError::Transient {
+            message: e.display_with_causes(),
+        })?;
 
     if res.timed_out {
         return Err(DiffError::Transient {
@@ -739,7 +745,9 @@ pub async fn stream_blobs(
     let res = sandbox
         .exec_command(&cmd, 10_000, None, Some(&env), None)
         .await
-        .map_err(|e| DiffError::Transient { message: e })?;
+        .map_err(|e| DiffError::Transient {
+            message: e.display_with_causes(),
+        })?;
 
     if res.timed_out {
         return Err(DiffError::Transient {
@@ -853,19 +861,19 @@ mod tests {
             _path: &str,
             _offset: Option<usize>,
             _limit: Option<usize>,
-        ) -> Result<String, String> {
-            Err("read_file not implemented for ScriptedSandbox".to_string())
+        ) -> fabro_sandbox::Result<String> {
+            Err("read_file not implemented for ScriptedSandbox".into())
         }
 
-        async fn write_file(&self, _path: &str, _content: &str) -> Result<(), String> {
+        async fn write_file(&self, _path: &str, _content: &str) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 
-        async fn delete_file(&self, _path: &str) -> Result<(), String> {
+        async fn delete_file(&self, _path: &str) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 
-        async fn file_exists(&self, _path: &str) -> Result<bool, String> {
+        async fn file_exists(&self, _path: &str) -> fabro_sandbox::Result<bool> {
             Ok(false)
         }
 
@@ -873,7 +881,7 @@ mod tests {
             &self,
             _path: &str,
             _depth: Option<usize>,
-        ) -> Result<Vec<DirEntry>, String> {
+        ) -> fabro_sandbox::Result<Vec<DirEntry>> {
             Ok(Vec::new())
         }
 
@@ -884,12 +892,12 @@ mod tests {
             _working_dir: Option<&str>,
             _env_vars: Option<&std::collections::HashMap<String, String>>,
             _cancel_token: Option<CancellationToken>,
-        ) -> Result<ExecResult, String> {
+        ) -> fabro_sandbox::Result<ExecResult> {
             self.exec_results
                 .lock()
                 .expect("exec_results lock poisoned")
                 .pop_front()
-                .ok_or_else(|| "unexpected exec_command call".to_string())
+                .ok_or_else(|| fabro_sandbox::Error::message("unexpected exec_command call"))
         }
 
         async fn grep(
@@ -897,11 +905,15 @@ mod tests {
             _pattern: &str,
             _path: &str,
             _options: &GrepOptions,
-        ) -> Result<Vec<String>, String> {
+        ) -> fabro_sandbox::Result<Vec<String>> {
             Ok(Vec::new())
         }
 
-        async fn glob(&self, _pattern: &str, _path: Option<&str>) -> Result<Vec<String>, String> {
+        async fn glob(
+            &self,
+            _pattern: &str,
+            _path: Option<&str>,
+        ) -> fabro_sandbox::Result<Vec<String>> {
             Ok(Vec::new())
         }
 
@@ -909,7 +921,7 @@ mod tests {
             &self,
             _remote_path: &str,
             _local_path: &std::path::Path,
-        ) -> Result<(), String> {
+        ) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 
@@ -917,15 +929,15 @@ mod tests {
             &self,
             _local_path: &std::path::Path,
             _remote_path: &str,
-        ) -> Result<(), String> {
+        ) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 
-        async fn initialize(&self) -> Result<(), String> {
+        async fn initialize(&self) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 
-        async fn cleanup(&self) -> Result<(), String> {
+        async fn cleanup(&self) -> fabro_sandbox::Result<()> {
             Ok(())
         }
 

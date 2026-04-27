@@ -43,7 +43,7 @@ pub fn classify_engine_result(
         ),
         Err(err) => (
             StageStatus::Fail,
-            Some(err.to_string()),
+            Some(err.display_with_causes()),
             RunStatus::Failed {
                 reason: FailureReason::WorkflowError,
             },
@@ -284,7 +284,11 @@ async fn cleanup_sandbox(
     );
     let _ = services.run_hooks(&hook_ctx).await;
     if !preserve {
-        services.sandbox.cleanup().await?;
+        services
+            .sandbox
+            .cleanup()
+            .await
+            .map_err(|e| e.display_with_causes())?;
     }
     Ok(())
 }

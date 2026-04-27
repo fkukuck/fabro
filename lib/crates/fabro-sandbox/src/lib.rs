@@ -1,4 +1,5 @@
 pub mod config;
+pub mod error;
 pub mod sandbox;
 pub mod sandbox_spec;
 
@@ -28,6 +29,7 @@ pub mod test_support;
 
 #[cfg(feature = "docker")]
 pub use docker::{DockerSandbox, DockerSandboxOptions};
+pub use error::{Error, Result};
 pub use local::LocalSandbox;
 pub use read_guard::ReadBeforeWriteSandbox;
 pub use sandbox::{

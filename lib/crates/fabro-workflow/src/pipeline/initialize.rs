@@ -536,7 +536,7 @@ pub async fn initialize(
     sandbox
         .initialize()
         .await
-        .map_err(|e| Error::engine(format!("Failed to initialize sandbox: {e}")))?;
+        .map_err(|e| Error::engine_with_source("Failed to initialize sandbox", &e))?;
 
     let hook_ctx = HookContext::new(
         HookEvent::SandboxReady,

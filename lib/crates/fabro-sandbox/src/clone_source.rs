@@ -30,7 +30,7 @@ pub(crate) fn decide_clone(
     skip_clone: bool,
     clone_origin_url: Option<&str>,
     clone_branch: Option<&str>,
-) -> Result<CloneDecision, String> {
+) -> crate::Result<CloneDecision> {
     if skip_clone {
         return Ok(CloneDecision::EmptyWorkspace {
             reason: EmptyWorkspaceReason::SkipClone,
@@ -45,9 +45,9 @@ pub(crate) fn decide_clone(
 
     let origin_url = fabro_github::normalize_repo_origin_url(origin_url);
     if let Err(err) = fabro_github::parse_github_owner_repo(&origin_url) {
-        return Err(format!(
+        return Err(crate::Error::message(format!(
             "Clone-based sandboxes currently support GitHub repository origins only: {err}"
-        ));
+        )));
     }
 
     Ok(CloneDecision::GitHub {

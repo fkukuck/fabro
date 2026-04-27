@@ -125,6 +125,8 @@ pub struct RunCompletedProps {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunFailedProps {
     pub error:          String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub causes:         Vec<String>,
     pub duration_ms:    u64,
     pub reason:         FailureReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
