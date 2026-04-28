@@ -13,6 +13,8 @@ pub mod redact;
 
 pub mod reconnect;
 
+mod repo;
+
 pub mod sandbox_provider;
 
 pub mod sandbox_record;
@@ -26,6 +28,9 @@ pub mod docker;
 
 #[cfg(feature = "daytona")]
 pub mod daytona;
+
+#[cfg(feature = "azure")]
+pub mod azure;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

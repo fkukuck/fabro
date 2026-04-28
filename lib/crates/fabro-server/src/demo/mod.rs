@@ -1431,6 +1431,7 @@ mod runs {
                         network:            None,
                         skip_clone:         false,
                     }),
+                    azure:        None,
                 },
                 ..RunNamespace::default()
             },

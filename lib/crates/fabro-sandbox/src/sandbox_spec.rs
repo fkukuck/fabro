@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(any(feature = "docker", feature = "daytona"))]
+#[cfg(any(feature = "docker", feature = "daytona", feature = "azure"))]
 use anyhow::anyhow;
-#[cfg(any(feature = "docker", feature = "daytona"))]
+#[cfg(any(feature = "docker", feature = "daytona", feature = "azure"))]
 use fabro_github::GitHubCredentials;
 #[allow(
     unused_imports,
@@ -13,6 +13,10 @@ use fabro_types::RunId;
 
 #[cfg(any(feature = "docker", feature = "daytona"))]
 use crate::clone_source;
+#[cfg(feature = "azure")]
+use crate::azure::AzureSandbox;
+#[cfg(feature = "azure")]
+use crate::config::AzureConfig;
 #[cfg(feature = "daytona")]
 use crate::daytona::{DaytonaConfig, DaytonaSandbox, DaytonaSnapshotConfig};
 #[cfg(feature = "docker")]
@@ -43,6 +47,13 @@ pub enum SandboxSpec {
         clone_branch:     Option<String>,
         api_key:          Option<String>,
     },
+    #[cfg(feature = "azure")]
+    Azure {
+        config:       AzureConfig,
+        github_app:   Option<GitHubCredentials>,
+        run_id:       Option<RunId>,
+        clone_branch: Option<String>,
+    },
 }
 
 impl SandboxSpec {
@@ -53,6 +64,8 @@ impl SandboxSpec {
             Self::Docker { .. } => "docker",
             #[cfg(feature = "daytona")]
             Self::Daytona { .. } => "daytona",
+            #[cfg(feature = "azure")]
+            Self::Azure { .. } => "azure",
         }
     }
 
@@ -177,6 +190,25 @@ impl SandboxSpec {
                     api_key.clone(),
                 )
                 .await
+                .map_err(|e| anyhow!(e))?;
+                if let Some(callback) = event_callback {
+                    sandbox.set_event_callback(callback);
+                }
+                Ok(Arc::new(sandbox))
+            }
+            #[cfg(feature = "azure")]
+            Self::Azure {
+                config,
+                github_app,
+                run_id,
+                clone_branch,
+            } => {
+                let mut sandbox = AzureSandbox::new(
+                    config.clone(),
+                    github_app.clone(),
+                    *run_id,
+                    clone_branch.clone(),
+                )
                 .map_err(|e| anyhow!(e))?;
                 if let Some(callback) = event_callback {
                     sandbox.set_event_callback(callback);

@@ -16,8 +16,10 @@ use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_model::Catalog;
+use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_sandbox::config::{
-    DaytonaNetwork, DaytonaSnapshotSettings, DockerfileSource as SandboxDockerfileSource,
+    AzureConfig, DaytonaNetwork, DaytonaSnapshotSettings,
+    DockerfileSource as SandboxDockerfileSource,
 };
 use fabro_sandbox::daytona::DaytonaConfig;
 use fabro_sandbox::redact::redact_auth_url;
@@ -27,8 +29,8 @@ use fabro_types::settings::ServerNamespace;
 use fabro_types::settings::cli::OutputVerbosity;
 use fabro_types::settings::interp::InterpString;
 use fabro_types::settings::run::{
-    ApprovalMode, DaytonaNetworkLayer, DaytonaSettings, DockerSettings, DockerfileSource, RunGoal,
-    RunMode, RunNamespace, WorktreeMode,
+    ApprovalMode, AzureSettings, DaytonaNetworkLayer, DaytonaSettings, DockerSettings,
+    DockerfileSource, RunGoal, RunMode, RunNamespace, WorktreeMode,
 };
 use fabro_types::{RunId, WorkflowSettings};
 use fabro_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus};
@@ -489,8 +491,9 @@ async fn build_preflight_report(
         } else {
             sandbox_provider
         };
-    let needs_github_credentials =
-        sandbox_provider.is_clone_based() || !github_integration.permissions.is_empty();
+    let needs_github_credentials = sandbox_provider.is_clone_based()
+        || sandbox_provider == SandboxProvider::Azure
+        || !github_integration.permissions.is_empty();
     let github_app = if needs_github_credentials {
         state
             .github_credentials(github_integration)
@@ -616,6 +619,10 @@ fn resolve_docker_config(settings: &RunNamespace) -> Option<DockerSandboxOptions
     settings.sandbox.docker.as_ref().map(runtime_docker_config)
 }
 
+fn resolve_azure_config(settings: &RunNamespace) -> Option<AzureConfig> {
+    settings.sandbox.azure.as_ref().map(runtime_azure_config)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct GitRemoteRefCheck {
     origin_url: String,
@@ -634,6 +641,7 @@ fn clone_disabled_for_provider(provider: SandboxProvider, resolved_run: &RunName
             .daytona
             .as_ref()
             .is_some_and(|daytona| daytona.skip_clone),
+        SandboxProvider::Azure => false,
         SandboxProvider::Local => false,
     }
 }
@@ -821,6 +829,12 @@ fn preflight_sandbox_spec(
                 api_key: daytona_api_key,
             }
         }
+        SandboxProvider::Azure => SandboxSpec::Azure {
+            config: resolve_azure_config(resolved_run).unwrap_or_default(),
+            github_app,
+            run_id: None,
+            clone_branch,
+        },
     }
 }
 
@@ -832,6 +846,19 @@ async fn run_sandbox_check(
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
 ) -> bool {
+    if sandbox_provider == SandboxProvider::Azure {
+        if let Err(err) = AzurePlatformConfig::from_env() {
+            checks.push(CheckResult {
+                name:        "Sandbox".into(),
+                status:      CheckStatus::Error,
+                summary:     "failed".into(),
+                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
+                remediation: Some(err),
+            });
+            return false;
+        }
+    }
+
     let spec = preflight_sandbox_spec(
         sandbox_provider,
         prepared,
@@ -840,10 +867,10 @@ async fn run_sandbox_check(
         daytona_api_key,
     );
     let sandbox_result: Result<Arc<dyn Sandbox>, String> = spec.build(None).await.map_err(|err| {
-        if matches!(sandbox_provider, SandboxProvider::Daytona) {
-            format!("Daytona sandbox creation failed: {err}")
-        } else {
-            err.to_string()
+        match sandbox_provider {
+            SandboxProvider::Daytona => format!("Daytona sandbox creation failed: {err}"),
+            SandboxProvider::Azure => format!("Azure sandbox creation failed: {err}"),
+            _ => err.to_string(),
         }
     });
 
@@ -1107,6 +1134,14 @@ fn runtime_docker_config(settings: &DockerSettings) -> DockerSandboxOptions {
     }
 }
 
+fn runtime_azure_config(settings: &AzureSettings) -> AzureConfig {
+    AzureConfig {
+        image:     settings.image.clone(),
+        cpu:       settings.cpu,
+        memory_gb: settings.memory_gb,
+    }
+}
+
 async fn run_github_token_check(
     checks: &mut Vec<CheckResult>,
     prepared: &PreparedManifest,
@@ -1280,6 +1315,50 @@ fn report_to_api(report: &CheckReport) -> types::PreflightCheckReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvGuard {
+        fn clear(names: &[&'static str]) -> Self {
+            let saved = names
+                .iter()
+                .copied()
+                .map(|name| {
+                    let previous = std::env::var(name).ok();
+                    std::env::remove_var(name);
+                    (name, previous)
+                })
+                .collect();
+            Self { saved }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in self.saved.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    async fn preflight_for_settings(settings: SettingsLayer) -> Result<(CheckReport, bool)> {
+        let state = crate::server::create_app_state();
+        let mut manifest = minimal_manifest();
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(toml::to_string(&settings).unwrap()),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared = prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false)?;
+        let validated = validate_prepared_manifest(&prepared)?;
+        build_preflight_report(state.as_ref(), &prepared, &validated).await
+    }
 
     fn minimal_manifest() -> types::RunManifest {
         types::RunManifest {
@@ -1827,5 +1906,37 @@ provider = "daytona"
                 .iter()
                 .any(|check| check.name == "Sandbox")
         );
+    }
+
+    #[tokio::test]
+    async fn preflight_azure_without_platform_env_returns_report() {
+        let _guard = EnvGuard::clear(&[
+            "FABRO_AZURE_SUBSCRIPTION_ID",
+            "FABRO_AZURE_RESOURCE_GROUP",
+            "FABRO_AZURE_LOCATION",
+            "FABRO_AZURE_SANDBOX_SUBNET_ID",
+            "FABRO_AZURE_STORAGE_ACCOUNT",
+            "FABRO_AZURE_STORAGE_SHARE",
+            "FABRO_AZURE_ACR_SERVER",
+        ]);
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.sandbox]
+            provider = "azure"
+
+            [run.sandbox.azure]
+            image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            "#,
+        )
+        .unwrap();
+
+        let (report, ok) = preflight_for_settings(settings).await.unwrap();
+        assert!(!ok);
+        assert!(report.sections[0].checks.iter().any(|check| {
+            check
+                .remediation
+                .as_deref()
+                .is_some_and(|text| text.contains("FABRO_AZURE_SUBSCRIPTION_ID"))
+        }));
     }
 }

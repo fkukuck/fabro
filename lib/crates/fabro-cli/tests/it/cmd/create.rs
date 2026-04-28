@@ -51,7 +51,7 @@ fn help() {
           --model <MODEL>          Override default LLM model
           --provider <PROVIDER>    Override default LLM provider
       -v, --verbose                Enable verbose output
-          --sandbox <SANDBOX>      Sandbox for agent tools [possible values: local, docker, daytona]
+          --sandbox <SANDBOX>      Sandbox for agent tools [possible values: local, docker, daytona, azure]
           --in-place               Run directly in the source checkout without git checkpoints
           --label <KEY=VALUE>      Attach a label to this run (repeatable, format: KEY=VALUE)
           --no-retro               Skip retro generation after the run
