@@ -4523,7 +4523,6 @@ components:
         - run_id
         - settings
         - graph
-        - labels
         - checkpoints_disabled
       properties:
         run_id:

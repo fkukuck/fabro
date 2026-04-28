@@ -45,9 +45,9 @@ struct WorktreePlan {
 async fn resolve_worktree_base_sha(
     sandbox: &dyn Sandbox,
     plan: &WorktreePlan,
-) -> Result<String, Error> {
+) -> Result<Option<String>, Error> {
     if let Some(base_sha) = plan.base_sha.as_ref() {
-        return Ok(base_sha.clone());
+        return Ok(Some(base_sha.clone()));
     }
 
     let result = sandbox
@@ -67,6 +67,9 @@ async fn resolve_worktree_base_sha(
         } else {
             output
         };
+        if is_not_git_repository(output) {
+            return Ok(None);
+        }
         return Err(Error::engine(format!(
             "git rev-parse HEAD failed (exit {}): {}",
             result.exit_code, output
@@ -77,7 +80,11 @@ async fn resolve_worktree_base_sha(
     if base_sha.is_empty() {
         return Err(Error::engine("git rev-parse HEAD returned no commit sha"));
     }
-    Ok(base_sha.to_string())
+    Ok(Some(base_sha.to_string()))
+}
+
+fn is_not_git_repository(output: &str) -> bool {
+    output.contains("not a git repository") || output.contains("ambiguous argument 'HEAD'")
 }
 
 async fn run_hooks(
@@ -131,17 +138,19 @@ fn resolve_worktree_plan(options: &mut InitOptions) -> Option<WorktreePlan> {
         }
     }
 
-    let git_is_clean = options
+    let local_dirty = options
         .run_options
         .pre_run_git
         .as_ref()
-        .is_some_and(|git| matches!(git.local_dirty, fabro_types::DirtyStatus::Clean));
+        .map(|git| git.local_dirty);
+    let git_is_clean =
+        local_dirty.is_some_and(|status| matches!(status, fabro_types::DirtyStatus::Clean));
     let strategy =
         options
             .sandbox
             .workdir_strategy(worktree_mode, git_is_clean, options.checkpoint.is_some());
 
-    if !git_is_clean {
+    if matches!(local_dirty, Some(fabro_types::DirtyStatus::Dirty)) {
         let env_name = match strategy {
             WorkdirStrategy::LocalWorktree => Some("worktree"),
             WorkdirStrategy::Cloud => Some("remote sandbox"),
@@ -491,33 +500,36 @@ pub async fn initialize(
             .build(Some(Arc::clone(&sandbox_event_callback)))
             .await
             .map_err(|e| Error::engine(e.to_string()))?;
-        metadata_runtime
-            .ensure_git_available(&*inner)
-            .await
-            .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
-        let base_sha = resolve_worktree_base_sha(&*inner, plan).await?;
-        options.run_options.display_base_sha = Some(base_sha.clone());
-        options.run_options.git = Some(GitCheckpointOptions {
-            base_sha:    Some(base_sha.clone()),
-            run_branch:  Some(plan.branch_name.clone()),
-            meta_branch: Some(metadata_branch_name(&options.run_id.to_string())),
-        });
-        let mut worktree = WorktreeSandbox::new(inner, WorktreeOptions {
-            branch_name: plan.branch_name.clone(),
-            base_sha,
-            worktree_path: plan.worktree_path.to_string_lossy().into_owned(),
-            skip_branch_creation: plan.skip_branch_creation,
-            setup_intent: Some(git_setup_intent(&options.run_options)),
-        });
-        worktree.set_event_callback(Arc::clone(&options.emitter).worktree_callback());
-        match worktree.initialize().await {
-            Ok(()) => {
-                worktree_created = true;
-                Arc::new(ReadBeforeWriteSandbox::new(Arc::new(worktree)))
+        if let Some(base_sha) = resolve_worktree_base_sha(&*inner, plan).await? {
+            metadata_runtime
+                .ensure_git_available(&*inner)
+                .await
+                .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
+            options.run_options.display_base_sha = Some(base_sha.clone());
+            options.run_options.git = Some(GitCheckpointOptions {
+                base_sha:    Some(base_sha.clone()),
+                run_branch:  Some(plan.branch_name.clone()),
+                meta_branch: Some(metadata_branch_name(&options.run_id.to_string())),
+            });
+            let mut worktree = WorktreeSandbox::new(inner, WorktreeOptions {
+                branch_name: plan.branch_name.clone(),
+                base_sha,
+                worktree_path: plan.worktree_path.to_string_lossy().into_owned(),
+                skip_branch_creation: plan.skip_branch_creation,
+                setup_intent: Some(git_setup_intent(&options.run_options)),
+            });
+            worktree.set_event_callback(Arc::clone(&options.emitter).worktree_callback());
+            match worktree.initialize().await {
+                Ok(()) => {
+                    worktree_created = true;
+                    Arc::new(ReadBeforeWriteSandbox::new(Arc::new(worktree)))
+                }
+                Err(e) => {
+                    return Err(Error::engine(format!("Git worktree setup failed: {e}")));
+                }
             }
-            Err(e) => {
-                return Err(Error::engine(format!("Git worktree setup failed: {e}")));
-            }
+        } else {
+            Arc::new(ReadBeforeWriteSandbox::new(inner))
         }
     } else {
         Arc::new(ReadBeforeWriteSandbox::new(

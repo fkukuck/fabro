@@ -159,7 +159,6 @@ fn attach_replays_completed_detached_run() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ Start  [TIME]
         ✓ Run Tests  [TIME]
@@ -266,7 +265,6 @@ fn attach_before_completion_streams_to_finished_state() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ start  [DURATION]
         ✓ wait  [DURATION]
@@ -687,22 +685,6 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "event": "run.starting",
         "id": "[EVENT_ID]",
         "properties": {},
-        "run_id": "[ULID]",
-        "ts": "[TIMESTAMP]"
-      },
-      {
-        "actor": {
-          "display": "system:worker",
-          "id": "worker",
-          "kind": "system"
-        },
-        "event": "run.notice",
-        "id": "[EVENT_ID]",
-        "properties": {
-          "code": "dirty_worktree",
-          "level": "warn",
-          "message": "Uncommitted changes will not be included in the worktree."
-        },
         "run_id": "[ULID]",
         "ts": "[TIMESTAMP]"
       },

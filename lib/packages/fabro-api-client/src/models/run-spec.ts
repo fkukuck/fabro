@@ -34,7 +34,7 @@ export interface RunSpec {
     'source_directory'?: string | null;
     'repo_origin_url'?: string | null;
     'base_branch'?: string | null;
-    'labels': { [key: string]: string; };
+    'labels'?: { [key: string]: string; };
     'provenance'?: { [key: string]: any; } | null;
     'manifest_blob'?: string | null;
     'definition_blob'?: string | null;

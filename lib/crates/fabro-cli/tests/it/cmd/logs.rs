@@ -188,7 +188,6 @@ fn logs_pretty_formats_small_run() {
     success: true
     exit_code: 0
     ----- stdout -----
-    [CLOCK] Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
     [CLOCK]   Sandbox: local  [DURATION]
     [CLOCK] ▶ Simple  [ULID]
                 Run tests and report results

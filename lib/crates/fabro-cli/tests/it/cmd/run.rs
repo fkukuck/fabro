@@ -674,7 +674,6 @@ fn dry_run_simple() {
     Goal: Run tests and report results
 
         Run: [ULID]
-        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ Start  [TIME]
         ✓ Run Tests  [TIME]
