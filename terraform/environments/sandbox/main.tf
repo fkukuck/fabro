@@ -23,7 +23,6 @@ module "storage" {
   resource_group_name       = module.resource_group.name
   location                  = module.resource_group.location
   account_name              = var.storage_account_name
-  workspace_share_name      = var.workspace_share_name
   server_storage_share_name = var.server_storage_share_name
   tags                      = var.tags
 }
@@ -77,9 +76,6 @@ module "fabro_server" {
   azure_resource_group         = module.resource_group.name
   azure_location               = module.resource_group.location
   azure_sandbox_subnet_id      = module.network.aci_subnet_id
-  azure_storage_account        = module.storage.account_name
-  azure_storage_share          = module.storage.workspace_share_name
-  azure_storage_key            = module.storage.primary_access_key
   azure_acr_server             = module.acr.login_server
   azure_acr_username           = module.acr.admin_username
   azure_acr_password           = module.acr.admin_passwords

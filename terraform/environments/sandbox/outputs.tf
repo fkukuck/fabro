@@ -10,10 +10,6 @@ output "aci_subnet_id" {
   value = module.network.aci_subnet_id
 }
 
-output "workspace_share_name" {
-  value = module.storage.workspace_share_name
-}
-
 output "server_storage_share_name" {
   value = module.storage.server_storage_share_name
 }

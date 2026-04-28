@@ -42,11 +42,6 @@ resource "azurerm_container_app" "this" {
   }
 
   secret {
-    name  = "azure-storage-key"
-    value = var.azure_storage_key
-  }
-
-  secret {
     name  = "azure-acr-username"
     value = var.azure_acr_username
   }
@@ -136,21 +131,6 @@ resource "azurerm_container_app" "this" {
       env {
         name  = "FABRO_AZURE_SANDBOX_SUBNET_ID"
         value = var.azure_sandbox_subnet_id
-      }
-
-      env {
-        name  = "FABRO_AZURE_STORAGE_ACCOUNT"
-        value = var.azure_storage_account
-      }
-
-      env {
-        name  = "FABRO_AZURE_STORAGE_SHARE"
-        value = var.azure_storage_share
-      }
-
-      env {
-        name        = "FABRO_AZURE_STORAGE_KEY"
-        secret_name = "azure-storage-key"
       }
 
       env {
