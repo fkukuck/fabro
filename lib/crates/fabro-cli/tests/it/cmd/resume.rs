@@ -141,7 +141,7 @@ fn rewind_replacement_run_id(
     let rewind = context
         .command()
         .current_dir(&setup.repo_dir)
-        .args(["rewind", &setup.run.run_id, "@2", "--no-push", "--json"])
+        .args(["rewind", &setup.run.run_id, "@2", "--json"])
         .output()
         .expect("rewind should execute");
     assert!(

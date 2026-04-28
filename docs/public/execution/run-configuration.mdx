@@ -213,7 +213,7 @@ worktree_mode = "always"
 
 | Field | Description |
 |---|---|
-| `worktree_mode` | When to create a git worktree for the run: `always`, `clean` (default — only when the working tree is clean), `dirty` (also when dirty), or `never`. |
+| `worktree_mode` | Legacy compatibility setting. Local Git runs use a run-scoped worktree by default; the explicit in-place/no-checkpoints path is the supported opt-out. |
 
 #### `[run.sandbox.env]`
 

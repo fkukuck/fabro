@@ -46,7 +46,7 @@ pub enum SandboxSpec {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkdirStrategy {
     LocalDirectory,
     LocalWorktree,
@@ -132,40 +132,12 @@ impl SandboxSpec {
 
     pub fn workdir_strategy(
         &self,
-        worktree_mode: WorktreeMode,
-        git_is_clean: bool,
-        checkpoint_present: bool,
+        _worktree_mode: WorktreeMode,
+        _git_is_clean: bool,
+        _checkpoint_present: bool,
     ) -> WorkdirStrategy {
-        if checkpoint_present {
-            return match self {
-                Self::Local { .. } => WorkdirStrategy::LocalDirectory,
-                #[allow(
-                    unreachable_patterns,
-                    reason = "Feature-gated variants make this fallback arm reachable on some builds."
-                )]
-                _ => WorkdirStrategy::Cloud,
-            };
-        }
-
         match self {
-            Self::Local { .. } => match worktree_mode {
-                WorktreeMode::Always => WorkdirStrategy::LocalWorktree,
-                WorktreeMode::Clean => {
-                    if git_is_clean {
-                        WorkdirStrategy::LocalWorktree
-                    } else {
-                        WorkdirStrategy::LocalDirectory
-                    }
-                }
-                WorktreeMode::Dirty => {
-                    if git_is_clean {
-                        WorkdirStrategy::LocalDirectory
-                    } else {
-                        WorkdirStrategy::LocalWorktree
-                    }
-                }
-                WorktreeMode::Never => WorkdirStrategy::LocalDirectory,
-            },
+            Self::Local { .. } => WorkdirStrategy::LocalWorktree,
             #[allow(
                 unreachable_patterns,
                 reason = "Feature-gated variants make this fallback arm reachable on some builds."
@@ -234,6 +206,32 @@ impl SandboxSpec {
                     sandbox.set_event_callback(callback);
                 }
                 Ok(Arc::new(sandbox))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_runs_use_worktrees_for_all_worktree_modes() {
+        let spec = SandboxSpec::Local {
+            working_directory: PathBuf::from("/repo"),
+        };
+
+        for mode in [
+            WorktreeMode::Always,
+            WorktreeMode::Clean,
+            WorktreeMode::Dirty,
+            WorktreeMode::Never,
+        ] {
+            for git_is_clean in [true, false] {
+                assert_eq!(
+                    spec.workdir_strategy(mode, git_is_clean, false),
+                    WorkdirStrategy::LocalWorktree
+                );
             }
         }
     }

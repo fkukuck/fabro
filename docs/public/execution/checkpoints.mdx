@@ -43,7 +43,7 @@ Fabro disables Git commit and tag signing for checkpoint commits created inside 
 
 ### Metadata branch
 
-The metadata branch (`fabro/meta/{run_id}`) is an orphan branch that stores structured run data using Git's object storage directly (via `git2`). It is initialized at run start with:
+The metadata branch (`fabro/meta/{run_id}`) is an orphan branch that stores structured run data using Git's object storage directly. Fabro writes it from inside the sandbox with Git plumbing commands, without checking out a metadata worktree. It is initialized at run start with:
 
 - **`run.json`** — Current projection snapshot: run spec, start/status records, current checkpoint, conclusion, sandbox, retro state, and other run-level metadata
 - **`graph.fabro`** — Workflow source for the run
@@ -75,7 +75,7 @@ The durable run store also keeps the current checkpoint so `resume`, `inspect`, 
 
 ## Worktrees
 
-Fabro uses Git worktrees to isolate workflow runs from your working directory. When a run starts in a clean Git repository:
+Fabro uses Git worktrees to isolate workflow runs from your working directory. When a local run starts in a Git repository:
 
 1. Fabro records the current HEAD as the **base SHA**
 2. Creates a new branch `fabro/run/{run_id}` at that SHA
@@ -85,10 +85,10 @@ Fabro uses Git worktrees to isolate workflow runs from your working directory. W
 This means your original working directory stays untouched while the agent makes changes in the worktree. When the run completes, Fabro removes the worktree and restores your original directory.
 
 <Note>
-If the working directory has uncommitted changes, Fabro skips worktree setup and runs in place, logging a warning. Git checkpointing is disabled in this case.
+If the working directory has uncommitted changes, the worktree starts from committed `HEAD` and those uncommitted changes are not included. Fabro logs a warning so you can commit, stash, or run explicitly in place when that is what you want.
 </Note>
 
-For Daytona sandboxes, the worktree is created inside the remote sandbox instead. The metadata branch is still written to the host repository so that runs can be resumed locally. Both the run branch and the metadata branch are pushed to origin after each checkpoint — the run branch is pushed from the sandbox, while the metadata branch is pushed from the host using a GitHub App installation token.
+For Docker and Daytona sandboxes, the repository is cloned into the sandbox and checkpoint Git operations run there. Both the run branch and metadata branch are pushed to origin from the sandbox after each checkpoint when pushing is configured.
 
 ## Resuming a run
 
@@ -175,7 +175,7 @@ fabro resume <NEW_RUN_ID>
 
 Use **rewind** when a terminal run should be abandoned and replaced from an earlier point. Use **fork** when you want to try a different approach while keeping the original run as a reference.
 
-`fabro rewind --list`, `fabro fork --list`, `fabro rewind`, and `fabro fork` are server-backed. The server must be able to read the run's recorded `working_directory`; otherwise these commands fail. Timeline listing reads the metadata branch as-is and does not rebuild a missing metadata branch, so a missing branch appears as an empty timeline.
+`fabro rewind --list`, `fabro fork --list`, `fabro rewind`, and `fabro fork` are server-backed. Timeline listing reads durable run-store checkpoints; it does not rebuild missing metadata branches.
 
 See [`fabro fork`](/reference/cli#fabro-fork) for the full command reference.
 
@@ -183,11 +183,12 @@ See [`fabro fork`](/reference/cli#fabro-fork) for the full command reference.
 
 Git checkpointing activates automatically when:
 
-- The working directory is a clean Git repository (local and Docker sandboxes)
-- The sandbox is Daytona (metadata branch on the host, commits inside the sandbox)
+- The run uses a Git repository and checkpointing has not been explicitly disabled
+- Local runs can create a Git worktree under the run scratch directory
+- Docker or Daytona can clone the configured GitHub origin into the sandbox
 
 It is skipped when:
 
-- The working directory has uncommitted changes
 - The working directory is not a Git repository
 - The run uses `--dry-run`
+- The run is explicitly started in place with checkpointing disabled

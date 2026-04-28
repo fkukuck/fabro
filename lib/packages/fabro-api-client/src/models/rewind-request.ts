@@ -22,9 +22,5 @@ export interface RewindRequest {
      * Optional checkpoint target such as `@2`, `build`, or `build@1`. Defaults to the latest checkpoint.
      */
     'target'?: string | null;
-    /**
-     * Whether to push the new run branches. Defaults to true.
-     */
-    'push'?: boolean | null;
 }
 

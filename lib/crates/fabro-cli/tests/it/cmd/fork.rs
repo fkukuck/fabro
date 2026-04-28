@@ -28,7 +28,6 @@ fn help() {
           --server <SERVER>   Fabro server target: http(s) URL or absolute Unix socket path [env: FABRO_SERVER=]
           --debug             Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
           --list              Show the checkpoint timeline instead of forking
-          --no-push           Skip pushing new branches to the remote
           --no-upgrade-check  Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
           --quiet             Suppress non-essential output [env: FABRO_QUIET=]
           --verbose           Enable verbose output [env: FABRO_VERBOSE=]
@@ -59,7 +58,7 @@ fn fork_latest_prints_new_run_and_resume_hint() {
 
     let mut cmd = context.command();
     cmd.current_dir(&setup.repo_dir);
-    cmd.args(["fork", &setup.run.run_id, "--no-push"]);
+    cmd.args(["fork", &setup.run.run_id]);
 
     let (snapshot, output) = run_and_format(&mut cmd, &git_filters(&context));
     assert_snapshot!(snapshot, @"
@@ -87,7 +86,7 @@ fn fork_from_earlier_checkpoint_uses_expected_sha() {
     let output = context
         .command()
         .current_dir(&setup.repo_dir)
-        .args(["fork", &setup.run.run_id, "@2", "--json", "--no-push"])
+        .args(["fork", &setup.run.run_id, "@2", "--json"])
         .output()
         .expect("fork should execute");
     assert!(

@@ -641,10 +641,6 @@ pub(crate) struct RewindArgs {
     /// Show the checkpoint timeline instead of rewinding
     #[arg(long)]
     pub(crate) list: bool,
-
-    /// Skip force-pushing rewound refs to the remote
-    #[arg(long)]
-    pub(crate) no_push: bool,
 }
 
 #[derive(Debug, Args)]
@@ -662,10 +658,6 @@ pub(crate) struct ForkArgs {
     /// Show the checkpoint timeline instead of forking
     #[arg(long)]
     pub(crate) list: bool,
-
-    /// Skip pushing new branches to the remote
-    #[arg(long)]
-    pub(crate) no_push: bool,
 }
 
 #[derive(Args)]

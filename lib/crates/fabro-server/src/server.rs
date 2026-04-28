@@ -2902,14 +2902,18 @@ async fn board_run_metadata(
     }
 
     if let Some(sandbox) = run_state.sandbox {
+        let mut sandbox_metadata = serde_json::Map::new();
+        sandbox_metadata.insert(
+            "working_directory".to_string(),
+            serde_json::json!(sandbox.working_directory),
+        );
         if let Some(identifier) = sandbox.identifier {
-            metadata.insert(
-                "sandbox".to_string(),
-                serde_json::json!({
-                    "id": identifier,
-                }),
-            );
+            sandbox_metadata.insert("id".to_string(), serde_json::json!(identifier));
         }
+        metadata.insert(
+            "sandbox".to_string(),
+            serde_json::Value::Object(sandbox_metadata),
+        );
     }
 
     if let Some((_, record)) =
@@ -3060,6 +3064,8 @@ async fn resolve_run(
         |run| run.workflow_slug.clone(),
         |run| run.workflow_name.clone(),
         |run| run.run_id.created_at(),
+        |run| run.run_id.created_at().to_rfc3339(),
+        |run| run.repo_origin_url.clone(),
     ) {
         Ok(run) => (StatusCode::OK, Json(run.clone())).into_response(),
         Err(err @ (ResolveRunError::InvalidSelector | ResolveRunError::AmbiguousPrefix { .. })) => {
@@ -7158,11 +7164,7 @@ async fn rewind_run(
         Ok(target) => target,
         Err(err) => return err.into_response(),
     };
-    let input = operations::RewindInput {
-        run_id: id,
-        target,
-        push: request.push.unwrap_or(true),
-    };
+    let input = operations::RewindInput { run_id: id, target };
     match Box::pin(operations::rewind(
         &state.store,
         &input,
@@ -7226,7 +7228,6 @@ async fn fork_run(
     let input = operations::ForkRunInput {
         source_run_id: id,
         target,
-        push: request.push.unwrap_or(true),
     };
     match Box::pin(operations::fork_run(&state.store, &input)).await {
         Ok(outcome) => (
@@ -10149,6 +10150,18 @@ slug = "fabro"
         assert!(
             detail.contains(&run_id_b),
             "detail should mention second run: {detail}"
+        );
+        assert!(
+            detail.contains("created_at="),
+            "detail should include creation timestamps: {detail}"
+        );
+        assert!(
+            detail.contains("workflow="),
+            "detail should include workflow names: {detail}"
+        );
+        assert!(
+            detail.contains("origin="),
+            "detail should include origin URLs: {detail}"
         );
     }
 
@@ -13959,6 +13972,10 @@ provider = "local"
 
         assert_eq!(item["pull_request"]["number"].as_u64(), Some(42));
         assert_eq!(item["sandbox"]["id"].as_str(), Some("sb-test"));
+        assert_eq!(
+            item["sandbox"]["working_directory"].as_str(),
+            Some("/sandbox/workdir")
+        );
         assert_eq!(item["question"]["text"].as_str(), Some("Ship it?"));
     }
 

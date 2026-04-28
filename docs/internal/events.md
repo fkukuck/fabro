@@ -34,6 +34,54 @@ Every serialized run event envelope, whether streamed over SSE, returned by `fab
 
 ## Run events
 
+### `run.created`
+
+Emitted when the run record is created.
+
+```json
+{
+  "id": "...", "ts": "...", "run_id": "...",
+  "event": "run.created",
+  "properties": {
+    "workflow_slug": "my-workflow",
+    "run_dir": "/home/user/.fabro/storage/scratch/20260428-01JQXYZ",
+    "source_directory": "/home/user/src/my-project",
+    "repo_origin_url": "https://github.com/acme/my-project.git",
+    "base_branch": "main",
+    "pre_run_git": {
+      "display_base_sha": "abc123",
+      "local_dirty": "clean",
+      "push_outcome": {
+        "type": "succeeded",
+        "remote": "origin",
+        "branch": "main"
+      }
+    },
+    "fork_source_ref": null,
+    "checkpoints_disabled": false
+  }
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `settings` | object | Workflow settings snapshot |
+| `graph` | object | Parsed workflow graph |
+| `workflow_source` | string? | Workflow source text |
+| `workflow_config` | string? | Workflow config text |
+| `labels` | object | Run labels |
+| `run_dir` | string | Local scratch directory for the run |
+| `source_directory` | string? | Submitter-side source directory |
+| `repo_origin_url` | string? | Normalized repository origin URL used by clone-based sandboxes |
+| `base_branch` | string? | Submitter-side base branch |
+| `workflow_slug` | string? | Workflow slug |
+| `db_prefix` | string? | Store prefix used for the run |
+| `provenance` | object? | Actor and request provenance |
+| `manifest_blob` | string? | Blob id for the submitted manifest |
+| `pre_run_git` | object? | Submitter-side pre-run git context and push outcome |
+| `fork_source_ref` | object? | Source run/checkpoint reference when this run was forked |
+| `checkpoints_disabled` | boolean | Whether checkpointing was intentionally disabled |
+
 ### `run.started`
 
 Emitted when the workflow run begins.
@@ -1449,7 +1497,10 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
   "properties": {
     "working_directory": "/workspace/my-project",
     "provider": "daytona",
-    "identifier": "sandbox-123"
+    "identifier": "sandbox-123",
+    "repo_cloned": true,
+    "clone_origin_url": "https://github.com/acme/my-project.git",
+    "clone_branch": "main"
   }
 }
 ```
@@ -1459,6 +1510,9 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 | `working_directory` | string | Working directory inside sandbox |
 | `provider` | string | Sandbox provider |
 | `identifier` | string? | Provider-specific sandbox identifier |
+| `repo_cloned` | boolean? | Whether the provider cloned a repository into the sandbox |
+| `clone_origin_url` | string? | Repository URL cloned into the sandbox, with credentials removed |
+| `clone_branch` | string? | Branch requested for the sandbox clone |
 
 ### `sandbox.cleanup.started`
 

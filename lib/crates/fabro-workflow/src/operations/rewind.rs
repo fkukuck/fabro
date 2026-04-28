@@ -12,7 +12,6 @@ use crate::event::{self, Event};
 pub struct RewindInput {
     pub run_id: RunId,
     pub target: Option<ForkTarget>,
-    pub push:   bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +56,6 @@ pub async fn rewind(
     let forked = Box::pin(fork::fork_run(store, &ForkRunInput {
         source_run_id: input.run_id,
         target:        input.target.clone(),
-        push:          input.push,
     }))
     .await?;
 

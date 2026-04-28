@@ -28,6 +28,7 @@ export const queryKeys = {
   },
   runs: {
     detail: (id: string) => `/api/v1/runs/${pathSegment(id)}`,
+    state: (id: string) => `/api/v1/runs/${pathSegment(id)}/state`,
     files: (id: string) => `/api/v1/runs/${pathSegment(id)}/files`,
     stages: (id: string) => `/api/v1/runs/${pathSegment(id)}/stages`,
     graph: (id: string, direction?: "LR" | "TB") =>

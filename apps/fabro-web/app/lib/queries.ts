@@ -7,6 +7,7 @@ import type {
   PaginatedRunStageList,
   PaginatedStageTurnList,
   RunBilling,
+  RunProjection,
   ServerSettings,
   RunSummary,
 } from "@qltysh/fabro-api-client";
@@ -65,6 +66,13 @@ export function useBoardsRuns() {
 export function useRun(id: string | undefined) {
   return useSWR<RunSummary | null>(
     id ? queryKeys.runs.detail(id) : null,
+    apiNullableFetcher,
+  );
+}
+
+export function useRunState(id: string | undefined) {
+  return useSWR<RunProjection | null>(
+    id ? queryKeys.runs.state(id) : null,
     apiNullableFetcher,
   );
 }

@@ -28,7 +28,6 @@ fn help() {
           --server <SERVER>   Fabro server target: http(s) URL or absolute Unix socket path [env: FABRO_SERVER=]
           --debug             Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
           --list              Show the checkpoint timeline instead of rewinding
-          --no-push           Skip force-pushing rewound refs to the remote
           --no-upgrade-check  Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
           --quiet             Suppress non-essential output [env: FABRO_QUIET=]
           --verbose           Enable verbose output [env: FABRO_VERBOSE=]
@@ -84,7 +83,7 @@ fn rewind_target_updates_metadata_and_resume_hint() {
 
     let mut cmd = context.command();
     cmd.current_dir(&setup.repo_dir);
-    cmd.args(["rewind", &setup.run.run_id, "@2", "--no-push"]);
+    cmd.args(["rewind", &setup.run.run_id, "@2"]);
 
     let (snapshot, output) = run_and_format(&mut cmd, &git_filters(&context));
     assert_snapshot!(snapshot, @"
@@ -129,7 +128,7 @@ fn rewind_archives_source_and_records_superseded_by() {
 
     let mut cmd = context.command();
     cmd.current_dir(&setup.repo_dir);
-    cmd.args(["rewind", &setup.run.run_id, "@2", "--no-push"]);
+    cmd.args(["rewind", &setup.run.run_id, "@2"]);
     let output = cmd.output().expect("rewind should execute");
     assert!(
         output.status.success(),

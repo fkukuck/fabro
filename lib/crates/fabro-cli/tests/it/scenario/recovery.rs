@@ -79,7 +79,7 @@ fn fork_run_json(context: &TestContext, repo_dir: &Path, source_run_id: &str) ->
     let output = context
         .command()
         .current_dir(repo_dir)
-        .args(["fork", source_run_id, "--json", "--no-push"])
+        .args(["fork", source_run_id, "--json"])
         .timeout(std::time::Duration::from_secs(15))
         .output()
         .expect("fork command should execute");

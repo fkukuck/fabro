@@ -11,7 +11,6 @@ use crate::records::{Checkpoint, RunSpec};
 pub struct ForkRunInput {
     pub source_run_id: RunId,
     pub target:        Option<ForkTarget>,
-    pub push:          bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,7 +390,6 @@ mod tests {
         let outcome = fork_run(&store, &ForkRunInput {
             source_run_id,
             target: None,
-            push: false,
         })
         .await
         .unwrap();

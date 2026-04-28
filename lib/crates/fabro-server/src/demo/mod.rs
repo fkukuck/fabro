@@ -97,6 +97,8 @@ pub(crate) async fn resolve_run(
         |run| run.workflow_slug.clone(),
         |run| run.workflow_name.clone(),
         |run| run.created_at,
+        |run| run.created_at.to_rfc3339(),
+        |run| run.repo_origin_url.clone(),
     ) {
         Ok(run) => (StatusCode::OK, Json(run.clone())).into_response(),
         Err(ResolveRunError::InvalidSelector | ResolveRunError::AmbiguousPrefix { .. }) => {
@@ -944,8 +946,9 @@ mod runs {
 
     fn sandbox(id: &str, cpu: i64, memory: i64) -> RunSandbox {
         RunSandbox {
-            id:        id.into(),
-            resources: Some(SandboxResources { cpu, memory }),
+            id:                Some(id.to_string()),
+            working_directory: Some("/workspace".to_string()),
+            resources:         Some(SandboxResources { cpu, memory }),
         }
     }
 

@@ -53,7 +53,7 @@ The local sandbox offers no isolation. Agents can read and modify any file on th
 
 ## Docker
 
-The Docker sandbox runs all tool operations inside a Docker container. The host working directory is bind-mounted into the container, so file changes are visible on both sides.
+The Docker sandbox runs all tool operations inside a Docker container. Docker runs use a provider-owned workspace in the container; when the run has a GitHub origin, Fabro clones that repository into the workspace.
 
 ### Prerequisites
 
@@ -76,7 +76,6 @@ The Docker sandbox is configured through the `DockerSandboxConfig`:
 |---|---|---|
 | `image` | `fabro-agent:latest` | Docker image to use |
 | `network_mode` | `bridge` | Docker network mode |
-| `extra_mounts` | `[]` | Additional `host:container` bind mounts |
 | `memory_limit` | unlimited | Memory limit in bytes |
 | `cpu_quota` | unlimited | CPU quota (microseconds per 100ms period) |
 | `auto_pull` | `true` | Pull the image if not found locally |
@@ -199,7 +198,7 @@ Each provider offers a different level of filesystem isolation:
 | Provider | Isolation | What agents can access |
 |---|---|---|
 | `local` | None | The entire host filesystem. Agents can read and modify any file. |
-| `docker` | Container-level | Only the bind-mounted working directory (`/workspace` by default) and whatever is in the container image. Host files outside the mount are inaccessible. |
+| `docker` | Container-level | The provider-owned workspace (`/workspace` by default) and whatever is in the container image. Host files are not bind-mounted into the container. |
 | `daytona` | Full machine | A cloud VM with the repository cloned into `/home/daytona/workspace`. The host filesystem is completely inaccessible. |
 
 For `local`, Fabro filters sensitive environment variables (those ending in `_API_KEY`, `_SECRET`, `_TOKEN`, `_PASSWORD`, or `_CREDENTIAL`) but does not restrict file access. Use `docker` or `daytona` when running untrusted workflows.

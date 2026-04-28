@@ -4697,9 +4697,6 @@ components:
         target:
           type: ["string", "null"]
           description: Optional checkpoint target such as `@2`, `build`, or `build@1`. Defaults to the latest checkpoint.
-        push:
-          type: ["boolean", "null"]
-          description: Whether to push the new run branches. Defaults to true.
 
     ForkResponse:
       description: Response returned after creating a forked run.
@@ -4723,9 +4720,6 @@ components:
         target:
           type: ["string", "null"]
           description: Optional checkpoint target such as `@2`, `build`, or `build@1`. Defaults to the latest checkpoint.
-        push:
-          type: ["boolean", "null"]
-          description: Whether to push the new run branches. Defaults to true.
 
     RewindResponse:
       description: Response returned after rewind creates a new run.
@@ -5195,13 +5189,15 @@ components:
     RunSandbox:
       description: Sandbox environment for a run.
       type: object
-      required:
-        - id
       properties:
         id:
-          type: string
+          type: ["string", "null"]
           description: Sandbox identifier.
           example: sb-a1b2c3d4
+        working_directory:
+          type: ["string", "null"]
+          description: Path where the run executed inside the sandbox.
+          example: /workspace
         resources:
           $ref: "#/components/schemas/SandboxResources"
 

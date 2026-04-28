@@ -33,6 +33,7 @@ describe("mapRunListItem", () => {
     expect(item.title).toBe("Server supplied title");
     expect(item.workflow).toBe("fix_build");
     expect(item.repo).toBe("myrepo");
+    expect(item.sourceDirectory).toBe("/home/user/myrepo");
     expect(item.elapsed).toBeDefined();
     expect(item.column).toBe("running");
     expect(item.lifecycleStatus).toBe("paused");
@@ -86,6 +87,7 @@ describe("mapRunSummaryToRunItem", () => {
     expect(item.title).toBe("Fix the build");
     expect(item.workflow).toBe("fix_build");
     expect(item.repo).toBe("myrepo");
+    expect(item.sourceDirectory).toBe("/home/user/myrepo");
     expect(item.elapsed).toBeDefined();
     expect(item.lifecycleStatus).toBe("running");
   });
@@ -113,6 +115,7 @@ describe("mapRunSummaryToRunItem", () => {
     expect(item.title).toBe("Untitled run");
     expect(item.workflow).toBe("unknown");
     expect(item.repo).toBe("unknown");
+    expect(item.sourceDirectory).toBeUndefined();
   });
 
   test("recognizes canonical blocked and queued run statuses", () => {
