@@ -548,7 +548,7 @@ fn maybe_build_github_credentials(
 }
 
 fn clone_sandbox_requires_github_credentials(provider: &str) -> bool {
-    matches!(provider, "docker" | "daytona")
+    matches!(provider, "docker" | "daytona" | "azure")
 }
 
 fn install_signal_handlers(
@@ -625,6 +625,7 @@ mod tests {
     fn clone_sandbox_credentials_are_required_for_clone_based_providers() {
         assert!(super::clone_sandbox_requires_github_credentials("docker"));
         assert!(super::clone_sandbox_requires_github_credentials("daytona"));
+        assert!(super::clone_sandbox_requires_github_credentials("azure"));
         assert!(!super::clone_sandbox_requires_github_credentials("local"));
     }
 
@@ -906,5 +907,22 @@ mod tests {
         let credential = guard.get("anthropic").unwrap();
 
         assert!(credential.contains("vault-key"));
+    }
+
+    #[test]
+    fn maybe_build_github_credentials_requires_them_for_azure_runs() {
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.sandbox]
+            provider = "azure"
+
+            [run.sandbox.azure]
+            image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            "#,
+        )
+        .unwrap();
+
+        let result = maybe_build_github_credentials(&settings, None);
+        assert!(result.is_err());
     }
 }
