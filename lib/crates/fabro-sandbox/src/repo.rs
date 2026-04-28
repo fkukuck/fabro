@@ -1,3 +1,4 @@
+#[cfg(any(feature = "daytona", feature = "azure"))]
 use std::path::Path;
 
 #[cfg(any(feature = "daytona", feature = "azure"))]
@@ -42,7 +43,7 @@ pub(crate) fn resolve_clone_source(
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "daytona", feature = "azure")))]
 mod tests {
     use tempfile::TempDir;
 

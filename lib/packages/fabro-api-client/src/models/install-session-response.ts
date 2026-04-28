@@ -15,6 +15,9 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
+import type { InstallAzureSummary } from './install-azure-summary';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { InstallGithubSummary } from './install-github-summary';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -39,6 +42,7 @@ export interface InstallSessionResponse {
     'completed_steps': Array<string>;
     'llm'?: InstallLlmSummary | null;
     'server'?: InstallServerConfigInput | null;
+    'azure'?: InstallAzureSummary | null;
     'object_store'?: InstallObjectStoreSummary | null;
     'sandbox'?: InstallSandboxSummary | null;
     'github'?: InstallGithubSummary | null;

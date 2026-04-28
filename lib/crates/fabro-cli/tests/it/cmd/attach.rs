@@ -553,7 +553,6 @@ fn attach_json_errors_without_prompting_for_human_input() {
               }
             }
           },
-          "host_repo_path": "[TEMP_DIR]",
           "manifest_blob": "[BLOB_ID]",
           "provenance": {
             "client": {
@@ -621,6 +620,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
               },
               "pull_request": null,
               "sandbox": {
+                "azure": null,
                 "daytona": null,
                 "devcontainer": false,
                 "docker": {
