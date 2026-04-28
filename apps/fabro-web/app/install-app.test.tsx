@@ -871,4 +871,127 @@ describe("InstallApp", () => {
       console.error = originalConsoleError;
     }
   });
+
+  test("saves Azure install settings and advances to the object store step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session" && fetchCalls.length === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: null,
+                object_store: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        if (String(input) === "/install/azure") {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (String(input) === "/install/session" && fetchCalls.length === 3) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "azure"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: {
+                  subscription_id: "sub-1",
+                  resource_group: "rg-1",
+                  location: "eastus",
+                  subnet_id: "/subscriptions/sub-1/.../aci",
+                  acr_server: "fabro.azurecr.io",
+                  sandboxd_port: 7777,
+                  acr_credentials_saved: true,
+                },
+                object_store: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/azure");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/azure"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Connect Azure");
+      });
+
+      const root = renderer!.root;
+      const setInputValue = (name: string, value: string) => {
+        const input = root.findByProps({ name });
+        input.props.onChange({ target: { value } });
+      };
+
+      await act(async () => {
+        setInputValue("azure_subscription_id", "sub-1");
+        setInputValue("azure_resource_group", "rg-1");
+        setInputValue("azure_location", "eastus");
+        setInputValue("azure_subnet_id", "/subscriptions/sub-1/.../aci");
+        setInputValue("azure_acr_server", "fabro.azurecr.io");
+        setInputValue("azure_sandboxd_port", "7777");
+        setInputValue("azure_acr_username", "azure-user");
+        root.findByProps({ name: "azure_acr_password" }).props.onChange("azure-pass");
+      });
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain(
+          "Choose the shared object store",
+        );
+      });
+
+      expect(fetchCalls.map((call) => String(call.input))).toEqual([
+        "/install/session",
+        "/install/azure",
+        "/install/session",
+      ]);
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
 });

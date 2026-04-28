@@ -206,6 +206,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /install/azure:
+    put:
+      operationId: putInstallAzure
+      tags: [Install]
+      summary: Save install Azure platform configuration
+      description: Records the Azure platform configuration chosen during browser install. Requires the one-time install token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallAzureConfigInput"
+      responses:
+        "204":
+          description: Azure platform configuration recorded
+        "401":
+          description: Invalid or missing install token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Invalid install input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /install/object-store/test:
     post:
       operationId: testInstallObjectStore
@@ -3060,6 +3089,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/InstallServerConfigInput"
             - type: "null"
+        azure:
+          oneOf:
+            - $ref: "#/components/schemas/InstallAzureSummary"
+            - type: "null"
         object_store:
           oneOf:
             - $ref: "#/components/schemas/InstallObjectStoreSummary"
@@ -3162,6 +3195,64 @@ components:
         canonical_url:
           type: string
           format: uri
+
+    InstallAzureConfigInput:
+      description: Azure platform configuration collected during browser install.
+      type: object
+      required:
+        - subscription_id
+        - resource_group
+        - location
+        - subnet_id
+        - acr_server
+      properties:
+        subscription_id:
+          type: string
+        resource_group:
+          type: string
+        location:
+          type: string
+        subnet_id:
+          type: string
+        acr_server:
+          type: string
+        sandboxd_port:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 65535
+        acr_username:
+          type: string
+        acr_password:
+          type: string
+
+    InstallAzureSummary:
+      description: Redacted summary of persisted Azure platform install choices.
+      type: object
+      required:
+        - subscription_id
+        - resource_group
+        - location
+        - subnet_id
+        - acr_server
+        - sandboxd_port
+        - acr_credentials_saved
+      properties:
+        subscription_id:
+          type: string
+        resource_group:
+          type: string
+        location:
+          type: string
+        subnet_id:
+          type: string
+        acr_server:
+          type: string
+        sandboxd_port:
+          type: integer
+          format: int32
+        acr_credentials_saved:
+          type: boolean
 
     InstallObjectStoreValidationResponse:
       description: Successful response from install-time object-store validation.

@@ -612,7 +612,8 @@ mod tests {
     use super::{
         WorkerControlStreamEvent, WorkerTitlePhase, apply_worker_control_line,
         handle_worker_control_stream_events, initial_worker_title_phase, load_worker_vault,
-        read_worker_control_stream_blocking, stamp_system_worker, worker_title,
+        maybe_build_github_credentials, read_worker_control_stream_blocking, stamp_system_worker,
+        worker_title,
         worker_title_phase_for_event,
     };
     use crate::args::RunWorkerMode;
@@ -907,7 +908,7 @@ mod tests {
 
     #[test]
     fn maybe_build_github_credentials_requires_them_for_azure_runs() {
-        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+        let settings = fabro_config::WorkflowSettingsBuilder::from_toml(
             r#"
             [run.sandbox]
             provider = "azure"
@@ -924,7 +925,7 @@ mod tests {
 
     #[test]
     fn maybe_build_github_credentials_requires_them_for_run_scm_github_permissions() {
-        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+        let settings = fabro_config::WorkflowSettingsBuilder::from_toml(
             r#"
             [run.scm.github.permissions]
             issues = "read"

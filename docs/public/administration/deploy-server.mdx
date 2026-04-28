@@ -34,7 +34,7 @@ This starts the server on a Unix socket at `~/.fabro/fabro.sock` by default. Use
 
 ### First run: web install wizard
 
-If `~/.fabro/settings.toml` does not yet exist, `fabro server start` enters **install mode**: it prints an install URL and a one-time install token, attempts to open the URL in your default browser, and serves a web wizard that walks you through configuring your server URL, shared object store, LLM provider, and GitHub integration.
+If `~/.fabro/settings.toml` does not yet exist, `fabro server start` enters **install mode**: it prints an install URL and a one-time install token, attempts to open the URL in your default browser, and serves a web wizard that walks you through configuring your server URL, Azure sandbox platform settings, the shared object store, LLM provider, and GitHub integration.
 
 When Fabro can construct a direct install URL, the token is embedded in the URL and also printed on its own line for copying. If you open the server root through a reverse proxy or another machine, paste the printed install token when prompted.
 
@@ -44,6 +44,8 @@ The `Object store` step offers two wizard-managed modes:
 - `AWS S3` for one shared bucket with fixed `slatedb/` and `artifacts/` prefixes
 
 The wizard's manual-credential path stores only `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in `server.env`. It does not collect STS/session tokens or S3-compatible endpoint settings. If you need MinIO, Cloudflare R2, path-style options, or custom endpoints, finish install with local defaults and then edit `[server.slatedb]` / `[server.artifacts]` in `settings.toml` manually.
+
+The `Azure` step saves the non-secret sandbox platform settings under `[server.sandbox.azure.platform]` and stores optional ACR pull credentials in the vault instead of the config file.
 
 When you finish the wizard, the server writes `~/.fabro/settings.toml` and exits cleanly. Start it again to boot in configured mode:
 

@@ -110,6 +110,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use ulid::Ulid;
 
 use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
+use crate::azure_platform::{resolve_azure_platform_config, write_azure_platform_snapshot};
 use crate::canonical_origin::resolve_canonical_origin;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -2787,6 +2788,20 @@ fn worker_token_keys_from_server_secrets(
         .map_err(|err| jwt_auth::session_secret_key_error(&err))
 }
 
+fn resolved_server_storage_root(
+    settings: &ResolvedAppStateSettings,
+    env_lookup: &EnvLookup,
+) -> anyhow::Result<PathBuf> {
+    settings
+        .server_settings
+        .server
+        .storage
+        .root
+        .resolve(|name| env_lookup(name))
+        .map(|resolved| PathBuf::from(resolved.value))
+        .map_err(anyhow::Error::from)
+}
+
 pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppState>> {
     let AppStateConfig {
         resolved_settings,
@@ -2801,7 +2816,19 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         http_client,
     } = config;
 
-    let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path)?));
+    let loaded_vault = Vault::load(vault_path)?;
+    let server_storage_root = resolved_server_storage_root(&resolved_settings, &env_lookup)?;
+    let current_server_settings = Arc::new(resolved_settings.server_settings);
+    let current_manifest_run_defaults = Arc::new(resolved_settings.manifest_run_defaults);
+    let current_manifest_run_settings = resolved_settings.manifest_run_settings;
+    write_azure_platform_snapshot(
+        &Storage::new(&server_storage_root).runtime_directory(),
+        resolve_azure_platform_config(&current_server_settings.server, &|name| {
+            loaded_vault.get(name).map(str::to_string)
+        })
+        .map_err(anyhow::Error::msg)?,
+    )?;
+    let vault = Arc::new(AsyncRwLock::new(loaded_vault));
     let llm_source: Arc<dyn CredentialSource> = Arc::new(VaultCredentialSource::with_env_lookup(
         Arc::clone(&vault),
         {
@@ -2810,9 +2837,6 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         },
     ));
     let (global_event_tx, _) = broadcast::channel(4096);
-    let current_server_settings = Arc::new(resolved_settings.server_settings);
-    let current_manifest_run_defaults = Arc::new(resolved_settings.manifest_run_defaults);
-    let current_manifest_run_settings = resolved_settings.manifest_run_settings;
     let slack_service = {
         current_server_settings
             .server
@@ -3949,6 +3973,7 @@ fn worker_command(
     }
     let value: &'static str = server_destination.into();
     cmd.env(EnvVars::FABRO_LOG_DESTINATION, value);
+    cmd.env(EnvVars::FABRO_STORAGE_ROOT, &storage_dir);
     cmd.env_remove(EnvVars::FABRO_WORKER_TOKEN);
     cmd.env(EnvVars::FABRO_WORKER_TOKEN, worker_token);
     if let Some(pem) = state.server_secret(EnvVars::GITHUB_APP_PRIVATE_KEY) {
@@ -6679,7 +6704,13 @@ async fn reconnect_run_sandbox(
 ) -> Result<Box<dyn Sandbox>, Response> {
     let record = load_run_sandbox_record(state, run_id).await?;
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
-    reconnect(&record, daytona_api_key).await.map_err(|err| {
+    reconnect(
+        &record,
+        daytona_api_key,
+        Some(state.server_storage_dir().as_path()),
+    )
+    .await
+    .map_err(|err| {
         let detail = render_with_causes(&err.to_string(), &collect_causes(err.as_ref()));
         ApiError::new(StatusCode::CONFLICT, detail).into_response()
     })
@@ -9402,6 +9433,46 @@ methods = ["dev-token"]
         assert!(err.to_string().contains(
             "Fabro server refuses to start: auth is configured but SESSION_SECRET is not set."
         ));
+    }
+
+    #[tokio::test]
+    async fn build_app_state_writes_azure_snapshot_without_blocking_runtime() {
+        let storage_dir = tempfile::tempdir().unwrap();
+        let source = format!(
+            r#"
+_version = 1
+
+[server.storage]
+root = "{}"
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.sandbox.azure.platform]
+subscription_id = "sub-1"
+resource_group = "rg-1"
+location = "eastus"
+subnet_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
+acr_server = "fabro.azurecr.io"
+"#,
+            storage_dir.path().display()
+        );
+
+        let _state = create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
+            server_settings_from_toml(&source),
+            manifest_run_defaults_from_toml(&source),
+            5,
+            |_| None,
+            &HashMap::from([(
+                EnvVars::SESSION_SECRET.to_string(),
+                TEST_SESSION_SECRET.to_string(),
+            )]),
+        );
+
+        assert!(Storage::new(storage_dir.path())
+            .runtime_directory()
+            .azure_platform_config_path()
+            .exists());
     }
 
     fn worker_command_test_state(
@@ -12940,7 +13011,7 @@ level = "debug"
 
     #[test]
     fn run_requests_github_credentials_when_run_scm_permissions_are_present() {
-        let settings = fabro_config::parse_settings_layer(
+        let settings = fabro_config::WorkflowSettingsBuilder::from_toml(
             r#"
 _version = 1
 
@@ -12951,10 +13022,10 @@ mode = "normal"
 issues = "read"
 "#,
         )
-        .unwrap();
-        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+        .unwrap()
+        .run;
 
-        assert!(run_requests_github_credentials(&resolved));
+        assert!(run_requests_github_credentials(&settings));
     }
 
     #[tokio::test]

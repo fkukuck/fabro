@@ -36,7 +36,7 @@ This guide documents the current production-ready Azure topology for Fabro:
 - Copy the sandbox Terraform example and fill in subscription, naming, secret, and image values.
 - Run Terraform to create the resource group, network, storage account, the `/storage` file share, ACR, managed identity, Container Apps environment, and optionally `fabro-server`.
 - Keep `fabro-server` at exactly one replica.
-- Configure the Azure sandbox provider environment variables, server auth secrets, GitHub token, and LLM API keys.
+- Complete the server install flow, including the `Azure` step that persists Azure platform settings and optional ACR credentials.
 - Build and push the Azure sandbox image to ACR.
 - Run a remote workflow through the hosted server and confirm an Azure sandbox starts successfully.
 
@@ -124,22 +124,29 @@ export FABRO_AZURE_RESOURCE_GROUP="$(terraform -chdir=terraform/environments/san
 export FABRO_SERVER_URL="$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)"
 ```
 
-## 4. Build sandbox images for Azure runs
+## 4. Complete server install and save Azure platform settings
 
-```bash
-export FABRO_AZURE_ACR_SERVER="$(terraform -chdir=terraform/environments/sandbox output -raw acr_login_server)"
-```
+The server container already uses `/storage` for persistent state. Azure sandbox startup no longer
+discovers subscription, resource-group, subnet, and ACR settings from `FABRO_AZURE_*` worker
+environment variables. Fabro now keeps those non-secret platform settings in `settings.toml`
+under `[server.sandbox.azure.platform]`, and stores optional ACR pull credentials in the vault.
 
-The Terraform environment already wires the Azure Files `/storage` mount, ingress, identity, and the Azure sandbox provider environment variables into the Container App. Azure sandboxes use ephemeral `emptyDir` storage for `/workspace`. Use immutable tags for both the server image and any sandbox images you build.
+After your Container App is reachable:
 
-## 5. Configure server settings and secrets
+1. Open `https://<your-container-app-fqdn>/` in a browser and finish the install wizard, or run `fabro install` on the server host if you prefer the CLI flow.
+2. In the `Server` step, confirm the public URL.
+3. In the `Azure` step, enter:
+   - the Azure subscription ID you used in `terraform.tfvars`
+   - `resource_group_name` from Terraform output
+   - the Azure region you deployed into
+   - `aci_subnet_id` from Terraform output
+   - `acr_login_server` from Terraform output
+   - `7777` for `sandboxd_port` unless your custom sandbox image listens elsewhere
+   - optional ACR username/password only when your registry requires explicit pull credentials
+4. Finish the remaining `Object store`, `LLM`, and `GitHub` steps, then start the server again.
 
-The server container already uses `/storage` for persistent state. For Azure-hosted runs, the important distinction is:
-
-- **Server runtime secrets:** injected into the Container App as environment variables
-- **Workflow-owned Azure runtime settings:** kept in checked-in `workflow.toml`
-
-If you want to carry a custom `settings.toml` into your own Azure-hosted image or startup wrapper, start from this minimal shape:
+If you want to carry a custom `settings.toml` into your own Azure-hosted image or startup wrapper,
+start from this minimal shape:
 
 ```toml
 _version = 1
@@ -150,24 +157,33 @@ provider = "azure"
 [server.auth]
 methods = ["dev-token"]
 
+[server.sandbox.azure.platform]
+subscription_id = "00000000-0000-0000-0000-000000000000"
+resource_group = "fabro-prod"
+location = "eastus"
+subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/fabro-prod/providers/Microsoft.Network/virtualNetworks/fabro/subnets/aci"
+acr_server = "fabro.azurecr.io"
+sandboxd_port = 7777
+
 [server.integrations.github]
 strategy = "token"
 ```
 
-The runtime environment variables required by the Azure sandbox provider are:
+Keep the usual server/runtime secrets in the Container App environment, such as `SESSION_SECRET`,
+`FABRO_DEV_TOKEN`, your LLM provider keys, and optionally `AZURE_CLIENT_ID` when using a
+user-assigned managed identity.
+
+Do not rely on `FABRO_AZURE_SUBSCRIPTION_ID`, `FABRO_AZURE_RESOURCE_GROUP`,
+`FABRO_AZURE_LOCATION`, `FABRO_AZURE_SANDBOX_SUBNET_ID`, or `FABRO_AZURE_ACR_SERVER` as the
+authoritative Azure sandbox config for new deployments.
+
+When provided, ACR username/password are stored in the vault instead of `settings.toml`:
 
 | Variable | Purpose |
 |---|---|
-| `FABRO_AZURE_SUBSCRIPTION_ID` | Azure subscription used for sandbox provisioning |
-| `FABRO_AZURE_RESOURCE_GROUP` | Resource group that owns the ACI sandboxes |
-| `FABRO_AZURE_LOCATION` | Azure region for sandboxes |
-| `FABRO_AZURE_SANDBOX_SUBNET_ID` | Delegated subnet resource ID for Azure Container Instances |
-| `FABRO_AZURE_ACR_SERVER` | ACR login server used by sandbox images |
-| `FABRO_AZURE_SANDBOXD_PORT` | Port served by `fabro-sandboxd` inside the sandbox |
-| `FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` | Optional but recommended registry credentials for private ACR images |
-| `AZURE_CLIENT_ID` | Optional client ID when using a user-assigned managed identity |
+| `FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` | Optional registry credentials for private ACR images |
 
-## 6. Build sandbox images for Azure runs
+## 5. Build sandbox images for Azure runs
 
 The `fabro-server` image can come from GHCR or ACR, but the current Azure sandbox provider expects sandbox images to be available in your own ACR. Build and push a base image that contains `fabro-sandboxd`:
 
@@ -230,9 +246,9 @@ docker buildx build \
   --push .
 ```
 
-## 7. Run your first workflow through the hosted server
+## 6. Run your first workflow through the hosted server
 
-For Azure-hosted remote runs, keep the Azure runtime settings in the run domain of the checked-in workflow file:
+For Azure-hosted remote runs, keep the per-workflow sandbox shape in the checked-in workflow file:
 
 ```toml
 _version = 1
@@ -271,7 +287,11 @@ fabro model list --server "$FABRO_SERVER_URL/api/v1"
 fabro run .fabro/workflows/software-factory/workflow.toml --server "$FABRO_SERVER_URL/api/v1"
 ```
 
-## 8. Validation
+Only the per-run sandbox shape belongs in `[run.sandbox.azure]`. Subscription, resource group,
+location, subnet, ACR server, and optional ACR auth now come from the server's persisted Azure
+platform config.
+
+## 7. Validation
 
 Use this sequence to validate the full Azure deployment path:
 
@@ -296,12 +316,13 @@ Expected results:
 3. `fabro model list` succeeds against the hosted server
 4. the workflow run creates at least one `fabro-*` Azure Container Instance during execution
 
-## 9. Troubleshooting and caveats
+## 8. Troubleshooting and caveats
 
 - **Single replica only.** Keep `--min-replicas 1` and `--max-replicas 1` on the Container App.
 - **Terraform defaults to local state.** That is fine for one operator getting started; move to a remote backend later for team or CI usage.
 - **ACI names must be lowercase.** Azure Container Instances reject mixed-case container group names.
 - **ACI quota is easy to exhaust in trial subscriptions.** Clean up stale `fabro-*` container groups before retrying failed runs.
+- **If preflight says Azure platform config is not configured.** Re-run `fabro install` and complete the `Azure` step, or add `[server.sandbox.azure.platform]` manually and restart the server.
 - **Set `run.sandbox.azure.image` explicitly.** Do not rely on a server-local default image for remote runs.
 - **Custom images must inherit from the Fabro Azure base image.** `fabro-sandboxd` must remain on `PATH` inside the sandbox.
 - **ACI workspaces are ephemeral.** Anything you want to keep must be persisted explicitly outside `/workspace`.

@@ -3,8 +3,9 @@ use fabro_types::settings::server::{
     DiscordIntegrationSettings, GithubIntegrationSettings, GithubIntegrationStrategy,
     IntegrationWebhooksSettings, IpAllowEntry, ObjectStoreProvider, ObjectStoreSettings,
     ServerApiSettings, ServerArtifactsSettings, ServerAuthGithubSettings, ServerAuthMethod,
-    ServerAuthSettings, ServerIntegrationsSettings, ServerIpAllowlistOverrideSettings,
-    ServerIpAllowlistSettings, ServerListenSettings, ServerLoggingSettings, ServerNamespace,
+    ServerAuthSettings, ServerAzurePlatformSettings, ServerAzureSandboxSettings,
+    ServerIntegrationsSettings, ServerIpAllowlistOverrideSettings, ServerIpAllowlistSettings,
+    ServerListenSettings, ServerLoggingSettings, ServerNamespace, ServerSandboxSettings,
     ServerSchedulerSettings, ServerSlateDbSettings, ServerStorageSettings, ServerWebSettings,
     SlackIntegrationSettings, TeamsIntegrationSettings, WebhookStrategy,
 };
@@ -14,9 +15,9 @@ use super::{ResolveError, default_interp, parse_socket_addr, require_interp};
 use crate::user::default_storage_dir;
 use crate::{
     IntegrationWebhooksLayer, ObjectStoreLocalLayer, ObjectStoreS3Layer, ServerApiLayer,
-    ServerArtifactsLayer, ServerAuthLayer, ServerIntegrationsLayer, ServerIpAllowlistLayer,
-    ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer, ServerSlateDbLayer,
-    ServerStorageLayer, ServerWebLayer,
+    ServerArtifactsLayer, ServerAuthLayer, ServerAzurePlatformLayer, ServerIntegrationsLayer,
+    ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer,
+    ServerSandboxLayer, ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer,
 };
 
 pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerNamespace {
@@ -39,6 +40,7 @@ pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> Se
         auth,
         ip_allowlist,
         storage: storage.clone(),
+        sandbox: resolve_sandbox(layer.sandbox.as_ref()),
         artifacts: resolve_artifacts(layer.artifacts.as_ref(), &storage.root, errors),
         slatedb: resolve_slatedb(layer.slatedb.as_ref(), &storage.root, errors),
         scheduler: ServerSchedulerSettings {
@@ -69,6 +71,30 @@ fn resolve_storage(layer: Option<&ServerStorageLayer>) -> ServerStorageSettings 
         root: layer
             .and_then(|storage| storage.root.clone())
             .unwrap_or_else(|| default_interp(default_storage_dir())),
+    }
+}
+
+fn resolve_sandbox(layer: Option<&ServerSandboxLayer>) -> ServerSandboxSettings {
+    ServerSandboxSettings {
+        azure: layer.and_then(|sandbox| {
+            sandbox
+                .azure
+                .as_ref()
+                .map(|azure| ServerAzureSandboxSettings {
+                    platform: azure.platform.as_ref().map(resolve_azure_platform),
+                })
+        }),
+    }
+}
+
+fn resolve_azure_platform(layer: &ServerAzurePlatformLayer) -> ServerAzurePlatformSettings {
+    ServerAzurePlatformSettings {
+        subscription_id: layer.subscription_id.clone().unwrap_or_default(),
+        resource_group:  layer.resource_group.clone().unwrap_or_default(),
+        location:        layer.location.clone().unwrap_or_default(),
+        subnet_id:       layer.subnet_id.clone().unwrap_or_default(),
+        acr_server:      layer.acr_server.clone().unwrap_or_default(),
+        sandboxd_port:   layer.sandboxd_port.unwrap_or(7777),
     }
 }
 

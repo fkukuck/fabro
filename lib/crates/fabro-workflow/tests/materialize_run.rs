@@ -107,7 +107,7 @@ fn materialize_run_preserves_run_scm_github_permissions() {
     let settings = WorkflowSettings {
         run: RunNamespace {
             scm: RunScmSettings {
-                github: Some(ScmGitHubLayer {
+                github: Some(ScmGitHubSettings {
                     permissions: HashMap::from([
                         ("contents".to_string(), InterpString::parse("write")),
                         ("issues".to_string(), InterpString::parse("read")),

@@ -31,6 +31,7 @@ pub struct ServerNamespace {
     pub auth:         ServerAuthSettings,
     pub ip_allowlist: ServerIpAllowlistSettings,
     pub storage:      ServerStorageSettings,
+    pub sandbox:      ServerSandboxSettings,
     pub artifacts:    ServerArtifactsSettings,
     pub slatedb:      ServerSlateDbSettings,
     pub scheduler:    ServerSchedulerSettings,
@@ -52,6 +53,7 @@ impl ServerNamespace {
             auth:         ServerAuthSettings::default(),
             ip_allowlist: ServerIpAllowlistSettings::default(),
             storage:      ServerStorageSettings::default(),
+            sandbox:      ServerSandboxSettings::default(),
             artifacts:    ServerArtifactsSettings::default(),
             slatedb:      ServerSlateDbSettings::default(),
             scheduler:    ServerSchedulerSettings::default(),
@@ -161,6 +163,39 @@ impl Default for ServerStorageSettings {
     fn default() -> Self {
         Self {
             root: InterpString::parse(""),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerSandboxSettings {
+    pub azure: Option<ServerAzureSandboxSettings>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerAzureSandboxSettings {
+    pub platform: Option<ServerAzurePlatformSettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerAzurePlatformSettings {
+    pub subscription_id: String,
+    pub resource_group:  String,
+    pub location:        String,
+    pub subnet_id:       String,
+    pub acr_server:      String,
+    pub sandboxd_port:   u16,
+}
+
+impl Default for ServerAzurePlatformSettings {
+    fn default() -> Self {
+        Self {
+            subscription_id: String::new(),
+            resource_group:  String::new(),
+            location:        String::new(),
+            subnet_id:       String::new(),
+            acr_server:      String::new(),
+            sandboxd_port:   7777,
         }
     }
 }
