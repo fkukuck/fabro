@@ -61,6 +61,8 @@ import type { RunSummary } from '../models';
 import type { StartRunRequest } from '../models';
 // @ts-ignore
 import type { TimelineEntryResponse } from '../models';
+// @ts-ignore
+import type { ValidateResponse } from '../models';
 /**
  * RunsApi - axios parameter creator
  */
@@ -870,7 +872,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
-         * Validates a workflow manifest without creating a run.
+         * Validates runtime readiness for a workflow manifest without creating a run.
          * @summary Validate Workflow Manifest
          * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
@@ -1027,6 +1029,47 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Validates workflow structure and diagnostics without runtime readiness checks.
+         * @summary Validate Workflow Manifest
+         * @param {RunManifest} runManifest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        validateRunManifest: async (runManifest: RunManifest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'runManifest' is not null or undefined
+            assertParamExists('validateRunManifest', 'runManifest', runManifest)
+            const localVarPath = `/api/v1/validate`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(runManifest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -1298,7 +1341,7 @@ export const RunsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Validates a workflow manifest without creating a run.
+         * Validates runtime readiness for a workflow manifest without creating a run.
          * @summary Validate Workflow Manifest
          * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
@@ -1348,6 +1391,19 @@ export const RunsApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.unpauseRun(id, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunsApi.unpauseRun']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Validates workflow structure and diagnostics without runtime readiness checks.
+         * @summary Validate Workflow Manifest
+         * @param {RunManifest} runManifest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async validateRunManifest(runManifest: RunManifest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<ValidateResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.validateRunManifest(runManifest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['RunsApi.validateRunManifest']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -1558,7 +1614,7 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.rewindRun(id, rewindRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Validates a workflow manifest without creating a run.
+         * Validates runtime readiness for a workflow manifest without creating a run.
          * @summary Validate Workflow Manifest
          * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
@@ -1597,6 +1653,16 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
          */
         unpauseRun(id: string, options?: RawAxiosRequestConfig): AxiosPromise<RunStatusResponse> {
             return localVarFp.unpauseRun(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Validates workflow structure and diagnostics without runtime readiness checks.
+         * @summary Validate Workflow Manifest
+         * @param {RunManifest} runManifest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        validateRunManifest(runManifest: RunManifest, options?: RawAxiosRequestConfig): AxiosPromise<ValidateResponse> {
+            return localVarFp.validateRunManifest(runManifest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1823,7 +1889,7 @@ export class RunsApi extends BaseAPI {
     }
 
     /**
-     * Validates a workflow manifest without creating a run.
+     * Validates runtime readiness for a workflow manifest without creating a run.
      * @summary Validate Workflow Manifest
      * @param {RunManifest} runManifest 
      * @param {*} [options] Override http request option.
@@ -1865,6 +1931,17 @@ export class RunsApi extends BaseAPI {
      */
     public unpauseRun(id: string, options?: RawAxiosRequestConfig) {
         return RunsApiFp(this.configuration).unpauseRun(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Validates workflow structure and diagnostics without runtime readiness checks.
+     * @summary Validate Workflow Manifest
+     * @param {RunManifest} runManifest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public validateRunManifest(runManifest: RunManifest, options?: RawAxiosRequestConfig) {
+        return RunsApiFp(this.configuration).validateRunManifest(runManifest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

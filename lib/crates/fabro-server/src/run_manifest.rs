@@ -186,6 +186,16 @@ pub(crate) async fn run_preflight(
     ))
 }
 
+pub(crate) fn validate_response(
+    prepared: &PreparedManifest,
+    validated: &Validated,
+) -> types::ValidateResponse {
+    types::ValidateResponse {
+        ok:       !validated.has_errors(),
+        workflow: workflow_summary(validated, &prepared.target_path),
+    }
+}
+
 pub(crate) fn graph_source(prepared: &PreparedManifest, direction: Option<&str>) -> String {
     direction.map_or_else(
         || prepared.root_source.clone(),
@@ -980,16 +990,20 @@ fn preflight_response(
     types::PreflightResponse {
         ok,
         checks: report_to_api(report),
-        workflow: types::PreflightWorkflowSummary {
-            diagnostics: diagnostics_to_api(validated.diagnostics()),
-            edges:       i64::try_from(validated.graph().edges.len())
-                .expect("graph edge count should fit in i64"),
-            goal:        validated.graph().goal().to_string(),
-            graph_path:  Some(target_path.display().to_string()),
-            name:        validated.graph().name.clone(),
-            nodes:       i64::try_from(validated.graph().nodes.len())
-                .expect("graph node count should fit in i64"),
-        },
+        workflow: workflow_summary(validated, target_path),
+    }
+}
+
+fn workflow_summary(validated: &Validated, target_path: &Path) -> types::PreflightWorkflowSummary {
+    types::PreflightWorkflowSummary {
+        diagnostics: diagnostics_to_api(validated.diagnostics()),
+        edges:       i64::try_from(validated.graph().edges.len())
+            .expect("graph edge count should fit in i64"),
+        goal:        validated.graph().goal().to_string(),
+        graph_path:  Some(target_path.display().to_string()),
+        name:        validated.graph().name.clone(),
+        nodes:       i64::try_from(validated.graph().nodes.len())
+            .expect("graph node count should fit in i64"),
     }
 }
 

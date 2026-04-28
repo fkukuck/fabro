@@ -695,6 +695,21 @@ impl Client {
         .map(progenitor_client::ResponseValue::into_inner)
     }
 
+    pub async fn validate_run_manifest(
+        &self,
+        manifest: types::RunManifest,
+    ) -> Result<types::ValidateResponse> {
+        self.send_api(|client| async move {
+            client
+                .validate_run_manifest()
+                .body(manifest.clone())
+                .send()
+                .await
+        })
+        .await
+        .map(progenitor_client::ResponseValue::into_inner)
+    }
+
     pub async fn render_workflow_graph(
         &self,
         request: types::RenderWorkflowGraphRequest,

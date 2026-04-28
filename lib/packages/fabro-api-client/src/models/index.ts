@@ -236,6 +236,7 @@ export * from './timeline-entry-response';
 export * from './tool-stage-turn';
 export * from './tool-use';
 export * from './user-response';
+export * from './validate-response';
 export * from './webhook-strategy';
 export * from './workflow-diagnostic';
 export * from './workflow-reference';

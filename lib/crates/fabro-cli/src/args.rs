@@ -388,9 +388,6 @@ pub(crate) struct LogsArgs {
 
 #[derive(Args)]
 pub(crate) struct ValidateArgs {
-    #[command(flatten)]
-    pub(crate) target: ServerTargetArgs,
-
     /// Path to the .fabro workflow file
     pub(crate) workflow: PathBuf,
 }

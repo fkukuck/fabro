@@ -257,6 +257,7 @@ models/timeline-entry-response.ts
 models/tool-stage-turn.ts
 models/tool-use.ts
 models/user-response.ts
+models/validate-response.ts
 models/webhook-strategy.ts
 models/workflow-diagnostic.ts
 models/workflow-reference.ts

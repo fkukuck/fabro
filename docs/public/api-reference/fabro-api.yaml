@@ -617,7 +617,7 @@ paths:
       operationId: runPreflight
       tags: [Runs]
       summary: Validate Workflow Manifest
-      description: Validates a workflow manifest without creating a run.
+      description: Validates runtime readiness for a workflow manifest without creating a run.
       requestBody:
         required: true
         content:
@@ -631,6 +631,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PreflightResponse"
+        "400":
+          description: Invalid manifest or workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/validate:
+    post:
+      operationId: validateRunManifest
+      tags: [Runs]
+      summary: Validate Workflow Manifest
+      description: Validates workflow structure and diagnostics without runtime readiness checks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunManifest"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateResponse"
         "400":
           description: Invalid manifest or workflow
           content:
@@ -3864,6 +3890,18 @@ components:
           $ref: "#/components/schemas/PreflightWorkflowSummary"
         checks:
           $ref: "#/components/schemas/PreflightCheckReport"
+
+    ValidateResponse:
+      type: object
+      required:
+        - ok
+        - workflow
+      properties:
+        ok:
+          type: boolean
+          description: Whether validation passed with no error diagnostics.
+        workflow:
+          $ref: "#/components/schemas/PreflightWorkflowSummary"
 
     RenderWorkflowGraphRequest:
       type: object

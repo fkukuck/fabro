@@ -1118,6 +1118,7 @@ fn demo_routes() -> Router<Arc<AppState>> {
         .route("/runs/resolve", get(demo::resolve_run))
         .route("/boards/runs", get(demo::list_board_runs))
         .route("/preflight", post(run_preflight))
+        .route("/validate", post(validate_run_manifest))
         .route("/graph/render", post(render_graph_from_manifest))
         .route("/attach", get(demo::attach_events_stub))
         .route("/runs/{id}", get(demo::get_run_status))
@@ -1201,6 +1202,7 @@ fn real_routes() -> Router<Arc<AppState>> {
         .route("/runs", get(list_runs).post(create_run))
         .route("/runs/resolve", get(resolve_run))
         .route("/preflight", post(run_preflight))
+        .route("/validate", post(validate_run_manifest))
         .route("/graph/render", post(render_graph_from_manifest))
         .route("/attach", get(attach_events))
         .route("/boards/runs", get(list_board_runs))
@@ -4320,6 +4322,30 @@ async fn run_preflight(
         }
     };
     (StatusCode::OK, Json(response)).into_response()
+}
+
+async fn validate_run_manifest(
+    _auth: AuthenticatedService,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RunManifest>,
+) -> Response {
+    let manifest_run_defaults = state.manifest_run_defaults();
+    let prepared = match run_manifest::prepare_manifest(manifest_run_defaults.as_ref(), &req) {
+        Ok(prepared) => prepared,
+        Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
+    };
+    let validated = match run_manifest::validate_prepared_manifest(&prepared) {
+        Ok(validated) => validated,
+        Err(WorkflowError::Parse(_)) => {
+            return ApiError::bad_request("Validation failed").into_response();
+        }
+        Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
+    };
+    (
+        StatusCode::OK,
+        Json(run_manifest::validate_response(&prepared, &validated)),
+    )
+        .into_response()
 }
 
 async fn render_graph_from_manifest(
@@ -9468,6 +9494,29 @@ allowed_usernames = ["octocat"]
         body["id"].as_str().unwrap().to_string()
     }
 
+    #[tokio::test]
+    async fn validate_endpoint_returns_workflow_summary_without_preflight_checks() {
+        let app = test_app_with();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(api("/validate"))
+                    .header("content-type", "application/json")
+                    .body(manifest_body(MINIMAL_DOT))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response_json!(response, StatusCode::OK).await;
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["workflow"]["name"], "Test");
+        assert_eq!(body["workflow"]["nodes"], 2);
+        assert_eq!(body["workflow"]["edges"], 1);
+        assert!(body.get("checks").is_none());
+    }
+
     async fn create_run_for_target(app: &Router, target_path: &str, dot_source: &str) -> String {
         let req = Request::builder()
             .method("POST")
@@ -11811,6 +11860,7 @@ slug = "fabro"
             (Method::POST, "/runs".to_string()),
             (Method::GET, "/runs/resolve".to_string()),
             (Method::POST, "/preflight".to_string()),
+            (Method::POST, "/validate".to_string()),
             (Method::POST, "/graph/render".to_string()),
             (Method::GET, "/attach".to_string()),
             (Method::GET, "/boards/runs".to_string()),
