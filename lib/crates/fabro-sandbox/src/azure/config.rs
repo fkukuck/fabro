@@ -6,6 +6,7 @@ pub struct AzurePlatformConfig {
     pub subnet_id:       String,
     pub storage_account: String,
     pub storage_share:   String,
+    pub storage_key:     String,
     pub acr_server:      String,
     pub sandboxd_port:   u16,
     pub acr_username:    Option<String>,
@@ -21,6 +22,7 @@ impl AzurePlatformConfig {
             "FABRO_AZURE_SANDBOX_SUBNET_ID",
             "FABRO_AZURE_STORAGE_ACCOUNT",
             "FABRO_AZURE_STORAGE_SHARE",
+            "FABRO_AZURE_STORAGE_KEY",
             "FABRO_AZURE_ACR_SERVER",
         ];
 
@@ -60,6 +62,7 @@ impl AzurePlatformConfig {
             subnet_id: std::env::var("FABRO_AZURE_SANDBOX_SUBNET_ID").unwrap_or_default(),
             storage_account: std::env::var("FABRO_AZURE_STORAGE_ACCOUNT").unwrap_or_default(),
             storage_share: std::env::var("FABRO_AZURE_STORAGE_SHARE").unwrap_or_default(),
+            storage_key: std::env::var("FABRO_AZURE_STORAGE_KEY").unwrap_or_default(),
             acr_server: std::env::var("FABRO_AZURE_ACR_SERVER").unwrap_or_default(),
             sandboxd_port,
             acr_username: std::env::var("FABRO_AZURE_ACR_USERNAME").ok(),
@@ -82,6 +85,7 @@ mod tests {
                 ("FABRO_AZURE_SANDBOX_SUBNET_ID", None::<&str>),
                 ("FABRO_AZURE_STORAGE_ACCOUNT", None::<&str>),
                 ("FABRO_AZURE_STORAGE_SHARE", None::<&str>),
+                ("FABRO_AZURE_STORAGE_KEY", None::<&str>),
                 ("FABRO_AZURE_ACR_SERVER", None::<&str>),
             ],
             || {
