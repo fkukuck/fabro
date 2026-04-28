@@ -918,7 +918,7 @@ mod runs {
             elapsed_secs: summary.elapsed_secs,
             goal: summary.goal,
             source_directory: summary.source_directory,
-            checkpoints_disabled: Some(summary.checkpoints_disabled),
+            in_place: Some(summary.in_place),
             repo_origin_url: summary.repo_origin_url,
             labels: summary.labels,
             pending_control: summary.pending_control,

@@ -12,20 +12,20 @@ use serde_json::json;
 
 fn sample_run_spec() -> RunSpec {
     RunSpec {
-        run_id:               fixtures::RUN_1,
-        settings:             WorkflowSettings::default(),
-        graph:                Graph::new("ship"),
-        workflow_slug:        Some("demo".to_string()),
-        source_directory:     Some("/tmp/project".to_string()),
-        repo_origin_url:      Some("https://github.com/fabro-sh/fabro.git".to_string()),
-        base_branch:          Some("main".to_string()),
-        labels:               HashMap::from([("team".to_string(), "platform".to_string())]),
-        provenance:           None,
-        manifest_blob:        None,
-        definition_blob:      None,
-        pre_run_git:          None,
-        fork_source_ref:      None,
-        checkpoints_disabled: false,
+        run_id:           fixtures::RUN_1,
+        settings:         WorkflowSettings::default(),
+        graph:            Graph::new("ship"),
+        workflow_slug:    Some("demo".to_string()),
+        source_directory: Some("/tmp/project".to_string()),
+        repo_origin_url:  Some("https://github.com/fabro-sh/fabro.git".to_string()),
+        base_branch:      Some("main".to_string()),
+        labels:           HashMap::from([("team".to_string(), "platform".to_string())]),
+        provenance:       None,
+        manifest_blob:    None,
+        definition_blob:  None,
+        pre_run_git:      None,
+        fork_source_ref:  None,
+        in_place:         false,
     }
 }
 

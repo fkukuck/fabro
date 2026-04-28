@@ -148,7 +148,7 @@ mod tests {
             definition_blob: None,
             pre_run_git: None,
             fork_source_ref: None,
-            checkpoints_disabled: false,
+            in_place: false,
         }
     }
 
@@ -156,23 +156,23 @@ mod tests {
         let store = memory_store();
         let run_store = store.create_run(&record.run_id).await.unwrap();
         append_event(&run_store, &record.run_id, &Event::RunCreated {
-            run_id:               record.run_id,
-            settings:             serde_json::to_value(&record.settings).unwrap(),
-            graph:                serde_json::to_value(&record.graph).unwrap(),
-            workflow_source:      source.map(ToOwned::to_owned),
-            workflow_config:      None,
-            labels:               record.labels.clone().into_iter().collect(),
-            run_dir:              run_dir.to_string_lossy().to_string(),
-            source_directory:     record.source_directory.clone(),
-            repo_origin_url:      record.repo_origin_url.clone(),
-            base_branch:          record.base_branch.clone(),
-            workflow_slug:        record.workflow_slug.clone(),
-            db_prefix:            None,
-            provenance:           record.provenance.clone(),
-            manifest_blob:        None,
-            pre_run_git:          record.pre_run_git.clone(),
-            fork_source_ref:      record.fork_source_ref.clone(),
-            checkpoints_disabled: record.checkpoints_disabled,
+            run_id:           record.run_id,
+            settings:         serde_json::to_value(&record.settings).unwrap(),
+            graph:            serde_json::to_value(&record.graph).unwrap(),
+            workflow_source:  source.map(ToOwned::to_owned),
+            workflow_config:  None,
+            labels:           record.labels.clone().into_iter().collect(),
+            run_dir:          run_dir.to_string_lossy().to_string(),
+            source_directory: record.source_directory.clone(),
+            repo_origin_url:  record.repo_origin_url.clone(),
+            base_branch:      record.base_branch.clone(),
+            workflow_slug:    record.workflow_slug.clone(),
+            db_prefix:        None,
+            provenance:       record.provenance.clone(),
+            manifest_blob:    None,
+            pre_run_git:      record.pre_run_git.clone(),
+            fork_source_ref:  record.fork_source_ref.clone(),
+            in_place:         record.in_place,
         })
         .await
         .unwrap();

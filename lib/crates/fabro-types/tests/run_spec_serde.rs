@@ -15,18 +15,18 @@ fn templated_settings() -> WorkflowSettings {
 #[test]
 fn run_spec_round_trips_templated_settings() {
     let record = RunSpec {
-        run_id:               fixtures::RUN_1,
-        settings:             templated_settings(),
-        graph:                Graph::new("ship"),
-        workflow_slug:        Some("demo".to_string()),
-        source_directory:     Some("/Users/client/project".to_string()),
-        repo_origin_url:      Some("https://github.com/fabro-sh/fabro.git".to_string()),
-        base_branch:          Some("main".to_string()),
-        labels:               HashMap::from([("team".to_string(), "platform".to_string())]),
-        provenance:           None,
-        manifest_blob:        None,
-        definition_blob:      None,
-        pre_run_git:          Some(PreRunGitContext {
+        run_id:           fixtures::RUN_1,
+        settings:         templated_settings(),
+        graph:            Graph::new("ship"),
+        workflow_slug:    Some("demo".to_string()),
+        source_directory: Some("/Users/client/project".to_string()),
+        repo_origin_url:  Some("https://github.com/fabro-sh/fabro.git".to_string()),
+        base_branch:      Some("main".to_string()),
+        labels:           HashMap::from([("team".to_string(), "platform".to_string())]),
+        provenance:       None,
+        manifest_blob:    None,
+        definition_blob:  None,
+        pre_run_git:      Some(PreRunGitContext {
             display_base_sha: Some("abc123".to_string()),
             local_dirty:      DirtyStatus::Clean,
             push_outcome:     PreRunPushOutcome::Succeeded {
@@ -34,11 +34,11 @@ fn run_spec_round_trips_templated_settings() {
                 branch: "main".to_string(),
             },
         }),
-        fork_source_ref:      Some(ForkSourceRef {
+        fork_source_ref:  Some(ForkSourceRef {
             source_run_id:  fixtures::RUN_2,
             checkpoint_sha: "def456".to_string(),
         }),
-        checkpoints_disabled: false,
+        in_place:         false,
     };
 
     let json = serde_json::to_value(&record).expect("record should serialize");
@@ -48,7 +48,7 @@ fn run_spec_round_trips_templated_settings() {
     assert_eq!(json["pre_run_git"]["local_dirty"], "clean");
     assert_eq!(json["pre_run_git"]["push_outcome"]["type"], "succeeded");
     assert_eq!(json["fork_source_ref"]["checkpoint_sha"], "def456");
-    assert_eq!(json["checkpoints_disabled"], false);
+    assert_eq!(json["in_place"], false);
 
     let round_trip: RunSpec =
         serde_json::from_value(json.clone()).expect("record should deserialize");

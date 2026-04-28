@@ -107,28 +107,28 @@ async fn initialized(
         .expect("failed to create slate-backed test run store");
     let run_store = inner_store;
     append_event(&run_store, &run_options.run_id, &Event::RunCreated {
-        run_id:               run_options.run_id,
-        settings:             serde_json::to_value(&run_options.settings)
+        run_id:           run_options.run_id,
+        settings:         serde_json::to_value(&run_options.settings)
             .expect("failed to serialize settings"),
-        graph:                serde_json::to_value(graph).expect("failed to serialize graph"),
-        workflow_source:      None,
-        workflow_config:      None,
-        labels:               run_options
+        graph:            serde_json::to_value(graph).expect("failed to serialize graph"),
+        workflow_source:  None,
+        workflow_config:  None,
+        labels:           run_options
             .labels
             .clone()
             .into_iter()
             .collect::<BTreeMap<_, _>>(),
-        run_dir:              run_options.run_dir.display().to_string(),
-        source_directory:     Some(sandbox.working_directory().to_string()),
-        repo_origin_url:      None,
-        base_branch:          run_options.base_branch.clone(),
-        workflow_slug:        run_options.workflow_slug.clone(),
-        db_prefix:            None,
-        provenance:           None,
-        manifest_blob:        None,
-        pre_run_git:          run_options.pre_run_git.clone(),
-        fork_source_ref:      run_options.fork_source_ref.clone(),
-        checkpoints_disabled: run_options.checkpoints_disabled,
+        run_dir:          run_options.run_dir.display().to_string(),
+        source_directory: Some(sandbox.working_directory().to_string()),
+        repo_origin_url:  None,
+        base_branch:      run_options.base_branch.clone(),
+        workflow_slug:    run_options.workflow_slug.clone(),
+        db_prefix:        None,
+        provenance:       None,
+        manifest_blob:    None,
+        pre_run_git:      run_options.pre_run_git.clone(),
+        fork_source_ref:  run_options.fork_source_ref.clone(),
+        in_place:         false,
     })
     .await
     .expect("failed to seed run.created event in run store");

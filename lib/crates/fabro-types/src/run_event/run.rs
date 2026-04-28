@@ -11,35 +11,35 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunCreatedProps {
-    pub settings:             WorkflowSettings,
-    pub graph:                Graph,
+    pub settings:         WorkflowSettings,
+    pub graph:            Graph,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow_source:      Option<String>,
+    pub workflow_source:  Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow_config:      Option<String>,
+    pub workflow_config:  Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub labels:               BTreeMap<String, String>,
-    pub run_dir:              String,
+    pub labels:           BTreeMap<String, String>,
+    pub run_dir:          String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_directory:     Option<String>,
+    pub source_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo_origin_url:      Option<String>,
+    pub repo_origin_url:  Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_branch:          Option<String>,
+    pub base_branch:      Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow_slug:        Option<String>,
+    pub workflow_slug:    Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub db_prefix:            Option<String>,
+    pub db_prefix:        Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provenance:           Option<RunProvenance>,
+    pub provenance:       Option<RunProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manifest_blob:        Option<RunBlobId>,
+    pub manifest_blob:    Option<RunBlobId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pre_run_git:          Option<PreRunGitContext>,
+    pub pre_run_git:      Option<PreRunGitContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fork_source_ref:      Option<ForkSourceRef>,
+    pub fork_source_ref:  Option<ForkSourceRef>,
     #[serde(default)]
-    pub checkpoints_disabled: bool,
+    pub in_place:         bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

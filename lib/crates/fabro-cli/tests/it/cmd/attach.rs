@@ -453,7 +453,6 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "event": "run.created",
         "id": "[EVENT_ID]",
         "properties": {
-          "checkpoints_disabled": false,
           "graph": {
             "attrs": {
               "goal": {
@@ -554,6 +553,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
               }
             }
           },
+          "in_place": false,
           "manifest_blob": "[BLOB_ID]",
           "provenance": {
             "client": {

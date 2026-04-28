@@ -3693,12 +3693,11 @@ components:
           type: boolean
         preserve_sandbox:
           type: boolean
-        in_place:
-          type: boolean
-          description: Run against the submitted source directory directly.
-        allow_no_checkpoints:
-          type: boolean
-          description: Required with `in_place`; disables git checkpointing.
+        worktree_mode:
+          type: string
+          description: |
+            Override `run.sandbox.local.worktree_mode` (e.g. `never` for
+            `--in-place`).
         label:
           type: array
           items:
@@ -4523,7 +4522,7 @@ components:
         - run_id
         - settings
         - graph
-        - checkpoints_disabled
+        - in_place
       properties:
         run_id:
           type: string
@@ -4559,7 +4558,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ForkSourceRef"
             - type: "null"
-        checkpoints_disabled:
+        in_place:
           type: boolean
 
     RunProjection:
@@ -4659,7 +4658,7 @@ components:
             type: string
         source_directory:
           type: ["string", "null"]
-        checkpoints_disabled:
+        in_place:
           type: boolean
         repo_origin_url:
           type: ["string", "null"]
@@ -5314,7 +5313,7 @@ components:
             type: string
         source_directory:
           type: ["string", "null"]
-        checkpoints_disabled:
+        in_place:
           type: boolean
         repo_origin_url:
           type: ["string", "null"]

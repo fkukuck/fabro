@@ -53,7 +53,7 @@ fn run_summary_json_matches_openapi_shape() {
                 "team": "core"
             },
             "source_directory": "/tmp/fabro",
-            "checkpoints_disabled": false,
+            "in_place": false,
             "repo_origin_url": null,
             "repository": {
                 "name": "fabro"

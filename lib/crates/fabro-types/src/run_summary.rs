@@ -8,35 +8,35 @@ use crate::{RepositoryReference, RunControlAction, RunId, RunStatus};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
-    pub run_id:               RunId,
+    pub run_id:           RunId,
     #[serde(default)]
-    pub workflow_name:        Option<String>,
+    pub workflow_name:    Option<String>,
     #[serde(default)]
-    pub workflow_slug:        Option<String>,
-    pub goal:                 String,
-    pub title:                String,
-    pub labels:               HashMap<String, String>,
+    pub workflow_slug:    Option<String>,
+    pub goal:             String,
+    pub title:            String,
+    pub labels:           HashMap<String, String>,
     #[serde(default)]
-    pub source_directory:     Option<String>,
+    pub source_directory: Option<String>,
     #[serde(default)]
-    pub checkpoints_disabled: bool,
+    pub in_place:         bool,
     #[serde(default)]
-    pub repo_origin_url:      Option<String>,
-    pub repository:           RepositoryReference,
+    pub repo_origin_url:  Option<String>,
+    pub repository:       RepositoryReference,
     #[serde(default)]
-    pub start_time:           Option<DateTime<Utc>>,
-    pub created_at:           DateTime<Utc>,
-    pub status:               RunStatus,
+    pub start_time:       Option<DateTime<Utc>>,
+    pub created_at:       DateTime<Utc>,
+    pub status:           RunStatus,
     #[serde(default)]
-    pub pending_control:      Option<RunControlAction>,
+    pub pending_control:  Option<RunControlAction>,
     #[serde(default)]
-    pub duration_ms:          Option<u64>,
+    pub duration_ms:      Option<u64>,
     #[serde(default)]
-    pub elapsed_secs:         Option<f64>,
+    pub elapsed_secs:     Option<f64>,
     #[serde(default)]
-    pub total_usd_micros:     Option<i64>,
+    pub total_usd_micros: Option<i64>,
     #[serde(default)]
-    pub superseded_by:        Option<RunId>,
+    pub superseded_by:    Option<RunId>,
 }
 
 impl RunSummary {
@@ -51,7 +51,7 @@ impl RunSummary {
         goal: String,
         labels: HashMap<String, String>,
         source_directory: Option<String>,
-        checkpoints_disabled: bool,
+        in_place: bool,
         repo_origin_url: Option<String>,
         start_time: Option<DateTime<Utc>>,
         status: RunStatus,
@@ -75,7 +75,7 @@ impl RunSummary {
             title,
             labels,
             source_directory,
-            checkpoints_disabled,
+            in_place,
             repo_origin_url,
             repository,
             start_time,

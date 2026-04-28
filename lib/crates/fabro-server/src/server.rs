@@ -9738,7 +9738,7 @@ strategy = "token"
             definition_blob: None,
             pre_run_git: None,
             fork_source_ref: None,
-            checkpoints_disabled: false,
+            in_place: false,
         };
 
         create_durable_run_with_events(state, run_id, &[
@@ -9759,7 +9759,7 @@ strategy = "token"
                 manifest_blob: None,
                 pre_run_git: None,
                 fork_source_ref: None,
-                checkpoints_disabled: false,
+                in_place: false,
             },
             workflow_event::Event::WorkflowRunStarted {
                 name: "test".to_string(),

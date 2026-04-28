@@ -365,7 +365,7 @@ mod tests {
             definition_blob: None,
             pre_run_git: None,
             fork_source_ref: None,
-            checkpoints_disabled: false,
+            in_place: false,
         }
     }
 

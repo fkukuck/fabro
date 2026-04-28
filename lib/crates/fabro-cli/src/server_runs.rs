@@ -68,8 +68,8 @@ impl ServerRunSummaryInfo {
         self.summary.repo_origin_url.as_deref()
     }
 
-    pub(crate) fn checkpoints_disabled(&self) -> bool {
-        self.summary.checkpoints_disabled
+    pub(crate) fn in_place(&self) -> bool {
+        self.summary.in_place
     }
 
     pub(crate) fn goal(&self) -> String {
