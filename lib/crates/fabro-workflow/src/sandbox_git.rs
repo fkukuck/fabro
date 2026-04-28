@@ -802,13 +802,151 @@ mod tests {
     )]
 
     use std::collections::{HashMap, VecDeque};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use fabro_agent::{DirEntry, ExecResult, GrepOptions};
     use tokio_util::sync::CancellationToken;
 
     use super::*;
+
+    struct RecordingSandbox {
+        inner:    Arc<dyn fabro_sandbox::Sandbox>,
+        commands: Arc<Mutex<Vec<String>>>,
+        pushes:   Arc<Mutex<Vec<String>>>,
+    }
+
+    impl RecordingSandbox {
+        fn new(inner: Arc<dyn fabro_sandbox::Sandbox>) -> Self {
+            Self {
+                inner,
+                commands: Arc::new(Mutex::new(Vec::new())),
+                pushes: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn commands_after_probe(&self) -> Vec<String> {
+            self.commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|command| !command.contains("probe.txt"))
+                .cloned()
+                .collect()
+        }
+
+        fn pushes(&self) -> Vec<String> {
+            self.pushes.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl Sandbox for RecordingSandbox {
+        async fn read_file(
+            &self,
+            path: &str,
+            offset: Option<usize>,
+            limit: Option<usize>,
+        ) -> fabro_sandbox::Result<String> {
+            self.inner.read_file(path, offset, limit).await
+        }
+
+        async fn write_file(&self, path: &str, content: &str) -> fabro_sandbox::Result<()> {
+            self.inner.write_file(path, content).await
+        }
+
+        async fn delete_file(&self, path: &str) -> fabro_sandbox::Result<()> {
+            self.inner.delete_file(path).await
+        }
+
+        async fn file_exists(&self, path: &str) -> fabro_sandbox::Result<bool> {
+            self.inner.file_exists(path).await
+        }
+
+        async fn list_directory(
+            &self,
+            path: &str,
+            depth: Option<usize>,
+        ) -> fabro_sandbox::Result<Vec<DirEntry>> {
+            self.inner.list_directory(path, depth).await
+        }
+
+        async fn exec_command(
+            &self,
+            command: &str,
+            timeout_ms: u64,
+            working_dir: Option<&str>,
+            env_vars: Option<&std::collections::HashMap<String, String>>,
+            cancel_token: Option<CancellationToken>,
+        ) -> fabro_sandbox::Result<ExecResult> {
+            self.commands.lock().unwrap().push(command.to_string());
+            self.inner
+                .exec_command(command, timeout_ms, working_dir, env_vars, cancel_token)
+                .await
+        }
+
+        async fn grep(
+            &self,
+            pattern: &str,
+            path: &str,
+            options: &GrepOptions,
+        ) -> fabro_sandbox::Result<Vec<String>> {
+            self.inner.grep(pattern, path, options).await
+        }
+
+        async fn glob(
+            &self,
+            pattern: &str,
+            path: Option<&str>,
+        ) -> fabro_sandbox::Result<Vec<String>> {
+            self.inner.glob(pattern, path).await
+        }
+
+        async fn download_file_to_local(
+            &self,
+            remote_path: &str,
+            local_path: &std::path::Path,
+        ) -> fabro_sandbox::Result<()> {
+            self.inner
+                .download_file_to_local(remote_path, local_path)
+                .await
+        }
+
+        async fn upload_file_from_local(
+            &self,
+            local_path: &std::path::Path,
+            remote_path: &str,
+        ) -> fabro_sandbox::Result<()> {
+            self.inner
+                .upload_file_from_local(local_path, remote_path)
+                .await
+        }
+
+        async fn initialize(&self) -> fabro_sandbox::Result<()> {
+            self.inner.initialize().await
+        }
+
+        async fn cleanup(&self) -> fabro_sandbox::Result<()> {
+            self.inner.cleanup().await
+        }
+
+        fn working_directory(&self) -> &str {
+            self.inner.working_directory()
+        }
+
+        fn platform(&self) -> &str {
+            self.inner.platform()
+        }
+
+        fn os_version(&self) -> String {
+            self.inner.os_version()
+        }
+
+        async fn git_push_ref(&self, refspec: &str) -> bool {
+            self.pushes.lock().unwrap().push(refspec.to_string());
+            self.inner.git_push_ref(refspec).await
+        }
+    }
 
     struct ScriptedSandbox {
         exec_results: Mutex<VecDeque<ExecResult>>,
@@ -1173,7 +1311,8 @@ mod tests {
         std::fs::write(repo.join("tracked.txt"), "seed\n").unwrap();
         let head = git_commit_all(repo, "initial");
 
-        let sandbox = fabro_agent::LocalSandbox::new(repo.to_path_buf());
+        let sandbox =
+            RecordingSandbox::new(Arc::new(fabro_agent::LocalSandbox::new(repo.to_path_buf())));
         let run_id = fabro_types::fixtures::RUN_1;
         let mut projection = fabro_store::RunProjection::default();
         projection.spec = Some(fabro_types::RunSpec {
@@ -1198,6 +1337,7 @@ mod tests {
         });
         let mut dump = crate::run_dump::RunDump::from_projection(&projection);
         dump.add_file_bytes("binary/payload.bin", vec![0, 159, 146, 150]);
+        dump.add_file_bytes("path with spaces.txt", b"quoted path\n".to_vec());
 
         let runtime = crate::sandbox_metadata::SandboxGitRuntime::new();
         let run_id_string = run_id.to_string();
@@ -1243,12 +1383,68 @@ mod tests {
             .unwrap();
         assert_eq!(binary.stdout, vec![0, 159, 146, 150]);
 
+        let spaced_path = std::process::Command::new("git")
+            .args(["show", &format!("{commit_sha}:path with spaces.txt")])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert_eq!(spaced_path.stdout, b"quoted path\n");
+
         let status = std::process::Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(repo)
             .output()
             .unwrap();
         assert!(String::from_utf8(status.stdout).unwrap().trim().is_empty());
+
+        dump.add_file_bytes("second.txt", b"second\n".to_vec());
+        let second_snapshot = writer.write_snapshot(&dump, "checkpoint 2").await.unwrap();
+        let second_commit_sha = second_snapshot.commit_sha;
+        let second_parent = std::process::Command::new("git")
+            .args(["rev-list", "--parents", "-n", "1", &second_commit_sha])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(second_parent.status.success());
+        let parent_line = String::from_utf8(second_parent.stdout).unwrap();
+        let parents: Vec<_> = parent_line.split_whitespace().collect();
+        assert_eq!(parents, vec![
+            second_commit_sha.as_str(),
+            commit_sha.as_str()
+        ]);
+
+        let second_file = std::process::Command::new("git")
+            .args(["show", &format!("{second_commit_sha}:second.txt")])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert_eq!(second_file.stdout, b"second\n");
+
+        let metadata_commands = sandbox.commands_after_probe();
+        assert_eq!(
+            metadata_commands
+                .iter()
+                .filter(|command| command.contains(" fast-import "))
+                .count(),
+            2,
+            "metadata writer should use one fast-import per snapshot, got: {metadata_commands:?}"
+        );
+        for forbidden in [
+            "hash-object",
+            "update-index",
+            "write-tree",
+            "commit-tree",
+            "update-ref",
+        ] {
+            assert!(
+                !metadata_commands
+                    .iter()
+                    .any(|command| command.contains(forbidden)),
+                "metadata writer should not run {forbidden} after probe, got: {metadata_commands:?}"
+            );
+        }
+        let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+        assert_eq!(sandbox.pushes(), vec![refspec.clone(), refspec]);
     }
 
     #[tokio::test]

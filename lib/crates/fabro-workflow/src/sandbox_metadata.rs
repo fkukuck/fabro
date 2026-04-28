@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use fabro_agent::Sandbox;
@@ -108,7 +109,6 @@ impl<'a> SandboxMetadataWriter<'a> {
 
         let entries = dump.git_entries()?;
         let temp = sandbox_temp_dir(self.sandbox, self.run_id, "metadata");
-        let index = format!("{temp}/index");
         exec_ok(
             self.sandbox,
             &format!(
@@ -119,9 +119,7 @@ impl<'a> SandboxMetadataWriter<'a> {
         )
         .await?;
 
-        let result = self
-            .write_snapshot_in_temp(&entries, message, &temp, &index)
-            .await;
+        let result = self.write_snapshot_in_temp(&entries, message, &temp).await;
         let _ = exec_ok(
             self.sandbox,
             &format!("rm -rf {}", shell_quote(&temp)),
@@ -136,77 +134,49 @@ impl<'a> SandboxMetadataWriter<'a> {
         entries: &[(String, Vec<u8>)],
         message: &str,
         temp: &str,
-        index: &str,
     ) -> Result<MetadataSnapshot, SandboxMetadataError> {
         let full_ref = format!("refs/heads/{}", self.branch);
-        let env = git_index_env(index, &self.git_author);
-        let old_commit = self.load_previous_tree(&full_ref, &env).await?;
-
-        for (ordinal, (path, bytes)) in entries.iter().enumerate() {
-            validate_metadata_path(path)?;
-            let local = tempfile::NamedTempFile::new().map_err(SandboxMetadataError::LocalTemp)?;
-            fs::write(local.path(), bytes)
-                .await
-                .map_err(SandboxMetadataError::LocalTemp)?;
-            let remote = format!("{temp}/blob-{ordinal}");
-            self.sandbox
-                .upload_file_from_local(local.path(), &remote)
-                .await
-                .map_err(|err| SandboxMetadataError::Sandbox(err.display_with_causes()))?;
-            let hash = exec_stdout(
-                self.sandbox,
-                &format!("{GIT_REMOTE} hash-object -w {}", shell_quote(&remote)),
-                None,
-            )
-            .await?;
-            let cacheinfo = format!("100644,{hash},{path}");
-            exec_ok(
-                self.sandbox,
-                &format!(
-                    "{GIT_REMOTE} update-index --add --cacheinfo {}",
-                    shell_quote(&cacheinfo)
-                ),
-                Some(&env),
-            )
-            .await?;
-        }
-
-        let tree = exec_stdout(
-            self.sandbox,
-            &format!("{GIT_REMOTE} write-tree"),
-            Some(&env),
-        )
-        .await?;
-        let message_path = format!("{temp}/message.txt");
-        let mut commit_message = message.to_string();
-        self.git_author.append_footer(&mut commit_message);
-        self.sandbox
-            .write_file(&message_path, &commit_message)
-            .await
-            .map_err(|err| SandboxMetadataError::Sandbox(err.display_with_causes()))?;
-        let parent = old_commit
-            .as_ref()
-            .map_or(String::new(), |sha| format!(" -p {}", shell_quote(sha)));
-        let commit = exec_stdout(
+        let old_commit = exec_stdout(
             self.sandbox,
             &format!(
-                "{GIT_REMOTE} commit-tree {}{parent} -F {}",
-                shell_quote(&tree),
-                shell_quote(&message_path)
-            ),
-            Some(&env),
-        )
-        .await?;
-        exec_ok(
-            self.sandbox,
-            &format!(
-                "{GIT_REMOTE} update-ref {} {}",
-                shell_quote(&full_ref),
-                shell_quote(&commit)
+                "{GIT_REMOTE} rev-parse --verify -q {}^{{commit}} || true",
+                shell_quote(&full_ref)
             ),
             None,
         )
         .await?;
+        let old_commit = (!old_commit.is_empty()).then_some(old_commit);
+
+        let mut commit_message = message.to_string();
+        self.git_author.append_footer(&mut commit_message);
+        let stream = fast_import_stream(
+            &full_ref,
+            old_commit.as_deref(),
+            &commit_message,
+            entries,
+            &self.git_author,
+        )?;
+
+        let local = tempfile::NamedTempFile::new().map_err(SandboxMetadataError::LocalTemp)?;
+        fs::write(local.path(), stream)
+            .await
+            .map_err(SandboxMetadataError::LocalTemp)?;
+        let remote = format!("{temp}/metadata.fi");
+        self.sandbox
+            .upload_file_from_local(local.path(), &remote)
+            .await
+            .map_err(|err| SandboxMetadataError::Sandbox(err.display_with_causes()))?;
+
+        let stdout = exec_stdout(
+            self.sandbox,
+            &format!(
+                "{GIT_REMOTE} fast-import --date-format=now < {}",
+                shell_quote(&remote)
+            ),
+            None,
+        )
+        .await?;
+        let commit = parse_fast_import_mark(&stdout)?;
         let refspec = format!("{full_ref}:{full_ref}");
         let pushed = self.sandbox.git_push_ref(&refspec).await;
         Ok(MetadataSnapshot {
@@ -214,39 +184,118 @@ impl<'a> SandboxMetadataWriter<'a> {
             pushed,
         })
     }
+}
 
-    async fn load_previous_tree(
-        &self,
-        full_ref: &str,
-        env: &HashMap<String, String>,
-    ) -> Result<Option<String>, SandboxMetadataError> {
-        let old_commit = exec_stdout(
-            self.sandbox,
-            &format!(
-                "{GIT_REMOTE} rev-parse --verify -q {}^{{commit}} || true",
-                shell_quote(full_ref)
-            ),
-            None,
-        )
-        .await?;
-        if old_commit.is_empty() {
-            exec_ok(
-                self.sandbox,
-                &format!("{GIT_REMOTE} read-tree --empty"),
-                Some(env),
-            )
-            .await?;
-            Ok(None)
-        } else {
-            exec_ok(
-                self.sandbox,
-                &format!("{GIT_REMOTE} read-tree {}", shell_quote(&old_commit)),
-                Some(env),
-            )
-            .await?;
-            Ok(Some(old_commit))
+fn fast_import_stream(
+    full_ref: &str,
+    old_commit: Option<&str>,
+    commit_message: &str,
+    entries: &[(String, Vec<u8>)],
+    author: &GitAuthor,
+) -> Result<Vec<u8>, SandboxMetadataError> {
+    let mut stream = Vec::new();
+    push_line(&mut stream, &format!("commit {full_ref}"));
+    push_line(&mut stream, "mark :1");
+    push_line(
+        &mut stream,
+        &format!("author {}", fast_import_ident(author)),
+    );
+    push_line(
+        &mut stream,
+        &format!("committer {}", fast_import_ident(author)),
+    );
+    push_data(&mut stream, commit_message.as_bytes());
+    if let Some(old_commit) = old_commit {
+        push_line(&mut stream, &format!("from {old_commit}"));
+    }
+    push_line(&mut stream, "deleteall");
+
+    for (path, bytes) in entries {
+        validate_metadata_path(path)?;
+        push_line(
+            &mut stream,
+            &format!("M 100644 inline {}", fast_import_quote_path(path)),
+        );
+        push_data(&mut stream, bytes);
+    }
+
+    push_line(&mut stream, "get-mark :1");
+    Ok(stream)
+}
+
+fn push_line(stream: &mut Vec<u8>, line: &str) {
+    stream.extend_from_slice(line.as_bytes());
+    stream.push(b'\n');
+}
+
+fn push_data(stream: &mut Vec<u8>, data: &[u8]) {
+    push_line(stream, &format!("data {}", data.len()));
+    stream.extend_from_slice(data);
+    stream.push(b'\n');
+}
+
+fn parse_fast_import_mark(stdout: &str) -> Result<String, SandboxMetadataError> {
+    stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            SandboxMetadataError::Git(format!(
+                "git fast-import did not report imported commit mark: {stdout:?}"
+            ))
+        })
+}
+
+fn fast_import_ident(author: &GitAuthor) -> String {
+    let name = author
+        .name
+        .replace(['\n', '\r', '<', '>'], " ")
+        .trim()
+        .to_string();
+    let name = if name.is_empty() {
+        GitAuthor::default().name
+    } else {
+        name
+    };
+    let email = author
+        .email
+        .replace(['\n', '\r', '<', '>'], "")
+        .trim()
+        .to_string();
+    let email = if email.is_empty() {
+        GitAuthor::default().email
+    } else {
+        email
+    };
+    format!("{name} <{email}> now")
+}
+
+fn fast_import_quote_path(path: &str) -> String {
+    if path
+        .bytes()
+        .all(|byte| byte > b' ' && byte != b'"' && byte != b'\\')
+    {
+        return path.to_string();
+    }
+
+    let mut quoted = String::from("\"");
+    for byte in path.bytes() {
+        match byte {
+            b'\\' => quoted.push_str("\\\\"),
+            b'"' => quoted.push_str("\\\""),
+            b'\n' => quoted.push_str("\\n"),
+            b'\r' => quoted.push_str("\\r"),
+            b'\t' => quoted.push_str("\\t"),
+            b' '..=b'~' => quoted.push(byte as char),
+            _ => {
+                let _ = write!(quoted, "\\{byte:03o}");
+            }
         }
     }
+    quoted.push('"');
+    quoted
 }
 
 async fn probe_sandbox_git(sandbox: &dyn Sandbox) -> Result<(), String> {
@@ -277,16 +326,6 @@ fn sandbox_temp_dir(sandbox: &dyn Sandbox, run_id: &str, label: &str) -> String 
     let cwd = sandbox.working_directory().trim_end_matches('/');
     let id = uuid::Uuid::new_v4();
     format!("{cwd}/.fabro/tmp/{label}-{run_id}-{id}")
-}
-
-fn git_index_env(index: &str, author: &GitAuthor) -> HashMap<String, String> {
-    HashMap::from([
-        ("GIT_INDEX_FILE".to_string(), index.to_string()),
-        ("GIT_AUTHOR_NAME".to_string(), author.name.clone()),
-        ("GIT_AUTHOR_EMAIL".to_string(), author.email.clone()),
-        ("GIT_COMMITTER_NAME".to_string(), author.name.clone()),
-        ("GIT_COMMITTER_EMAIL".to_string(), author.email.clone()),
-    ])
 }
 
 async fn exec_stdout(
