@@ -11,6 +11,7 @@ fn configure_test_azure_env() {
     );
     std::env::set_var("FABRO_AZURE_STORAGE_ACCOUNT", "stor1");
     std::env::set_var("FABRO_AZURE_STORAGE_SHARE", "workspace");
+    std::env::set_var("FABRO_AZURE_STORAGE_KEY", "storage-key");
     std::env::set_var("FABRO_AZURE_ACR_SERVER", "fabro.azurecr.io");
 }
 
