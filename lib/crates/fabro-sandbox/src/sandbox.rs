@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 const GIT: &str = "git -c maintenance.auto=0 -c gc.auto=0";
 
 /// Information returned when a sandbox sets up git for a workflow run.
+#[derive(Debug, Clone)]
 pub struct GitRunInfo {
     pub base_sha:    String,
     pub run_branch:  String,
@@ -20,6 +21,7 @@ pub struct GitRunInfo {
 }
 
 /// Git setup requested by the workflow layer.
+#[derive(Debug, Clone)]
 pub enum GitSetupIntent {
     NewRun {
         run_id: String,
@@ -620,7 +622,7 @@ pub async fn setup_git_via_exec(
     })
 }
 
-async fn fetch_source_run_ref(
+pub(crate) async fn fetch_source_run_ref(
     sandbox: &dyn Sandbox,
     source_run_id: &str,
     checkpoint_sha: &str,

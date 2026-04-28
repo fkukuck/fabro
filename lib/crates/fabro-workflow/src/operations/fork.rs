@@ -1,6 +1,6 @@
 use anyhow::Result as AnyResult;
 use fabro_store::{Database, RunProjection, RunProjectionReducer};
-use fabro_types::{ForkSourceRef, RunId};
+use fabro_types::{EventBody, EventEnvelope, ForkSourceRef, RunId};
 
 use super::timeline::{ForkTarget, RunTimeline, TimelineEntry, build_timeline};
 use crate::error::Error;
@@ -95,7 +95,7 @@ pub async fn fork_run(
         checkpoint.git_commit_sha = Some(checkpoint_sha);
     }
 
-    persist_forked_run(store, &projection).await?;
+    persist_forked_run(store, &projection, &historical_events).await?;
 
     Ok(ForkOutcome {
         source_run_id,
@@ -153,6 +153,7 @@ fn resolve_fork_entry<'a>(
 async fn persist_forked_run(
     store: &Database,
     projection: &RunProjection,
+    historical_events: &[EventEnvelope],
 ) -> std::result::Result<(), Error> {
     let spec = projection
         .spec
@@ -192,18 +193,68 @@ async fn persist_forked_run(
     .await
     .map_err(|err| Error::engine(err.to_string()))?;
 
-    event::append_event(
-        &run_store,
-        &spec.run_id,
-        &checkpoint_completed_event(checkpoint),
-    )
-    .await
-    .map_err(|err| Error::engine(err.to_string()))?;
+    let replayed_checkpoint =
+        replay_historical_projection_events(&run_store, spec.run_id, historical_events).await?;
+    if !replayed_checkpoint {
+        event::append_event(
+            &run_store,
+            &spec.run_id,
+            &checkpoint_completed_event(checkpoint),
+        )
+        .await
+        .map_err(|err| Error::engine(err.to_string()))?;
+    }
     event::append_event(&run_store, &spec.run_id, &Event::RunSubmitted {
         definition_blob: spec.definition_blob,
     })
     .await
     .map_err(|err| Error::engine(err.to_string()))
+}
+
+async fn replay_historical_projection_events(
+    run_store: &fabro_store::RunDatabase,
+    new_run_id: RunId,
+    historical_events: &[EventEnvelope],
+) -> std::result::Result<bool, Error> {
+    let mut replayed_checkpoint = false;
+    for envelope in historical_events {
+        if !replay_event_for_fork_projection(&envelope.event.body) {
+            continue;
+        }
+        if matches!(envelope.event.body, EventBody::CheckpointCompleted(_)) {
+            replayed_checkpoint = true;
+        }
+        let mut event = envelope.event.clone();
+        event.id = format!("{new_run_id}-fork-{}", envelope.seq);
+        event.run_id = new_run_id;
+        let payload = event::build_redacted_event_payload(&event, &new_run_id)
+            .map_err(|err| Error::engine(err.to_string()))?;
+        run_store
+            .append_event(&payload)
+            .await
+            .map_err(|err| Error::engine(err.to_string()))?;
+    }
+    Ok(replayed_checkpoint)
+}
+
+fn replay_event_for_fork_projection(body: &EventBody) -> bool {
+    matches!(
+        body,
+        EventBody::StageCompleted(_)
+            | EventBody::StageFailed(_)
+            | EventBody::StagePrompt(_)
+            | EventBody::PromptCompleted(_)
+            | EventBody::CheckpointCompleted(_)
+            | EventBody::InterviewStarted(_)
+            | EventBody::InterviewCompleted(_)
+            | EventBody::InterviewTimeout(_)
+            | EventBody::InterviewInterrupted(_)
+            | EventBody::AgentSessionStarted(_)
+            | EventBody::AgentCliStarted(_)
+            | EventBody::CommandStarted(_)
+            | EventBody::CommandCompleted(_)
+            | EventBody::ParallelCompleted(_)
+    )
 }
 
 fn checkpoint_completed_event(checkpoint: &Checkpoint) -> Event {
@@ -237,5 +288,131 @@ fn checkpoint_completed_event(checkpoint: &Checkpoint) -> Event {
             .collect(),
         node_visits: checkpoint.node_visits.clone().into_iter().collect(),
         diff: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use fabro_graphviz::graph::Graph;
+    use fabro_store::{Database, RunProjectionReducer};
+    use fabro_types::{StageId, WorkflowSettings, fixtures};
+    use object_store::memory::InMemory;
+
+    use super::*;
+
+    fn test_store() -> Database {
+        Database::new(
+            Arc::new(InMemory::new()),
+            "",
+            Duration::from_millis(1),
+            None,
+        )
+    }
+
+    #[tokio::test]
+    async fn fork_persists_historical_node_projection_through_target_checkpoint() {
+        let store = test_store();
+        let source_run_id = fixtures::RUN_1;
+        let source = store.create_run(&source_run_id).await.unwrap();
+        let graph = Graph::new("fork-source");
+        let settings = WorkflowSettings::default();
+
+        event::append_event(&source, &source_run_id, &Event::RunCreated {
+            run_id:               source_run_id,
+            settings:             serde_json::to_value(&settings).unwrap(),
+            graph:                serde_json::to_value(&graph).unwrap(),
+            workflow_source:      Some("digraph fork_source {}".to_string()),
+            workflow_config:      None,
+            labels:               BTreeMap::new(),
+            run_dir:              "/tmp/source".to_string(),
+            source_directory:     Some("/client/source".to_string()),
+            repo_origin_url:      Some("https://github.com/example/repo.git".to_string()),
+            base_branch:          Some("main".to_string()),
+            workflow_slug:        Some("fork-source".to_string()),
+            db_prefix:            None,
+            provenance:           None,
+            manifest_blob:        None,
+            pre_run_git:          None,
+            fork_source_ref:      None,
+            checkpoints_disabled: false,
+        })
+        .await
+        .unwrap();
+
+        let mut node_visits = BTreeMap::new();
+        node_visits.insert("work".to_string(), 1);
+        event::append_event(&source, &source_run_id, &Event::StageCompleted {
+            node_id: "work".to_string(),
+            name: "Work".to_string(),
+            index: 1,
+            duration_ms: 10,
+            status: "success".to_string(),
+            preferred_label: None,
+            suggested_next_ids: Vec::new(),
+            billing: None,
+            failure: None,
+            notes: None,
+            files_touched: Vec::new(),
+            context_updates: None,
+            jump_to_node: None,
+            context_values: None,
+            node_visits: Some(node_visits.clone()),
+            loop_failure_signatures: None,
+            restart_failure_signatures: None,
+            response: Some("historical response".to_string()),
+            attempt: 1,
+            max_attempts: 1,
+        })
+        .await
+        .unwrap();
+
+        event::append_event(&source, &source_run_id, &Event::CheckpointCompleted {
+            node_id: "work".to_string(),
+            status: "success".to_string(),
+            current_node: "work".to_string(),
+            completed_nodes: vec!["work".to_string()],
+            node_retries: BTreeMap::new(),
+            context_values: BTreeMap::new(),
+            node_outcomes: BTreeMap::new(),
+            next_node_id: None,
+            git_commit_sha: Some("abc123".to_string()),
+            loop_failure_signatures: BTreeMap::new(),
+            restart_failure_signatures: BTreeMap::new(),
+            node_visits,
+            diff: None,
+        })
+        .await
+        .unwrap();
+
+        let outcome = fork_run(&store, &ForkRunInput {
+            source_run_id,
+            target: None,
+            push: false,
+        })
+        .await
+        .unwrap();
+
+        let forked = store.open_run(&outcome.new_run_id).await.unwrap();
+        let forked_events = forked.list_events().await.unwrap();
+        let forked_state = fabro_store::RunProjection::apply_events(&forked_events).unwrap();
+        let node = forked_state
+            .node(&StageId::new("work", 1))
+            .expect("forked state should retain historical node projection");
+
+        assert_eq!(node.response.as_deref(), Some("historical response"));
+        assert_eq!(forked_state.checkpoints.len(), 1);
+        assert_eq!(
+            forked_state
+                .spec
+                .unwrap()
+                .fork_source_ref
+                .unwrap()
+                .source_run_id,
+            source_run_id
+        );
     }
 }

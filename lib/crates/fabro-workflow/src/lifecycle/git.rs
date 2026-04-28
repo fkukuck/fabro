@@ -16,7 +16,7 @@ use crate::outcome::BilledModelUsage;
 use crate::run_dump::RunDump;
 use crate::run_options::RunOptions;
 use crate::runtime_store::RunStoreHandle;
-use crate::sandbox_git::{git_checkpoint, git_diff};
+use crate::sandbox_git::{checked_git_checkpoint, git_diff};
 use crate::sandbox_metadata::{SandboxGitRuntime, SandboxMetadataWriter};
 
 type WfRunState = ExecutionState<Option<BilledModelUsage>>;
@@ -145,7 +145,8 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
         // Run branch commit via sandbox
         let completed_count = state.completed_nodes.len();
         let git_author = self.run_options.git_author();
-        let commit_result = git_checkpoint(
+        let commit_result = checked_git_checkpoint(
+            &self.metadata_runtime,
             &*self.sandbox,
             &self.run_id.to_string(),
             node_id,

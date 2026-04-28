@@ -31,7 +31,7 @@ use crate::git::RUN_BRANCH_PREFIX;
 use crate::handler::llm::{AgentApiBackend, AgentCliBackend, BackendRouter};
 use crate::handler::{HandlerRegistry, default_registry, sandbox_cancel_token};
 use crate::run_options::{GitCheckpointOptions, RunOptions};
-use crate::sandbox_metadata::metadata_branch_name;
+use crate::sandbox_metadata::{SandboxGitRuntime, metadata_branch_name};
 use crate::services::{EngineServices, RunServices};
 
 struct WorktreePlan {
@@ -426,6 +426,7 @@ pub async fn initialize(
 
     let llm_source = build_llm_source(options.vault.clone());
     let cli_resolver = options.vault.clone().map(CredentialResolver::new);
+    let metadata_runtime = Arc::new(SandboxGitRuntime::new());
 
     let hook_runner = if options.hooks.hooks.is_empty() {
         None
@@ -460,11 +461,16 @@ pub async fn initialize(
             .build(Some(Arc::clone(&sandbox_event_callback)))
             .await
             .map_err(|e| Error::engine(e.to_string()))?;
+        metadata_runtime
+            .ensure_git_available(&*inner)
+            .await
+            .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
         let mut worktree = WorktreeSandbox::new(inner, WorktreeOptions {
             branch_name:          plan.branch_name.clone(),
             base_sha:             plan.base_sha.clone(),
             worktree_path:        plan.worktree_path.to_string_lossy().into_owned(),
             skip_branch_creation: plan.skip_branch_creation,
+            setup_intent:         Some(git_setup_intent(&options.run_options)),
         });
         worktree.set_event_callback(Arc::clone(&options.emitter).worktree_callback());
         match worktree.initialize().await {
@@ -563,6 +569,12 @@ pub async fn initialize(
         .is_some();
     if !has_run_branch {
         let intent = git_setup_intent(&options.run_options);
+        if sandbox.origin_url().is_some() {
+            metadata_runtime
+                .ensure_git_available(&*sandbox)
+                .await
+                .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
+        }
         match sandbox.setup_git(&intent).await {
             Ok(Some(info)) => {
                 let base_sha = options
@@ -663,6 +675,7 @@ pub async fn initialize(
         options.run_options.cancel_token.clone(),
         options.llm.provider,
         Arc::clone(&llm_source),
+        metadata_runtime,
     );
     let engine = Arc::new(EngineServices {
         run: Arc::clone(&run_services),

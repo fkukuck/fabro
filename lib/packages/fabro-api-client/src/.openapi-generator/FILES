@@ -56,6 +56,7 @@ models/diagnostics-report.ts
 models/diagnostics-section.ts
 models/diff-file.ts
 models/diff-stats.ts
+models/dirty-status.ts
 models/discord-integration-settings.ts
 models/disk-usage-response.ts
 models/disk-usage-run-row.ts
@@ -73,6 +74,7 @@ models/file-checkpoint.ts
 models/file-diff.ts
 models/fork-request.ts
 models/fork-response.ts
+models/fork-source-ref.ts
 models/git-hub-meta-hooks-entry.ts
 models/github-integration-settings.ts
 models/github-integration-strategy.ts
@@ -144,6 +146,8 @@ models/paginated-saved-query-list.ts
 models/paginated-stage-turn-list.ts
 models/pagination-meta.ts
 models/pending-interview-record.ts
+models/pre-run-git-context.ts
+models/pre-run-push-outcome.ts
 models/preflight-check-detail.ts
 models/preflight-check-report.ts
 models/preflight-check-result.ts
@@ -188,6 +192,7 @@ models/run-pull-request.ts
 models/run-question.ts
 models/run-reference.ts
 models/run-sandbox.ts
+models/run-spec.ts
 models/run-stage.ts
 models/run-status-archived.ts
 models/run-status-blocked.ts

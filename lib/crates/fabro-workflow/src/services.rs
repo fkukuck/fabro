@@ -35,7 +35,7 @@ pub struct RunServices {
 
 impl RunServices {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         run_store: RunStoreHandle,
         emitter: Arc<Emitter>,
         sandbox: Arc<dyn Sandbox>,
@@ -43,6 +43,7 @@ impl RunServices {
         cancel_requested: Option<Arc<AtomicBool>>,
         provider: Provider,
         llm_source: Arc<dyn CredentialSource>,
+        metadata_runtime: Arc<SandboxGitRuntime>,
     ) -> Arc<Self> {
         Arc::new(Self {
             run_store,
@@ -52,7 +53,7 @@ impl RunServices {
             cancel_requested,
             provider,
             llm_source,
-            metadata_runtime: Arc::new(SandboxGitRuntime::new()),
+            metadata_runtime,
         })
     }
 
@@ -202,6 +203,7 @@ impl EngineServices {
                 None,
                 Provider::Anthropic,
                 Arc::new(StubCredentialSource),
+                Arc::new(SandboxGitRuntime::new()),
             ),
             registry:        Arc::new(HandlerRegistry::new(Box::new(start::StartHandler))),
             git_state:       std::sync::RwLock::new(None),

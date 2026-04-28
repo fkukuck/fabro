@@ -8,6 +8,7 @@ use fabro_types::RunId;
 
 use crate::artifact_snapshot;
 use crate::git::GitAuthor;
+use crate::sandbox_metadata::SandboxGitRuntime;
 
 /// Captured git state for a workflow run, shared with handlers.
 #[derive(Debug, Clone)]
@@ -122,6 +123,39 @@ pub async fn git_checkpoint(
         Ok(r) => Err(exec_err("git rev-parse HEAD", &r)),
         Err(e) => Err(format!("git rev-parse HEAD failed: {e}")),
     }
+}
+
+/// Run a git checkpoint after the per-run sandbox git capability probe.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Checkpointing needs explicit run metadata, excludes, and author inputs."
+)]
+pub(crate) async fn checked_git_checkpoint(
+    runtime: &SandboxGitRuntime,
+    sandbox: &dyn Sandbox,
+    run_id: &str,
+    node_id: &str,
+    status: &str,
+    completed_count: usize,
+    shadow_sha: Option<String>,
+    exclude_globs: &[String],
+    author: &GitAuthor,
+) -> std::result::Result<String, String> {
+    runtime
+        .ensure_git_available(sandbox)
+        .await
+        .map_err(|err| format!("sandbox git unavailable: {err}"))?;
+    git_checkpoint(
+        sandbox,
+        run_id,
+        node_id,
+        status,
+        completed_count,
+        shadow_sha,
+        exclude_globs,
+        author,
+    )
+    .await
 }
 
 /// Run a git diff via the sandbox (30 s default timeout).
@@ -945,6 +979,29 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err, "git add timed out after 77ms");
+    }
+
+    #[tokio::test]
+    async fn checked_git_checkpoint_fails_before_checkpoint_when_probe_fails() {
+        let sandbox = ScriptedSandbox::new(vec![exec_failed(127, "", "git missing\n")]);
+        let runtime = crate::sandbox_metadata::SandboxGitRuntime::new();
+
+        let err = checked_git_checkpoint(
+            &runtime,
+            &sandbox,
+            "run1",
+            "work",
+            "success",
+            1,
+            None,
+            &[],
+            &crate::git::GitAuthor::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.starts_with("sandbox git unavailable:"));
+        assert!(err.contains("git missing"));
     }
 
     #[tokio::test]

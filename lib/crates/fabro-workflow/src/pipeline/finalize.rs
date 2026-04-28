@@ -483,6 +483,7 @@ mod tests {
             None,
             fabro_model::Provider::Anthropic,
             Arc::new(fabro_auth::EnvCredentialSource::new()),
+            Arc::new(crate::sandbox_metadata::SandboxGitRuntime::new()),
         );
         let retroed = Retroed {
             graph: Graph::new("test"),

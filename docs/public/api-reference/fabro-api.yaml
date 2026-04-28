@@ -910,7 +910,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "501":
-          description: Server cannot access the run working directory
+          description: Operation unsupported for this run
           content:
             application/json:
               schema:
@@ -958,7 +958,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "501":
-          description: Server cannot access the run working directory
+          description: Operation unsupported for this run
           content:
             application/json:
               schema:
@@ -970,8 +970,8 @@ paths:
       tags: [Runs]
       summary: Get Run Timeline
       description: >
-        Returns checkpoint timeline entries read from the run metadata branch.
-        This endpoint does not rebuild missing metadata branches.
+        Returns checkpoint timeline entries from durable run-store checkpoints.
+        Metadata branches are write-only archives and are not read by this endpoint.
       parameters:
         - $ref: "#/components/parameters/RunId"
       responses:
@@ -990,7 +990,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "501":
-          description: Server cannot access the run working directory
+          description: Operation unsupported for this run
           content:
             application/json:
               schema:
@@ -4460,6 +4460,109 @@ components:
           type: ["string", "null"]
           format: date-time
 
+    DirtyStatus:
+      type: string
+      enum:
+        - clean
+        - dirty
+        - unknown
+
+    PreRunPushOutcome:
+      description: Outcome of the CLI submitter's best-effort pre-run push.
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - not_attempted
+            - succeeded
+            - failed
+            - skipped_no_remote
+            - skipped_remote_mismatch
+        remote:
+          type: ["string", "null"]
+        branch:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+        repo_origin_url:
+          type: ["string", "null"]
+
+    PreRunGitContext:
+      description: Submitter-side git context captured before run creation.
+      type: object
+      required:
+        - local_dirty
+        - push_outcome
+      properties:
+        display_base_sha:
+          type: ["string", "null"]
+        local_dirty:
+          $ref: "#/components/schemas/DirtyStatus"
+        push_outcome:
+          $ref: "#/components/schemas/PreRunPushOutcome"
+
+    ForkSourceRef:
+      description: Source checkpoint used to initialize a forked or rewound run.
+      type: object
+      required:
+        - source_run_id
+        - checkpoint_sha
+      properties:
+        source_run_id:
+          type: string
+        checkpoint_sha:
+          type: string
+
+    RunSpec:
+      description: Durable workflow run specification reconstructed from run.created events.
+      type: object
+      required:
+        - run_id
+        - settings
+        - graph
+        - labels
+        - checkpoints_disabled
+      properties:
+        run_id:
+          type: string
+        settings:
+          $ref: "#/components/schemas/WorkflowSettings"
+        graph:
+          type: object
+          additionalProperties: true
+        workflow_slug:
+          type: ["string", "null"]
+        source_directory:
+          type: ["string", "null"]
+        repo_origin_url:
+          type: ["string", "null"]
+        base_branch:
+          type: ["string", "null"]
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        provenance:
+          type: ["object", "null"]
+          additionalProperties: true
+        manifest_blob:
+          type: ["string", "null"]
+        definition_blob:
+          type: ["string", "null"]
+        pre_run_git:
+          oneOf:
+            - $ref: "#/components/schemas/PreRunGitContext"
+            - type: "null"
+        fork_source_ref:
+          oneOf:
+            - $ref: "#/components/schemas/ForkSourceRef"
+            - type: "null"
+        checkpoints_disabled:
+          type: boolean
+
     RunProjection:
       description: Raw internal run projection derived from the event log.
       type: object
@@ -4467,8 +4570,9 @@ components:
         - nodes
       properties:
         spec:
-          type: ["object", "null"]
-          additionalProperties: true
+          oneOf:
+            - $ref: "#/components/schemas/RunSpec"
+            - type: "null"
         graph_source:
           type: ["string", "null"]
         start:

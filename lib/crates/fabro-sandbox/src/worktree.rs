@@ -5,7 +5,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use crate::{DirEntry, ExecResult, GrepOptions, Sandbox, shell_quote};
+use crate::sandbox::fetch_source_run_ref;
+use crate::{DirEntry, ExecResult, GitRunInfo, GitSetupIntent, GrepOptions, Sandbox, shell_quote};
 
 /// Git command prefix that disables background maintenance.
 const GIT: &str = "git -c maintenance.auto=0 -c gc.auto=0";
@@ -32,6 +33,7 @@ pub struct WorktreeOptions {
     /// Skip branch creation and hard reset (for resume, where branch already
     /// exists).
     pub skip_branch_creation: bool,
+    pub setup_intent:         Option<GitSetupIntent>,
 }
 
 /// Wraps any `Sandbox`, manages a git worktree lifecycle in
@@ -92,6 +94,18 @@ impl WorktreeSandbox {
             format!("{}/{path}", self.config.worktree_path)
         }
     }
+
+    async fn fetch_fork_source_if_needed(&self) -> crate::Result<()> {
+        if let Some(GitSetupIntent::ForkFromCheckpoint {
+            source_run_id,
+            checkpoint_sha,
+            ..
+        }) = self.config.setup_intent.as_ref()
+        {
+            fetch_source_run_ref(&*self.inner, source_run_id, checkpoint_sha).await?;
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +134,8 @@ impl Sandbox for WorktreeSandbox {
         let path = shell_quote(&self.config.worktree_path);
         let branch = shell_quote(&self.config.branch_name);
         let sha = shell_quote(&self.config.base_sha);
+
+        self.fetch_fork_source_if_needed().await?;
 
         // Best-effort remove any stale worktree registration + directory first,
         // so that the branch is not "in use" when we try to force-update it.
@@ -309,7 +325,19 @@ impl Sandbox for WorktreeSandbox {
         &self,
         intent: &crate::GitSetupIntent,
     ) -> crate::Result<Option<crate::GitRunInfo>> {
-        self.inner.setup_git(intent).await
+        if let GitSetupIntent::ForkFromCheckpoint {
+            source_run_id,
+            checkpoint_sha,
+            ..
+        } = intent
+        {
+            fetch_source_run_ref(&*self.inner, source_run_id, checkpoint_sha).await?;
+        }
+        Ok(Some(GitRunInfo {
+            base_sha:    self.config.base_sha.clone(),
+            run_branch:  self.config.branch_name.clone(),
+            base_branch: None,
+        }))
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
@@ -383,6 +411,7 @@ mod tests {
             base_sha:             "abc123def456".to_string(),
             worktree_path:        wt_path.to_string(),
             skip_branch_creation: false,
+            setup_intent:         None,
         }
     }
 
@@ -392,6 +421,7 @@ mod tests {
             base_sha:             "abc123def456".to_string(),
             worktree_path:        wt_path.to_string(),
             skip_branch_creation: true,
+            setup_intent:         None,
         }
     }
 
@@ -458,6 +488,7 @@ mod tests {
             base_sha:             "deadbeef".to_string(),
             worktree_path:        "/tmp/my worktree".to_string(), // path with space
             skip_branch_creation: false,
+            setup_intent:         None,
         };
         let wt = WorktreeSandbox::new(inner, config);
 
@@ -678,6 +709,7 @@ mod tests {
             base_sha:             "abc123".into(),
             worktree_path:        worktree.to_string_lossy().to_string(),
             skip_branch_creation: false,
+            setup_intent:         None,
         };
         let wt = WorktreeSandbox::new(inner, config);
 
@@ -719,6 +751,7 @@ mod tests {
             base_sha:             "abc123".into(),
             worktree_path:        worktree.to_string_lossy().to_string(),
             skip_branch_creation: false,
+            setup_intent:         None,
         };
         let wt = WorktreeSandbox::new(inner, config);
 
@@ -753,6 +786,7 @@ mod tests {
             base_sha:             "abc123".into(),
             worktree_path:        worktree.to_string_lossy().to_string(),
             skip_branch_creation: false,
+            setup_intent:         None,
         };
         let wt = WorktreeSandbox::new(inner, config);
 
@@ -779,6 +813,7 @@ mod tests {
             base_sha:             "sha123".to_string(),
             worktree_path:        "/path/to/wt".to_string(),
             skip_branch_creation: false,
+            setup_intent:         None,
         };
         let wt = WorktreeSandbox::new(inner, config);
 

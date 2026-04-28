@@ -137,7 +137,8 @@ pub(crate) fn build_run_manifest(input: ManifestBuildInput) -> Result<BuiltManif
         &working_directory,
     )?;
 
-    let git = build_manifest_git(&working_directory);
+    let configured_repo_origin_url = configured_repo_origin_url(&workflow_settings);
+    let git = build_manifest_git(&working_directory, configured_repo_origin_url.as_deref());
     let args = input.args.filter(|args| !manifest_args_is_empty(args));
 
     Ok(BuiltManifest {
@@ -499,22 +500,56 @@ fn resolved_goal_to_manifest(resolved: ResolvedRunGoal) -> types::ManifestGoal {
     }
 }
 
-fn build_manifest_git(repo_path: &Path) -> Option<types::ManifestGit> {
+fn build_manifest_git(
+    repo_path: &Path,
+    configured_repo_origin_url: Option<&str>,
+) -> Option<types::ManifestGit> {
     let (origin_url, branch) = detect_manifest_repo_info(repo_path)?;
     let sha = head_sha(repo_path).ok()?;
     let status = sync_status(repo_path, "origin", Some(&branch));
     let clean = status != GitSyncStatus::Dirty;
-    let push_outcome = build_manifest_push_outcome(repo_path, &branch, origin_url.as_deref());
+    let repo_origin_url = configured_repo_origin_url
+        .map(fabro_github::normalize_repo_origin_url)
+        .filter(|url| !url.is_empty())
+        .or_else(|| {
+            origin_url
+                .as_deref()
+                .map(fabro_github::normalize_repo_origin_url)
+                .filter(|url| !url.is_empty())
+        })
+        .unwrap_or_default();
+    let push_outcome = build_manifest_push_outcome(
+        repo_path,
+        &branch,
+        origin_url.as_deref(),
+        configured_repo_origin_url,
+    );
     Some(types::ManifestGit {
         branch,
         clean,
-        origin_url: origin_url
-            .as_deref()
-            .map(fabro_github::normalize_repo_origin_url)
-            .unwrap_or_default(),
+        origin_url: repo_origin_url,
         push_outcome,
         sha,
     })
+}
+
+fn configured_repo_origin_url(settings: &WorkflowSettings) -> Option<String> {
+    let scm = &settings.run.scm;
+    if !scm
+        .provider
+        .as_deref()
+        .is_none_or(|provider| provider.eq_ignore_ascii_case("github"))
+    {
+        return None;
+    }
+    let owner = scm.owner.as_ref()?.as_source();
+    let repository = scm.repository.as_ref()?.as_source();
+    if owner.trim().is_empty() || repository.trim().is_empty() {
+        return None;
+    }
+    let origin = format!("https://github.com/{owner}/{repository}");
+    let normalized = fabro_github::normalize_repo_origin_url(&origin);
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 fn detect_manifest_repo_info(repo_path: &Path) -> Option<(Option<String>, String)> {
@@ -531,6 +566,7 @@ fn build_manifest_push_outcome(
     repo_path: &Path,
     branch: &str,
     origin_url: Option<&str>,
+    configured_repo_origin_url: Option<&str>,
 ) -> ManifestPreRunPushOutcome {
     if origin_url.is_none() {
         return ManifestPreRunPushOutcome {
@@ -540,6 +576,23 @@ fn build_manifest_push_outcome(
             message:         None,
             repo_origin_url: None,
         };
+    }
+    if let Some(repo_origin_url) = configured_repo_origin_url
+        .map(fabro_github::normalize_repo_origin_url)
+        .filter(|url| !url.is_empty())
+    {
+        let remote = origin_url
+            .map(fabro_github::normalize_repo_origin_url)
+            .unwrap_or_default();
+        if remote != repo_origin_url {
+            return ManifestPreRunPushOutcome {
+                type_:           ManifestPreRunPushOutcomeType::SkippedRemoteMismatch,
+                remote:          Some(remote),
+                branch:          Some(branch.to_string()),
+                message:         None,
+                repo_origin_url: Some(repo_origin_url),
+            };
+        }
     }
 
     if !branch_needs_push(repo_path, "origin", branch) {
@@ -913,6 +966,71 @@ working_dir = "repos/target"
             .expect("manifest git info should be detected");
         assert_eq!(git.branch, "target-branch");
         assert_eq!(git.origin_url, "https://github.com/example/target");
+    }
+
+    #[test]
+    fn build_manifest_git_skips_push_when_configured_repository_differs_from_origin() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path();
+
+        init_git_repo(
+            workspace,
+            "feature",
+            "https://github.com/user/forked-target.git",
+        );
+
+        let workflow_dir = workspace.join(".fabro/workflows/demo");
+        std::fs::create_dir_all(&workflow_dir).unwrap();
+        std::fs::write(
+            workspace.join(".fabro/project.toml"),
+            r#"_version = 1
+
+[run.scm]
+provider = "github"
+owner = "example"
+repository = "target"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workflow_dir.join("workflow.toml"),
+            "_version = 1\n\n[workflow]\ngraph = \"workflow.fabro\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            workflow_dir.join("workflow.fabro"),
+            r"digraph Demo { start [shape=Mdiamond] exit [shape=Msquare] start -> exit }",
+        )
+        .unwrap();
+
+        let built = build_run_manifest(ManifestBuildInput {
+            workflow:           PathBuf::from(".fabro/workflows/demo/workflow.toml"),
+            cwd:                workspace.to_path_buf(),
+            run_overrides:      None,
+            cli_overrides:      None,
+            args:               None,
+            run_id:             None,
+            user_settings_path: None,
+        })
+        .unwrap();
+
+        let git = built
+            .manifest
+            .git
+            .expect("manifest git info should be detected");
+        assert_eq!(git.origin_url, "https://github.com/example/target");
+        assert_eq!(
+            git.push_outcome.type_,
+            ManifestPreRunPushOutcomeType::SkippedRemoteMismatch
+        );
+        assert_eq!(
+            git.push_outcome.remote.as_deref(),
+            Some("https://github.com/user/forked-target")
+        );
+        assert_eq!(
+            git.push_outcome.repo_origin_url.as_deref(),
+            Some("https://github.com/example/target")
+        );
     }
 
     fn init_git_repo(path: &Path, branch: &str, origin_url: &str) {

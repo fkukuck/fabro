@@ -401,7 +401,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
-         * Returns checkpoint timeline entries read from the run metadata branch. This endpoint does not rebuild missing metadata branches. 
+         * Returns checkpoint timeline entries from durable run-store checkpoints. Metadata branches are write-only archives and are not read by this endpoint.
          * @summary Get Run Timeline
          * @param {string} id Unique run identifier (ULID).
          * @param {*} [options] Override http request option.
@@ -1150,7 +1150,7 @@ export const RunsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Returns checkpoint timeline entries read from the run metadata branch. This endpoint does not rebuild missing metadata branches. 
+         * Returns checkpoint timeline entries from durable run-store checkpoints. Metadata branches are write-only archives and are not read by this endpoint.
          * @summary Get Run Timeline
          * @param {string} id Unique run identifier (ULID).
          * @param {*} [options] Override http request option.
@@ -1443,7 +1443,7 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.getRunPullRequest(id, options).then((request) => request(axios, basePath));
         },
         /**
-         * Returns checkpoint timeline entries read from the run metadata branch. This endpoint does not rebuild missing metadata branches. 
+         * Returns checkpoint timeline entries from durable run-store checkpoints. Metadata branches are write-only archives and are not read by this endpoint.
          * @summary Get Run Timeline
          * @param {string} id Unique run identifier (ULID).
          * @param {*} [options] Override http request option.
@@ -1697,7 +1697,7 @@ export class RunsApi extends BaseAPI {
     }
 
     /**
-     * Returns checkpoint timeline entries read from the run metadata branch. This endpoint does not rebuild missing metadata branches. 
+     * Returns checkpoint timeline entries from durable run-store checkpoints. Metadata branches are write-only archives and are not read by this endpoint.
      * @summary Get Run Timeline
      * @param {string} id Unique run identifier (ULID).
      * @param {*} [options] Override http request option.

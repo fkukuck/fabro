@@ -321,6 +321,7 @@ mod tests {
             None,
             fabro_llm::Provider::Anthropic,
             test_llm_source(),
+            Arc::new(crate::sandbox_metadata::SandboxGitRuntime::new()),
         );
         let mut engine = EngineServices::test_default();
         engine.run = Arc::clone(&services);
@@ -374,6 +375,7 @@ mod tests {
             None,
             fabro_llm::Provider::Anthropic,
             test_llm_source(),
+            Arc::new(crate::sandbox_metadata::SandboxGitRuntime::new()),
         );
 
         let retro = run_retro(
