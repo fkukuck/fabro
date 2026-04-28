@@ -39,4 +39,5 @@ For team or CI usage, move state to a shared remote backend later.
 - Storage account and ACR names must be globally unique and meet Azure naming rules.
 - Keep the Container App at one replica.
 - ACR is provisioned even when `fabro-server` runs from GHCR because Azure sandbox images still use ACR.
+- Azure ACI sandboxes now use ephemeral `emptyDir` storage for `/workspace`; only the server's `/storage` share is persistent.
 - v1 is create-only. Attaching Terraform to pre-existing Azure resources is a future enhancement.

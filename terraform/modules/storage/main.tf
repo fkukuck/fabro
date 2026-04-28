@@ -9,12 +9,6 @@ resource "azurerm_storage_account" "this" {
   tags                     = var.tags
 }
 
-resource "azurerm_storage_share" "workspace" {
-  name               = var.workspace_share_name
-  quota              = var.workspace_share_quota_gb
-  storage_account_id = azurerm_storage_account.this.id
-}
-
 resource "azurerm_storage_share" "server" {
   name               = var.server_storage_share_name
   quota              = var.server_storage_share_quota_gb

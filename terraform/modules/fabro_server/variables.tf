@@ -122,19 +122,6 @@ variable "azure_sandbox_subnet_id" {
   type = string
 }
 
-variable "azure_storage_account" {
-  type = string
-}
-
-variable "azure_storage_share" {
-  type = string
-}
-
-variable "azure_storage_key" {
-  type      = string
-  sensitive = true
-}
-
 variable "azure_acr_server" {
   type = string
 }
