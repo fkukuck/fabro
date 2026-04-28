@@ -58,7 +58,7 @@ Emitted when the run record is created.
       }
     },
     "fork_source_ref": null,
-    "checkpoints_disabled": false
+    "in_place": false
   }
 }
 ```
@@ -80,7 +80,7 @@ Emitted when the run record is created.
 | `manifest_blob` | string? | Blob id for the submitted manifest |
 | `pre_run_git` | object? | Submitter-side pre-run git context and push outcome |
 | `fork_source_ref` | object? | Source run/checkpoint reference when this run was forked |
-| `checkpoints_disabled` | boolean | Whether checkpointing was intentionally disabled |
+| `in_place` | boolean | Whether the run was created with `--in-place` (no git checkpoints) |
 
 ### `run.started`
 
