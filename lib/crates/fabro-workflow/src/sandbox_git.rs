@@ -1194,7 +1194,7 @@ mod tests {
             definition_blob: None,
             pre_run_git: None,
             fork_source_ref: None,
-            checkpoints_disabled: false,
+            in_place: false,
         });
         let mut dump = crate::run_dump::RunDump::from_projection(&projection);
         dump.add_file_bytes("binary/payload.bin", vec![0, 159, 146, 150]);

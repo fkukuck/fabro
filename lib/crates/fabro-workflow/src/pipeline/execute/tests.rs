@@ -153,7 +153,7 @@ fn persisted_workflow(graph: Graph, source: String, run_dir: &Path, run_id: RunI
             definition_blob: None,
             pre_run_git: None,
             fork_source_ref: None,
-            checkpoints_disabled: false,
+            in_place: false,
         },
     )
 }

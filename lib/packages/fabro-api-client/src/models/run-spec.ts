@@ -40,6 +40,6 @@ export interface RunSpec {
     'definition_blob'?: string | null;
     'pre_run_git'?: PreRunGitContext | null;
     'fork_source_ref'?: ForkSourceRef | null;
-    'checkpoints_disabled': boolean;
+    'in_place': boolean;
 }
 

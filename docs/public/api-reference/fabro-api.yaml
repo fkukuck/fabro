@@ -4522,7 +4522,7 @@ components:
         - run_id
         - settings
         - graph
-        - checkpoints_disabled
+        - in_place
       properties:
         run_id:
           type: string
@@ -4558,7 +4558,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ForkSourceRef"
             - type: "null"
-        checkpoints_disabled:
+        in_place:
           type: boolean
 
     RunProjection:
@@ -4658,7 +4658,7 @@ components:
             type: string
         source_directory:
           type: ["string", "null"]
-        checkpoints_disabled:
+        in_place:
           type: boolean
         repo_origin_url:
           type: ["string", "null"]
@@ -5313,7 +5313,7 @@ components:
             type: string
         source_directory:
           type: ["string", "null"]
-        checkpoints_disabled:
+        in_place:
           type: boolean
         repo_origin_url:
           type: ["string", "null"]

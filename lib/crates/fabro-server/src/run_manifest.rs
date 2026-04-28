@@ -172,7 +172,7 @@ pub(crate) fn create_run_input(
         base_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
         pre_run_git: prepared.git.as_ref().map(pre_run_git_from_manifest),
         fork_source_ref: None,
-        checkpoints_disabled: prepared.in_place,
+        in_place: prepared.in_place,
         provenance: None,
         configured_providers,
     }

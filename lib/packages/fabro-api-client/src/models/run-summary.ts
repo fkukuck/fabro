@@ -34,7 +34,7 @@ export interface RunSummary {
     'title': string;
     'labels': { [key: string]: string; };
     'source_directory'?: string | null;
-    'checkpoints_disabled'?: boolean;
+    'in_place'?: boolean;
     'repo_origin_url'?: string | null;
     'repository': RepositoryReference;
     'start_time'?: string | null;

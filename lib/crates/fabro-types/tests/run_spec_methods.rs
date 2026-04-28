@@ -6,18 +6,18 @@ use fabro_types::{WorkflowSettings, fixtures};
 
 fn sample_run_spec() -> RunSpec {
     RunSpec {
-        run_id:               fixtures::RUN_1,
-        settings:             WorkflowSettings::default(),
-        graph:                Graph::new("ship"),
-        workflow_slug:        Some("demo".to_string()),
-        source_directory:     Some("/Users/client/project".to_string()),
-        repo_origin_url:      Some("https://github.com/fabro-sh/fabro.git".to_string()),
-        base_branch:          Some("main".to_string()),
-        labels:               HashMap::from([("team".to_string(), "platform".to_string())]),
-        provenance:           None,
-        manifest_blob:        None,
-        definition_blob:      None,
-        pre_run_git:          Some(PreRunGitContext {
+        run_id:           fixtures::RUN_1,
+        settings:         WorkflowSettings::default(),
+        graph:            Graph::new("ship"),
+        workflow_slug:    Some("demo".to_string()),
+        source_directory: Some("/Users/client/project".to_string()),
+        repo_origin_url:  Some("https://github.com/fabro-sh/fabro.git".to_string()),
+        base_branch:      Some("main".to_string()),
+        labels:           HashMap::from([("team".to_string(), "platform".to_string())]),
+        provenance:       None,
+        manifest_blob:    None,
+        definition_blob:  None,
+        pre_run_git:      Some(PreRunGitContext {
             display_base_sha: Some("abc123".to_string()),
             local_dirty:      DirtyStatus::Dirty,
             push_outcome:     PreRunPushOutcome::SkippedRemoteMismatch {
@@ -25,8 +25,8 @@ fn sample_run_spec() -> RunSpec {
                 repo_origin_url: "https://github.com/fabro-sh/fabro.git".to_string(),
             },
         }),
-        fork_source_ref:      None,
-        checkpoints_disabled: false,
+        fork_source_ref:  None,
+        in_place:         false,
     }
 }
 

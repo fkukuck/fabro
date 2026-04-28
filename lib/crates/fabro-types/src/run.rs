@@ -91,31 +91,31 @@ pub struct ForkSourceRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunSpec {
-    pub run_id:               RunId,
-    pub settings:             WorkflowSettings,
-    pub graph:                Graph,
+    pub run_id:           RunId,
+    pub settings:         WorkflowSettings,
+    pub graph:            Graph,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow_slug:        Option<String>,
+    pub workflow_slug:    Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_directory:     Option<String>,
+    pub source_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo_origin_url:      Option<String>,
+    pub repo_origin_url:  Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_branch:          Option<String>,
+    pub base_branch:      Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub labels:               HashMap<String, String>,
+    pub labels:           HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provenance:           Option<RunProvenance>,
+    pub provenance:       Option<RunProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manifest_blob:        Option<RunBlobId>,
+    pub manifest_blob:    Option<RunBlobId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub definition_blob:      Option<RunBlobId>,
+    pub definition_blob:  Option<RunBlobId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pre_run_git:          Option<PreRunGitContext>,
+    pub pre_run_git:      Option<PreRunGitContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fork_source_ref:      Option<ForkSourceRef>,
+    pub fork_source_ref:  Option<ForkSourceRef>,
     #[serde(default)]
-    pub checkpoints_disabled: bool,
+    pub in_place:         bool,
 }
 
 impl RunSpec {

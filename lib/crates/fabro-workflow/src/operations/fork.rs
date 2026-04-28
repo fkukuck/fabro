@@ -112,9 +112,10 @@ fn validate_source_spec(
     checkpoint_sha: &str,
 ) -> std::result::Result<(), Error> {
     let spec = spec.ok_or_else(|| Error::engine("source run projection has no spec"))?;
-    if spec.checkpoints_disabled {
+    if spec.in_place {
         return Err(Error::Validation(
-            "source run was created with checkpoints disabled; cannot fork".to_string(),
+            "source run was created with --in-place; cannot fork (no git checkpoint history)"
+                .to_string(),
         ));
     }
     if checkpoint_sha.trim().is_empty() {
@@ -169,25 +170,25 @@ async fn persist_forked_run(
         .map_err(|err| Error::engine(err.to_string()))?;
 
     event::append_event(&run_store, &spec.run_id, &Event::RunCreated {
-        run_id:               spec.run_id,
-        settings:             serde_json::to_value(&spec.settings)
+        run_id:           spec.run_id,
+        settings:         serde_json::to_value(&spec.settings)
             .map_err(|err| Error::engine(err.to_string()))?,
-        graph:                serde_json::to_value(&spec.graph)
+        graph:            serde_json::to_value(&spec.graph)
             .map_err(|err| Error::engine(err.to_string()))?,
-        workflow_source:      projection.graph_source.clone(),
-        workflow_config:      None,
-        labels:               spec.labels.clone().into_iter().collect(),
-        run_dir:              String::new(),
-        source_directory:     spec.source_directory.clone(),
-        repo_origin_url:      spec.repo_origin_url.clone(),
-        base_branch:          spec.base_branch.clone(),
-        workflow_slug:        spec.workflow_slug.clone(),
-        db_prefix:            None,
-        provenance:           spec.provenance.clone(),
-        manifest_blob:        spec.manifest_blob,
-        pre_run_git:          spec.pre_run_git.clone(),
-        fork_source_ref:      spec.fork_source_ref.clone(),
-        checkpoints_disabled: spec.checkpoints_disabled,
+        workflow_source:  projection.graph_source.clone(),
+        workflow_config:  None,
+        labels:           spec.labels.clone().into_iter().collect(),
+        run_dir:          String::new(),
+        source_directory: spec.source_directory.clone(),
+        repo_origin_url:  spec.repo_origin_url.clone(),
+        base_branch:      spec.base_branch.clone(),
+        workflow_slug:    spec.workflow_slug.clone(),
+        db_prefix:        None,
+        provenance:       spec.provenance.clone(),
+        manifest_blob:    spec.manifest_blob,
+        pre_run_git:      spec.pre_run_git.clone(),
+        fork_source_ref:  spec.fork_source_ref.clone(),
+        in_place:         spec.in_place,
     })
     .await
     .map_err(|err| Error::engine(err.to_string()))?;
@@ -321,23 +322,23 @@ mod tests {
         let settings = WorkflowSettings::default();
 
         event::append_event(&source, &source_run_id, &Event::RunCreated {
-            run_id:               source_run_id,
-            settings:             serde_json::to_value(&settings).unwrap(),
-            graph:                serde_json::to_value(&graph).unwrap(),
-            workflow_source:      Some("digraph fork_source {}".to_string()),
-            workflow_config:      None,
-            labels:               BTreeMap::new(),
-            run_dir:              "/tmp/source".to_string(),
-            source_directory:     Some("/client/source".to_string()),
-            repo_origin_url:      Some("https://github.com/example/repo.git".to_string()),
-            base_branch:          Some("main".to_string()),
-            workflow_slug:        Some("fork-source".to_string()),
-            db_prefix:            None,
-            provenance:           None,
-            manifest_blob:        None,
-            pre_run_git:          None,
-            fork_source_ref:      None,
-            checkpoints_disabled: false,
+            run_id:           source_run_id,
+            settings:         serde_json::to_value(&settings).unwrap(),
+            graph:            serde_json::to_value(&graph).unwrap(),
+            workflow_source:  Some("digraph fork_source {}".to_string()),
+            workflow_config:  None,
+            labels:           BTreeMap::new(),
+            run_dir:          "/tmp/source".to_string(),
+            source_directory: Some("/client/source".to_string()),
+            repo_origin_url:  Some("https://github.com/example/repo.git".to_string()),
+            base_branch:      Some("main".to_string()),
+            workflow_slug:    Some("fork-source".to_string()),
+            db_prefix:        None,
+            provenance:       None,
+            manifest_blob:    None,
+            pre_run_git:      None,
+            fork_source_ref:  None,
+            in_place:         false,
         })
         .await
         .unwrap();

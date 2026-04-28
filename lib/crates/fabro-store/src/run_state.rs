@@ -62,7 +62,7 @@ impl RunProjectionReducer for RunProjection {
                     definition_blob: None,
                     pre_run_git: props.pre_run_git.clone(),
                     fork_source_ref: props.fork_source_ref.clone(),
-                    checkpoints_disabled: props.checkpoints_disabled,
+                    in_place: props.in_place,
                 });
                 self.graph_source.clone_from(&props.workflow_source);
             }
@@ -393,10 +393,7 @@ pub(crate) fn build_summary(state: &RunProjection, run_id: &RunId) -> RunSummary
             .spec
             .as_ref()
             .and_then(|spec| spec.source_directory.clone()),
-        state
-            .spec
-            .as_ref()
-            .is_some_and(|spec| spec.checkpoints_disabled),
+        state.spec.as_ref().is_some_and(|spec| spec.in_place),
         state
             .spec
             .as_ref()
@@ -988,20 +985,20 @@ mod tests {
     fn summary_synthesizes_submitted_when_run_exists_without_status() {
         let mut state = RunProjection::default();
         state.spec = Some(fabro_types::RunSpec {
-            run_id:               fixtures::RUN_1,
-            settings:             WorkflowSettings::default(),
-            graph:                fabro_types::Graph::new("test"),
-            workflow_slug:        Some("test".to_string()),
-            source_directory:     Some("/tmp/repo".to_string()),
-            repo_origin_url:      None,
-            base_branch:          None,
-            labels:               HashMap::new(),
-            provenance:           None,
-            manifest_blob:        None,
-            definition_blob:      None,
-            pre_run_git:          None,
-            fork_source_ref:      None,
-            checkpoints_disabled: false,
+            run_id:           fixtures::RUN_1,
+            settings:         WorkflowSettings::default(),
+            graph:            fabro_types::Graph::new("test"),
+            workflow_slug:    Some("test".to_string()),
+            source_directory: Some("/tmp/repo".to_string()),
+            repo_origin_url:  None,
+            base_branch:      None,
+            labels:           HashMap::new(),
+            provenance:       None,
+            manifest_blob:    None,
+            definition_blob:  None,
+            pre_run_git:      None,
+            fork_source_ref:  None,
+            in_place:         false,
         });
 
         let summary_json = serde_json::to_value(build_summary(&state, &fixtures::RUN_1)).unwrap();
