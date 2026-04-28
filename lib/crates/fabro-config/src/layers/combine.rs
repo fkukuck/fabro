@@ -128,7 +128,6 @@ impl_combine_self!(
     RunArtifactsLayer,
     RunGoalLayer,
     RunPrepareLayer,
-    ScmGitHubLayer,
     ObjectStoreLocalLayer,
     ObjectStoreS3Layer,
     ServerApiLayer,
@@ -143,6 +142,14 @@ impl Combine for RunCheckpointLayer {
         } else {
             self
         }
+    }
+}
+
+impl Combine for ScmGitHubLayer {
+    fn combine(self, other: Self) -> Self {
+        let mut permissions = other.permissions;
+        permissions.extend(self.permissions);
+        Self { permissions }
     }
 }
 
