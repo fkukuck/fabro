@@ -418,12 +418,10 @@ pub struct RunScmSettings {
     pub github:     Option<ScmGitHubSettings>,
 }
 
-#[expect(
-    clippy::empty_structs_with_brackets,
-    reason = "resolved empty table must stay object-shaped on the wire"
-)]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ScmGitHubSettings {}
+pub struct ScmGitHubSettings {
+    pub permissions: HashMap<String, InterpString>,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PullRequestSettings {

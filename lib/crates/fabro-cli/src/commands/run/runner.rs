@@ -511,6 +511,11 @@ fn maybe_build_github_credentials(
     let resolved_server = ServerSettingsBuilder::load_default().ok();
     let required_github_credentials = (resolved_run.execution.mode != RunMode::DryRun
         && clone_sandbox_requires_github_credentials(&resolved_run.sandbox.provider))
+        || resolved_run
+            .scm
+            .github
+            .as_ref()
+            .is_some_and(|github| !github.permissions.is_empty())
         || resolved_server
             .as_ref()
             .is_some_and(|settings| !settings.server.integrations.github.permissions.is_empty());
@@ -918,6 +923,20 @@ mod tests {
 
             [run.sandbox.azure]
             image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            "#,
+        )
+        .unwrap();
+
+        let result = maybe_build_github_credentials(&settings, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn maybe_build_github_credentials_requires_them_for_run_scm_github_permissions() {
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.scm.github.permissions]
+            issues = "read"
             "#,
         )
         .unwrap();

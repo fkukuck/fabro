@@ -1731,7 +1731,15 @@ fn system_sandbox_provider(
 }
 
 fn clone_sandbox_can_use_github_credentials(provider: &str) -> bool {
-    matches!(provider, "docker" | "daytona")
+    matches!(provider, "docker" | "daytona" | "azure")
+}
+
+fn run_requests_github_credentials(settings: &RunNamespace) -> bool {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .is_some_and(|github| !github.permissions.is_empty())
 }
 
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
@@ -4668,7 +4676,9 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
                 .is_some_and(|origin| !origin.trim().is_empty());
         let pull_request_can_use_github_credentials =
             settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some();
-        if !github_settings.permissions.is_empty() {
+        let required_github_credentials = run_requests_github_credentials(settings)
+            || !github_settings.permissions.is_empty();
+        if required_github_credentials {
             state.github_credentials(github_settings)
         } else if clone_can_use_github_credentials || pull_request_can_use_github_credentials {
             match state.github_credentials(github_settings) {
@@ -8853,6 +8863,7 @@ provider = "invalid-provider"
     fn clone_sandbox_credentials_are_available_for_clone_based_providers() {
         assert!(clone_sandbox_can_use_github_credentials("docker"));
         assert!(clone_sandbox_can_use_github_credentials("daytona"));
+        assert!(clone_sandbox_can_use_github_credentials("azure"));
         assert!(!clone_sandbox_can_use_github_credentials("local"));
     }
 
@@ -13624,6 +13635,25 @@ level = "debug"
         // server and are read via AppState::server_settings().
         let settings_json = serde_json::to_value(&run_spec.settings).unwrap();
         assert!(settings_json.pointer("/server").is_none());
+    }
+
+    #[test]
+    fn run_requests_github_credentials_when_run_scm_permissions_are_present() {
+        let settings = fabro_config::parse_settings_layer(
+            r#"
+_version = 1
+
+[run.execution]
+mode = "normal"
+
+[run.scm.github.permissions]
+issues = "read"
+"#,
+        )
+        .unwrap();
+        let resolved = fabro_config::resolve_run_from_file(&settings).unwrap();
+
+        assert!(run_requests_github_credentials(&resolved));
     }
 
     #[tokio::test]
