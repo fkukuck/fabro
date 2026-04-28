@@ -37,7 +37,6 @@ use crate::error::Error;
 use crate::event::{
     Emitter, Event, EventBody, RunEventLogger, RunEventSink, RunNoticeLevel, append_event_to_sink,
 };
-use crate::git::MetadataStore;
 use crate::handler::HandlerRegistry;
 use crate::outcome::{Outcome, StageStatus};
 use crate::pipeline::{
@@ -50,6 +49,7 @@ use crate::run_control::RunControlState;
 use crate::run_options::{GitCheckpointOptions, LifecycleOptions, RunOptions};
 use crate::run_status::{FailureReason, RunStatus};
 use crate::runtime_store::RunStoreHandle;
+use crate::sandbox_metadata::metadata_branch_name;
 use crate::workflow_bundle::{RunDefinition, WorkflowBundle};
 
 struct RunSession {
@@ -281,7 +281,10 @@ impl RunSession {
     async fn new(persisted: &Persisted, services: StartServices) -> Result<Self, Error> {
         let record = persisted.run_spec();
         let settings = &record.settings;
-        let working_directory = record.working_directory.clone();
+        let working_directory = record
+            .source_directory
+            .as_deref()
+            .map_or_else(|| PathBuf::from("."), PathBuf::from);
         let state = services
             .run_store
             .state()
@@ -291,7 +294,7 @@ impl RunSession {
             start.run_branch.as_ref().map(|_| GitCheckpointOptions {
                 base_sha:    start.base_sha.clone(),
                 run_branch:  start.run_branch.clone(),
-                meta_branch: Some(MetadataStore::branch_name(&record.run_id.to_string())),
+                meta_branch: Some(metadata_branch_name(&record.run_id.to_string())),
             })
         });
         let definition_blob = state.spec.as_ref().and_then(|run| run.definition_blob);
@@ -688,17 +691,19 @@ impl RunSession {
 
         let record = persisted.run_spec();
         let run_options = RunOptions {
-            settings:         record.settings.clone(),
-            run_dir:          persisted.run_dir().to_path_buf(),
-            cancel_token:     self.cancel_token,
-            run_id:           record.run_id,
-            labels:           record.labels.clone(),
-            workflow_slug:    record.workflow_slug.clone(),
-            github_app:       self.github_app.clone(),
-            host_repo_path:   record.host_repo_path.as_deref().map(PathBuf::from),
-            base_branch:      record.base_branch.clone(),
-            display_base_sha: None,
-            git:              self.git.clone(),
+            settings:             record.settings.clone(),
+            run_dir:              persisted.run_dir().to_path_buf(),
+            cancel_token:         self.cancel_token,
+            run_id:               record.run_id,
+            labels:               record.labels.clone(),
+            workflow_slug:        record.workflow_slug.clone(),
+            github_app:           self.github_app.clone(),
+            pre_run_git:          record.pre_run_git.clone(),
+            fork_source_ref:      record.fork_source_ref.clone(),
+            checkpoints_disabled: record.checkpoints_disabled,
+            base_branch:          record.base_branch.clone(),
+            display_base_sha:     None,
+            git:                  self.git.clone(),
         };
 
         let last_git_sha: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -1070,9 +1075,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_1),
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -1248,9 +1255,11 @@ mod tests {
                 workflow_bundle: Some(workflow_bundle),
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_1),
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },

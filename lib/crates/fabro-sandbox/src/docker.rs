@@ -1184,11 +1184,14 @@ impl Sandbox for DockerSandbox {
         self.container_id.get().cloned().unwrap_or_default()
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
+    async fn setup_git(
+        &self,
+        intent: &crate::GitSetupIntent,
+    ) -> crate::Result<Option<crate::GitRunInfo>> {
         if !self.repo_cloned() {
             return Ok(None);
         }
-        crate::setup_git_via_exec(self, run_id).await.map(Some)
+        crate::setup_git_via_exec(self, intent).await.map(Some)
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
@@ -1202,11 +1205,11 @@ impl Sandbox for DockerSandbox {
         )]
     }
 
-    async fn git_push_branch(&self, branch: &str) -> bool {
+    async fn git_push_ref(&self, refspec: &str) -> bool {
         if !self.repo_cloned() {
             return false;
         }
-        crate::git_push_via_exec(self, branch).await
+        crate::git_push_via_exec(self, refspec).await
     }
 
     fn parallel_worktree_path(

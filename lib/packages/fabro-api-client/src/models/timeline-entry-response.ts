@@ -21,6 +21,7 @@ export interface TimelineEntryResponse {
     'ordinal': number;
     'node_name': string;
     'visit': number;
+    'checkpoint_seq': number;
     'run_commit_sha'?: string | null;
 }
 

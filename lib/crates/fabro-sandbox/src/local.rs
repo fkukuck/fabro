@@ -491,6 +491,19 @@ impl Sandbox for LocalSandbox {
         result
     }
 
+    async fn git_push_ref(&self, refspec: &str) -> bool {
+        let has_origin = matches!(
+            self.exec_command("git remote get-url origin", 10_000, None, None, None)
+                .await,
+            Ok(result) if result.exit_code == 0
+        );
+        if !has_origin {
+            return true;
+        }
+
+        crate::git_push_via_exec(self, refspec).await
+    }
+
     async fn cleanup(&self) -> crate::Result<()> {
         self.emit(SandboxEvent::CleanupStarted {
             provider: "local".into(),

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use fabro_types::settings::run::RunMode;
-use fabro_types::{RunId, WorkflowSettings};
+use fabro_types::{ForkSourceRef, PreRunGitContext, RunId, WorkflowSettings};
 
 use crate::git::{GitAuthor, git_author_from_settings};
 
@@ -19,26 +19,30 @@ pub struct GitCheckpointOptions {
 /// Options for a workflow run.
 #[derive(Clone)]
 pub struct RunOptions {
-    pub settings:         WorkflowSettings,
-    pub run_dir:          PathBuf,
-    pub cancel_token:     Option<Arc<AtomicBool>>,
+    pub settings:             WorkflowSettings,
+    pub run_dir:              PathBuf,
+    pub cancel_token:         Option<Arc<AtomicBool>>,
     /// Unique identifier for this workflow run.
-    pub run_id:           RunId,
+    pub run_id:               RunId,
     /// User-defined key-value labels for this run.
-    pub labels:           HashMap<String, String>,
+    pub labels:               HashMap<String, String>,
     /// Workflow directory slug (e.g. "smoke" from `.fabro/workflows/smoke/`).
-    pub workflow_slug:    Option<String>,
+    pub workflow_slug:        Option<String>,
     /// GitHub credentials for pushing metadata branches to origin.
-    pub github_app:       Option<fabro_github::GitHubCredentials>,
-    /// Host repo path for MetadataStore (shadow commits) and host-side pushes.
-    pub host_repo_path:   Option<PathBuf>,
+    pub github_app:           Option<fabro_github::GitHubCredentials>,
+    /// Submitter-side git context captured before the run was created.
+    pub pre_run_git:          Option<PreRunGitContext>,
+    /// Source checkpoint ref used by fork/rewind-created runs.
+    pub fork_source_ref:      Option<ForkSourceRef>,
+    /// Explicit no-checkpoints mode for in-place local execution.
+    pub checkpoints_disabled: bool,
     /// Name of the branch the run was started from (for PR base).
-    pub base_branch:      Option<String>,
+    pub base_branch:          Option<String>,
     /// Base commit SHA to display in lifecycle events/UI even when
     /// checkpointing is disabled.
-    pub display_base_sha: Option<String>,
+    pub display_base_sha:     Option<String>,
     /// Git checkpoint options; `None` means checkpointing disabled.
-    pub git:              Option<GitCheckpointOptions>,
+    pub git:                  Option<GitCheckpointOptions>,
 }
 
 impl RunOptions {

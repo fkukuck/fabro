@@ -63,7 +63,7 @@ The Docker sandbox runs all tool operations inside a Docker container. The host 
 ### How it works
 
 - **Container lifecycle** — On `initialize()`, Fabro pulls the image (if needed), creates a container with `sleep infinity`, and starts it. On `cleanup()`, Fabro stops and removes the container.
-- **Working directory** — The host working directory is bind-mounted at `/workspace` inside the container. All relative paths resolve against this mount point.
+- **Working directory** — Docker runs use a provider-owned workspace inside the container. When a run has a GitHub origin, Fabro clones that repository into the workspace instead of bind-mounting the host source tree.
 - **Commands** — Executed via `docker exec` with `/bin/bash -c` inside the container. Timeout and cancellation are supported.
 - **File writes** — Use the Docker API's tar upload to avoid shell escaping issues with special characters.
 - **Platform detection** — The container's `uname -r` is cached at startup.
@@ -75,7 +75,6 @@ The Docker sandbox is configured through the `DockerSandboxConfig`:
 | Setting | Default | Description |
 |---|---|---|
 | `image` | `fabro-agent:latest` | Docker image to use |
-| `container_mount_point` | `/workspace` | Mount point inside the container |
 | `network_mode` | `bridge` | Docker network mode |
 | `extra_mounts` | `[]` | Additional `host:container` bind mounts |
 | `memory_limit` | unlimited | Memory limit in bytes |

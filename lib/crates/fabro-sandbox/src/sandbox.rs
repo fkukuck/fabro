@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 /// Git command prefix that disables background maintenance.
@@ -15,6 +17,18 @@ pub struct GitRunInfo {
     pub base_sha:    String,
     pub run_branch:  String,
     pub base_branch: Option<String>,
+}
+
+/// Git setup requested by the workflow layer.
+pub enum GitSetupIntent {
+    NewRun {
+        run_id: String,
+    },
+    ForkFromCheckpoint {
+        new_run_id:     String,
+        source_run_id:  String,
+        checkpoint_sha: String,
+    },
 }
 
 /// Generates an `#[async_trait] impl Sandbox` block for a decorator type
@@ -121,20 +135,16 @@ macro_rules! delegate_sandbox {
                 self.$field.set_autostop_interval(minutes).await
             }
 
-            async fn setup_git_for_run(&self, run_id: &str) -> $crate::Result<Option<$crate::GitRunInfo>> {
-                self.$field.setup_git_for_run(run_id).await
+            async fn setup_git(&self, intent: &$crate::GitSetupIntent) -> $crate::Result<Option<$crate::GitRunInfo>> {
+                self.$field.setup_git(intent).await
             }
 
             fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
                 self.$field.resume_setup_commands(run_branch)
             }
 
-            async fn git_push_branch(&self, branch: &str) -> bool {
-                self.$field.git_push_branch(branch).await
-            }
-
-            fn host_git_dir(&self) -> Option<&str> {
-                self.$field.host_git_dir()
+            async fn git_push_ref(&self, refspec: &str) -> bool {
+                self.$field.git_push_ref(refspec).await
             }
 
             fn parallel_worktree_path(
@@ -452,11 +462,10 @@ pub trait Sandbox: Send + Sync {
         Ok(())
     }
 
-    /// Set up git state for a new workflow run.
+    /// Set up git state for a workflow run.
     /// Sandboxes that manage their own git clone (e.g., remote VMs) should
-    /// create a run branch and return the git info. Local sandboxes return
-    /// `None`.
-    async fn setup_git_for_run(&self, _run_id: &str) -> crate::Result<Option<GitRunInfo>> {
+    /// create a run branch and return the git info.
+    async fn setup_git(&self, _intent: &GitSetupIntent) -> crate::Result<Option<GitRunInfo>> {
         Ok(None)
     }
 
@@ -466,17 +475,9 @@ pub trait Sandbox: Send + Sync {
         Vec::new()
     }
 
-    /// Push a run branch to origin from inside the sandbox.
-    /// Returns `true` if the push was handled. When `false`, the engine will
-    /// attempt a host-side push instead.
-    async fn git_push_branch(&self, _branch: &str) -> bool {
+    /// Push a full refspec to origin from inside the sandbox.
+    async fn git_push_ref(&self, _refspec: &str) -> bool {
         false
-    }
-
-    /// The host-accessible path to this sandbox's git worktree, if applicable.
-    /// When `Some`, the engine runs git operations (add, commit) from the host.
-    fn host_git_dir(&self) -> Option<&str> {
-        None
     }
 
     /// Compute the filesystem path for a parallel branch worktree.
@@ -547,7 +548,10 @@ pub fn shell_quote(s: &str) -> String {
 
 /// Helper for sandbox implementations that manage git internally.
 /// Executes git commands inside the sandbox to create a run branch.
-pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> crate::Result<GitRunInfo> {
+pub async fn setup_git_via_exec(
+    sandbox: &dyn Sandbox,
+    intent: &GitSetupIntent,
+) -> crate::Result<GitRunInfo> {
     // Get current branch name
     let branch_result = sandbox
         .exec_command("git rev-parse --abbrev-ref HEAD", 10_000, None, None, None)
@@ -566,30 +570,45 @@ pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> crate::R
         None
     };
 
-    // Get current HEAD as base SHA
-    let sha_result = sandbox
-        .exec_command("git rev-parse HEAD", 10_000, None, None, None)
-        .await
-        .map_err(|e| crate::Error::message(format!("git rev-parse HEAD failed: {e}")))?;
-    if sha_result.exit_code != 0 {
-        return Err(crate::Error::message(format!(
-            "git rev-parse HEAD failed (exit {}): {}",
-            sha_result.exit_code, sha_result.stderr
-        )));
-    }
-    let base_sha = sha_result.stdout.trim().to_string();
+    let (base_sha, branch_name) = match intent {
+        GitSetupIntent::NewRun { run_id } => {
+            let sha_result = sandbox
+                .exec_command("git rev-parse HEAD", 10_000, None, None, None)
+                .await
+                .map_err(|e| crate::Error::message(format!("git rev-parse HEAD failed: {e}")))?;
+            if sha_result.exit_code != 0 {
+                return Err(crate::Error::message(format!(
+                    "git rev-parse HEAD failed (exit {}): {}",
+                    sha_result.exit_code, sha_result.stderr
+                )));
+            }
+            (
+                sha_result.stdout.trim().to_string(),
+                format!("fabro/run/{run_id}"),
+            )
+        }
+        GitSetupIntent::ForkFromCheckpoint {
+            new_run_id,
+            source_run_id,
+            checkpoint_sha,
+        } => {
+            fetch_source_run_ref(sandbox, source_run_id, checkpoint_sha).await?;
+            (checkpoint_sha.clone(), format!("fabro/run/{new_run_id}"))
+        }
+    };
 
-    let branch_name = format!("fabro/run/{run_id}");
-
-    // Create and checkout a run branch
-    let checkout_cmd = format!("git checkout -b {}", shell_quote(&branch_name));
+    let checkout_cmd = format!(
+        "git checkout -B {} {}",
+        shell_quote(&branch_name),
+        shell_quote(&base_sha)
+    );
     let checkout_result = sandbox
         .exec_command(&checkout_cmd, 10_000, None, None, None)
         .await
         .map_err(|e| crate::Error::message(format!("git checkout failed: {e}")))?;
     if checkout_result.exit_code != 0 {
         return Err(crate::Error::message(format!(
-            "git checkout -b failed (exit {}): {}",
+            "git checkout -B failed (exit {}): {}",
             checkout_result.exit_code, checkout_result.stderr
         )));
     }
@@ -601,24 +620,72 @@ pub async fn setup_git_via_exec(sandbox: &dyn Sandbox, run_id: &str) -> crate::R
     })
 }
 
+async fn fetch_source_run_ref(
+    sandbox: &dyn Sandbox,
+    source_run_id: &str,
+    checkpoint_sha: &str,
+) -> crate::Result<()> {
+    let remote_ref = format!("refs/heads/fabro/run/{source_run_id}");
+    let tracking_ref = format!("refs/remotes/origin/fabro/run/{source_run_id}");
+    let fetch_cmd = format!(
+        "{GIT} fetch origin {}:{}",
+        shell_quote(&remote_ref),
+        shell_quote(&tracking_ref)
+    );
+    let check_cmd = format!(
+        "{GIT} merge-base --is-ancestor {} {}",
+        shell_quote(checkpoint_sha),
+        shell_quote(&tracking_ref)
+    );
+
+    let mut last_error = String::new();
+    for _ in 0..5 {
+        let fetch = sandbox
+            .exec_command(&fetch_cmd, 30_000, None, None, None)
+            .await?;
+        if fetch.exit_code != 0 {
+            last_error = format!(
+                "git fetch source run ref failed (exit {}): {}",
+                fetch.exit_code,
+                fetch.stderr.trim()
+            );
+        } else {
+            let check = sandbox
+                .exec_command(&check_cmd, 10_000, None, None, None)
+                .await?;
+            if check.exit_code == 0 {
+                return Ok(());
+            }
+            last_error = format!(
+                "checkpoint {checkpoint_sha} is not reachable from {remote_ref} (exit {}): {}",
+                check.exit_code,
+                check.stderr.trim()
+            );
+        }
+        time::sleep(Duration::from_millis(500)).await;
+    }
+
+    Err(crate::Error::message(last_error))
+}
+
 /// Helper for sandbox implementations that manage git internally.
-/// Pushes a branch to origin via exec_command inside the sandbox.
-pub async fn git_push_via_exec(sandbox: &dyn Sandbox, branch: &str) -> bool {
+/// Pushes a refspec to origin via exec_command inside the sandbox.
+pub async fn git_push_via_exec(sandbox: &dyn Sandbox, refspec: &str) -> bool {
     if let Err(e) = sandbox.refresh_push_credentials().await {
         tracing::warn!(error = %e, "Failed to refresh push credentials");
     }
-    let cmd = format!("{GIT} push origin {}", shell_quote(branch));
+    let cmd = format!("{GIT} push origin {}", shell_quote(refspec));
     match sandbox.exec_command(&cmd, 60_000, None, None, None).await {
         Ok(r) if r.exit_code == 0 => {
-            tracing::info!(branch, "Pushed run branch to origin");
+            tracing::info!(refspec, "Pushed git ref to origin");
             true
         }
         Ok(r) => {
-            tracing::warn!(branch, exit_code = r.exit_code, "Failed to push run branch");
+            tracing::warn!(refspec, exit_code = r.exit_code, "Failed to push git ref");
             false
         }
         Err(e) => {
-            tracing::warn!(branch, error = %e, "Failed to push run branch");
+            tracing::warn!(refspec, error = %e, "Failed to push git ref");
             false
         }
     }

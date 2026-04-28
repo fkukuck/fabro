@@ -27,7 +27,7 @@ Make all run directory key data derivable from events in `progress.jsonl`.
 |-------|------------|
 | `stage.started` | Remove `script` (moved to `command.started`), make `handler_type` non-optional |
 | `stage.completed` | `context_updates`, `jump_to_node`, `context_values`, `node_visits`, `loop_failure_signatures`, `restart_failure_signatures`, `response` |
-| `sandbox.initialized` | `provider`, `identifier`, `host_working_directory`, `container_mount_point` |
+| `sandbox.initialized` | `provider`, `identifier`, `working_directory`, `repo_cloned`, `clone_origin_url`, `clone_branch` |
 | `checkpoint.completed` | `diff` |
 | `parallel.branch.completed` | `head_sha` |
 | `agent.session.started` | `mode`, `provider`, `model` |
@@ -55,7 +55,7 @@ Make all run directory key data derivable from events in `progress.jsonl`.
 **Decision:** Emit a `run.created` event at the end of the CREATE operation (before START). Carries everything needed to persist the run:
 
 - From `_init.json`: `created_at`, `db_prefix`, `run_dir`
-- From `run.json`: `settings`, `graph`, `workflow_slug`, `working_directory`, `host_repo_path`, `base_branch`, `labels`
+- From `run.json`: `settings`, `graph`, `workflow_slug`, `source_directory`, `base_branch`, `labels`
 - From `workflow.fabro`/`workflow.toml`: `workflow_source` (raw dot text), `workflow_config` (raw TOML text)
 
 The existing `run.started` stays lightweight — it signals execution has begun. The CREATE→START boundary is: `run.created` persists the run definition, `run.started` marks execution start.
@@ -93,7 +93,7 @@ Derivation details:
 
 ### 5. `sandbox.json` — missing fields
 
-**Decision:** Add `host_working_directory`, `container_mount_point`, `provider`, and `identifier` to `sandbox.initialized` so it alone is sufficient to reconstruct `sandbox.json`.
+**Decision:** Add sandbox-native identity and clone metadata to `sandbox.initialized` so it alone is sufficient to reconstruct `sandbox.json`. Host paths and container mount points are not part of the durable event model; clone-based providers report their sandbox working directory plus repository clone state instead.
 
 ### 6. `workflow.fabro` + `workflow.toml` — raw source files
 

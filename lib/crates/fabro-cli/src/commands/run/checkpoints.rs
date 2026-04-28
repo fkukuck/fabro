@@ -113,6 +113,8 @@ pub(crate) fn print_timeline(entries: &[TimelineEntryJson], styles: &Styles, pri
         reason = "The checkpoint timeline table is operator feedback, not command output."
     )]
     if let Ok(display) = table.display() {
-        eprintln!("{display}");
+        for line in display.to_string().lines() {
+            eprintln!("{}", line.trim_end());
+        }
     }
 }

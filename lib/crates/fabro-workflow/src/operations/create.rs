@@ -12,11 +12,10 @@ use fabro_config::Storage;
 use fabro_graphviz::graph::{AttrValue, Graph};
 use fabro_model::{Catalog, Provider};
 use fabro_sandbox::SandboxProvider;
-use fabro_sandbox::daytona::detect_repo_info;
 use fabro_store::Database;
 use fabro_template::{TemplateContext, render as render_template};
 use fabro_types::settings::run::{RunMode, RunNamespace};
-use fabro_types::{RunId, RunProvenance, WorkflowSettings};
+use fabro_types::{ForkSourceRef, PreRunGitContext, RunId, RunProvenance, WorkflowSettings};
 use fabro_util::json::normalize_json_value;
 use tokio::task::spawn_blocking;
 
@@ -42,9 +41,11 @@ pub struct CreateRunInput {
     pub workflow_bundle: Option<WorkflowBundle>,
     pub submitted_manifest_bytes: Option<Vec<u8>>,
     pub run_id: Option<RunId>,
-    pub host_repo_path: Option<String>,
     pub repo_origin_url: Option<String>,
     pub base_branch: Option<String>,
+    pub pre_run_git: Option<PreRunGitContext>,
+    pub fork_source_ref: Option<ForkSourceRef>,
+    pub checkpoints_disabled: bool,
     pub provenance: Option<RunProvenance>,
     pub configured_providers: Vec<Provider>,
 }
@@ -64,9 +65,11 @@ struct PersistCreateOptions {
     workflow_slug:        Option<String>,
     labels:               HashMap<String, String>,
     base_branch:          Option<String>,
-    working_directory:    PathBuf,
-    host_repo_path:       Option<String>,
+    source_directory:     Option<String>,
     repo_origin_url:      Option<String>,
+    pre_run_git:          Option<PreRunGitContext>,
+    fork_source_ref:      Option<ForkSourceRef>,
+    checkpoints_disabled: bool,
     provenance:           Option<RunProvenance>,
     configured_providers: Vec<Provider>,
 }
@@ -98,9 +101,11 @@ pub async fn create(
         workflow_bundle,
         submitted_manifest_bytes,
         run_id,
-        host_repo_path,
         repo_origin_url,
         base_branch,
+        pre_run_git,
+        fork_source_ref,
+        checkpoints_disabled,
         provenance,
         configured_providers,
     } = request;
@@ -108,20 +113,7 @@ pub async fn create(
     let run_id = run_id.unwrap_or_else(RunId::new);
     let storage = Storage::new(storage_root);
     let run_dir = storage.run_scratch(&run_id).root().to_path_buf();
-    let working_directory = resolved.working_directory.clone();
-    let host_repo_path =
-        host_repo_path.or_else(|| Some(working_directory.to_string_lossy().to_string()));
-    let detected_repo = detect_repo_info(&working_directory).ok();
-    let repo_origin_url = repo_origin_url.or_else(|| {
-        detected_repo
-            .as_ref()
-            .map(|(origin_url, _)| fabro_github::normalize_repo_origin_url(origin_url))
-    });
-    let base_branch = base_branch.or_else(|| {
-        detected_repo
-            .as_ref()
-            .and_then(|(_, branch)| branch.clone())
-    });
+    let source_directory = Some(resolved.working_directory.to_string_lossy().to_string());
 
     let goal_override = resolved.goal_override.clone();
     let current_dir = resolved.current_dir.clone();
@@ -147,9 +139,11 @@ pub async fn create(
                 workflow_slug: workflow_slug.or(resolved_workflow_slug),
                 labels,
                 base_branch,
-                working_directory,
-                host_repo_path,
+                source_directory,
                 repo_origin_url,
+                pre_run_git,
+                fork_source_ref,
+                checkpoints_disabled,
                 provenance,
                 configured_providers,
             },
@@ -233,14 +227,16 @@ async fn persist_created_run(
                 .into_iter()
                 .collect::<BTreeMap<_, _>>(),
             run_dir: persisted.run_dir().display().to_string(),
-            working_directory: record.working_directory.display().to_string(),
-            host_repo_path: record.host_repo_path.clone(),
+            source_directory: record.source_directory.clone(),
             repo_origin_url: record.repo_origin_url.clone(),
             base_branch: record.base_branch.clone(),
             workflow_slug: record.workflow_slug.clone(),
             db_prefix: None,
             provenance: record.provenance.clone(),
             manifest_blob,
+            pre_run_git: record.pre_run_git.clone(),
+            fork_source_ref: record.fork_source_ref.clone(),
+            checkpoints_disabled: record.checkpoints_disabled,
         },
         record.run_id.created_at(),
         None,
@@ -355,9 +351,11 @@ fn persist_validated(
         workflow_slug,
         labels,
         base_branch,
-        working_directory,
-        host_repo_path,
+        source_directory,
         repo_origin_url,
+        pre_run_git,
+        fork_source_ref,
+        checkpoints_disabled,
         provenance,
         configured_providers,
     } = options;
@@ -377,14 +375,16 @@ fn persist_validated(
         settings,
         graph: validated.graph().clone(),
         workflow_slug,
-        working_directory,
-        host_repo_path,
+        source_directory,
         repo_origin_url,
         base_branch,
         labels,
         provenance,
         manifest_blob: None,
         definition_blob: None,
+        pre_run_git,
+        fork_source_ref,
+        checkpoints_disabled,
     };
 
     pipeline::persist(validated, PersistOptions { run_dir, run_spec })
@@ -722,9 +722,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: None,
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -765,9 +767,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: None,
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -824,9 +828,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_1),
-                host_repo_path: Some(dir.path().display().to_string()),
                 repo_origin_url: None,
                 base_branch: Some("main".to_string()),
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -902,7 +908,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_resolves_working_directory_and_repo_path_from_request_cwd() {
+    async fn create_persists_submitter_source_directory_from_request_cwd() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
@@ -932,9 +938,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_2),
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -943,17 +951,9 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(created.persisted.run_spec().working_directory, workspace);
         assert_eq!(
-            created.persisted.run_spec().host_repo_path.as_deref(),
-            Some(
-                created
-                    .persisted
-                    .run_spec()
-                    .working_directory
-                    .to_string_lossy()
-                    .as_ref()
-            )
+            created.persisted.run_spec().source_directory.as_deref(),
+            Some(workspace.to_string_lossy().as_ref())
         );
     }
 
@@ -976,9 +976,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_2),
-                host_repo_path: None,
                 repo_origin_url: Some("https://github.com/acme/widgets".to_string()),
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -1040,9 +1042,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_3),
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: None,
                 configured_providers: Vec::new(),
             },
@@ -1083,9 +1087,11 @@ mod tests {
                 workflow_bundle: None,
                 submitted_manifest_bytes: None,
                 run_id: Some(fixtures::RUN_64),
-                host_repo_path: None,
                 repo_origin_url: None,
                 base_branch: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
                 provenance: Some(fabro_types::RunProvenance {
                     server:  Some(fabro_types::RunServerProvenance {
                         version: "0.9.0".to_string(),

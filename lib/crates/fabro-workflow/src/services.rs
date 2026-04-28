@@ -17,18 +17,20 @@ use crate::event::Emitter;
 use crate::handler::HandlerRegistry;
 use crate::runtime_store::RunStoreHandle;
 use crate::sandbox_git::GitState;
+use crate::sandbox_metadata::SandboxGitRuntime;
 use crate::workflow_bundle::WorkflowBundle;
 
 /// Services shared across workflow phases.
 #[derive(Clone)]
 pub struct RunServices {
-    pub run_store:        RunStoreHandle,
-    pub emitter:          Arc<Emitter>,
-    pub sandbox:          Arc<dyn Sandbox>,
-    pub hook_runner:      Option<Arc<HookRunner>>,
-    pub cancel_requested: Option<Arc<AtomicBool>>,
-    pub provider:         Provider,
-    pub llm_source:       Arc<dyn CredentialSource>,
+    pub run_store:               RunStoreHandle,
+    pub emitter:                 Arc<Emitter>,
+    pub sandbox:                 Arc<dyn Sandbox>,
+    pub hook_runner:             Option<Arc<HookRunner>>,
+    pub cancel_requested:        Option<Arc<AtomicBool>>,
+    pub provider:                Provider,
+    pub llm_source:              Arc<dyn CredentialSource>,
+    pub(crate) metadata_runtime: Arc<SandboxGitRuntime>,
 }
 
 impl RunServices {
@@ -50,6 +52,7 @@ impl RunServices {
             cancel_requested,
             provider,
             llm_source,
+            metadata_runtime: Arc::new(SandboxGitRuntime::new()),
         })
     }
 

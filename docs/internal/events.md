@@ -1449,9 +1449,7 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
   "properties": {
     "working_directory": "/workspace/my-project",
     "provider": "daytona",
-    "identifier": "sandbox-123",
-    "host_working_directory": "/tmp/fabro-run/worktree",
-    "container_mount_point": "/workspace"
+    "identifier": "sandbox-123"
   }
 }
 ```
@@ -1461,8 +1459,6 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 | `working_directory` | string | Working directory inside sandbox |
 | `provider` | string | Sandbox provider |
 | `identifier` | string? | Provider-specific sandbox identifier |
-| `host_working_directory` | string? | Host-side working directory |
-| `container_mount_point` | string? | Container mount point inside the sandbox |
 
 ### `sandbox.cleanup.started`
 

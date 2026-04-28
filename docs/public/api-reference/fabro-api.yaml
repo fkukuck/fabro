@@ -3607,6 +3607,7 @@ components:
         - branch
         - sha
         - clean
+        - push_outcome
       properties:
         origin_url:
           type: string
@@ -3623,6 +3624,31 @@ components:
         clean:
           type: boolean
           description: Whether the working tree has uncommitted changes.
+        push_outcome:
+          $ref: "#/components/schemas/ManifestPreRunPushOutcome"
+
+    ManifestPreRunPushOutcome:
+      description: Outcome of the CLI's best-effort pre-run push.
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - not_attempted
+            - succeeded
+            - failed
+            - skipped_no_remote
+            - skipped_remote_mismatch
+        remote:
+          type: ["string", "null"]
+        branch:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+        repo_origin_url:
+          type: ["string", "null"]
 
     ManifestGoal:
       description: Resolved goal with provenance.
@@ -3667,6 +3693,12 @@ components:
           type: boolean
         preserve_sandbox:
           type: boolean
+        in_place:
+          type: boolean
+          description: Run against the submitted source directory directly.
+        allow_no_checkpoints:
+          type: boolean
+          description: Required with `in_place`; disables git checkpointing.
         label:
           type: array
           items:
@@ -4522,7 +4554,11 @@ components:
           type: object
           additionalProperties:
             type: string
-        host_repo_path:
+        source_directory:
+          type: ["string", "null"]
+        checkpoints_disabled:
+          type: boolean
+        repo_origin_url:
           type: ["string", "null"]
         repository:
           $ref: "#/components/schemas/RepositoryReference"
@@ -4614,6 +4650,7 @@ components:
         - ordinal
         - node_name
         - visit
+        - checkpoint_seq
       properties:
         ordinal:
           type: integer
@@ -4621,6 +4658,9 @@ components:
         node_name:
           type: string
         visit:
+          type: integer
+          minimum: 1
+        checkpoint_seq:
           type: integer
           minimum: 1
         run_commit_sha:
@@ -5173,7 +5213,11 @@ components:
           type: object
           additionalProperties:
             type: string
-        host_repo_path:
+        source_directory:
+          type: ["string", "null"]
+        checkpoints_disabled:
+          type: boolean
+        repo_origin_url:
           type: ["string", "null"]
         start_time:
           type: ["string", "null"]

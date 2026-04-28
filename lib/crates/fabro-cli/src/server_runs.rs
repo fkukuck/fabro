@@ -60,8 +60,16 @@ impl ServerRunSummaryInfo {
         self.summary.total_usd_micros
     }
 
-    pub(crate) fn host_repo_path(&self) -> Option<&str> {
-        self.summary.host_repo_path.as_deref()
+    pub(crate) fn source_directory(&self) -> Option<&str> {
+        self.summary.source_directory.as_deref()
+    }
+
+    pub(crate) fn repo_origin_url(&self) -> Option<&str> {
+        self.summary.repo_origin_url.as_deref()
+    }
+
+    pub(crate) fn checkpoints_disabled(&self) -> bool {
+        self.summary.checkpoints_disabled
     }
 
     pub(crate) fn goal(&self) -> String {

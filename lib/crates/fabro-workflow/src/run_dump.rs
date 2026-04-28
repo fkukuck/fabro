@@ -17,8 +17,6 @@ use fabro_store::{EventEnvelope, RunProjection, SerializableProjection, StageId}
 use fabro_types::{RunBlobId, parse_blob_ref, parse_legacy_blob_file_ref};
 use futures::future::BoxFuture;
 
-use crate::git::MetadataStore;
-
 #[derive(Debug, Clone)]
 pub struct RunDump {
     entries: Vec<RunDumpEntry>,
@@ -217,21 +215,6 @@ impl RunDump {
         Ok(self.file_count())
     }
 
-    pub fn write_to_metadata_store(
-        &self,
-        store: &MetadataStore,
-        run_id: &str,
-        message: &str,
-    ) -> Result<()> {
-        let git_entries = self.git_entries()?;
-        let refs: Vec<(&str, &[u8])> = git_entries
-            .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
-            .collect();
-        store.write_snapshot(run_id, &refs, message)?;
-        Ok(())
-    }
-
     pub fn git_entries(&self) -> Result<Vec<(String, Vec<u8>)>> {
         self.entries
             .iter()
@@ -425,7 +408,6 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::path::PathBuf;
 
     use chrono::{TimeZone, Utc};
     use fabro_store::{NodeState, RunProjection, StageId};
@@ -441,18 +423,20 @@ mod tests {
 
     fn sample_run_spec() -> RunSpec {
         RunSpec {
-            run_id:            fixtures::RUN_1,
-            settings:          WorkflowSettings::default(),
-            graph:             Graph::new("ship"),
-            workflow_slug:     Some("demo".to_string()),
-            working_directory: PathBuf::from("/tmp/project"),
-            host_repo_path:    Some("/tmp/project".to_string()),
-            repo_origin_url:   Some("https://github.com/fabro-sh/fabro.git".to_string()),
-            base_branch:       Some("main".to_string()),
-            labels:            HashMap::from([("team".to_string(), "platform".to_string())]),
-            provenance:        None,
-            manifest_blob:     None,
-            definition_blob:   None,
+            run_id:               fixtures::RUN_1,
+            settings:             WorkflowSettings::default(),
+            graph:                Graph::new("ship"),
+            workflow_slug:        Some("demo".to_string()),
+            source_directory:     Some("/tmp/project".to_string()),
+            repo_origin_url:      Some("https://github.com/fabro-sh/fabro.git".to_string()),
+            base_branch:          Some("main".to_string()),
+            labels:               HashMap::from([("team".to_string(), "platform".to_string())]),
+            provenance:           None,
+            manifest_blob:        None,
+            definition_blob:      None,
+            pre_run_git:          None,
+            fork_source_ref:      None,
+            checkpoints_disabled: false,
         }
     }
 
@@ -508,14 +492,12 @@ mod tests {
             total_retries:        0,
         });
         projection.sandbox = Some(SandboxRecord {
-            provider:               "local".to_string(),
-            working_directory:      "/tmp/project".to_string(),
-            identifier:             Some("sandbox-1".to_string()),
-            host_working_directory: None,
-            container_mount_point:  None,
-            repo_cloned:            None,
-            clone_origin_url:       None,
-            clone_branch:           None,
+            provider:          "local".to_string(),
+            working_directory: "/tmp/project".to_string(),
+            identifier:        Some("sandbox-1".to_string()),
+            repo_cloned:       None,
+            clone_origin_url:  None,
+            clone_branch:      None,
         });
         projection.retro_prompt = Some("retro prompt".to_string());
         projection.retro_response = Some("retro response".to_string());

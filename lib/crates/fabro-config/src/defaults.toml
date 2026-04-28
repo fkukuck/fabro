@@ -22,7 +22,7 @@ preserve = false
 devcontainer = false
 
 [run.sandbox.local]
-worktree_mode = "clean"
+worktree_mode = "always"
 
 [run.sandbox.docker]
 image = "buildpack-deps:noble"

@@ -17,7 +17,7 @@ fn remote_run_summary(run_id: &str, status: &serde_json::Value) -> serde_json::V
         "goal": "Inspect remote state",
         "title": "Inspect remote state",
         "labels": {},
-        "host_repo_path": "/srv/repo",
+        "source_directory": "/srv/repo",
         "repository": { "name": "repo" },
         "start_time": "2026-04-19T12:00:00Z",
         "created_at": "2026-04-19T12:00:00Z",

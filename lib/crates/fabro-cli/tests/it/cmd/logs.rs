@@ -184,10 +184,11 @@ fn logs_pretty_formats_small_run() {
     let mut cmd = context.command();
     cmd.args(["logs", "--pretty", &run.run_id]);
 
-    fabro_snapshot!(filters, cmd, @r#"
+    fabro_snapshot!(filters, cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
+    [CLOCK] Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
     [CLOCK]   Sandbox: local  [DURATION]
     [CLOCK] ▶ Simple  [ULID]
                 Run tests and report results
@@ -205,7 +206,7 @@ fn logs_pretty_formats_small_run() {
     [CLOCK] ✓ Exit    [DURATION]
     [CLOCK] ✓ SUCCESS [DURATION]  
     ----- stderr -----
-    "#);
+    ");
 }
 
 #[test]

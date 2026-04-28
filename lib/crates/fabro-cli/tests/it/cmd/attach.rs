@@ -159,6 +159,7 @@ fn attach_replays_completed_detached_run() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ Start  [TIME]
         ✓ Run Tests  [TIME]
@@ -265,6 +266,7 @@ fn attach_before_completion_streams_to_finished_state() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ start  [DURATION]
         ✓ wait  [DURATION]
@@ -453,6 +455,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "event": "run.created",
         "id": "[EVENT_ID]",
         "properties": {
+          "checkpoints_disabled": false,
           "graph": {
             "attrs": {
               "goal": {
@@ -553,7 +556,6 @@ fn attach_json_errors_without_prompting_for_human_input() {
               }
             }
           },
-          "host_repo_path": "[TEMP_DIR]",
           "manifest_blob": "[BLOB_ID]",
           "provenance": {
             "client": {
@@ -633,7 +635,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
                 },
                 "env": {},
                 "local": {
-                  "worktree_mode": "clean"
+                  "worktree_mode": "always"
                 },
                 "preserve": false,
                 "provider": "local"
@@ -653,9 +655,9 @@ fn attach_json_errors_without_prompting_for_human_input() {
               "name": null
             }
           },
+          "source_directory": "[TEMP_DIR]",
           "workflow_slug": "human-gate",
-          "workflow_source": "digraph HumanGate {/n  graph [goal=\"Wait for approval\"]/n  start [shape=Mdiamond, label=\"Start\"]/n  exit  [shape=Msquare, label=\"Exit\"]/n  approve [shape=hexagon, label=\"Approve?\"]/n  ship   [shape=parallelogram, script=\"echo shipped\"]/n  revise [shape=parallelogram, script=\"echo revised\"]/n  start -> approve/n  approve -> ship   [label=\"[A] Approve\"]/n  approve -> revise [label=\"[R] Revise\"]/n  ship -> exit/n  revise -> exit/n}/n",
-          "working_directory": "[TEMP_DIR]"
+          "workflow_source": "digraph HumanGate {/n  graph [goal=\"Wait for approval\"]/n  start [shape=Mdiamond, label=\"Start\"]/n  exit  [shape=Msquare, label=\"Exit\"]/n  approve [shape=hexagon, label=\"Approve?\"]/n  ship   [shape=parallelogram, script=\"echo shipped\"]/n  revise [shape=parallelogram, script=\"echo revised\"]/n  start -> approve/n  approve -> ship   [label=\"[A] Approve\"]/n  approve -> revise [label=\"[R] Revise\"]/n  ship -> exit/n  revise -> exit/n}/n"
         },
         "run_id": "[ULID]",
         "ts": "[TIMESTAMP]"
@@ -685,6 +687,22 @@ fn attach_json_errors_without_prompting_for_human_input() {
         "event": "run.starting",
         "id": "[EVENT_ID]",
         "properties": {},
+        "run_id": "[ULID]",
+        "ts": "[TIMESTAMP]"
+      },
+      {
+        "actor": {
+          "display": "system:worker",
+          "id": "worker",
+          "kind": "system"
+        },
+        "event": "run.notice",
+        "id": "[EVENT_ID]",
+        "properties": {
+          "code": "dirty_worktree",
+          "level": "warn",
+          "message": "Uncommitted changes will not be included in the worktree."
+        },
         "run_id": "[ULID]",
         "ts": "[TIMESTAMP]"
       },

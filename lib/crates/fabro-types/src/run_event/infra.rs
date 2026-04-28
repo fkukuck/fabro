@@ -89,20 +89,16 @@ pub struct GitCloneFailedProps {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SandboxInitializedProps {
-    pub working_directory:      String,
-    pub provider:               String,
+    pub working_directory: String,
+    pub provider:          String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub identifier:             Option<String>,
+    pub identifier:        Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_working_directory: Option<String>,
+    pub repo_cloned:       Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub container_mount_point:  Option<String>,
+    pub clone_origin_url:  Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo_cloned:            Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clone_origin_url:       Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clone_branch:           Option<String>,
+    pub clone_branch:      Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

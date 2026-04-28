@@ -92,6 +92,7 @@ export * from './manifest-file-entry';
 export * from './manifest-file-ref';
 export * from './manifest-git';
 export * from './manifest-goal';
+export * from './manifest-pre-run-push-outcome';
 export * from './manifest-target';
 export * from './manifest-workflow';
 export * from './manifest-workflow-config';

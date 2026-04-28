@@ -299,8 +299,6 @@ pub(crate) fn normalize_base_prefix(prefix: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use chrono::{DateTime, Utc};
     use fabro_types::{
         AttrValue, FailureReason, Graph, RunControlAction, RunSpec, RunStatus, SuccessReason,
@@ -358,14 +356,16 @@ mod tests {
             settings: WorkflowSettings::default(),
             graph,
             workflow_slug: Some("night-sky".to_string()),
-            working_directory: PathBuf::from(format!("/tmp/{label}")),
-            host_repo_path: Some("github.com/fabro-sh/fabro".to_string()),
+            source_directory: Some(format!("/tmp/{label}")),
             repo_origin_url: Some("https://github.com/fabro-sh/fabro".to_string()),
             base_branch: Some("main".to_string()),
             labels: std::collections::HashMap::from([("team".to_string(), "infra".to_string())]),
             provenance: None,
             manifest_blob: None,
             definition_blob: None,
+            pre_run_git: None,
+            fork_source_ref: None,
+            checkpoints_disabled: false,
         }
     }
 
@@ -398,9 +398,9 @@ mod tests {
                 "settings": run_spec.settings,
                 "graph": run_spec.graph,
                 "workflow_slug": run_spec.workflow_slug,
-                "working_directory": run_spec.working_directory,
+                "source_directory": run_spec.source_directory,
                 "run_dir": format!("/tmp/{label}"),
-                "host_repo_path": run_spec.host_repo_path,
+                "repo_origin_url": run_spec.repo_origin_url,
                 "base_branch": run_spec.base_branch,
                 "labels": run_spec.labels,
             }),

@@ -26,7 +26,7 @@ use fabro_types::settings::run::{
     ApprovalMode, DaytonaNetworkLayer, DaytonaSettings, DockerSettings, DockerfileSource, RunGoal,
     RunMode, RunNamespace,
 };
-use fabro_types::{RunId, WorkflowSettings};
+use fabro_types::{DirtyStatus, PreRunGitContext, PreRunPushOutcome, RunId, WorkflowSettings};
 use fabro_util::check_report::{CheckDetail, CheckReport, CheckResult, CheckSection, CheckStatus};
 use fabro_validate::Severity;
 use fabro_workflow::Error as WorkflowError;
@@ -39,15 +39,16 @@ use crate::server::AppState;
 
 #[derive(Clone)]
 pub(crate) struct PreparedManifest {
-    pub cwd:               PathBuf,
-    pub git:               Option<types::ManifestGit>,
-    pub root_source:       String,
-    pub run_id:            Option<RunId>,
-    pub settings:          WorkflowSettings,
-    pub target_path:       PathBuf,
-    pub workflow_bundle:   WorkflowBundle,
-    pub workflow_input:    BundledWorkflow,
-    pub working_directory: PathBuf,
+    pub cwd:                  PathBuf,
+    pub git:                  Option<types::ManifestGit>,
+    pub root_source:          String,
+    pub run_id:               Option<RunId>,
+    pub settings:             WorkflowSettings,
+    pub target_path:          PathBuf,
+    pub workflow_bundle:      WorkflowBundle,
+    pub workflow_input:       BundledWorkflow,
+    pub source_directory:     PathBuf,
+    pub checkpoints_disabled: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,6 +68,29 @@ pub(crate) fn prepare_manifest(
 ) -> Result<PreparedManifest> {
     if manifest.version != 1 {
         bail!("unsupported manifest version {}", manifest.version);
+    }
+    let (in_place, allow_no_checkpoints) = manifest.args.as_ref().map_or((false, false), |args| {
+        (
+            args.in_place.unwrap_or(false),
+            args.allow_no_checkpoints.unwrap_or(false),
+        )
+    });
+    if in_place && !allow_no_checkpoints {
+        bail!("in_place requires allow_no_checkpoints");
+    }
+    if allow_no_checkpoints && !in_place {
+        bail!("allow_no_checkpoints requires in_place");
+    }
+    if in_place {
+        if let Some(sandbox) = manifest
+            .args
+            .as_ref()
+            .and_then(|args| args.sandbox.as_deref())
+        {
+            if sandbox != "local" {
+                bail!("in_place requires the local sandbox provider");
+            }
+        }
     }
 
     let cwd = PathBuf::from(&manifest.cwd);
@@ -131,7 +155,8 @@ pub(crate) fn prepare_manifest(
         target_path,
         workflow_bundle,
         workflow_input,
-        working_directory: resolve_working_directory(&settings, &cwd),
+        source_directory: resolve_working_directory(&settings, &cwd),
+        checkpoints_disabled: in_place,
     })
 }
 
@@ -159,14 +184,58 @@ pub(crate) fn create_run_input(
         workflow_bundle: Some(prepared.workflow_bundle),
         submitted_manifest_bytes: None,
         run_id: prepared.run_id,
-        host_repo_path: Some(prepared.working_directory.display().to_string()),
-        repo_origin_url: prepared
-            .git
-            .as_ref()
-            .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url)),
+        repo_origin_url: prepared.git.as_ref().and_then(|git| {
+            let origin_url = fabro_github::normalize_repo_origin_url(&git.origin_url);
+            (!origin_url.is_empty()).then_some(origin_url)
+        }),
         base_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
+        pre_run_git: prepared.git.as_ref().map(pre_run_git_from_manifest),
+        fork_source_ref: None,
+        checkpoints_disabled: prepared.checkpoints_disabled,
         provenance: None,
         configured_providers,
+    }
+}
+
+fn pre_run_git_from_manifest(git: &types::ManifestGit) -> PreRunGitContext {
+    PreRunGitContext {
+        display_base_sha: Some(git.sha.clone()),
+        local_dirty:      if git.clean {
+            DirtyStatus::Clean
+        } else {
+            DirtyStatus::Dirty
+        },
+        push_outcome:     pre_run_push_outcome_from_manifest(&git.push_outcome),
+    }
+}
+
+fn pre_run_push_outcome_from_manifest(
+    outcome: &types::ManifestPreRunPushOutcome,
+) -> PreRunPushOutcome {
+    match outcome.type_ {
+        types::ManifestPreRunPushOutcomeType::NotAttempted => PreRunPushOutcome::NotAttempted,
+        types::ManifestPreRunPushOutcomeType::Succeeded => PreRunPushOutcome::Succeeded {
+            remote: outcome
+                .remote
+                .clone()
+                .unwrap_or_else(|| "origin".to_string()),
+            branch: outcome.branch.clone().unwrap_or_default(),
+        },
+        types::ManifestPreRunPushOutcomeType::Failed => PreRunPushOutcome::Failed {
+            remote:  outcome
+                .remote
+                .clone()
+                .unwrap_or_else(|| "origin".to_string()),
+            branch:  outcome.branch.clone().unwrap_or_default(),
+            message: outcome.message.clone().unwrap_or_default(),
+        },
+        types::ManifestPreRunPushOutcomeType::SkippedNoRemote => PreRunPushOutcome::SkippedNoRemote,
+        types::ManifestPreRunPushOutcomeType::SkippedRemoteMismatch => {
+            PreRunPushOutcome::SkippedRemoteMismatch {
+                remote:          outcome.remote.clone().unwrap_or_default(),
+                repo_origin_url: outcome.repo_origin_url.clone().unwrap_or_default(),
+            }
+        }
     }
 }
 
@@ -246,17 +315,22 @@ fn manifest_args_overrides(args: Option<&types::ManifestArgs>) -> ManifestSettin
         name:      args.model.as_deref().map(InterpString::parse),
         fallbacks: Vec::new(),
     });
-    let sandbox =
-        (args.sandbox.is_some() || args.preserve_sandbox.is_some() || args.docker_image.is_some())
-            .then(|| RunSandboxLayer {
-                provider: args.sandbox.clone(),
-                preserve: args.preserve_sandbox,
-                docker: args.docker_image.as_ref().map(|image| DockerSandboxLayer {
-                    image: Some(image.clone()),
-                    ..DockerSandboxLayer::default()
-                }),
-                ..RunSandboxLayer::default()
-            });
+    let sandbox_provider = args
+        .sandbox
+        .clone()
+        .or_else(|| (args.in_place == Some(true)).then(|| "local".to_string()));
+    let sandbox = (sandbox_provider.is_some()
+        || args.preserve_sandbox.is_some()
+        || args.docker_image.is_some())
+    .then(|| RunSandboxLayer {
+        provider: sandbox_provider,
+        preserve: args.preserve_sandbox,
+        docker: args.docker_image.as_ref().map(|image| DockerSandboxLayer {
+            image: Some(image.clone()),
+            ..DockerSandboxLayer::default()
+        }),
+        ..RunSandboxLayer::default()
+    });
 
     let execution_has_any =
         args.dry_run.is_some() || args.auto_approve.is_some() || args.no_retro.is_some();
@@ -553,7 +627,7 @@ async fn run_sandbox_check(
     let docker_config = resolve_docker_config(resolved_run);
     let sandbox_result: Result<Arc<dyn Sandbox>, String> = match sandbox_provider {
         SandboxProvider::Local => SandboxSpec::Local {
-            working_directory: prepared.working_directory.clone(),
+            working_directory: prepared.source_directory.clone(),
         }
         .build(None)
         .await
@@ -1090,16 +1164,18 @@ root = "/srv/fabro"
         )));
         let mut manifest = minimal_manifest();
         manifest.args = Some(types::ManifestArgs {
-            auto_approve:     None,
-            dry_run:          Some(true),
-            label:            Vec::new(),
-            model:            None,
-            no_retro:         None,
-            preserve_sandbox: None,
-            provider:         None,
-            sandbox:          None,
-            docker_image:     None,
-            verbose:          None,
+            auto_approve:         None,
+            dry_run:              Some(true),
+            label:                Vec::new(),
+            model:                None,
+            no_retro:             None,
+            preserve_sandbox:     None,
+            provider:             None,
+            sandbox:              None,
+            docker_image:         None,
+            verbose:              None,
+            in_place:             None,
+            allow_no_checkpoints: None,
         });
 
         let prepared = prepare_manifest(&server_settings, &manifest).unwrap();

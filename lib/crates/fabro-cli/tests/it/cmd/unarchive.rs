@@ -226,7 +226,7 @@ fn unarchive_resolves_selector_via_server_endpoint() {
                     "goal": "Nightly run",
                     "title": "Nightly run",
                     "labels": {},
-                    "host_repo_path": null,
+                    "source_directory": null,
                     "repository": { "name": "unknown" },
                     "start_time": "2026-04-05T12:00:00Z",
                     "created_at": "2026-04-05T12:00:00Z",

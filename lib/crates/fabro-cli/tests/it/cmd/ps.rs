@@ -351,7 +351,7 @@ fn ps_uses_configured_server_target_without_server_flag() {
                         "labels": {
                             "suite": "remote"
                         },
-                        "host_repo_path": "/srv/repo",
+                        "source_directory": "/srv/repo",
                         "repository": { "name": "repo" },
                         "start_time": "2026-04-05T12:00:00Z",
                         "created_at": "2026-04-05T12:00:00Z",
@@ -386,7 +386,7 @@ fn ps_uses_configured_server_target_without_server_flag() {
     mock.assert();
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0]["workflow_name"], "Remote Workflow");
-    assert_eq!(runs[0]["host_repo_path"], "/srv/repo");
+    assert_eq!(runs[0]["source_directory"], "/srv/repo");
 }
 
 #[test]
@@ -407,7 +407,7 @@ fn ps_explicit_remote_target_ignores_broken_local_storage_settings() {
                         "goal": "Remote goal",
                         "title": "Remote goal",
                         "labels": {},
-                        "host_repo_path": "/srv/repo",
+                        "source_directory": "/srv/repo",
                         "repository": { "name": "repo" },
                         "start_time": "2026-04-20T12:00:00Z",
                         "created_at": "2026-04-20T12:00:00Z",

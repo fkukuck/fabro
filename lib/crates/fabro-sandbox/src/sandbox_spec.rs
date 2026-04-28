@@ -64,20 +64,6 @@ impl SandboxSpec {
         }
     }
 
-    /// Host-accessible repo path for git status / worktree decisions.
-    /// Only Local has one. Clone-based providers use their persisted clone
-    /// metadata instead of the worker process filesystem.
-    pub fn host_repo_path(&self) -> Option<PathBuf> {
-        match self {
-            Self::Local { working_directory } => Some(working_directory.clone()),
-            #[allow(
-                unreachable_patterns,
-                reason = "Feature-gated variants make this fallback arm reachable on some builds."
-            )]
-            _ => None,
-        }
-    }
-
     /// Build a SandboxRecord for persistence.
     pub fn to_sandbox_record(&self, sandbox: &dyn Sandbox) -> SandboxRecord {
         let working_directory = sandbox.working_directory().to_string();
@@ -97,8 +83,6 @@ impl SandboxSpec {
                 provider: self.provider_name().to_string(),
                 working_directory: working_directory.clone(),
                 identifier,
-                host_working_directory: None,
-                container_mount_point: None,
                 repo_cloned: clone_source::repo_cloned_for_record(
                     config.skip_clone,
                     clone_origin_url.as_deref(),
@@ -118,8 +102,6 @@ impl SandboxSpec {
                 provider: self.provider_name().to_string(),
                 working_directory: working_directory.clone(),
                 identifier,
-                host_working_directory: None,
-                container_mount_point: None,
                 repo_cloned: clone_source::repo_cloned_for_record(
                     config.skip_clone,
                     clone_origin_url.as_deref(),
@@ -133,8 +115,6 @@ impl SandboxSpec {
                 provider: self.provider_name().to_string(),
                 working_directory,
                 identifier,
-                host_working_directory: None,
-                container_mount_point: None,
                 repo_cloned: None,
                 clone_origin_url: None,
                 clone_branch: None,

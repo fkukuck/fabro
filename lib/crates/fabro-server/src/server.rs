@@ -7228,7 +7228,7 @@ async fn fork_run(
         target,
         push: request.push.unwrap_or(true),
     };
-    match operations::fork_run(&state.store, &input).await {
+    match Box::pin(operations::fork_run(&state.store, &input)).await {
         Ok(outcome) => (
             StatusCode::OK,
             Json(ForkResponse {
@@ -7261,6 +7261,8 @@ async fn run_timeline(
                     node_name:      entry.node_name,
                     visit:          std::num::NonZeroU64::new(entry.visit as u64)
                         .expect("timeline visits start at 1"),
+                    checkpoint_seq: std::num::NonZeroU64::new(u64::from(entry.checkpoint_seq))
+                        .expect("checkpoint event sequence starts at 1"),
                     run_commit_sha: entry.run_commit_sha,
                 })
                 .collect::<Vec<_>>(),
@@ -7936,7 +7938,8 @@ struct GraphParams {
 async fn load_run_dot_source(state: &AppState, id: &RunId) -> Result<String, Response> {
     let live_dot_source = {
         let runs = state.runs.lock().expect("runs lock poisoned");
-        runs.get(id).map(|managed_run| managed_run.dot_source.clone())
+        runs.get(id)
+            .map(|managed_run| managed_run.dot_source.clone())
     };
 
     let dot_source = if let Some(dot) = live_dot_source.filter(|d| !d.is_empty()) {
@@ -7947,7 +7950,7 @@ async fn load_run_dot_source(state: &AppState, id: &RunId) -> Result<String, Res
                 Ok(run_state) => run_state.graph_source,
                 Err(err) => {
                     return Err(
-                        ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+                        ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()).into_response()
                     );
                 }
             },
@@ -7955,9 +7958,8 @@ async fn load_run_dot_source(state: &AppState, id: &RunId) -> Result<String, Res
         }
     };
 
-    dot_source.ok_or_else(|| {
-        ApiError::new(StatusCode::NOT_FOUND, "Graph not found.").into_response()
-    })
+    dot_source
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Graph not found.").into_response())
 }
 
 async fn get_graph(
@@ -9726,14 +9728,16 @@ strategy = "token"
             settings: fabro_types::WorkflowSettings::default(),
             graph,
             workflow_slug: Some("test".to_string()),
-            working_directory: PathBuf::from("/tmp/project"),
-            host_repo_path: Some("/tmp/project".to_string()),
+            source_directory: Some("/tmp/project".to_string()),
             repo_origin_url: repo_origin_url.map(str::to_string),
             base_branch: base_branch.map(str::to_string),
             labels: HashMap::new(),
             provenance: None,
             manifest_blob: None,
             definition_blob: None,
+            pre_run_git: None,
+            fork_source_ref: None,
+            checkpoints_disabled: false,
         };
 
         create_durable_run_with_events(state, run_id, &[
@@ -9744,15 +9748,17 @@ strategy = "token"
                 workflow_source: None,
                 workflow_config: None,
                 labels: run_spec.labels.clone().into_iter().collect(),
-                run_dir: run_spec.working_directory.display().to_string(),
-                working_directory: run_spec.working_directory.display().to_string(),
-                host_repo_path: run_spec.host_repo_path.clone(),
+                run_dir: run_spec.source_directory.clone().unwrap_or_default(),
+                source_directory: run_spec.source_directory.clone(),
                 repo_origin_url: run_spec.repo_origin_url.clone(),
                 base_branch: run_spec.base_branch.clone(),
                 workflow_slug: run_spec.workflow_slug.clone(),
                 db_prefix: None,
                 provenance: run_spec.provenance.clone(),
                 manifest_blob: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
             },
             workflow_event::Event::WorkflowRunStarted {
                 name: "test".to_string(),
@@ -13905,14 +13911,12 @@ provider = "local"
             workflow_event::Event::RunStarting,
             workflow_event::Event::RunRunning,
             workflow_event::Event::SandboxInitialized {
-                provider:               "local".to_string(),
-                working_directory:      "/sandbox/workdir".to_string(),
-                identifier:             Some("sb-test".to_string()),
-                host_working_directory: Some("/tmp/repo".to_string()),
-                container_mount_point:  None,
-                repo_cloned:            None,
-                clone_origin_url:       None,
-                clone_branch:           None,
+                provider:          "local".to_string(),
+                working_directory: "/sandbox/workdir".to_string(),
+                identifier:        Some("sb-test".to_string()),
+                repo_cloned:       None,
+                clone_origin_url:  None,
+                clone_branch:      None,
             },
             workflow_event::Event::PullRequestCreated {
                 pr_url:      "https://github.com/acme/repo/pull/42".to_string(),
@@ -13978,14 +13982,12 @@ provider = "local"
                 workflow_event::Event::RunStarting,
                 workflow_event::Event::RunRunning,
                 workflow_event::Event::SandboxInitialized {
-                    provider:               "local".to_string(),
-                    working_directory:      "/sandbox/workdir".to_string(),
-                    identifier:             Some(sandbox_id.to_string()),
-                    host_working_directory: Some("/tmp/repo".to_string()),
-                    container_mount_point:  None,
-                    repo_cloned:            None,
-                    clone_origin_url:       None,
-                    clone_branch:           None,
+                    provider:          "local".to_string(),
+                    working_directory: "/sandbox/workdir".to_string(),
+                    identifier:        Some(sandbox_id.to_string()),
+                    repo_cloned:       None,
+                    clone_origin_url:  None,
+                    clone_branch:      None,
                 },
             ] {
                 workflow_event::append_event(&run_store, &run_id, &event)

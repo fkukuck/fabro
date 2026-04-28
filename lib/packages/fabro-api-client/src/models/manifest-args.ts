@@ -30,6 +30,14 @@ export interface ManifestArgs {
     'auto_approve'?: boolean;
     'no_retro'?: boolean;
     'preserve_sandbox'?: boolean;
+    /**
+     * Run against the submitted source directory directly.
+     */
+    'in_place'?: boolean;
+    /**
+     * Required with `in_place`; disables git checkpointing.
+     */
+    'allow_no_checkpoints'?: boolean;
     'label'?: Array<string>;
 }
 

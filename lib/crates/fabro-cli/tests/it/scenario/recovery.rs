@@ -8,11 +8,11 @@ use std::path::Path;
 
 use fabro_checkpoint::git::Store as GitStore;
 use fabro_store::RunProjection;
-use fabro_test::{fabro_snapshot, test_context};
-use fabro_types::Checkpoint;
+use fabro_test::{TestContext, fabro_snapshot, test_context};
 use fabro_workflow::operations::{RunTimeline, build_timeline};
 use git2::Repository;
 
+use crate::cmd::support::output_stdout;
 use crate::support::unique_run_id;
 
 fn list_metadata_run_ids(repo_dir: &Path) -> BTreeSet<String> {
@@ -28,21 +28,20 @@ fn list_metadata_run_ids(repo_dir: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-fn latest_metadata_checkpoint(repo_dir: &Path, run_id: &str) -> Checkpoint {
-    let repo = Repository::discover(repo_dir).expect("recovery fixture should be a git repo");
+fn load_metadata_projection(repo_dir: &Path, run_id: &str) -> Result<RunProjection, String> {
+    let repo = Repository::discover(repo_dir)
+        .map_err(|err| format!("recovery fixture should be a git repo: {err}"))?;
     let store = GitStore::new(repo);
     let tip = store
         .resolve_ref(&format!("fabro/meta/{run_id}"))
-        .expect("metadata branch should resolve")
-        .expect("metadata branch tip should exist");
+        .map_err(|err| format!("metadata branch should resolve: {err}"))?
+        .ok_or_else(|| "metadata branch tip should exist".to_string())?;
     let projection_blob = store
         .read_blob_at(tip, "run.json")
-        .expect("latest projection blob should load")
-        .expect("latest projection blob should exist");
-    serde_json::from_slice::<RunProjection>(&projection_blob)
-        .expect("latest projection blob should deserialize")
-        .checkpoint
-        .expect("latest projection checkpoint should exist")
+        .map_err(|err| format!("latest projection blob should load: {err}"))?
+        .ok_or_else(|| "latest projection blob should exist".to_string())?;
+    serde_json::from_slice(&projection_blob)
+        .map_err(|err| format!("latest projection blob should deserialize: {err}"))
 }
 
 fn timeline_run_shas(repo_dir: &Path, run_id: &str) -> Vec<Option<String>> {
@@ -60,9 +59,10 @@ fn timeline_run_shas(repo_dir: &Path, run_id: &str) -> Vec<Option<String>> {
 fn build_timeline_when_ready(repo_dir: &Path, run_id: &str) -> RunTimeline {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let repo = Repository::discover(repo_dir).expect("recovery fixture should stay a git repo");
-        let store = GitStore::new(repo);
-        match build_timeline(&store, run_id) {
+        let timeline = load_metadata_projection(repo_dir, run_id)
+            .map_err(anyhow::Error::msg)
+            .and_then(|projection| build_timeline(&projection));
+        match timeline {
             Ok(timeline) => return timeline,
             Err(err) => {
                 assert!(
@@ -73,6 +73,38 @@ fn build_timeline_when_ready(repo_dir: &Path, run_id: &str) -> RunTimeline {
             }
         }
     }
+}
+
+fn fork_run_json(context: &TestContext, repo_dir: &Path, source_run_id: &str) -> String {
+    let output = context
+        .command()
+        .current_dir(repo_dir)
+        .args(["fork", source_run_id, "--json", "--no-push"])
+        .timeout(std::time::Duration::from_secs(15))
+        .output()
+        .expect("fork command should execute");
+    assert!(
+        output.status.success(),
+        "fork should succeed\nstdout:\n{}\nstderr:\n{}",
+        output_stdout(&output),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_str::<serde_json::Value>(&output_stdout(&output))
+        .expect("fork json should parse")
+        .get("new_run_id")
+        .and_then(|value| value.as_str())
+        .expect("fork json should contain new_run_id")
+        .to_string()
+}
+
+fn latest_store_checkpoint_sha(context: &TestContext, run_id: &str) -> Option<String> {
+    let state: RunProjection = super::block_on(super::get_server_json_for_storage(
+        &context.storage_dir,
+        &format!("/api/v1/runs/{run_id}/state"),
+    ));
+    state
+        .checkpoint
+        .and_then(|checkpoint| checkpoint.git_commit_sha)
 }
 
 #[expect(
@@ -144,6 +176,38 @@ digraph Recovery {
         .status()
         .expect("git commit should launch");
     assert!(commit.success(), "git commit should succeed");
+
+    let remote_dir = repo_dir
+        .parent()
+        .expect("recovery repo should have a parent")
+        .join(format!(
+            "{}-remote.git",
+            repo_dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("recovery")
+        ));
+    let remote_init = std::process::Command::new("git")
+        .args(["init", "--bare", "-q"])
+        .arg(&remote_dir)
+        .status()
+        .expect("git init --bare should launch");
+    assert!(remote_init.success(), "git init --bare should succeed");
+
+    let remote_add = std::process::Command::new("git")
+        .args(["remote", "add", "origin"])
+        .arg(&remote_dir)
+        .current_dir(repo_dir)
+        .status()
+        .expect("git remote add should launch");
+    assert!(remote_add.success(), "git remote add should succeed");
+
+    let push = std::process::Command::new("git")
+        .args(["push", "-u", "origin", "HEAD:main"])
+        .current_dir(repo_dir)
+        .status()
+        .expect("git push should launch");
+    assert!(push.success(), "git push should succeed");
 }
 
 #[test]
@@ -187,7 +251,10 @@ fn rewind_list_reports_empty_timeline_when_metadata_branch_is_missing() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-    No checkpoints found.
+    @   Node   Details
+     @1  start  (no run commit)
+     @2  plan
+     @3  build
     ");
 
     assert!(
@@ -225,37 +292,15 @@ fn fork_chain_preserves_checkpoint_metadata() {
     let build_sha = timeline_shas.last().cloned().flatten();
     assert!(build_sha.is_some());
 
-    let before_child = list_metadata_run_ids(repo_dir.path());
-    context
-        .command()
-        .current_dir(repo_dir.path())
-        .args(["fork", &source_run_id, "--no-push"])
-        .timeout(std::time::Duration::from_secs(15))
-        .assert()
-        .success();
-    let after_child = list_metadata_run_ids(repo_dir.path());
-    let child_run_ids: Vec<_> = after_child.difference(&before_child).cloned().collect();
-    assert_eq!(child_run_ids.len(), 1, "expected one child run");
-    let child_run_id = &child_run_ids[0];
+    let child_run_id = fork_run_json(&context, repo_dir.path(), &source_run_id);
+    assert_eq!(
+        latest_store_checkpoint_sha(&context, &child_run_id),
+        build_sha
+    );
 
-    let child_checkpoint = latest_metadata_checkpoint(repo_dir.path(), child_run_id);
-    assert_eq!(child_checkpoint.git_commit_sha, build_sha);
-
-    let before_grandchild = list_metadata_run_ids(repo_dir.path());
-    context
-        .command()
-        .current_dir(repo_dir.path())
-        .args(["fork", child_run_id, "--no-push"])
-        .timeout(std::time::Duration::from_secs(15))
-        .assert()
-        .success();
-    let after_grandchild = list_metadata_run_ids(repo_dir.path());
-    let grandchild_run_ids: Vec<_> = after_grandchild
-        .difference(&before_grandchild)
-        .cloned()
-        .collect();
-    assert_eq!(grandchild_run_ids.len(), 1, "expected one grandchild run");
-
-    let grandchild_checkpoint = latest_metadata_checkpoint(repo_dir.path(), &grandchild_run_ids[0]);
-    assert_eq!(grandchild_checkpoint.git_commit_sha, build_sha);
+    let grandchild_run_id = fork_run_json(&context, repo_dir.path(), &child_run_id);
+    assert_eq!(
+        latest_store_checkpoint_sha(&context, &grandchild_run_id),
+        build_sha
+    );
 }

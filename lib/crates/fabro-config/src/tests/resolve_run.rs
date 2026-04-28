@@ -14,7 +14,7 @@ fn resolves_run_defaults_from_empty_settings() {
     assert!(settings.execution.retros);
     assert_eq!(settings.prepare.timeout_ms, 300_000);
     assert_eq!(settings.sandbox.provider, "docker");
-    assert_eq!(settings.sandbox.local.worktree_mode, WorktreeMode::Clean);
+    assert_eq!(settings.sandbox.local.worktree_mode, WorktreeMode::Always);
     let docker = settings
         .sandbox
         .docker

@@ -4,7 +4,6 @@ use std::process::Command;
 pub use fabro_checkpoint::META_BRANCH_PREFIX;
 pub use fabro_checkpoint::author::GitAuthor;
 use fabro_checkpoint::git::Store;
-pub use fabro_checkpoint::metadata::MetadataStore;
 use fabro_types::WorkflowSettings;
 use tokio::task::{JoinError, spawn_blocking};
 use tokio::time::timeout;
@@ -599,15 +598,5 @@ mod tests {
 
         // No remote at all — should return true (safe default)
         assert!(branch_needs_push(repo_dir, "origin", "main"));
-    }
-
-    #[test]
-    fn metadata_branch_name_uses_meta_prefix() {
-        assert_eq!(MetadataStore::branch_name("abc-123"), "fabro/meta/abc-123");
-    }
-
-    #[test]
-    fn meta_branch_prefix_constant() {
-        assert!(MetadataStore::branch_name("x").starts_with(META_BRANCH_PREFIX));
     }
 }

@@ -305,20 +305,28 @@ impl Sandbox for WorktreeSandbox {
         self.inner.set_autostop_interval(minutes).await
     }
 
-    fn host_git_dir(&self) -> Option<&str> {
-        Some(&self.config.worktree_path)
-    }
-
-    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
-        self.inner.setup_git_for_run(run_id).await
+    async fn setup_git(
+        &self,
+        intent: &crate::GitSetupIntent,
+    ) -> crate::Result<Option<crate::GitRunInfo>> {
+        self.inner.setup_git(intent).await
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
         self.inner.resume_setup_commands(run_branch)
     }
 
-    async fn git_push_branch(&self, branch: &str) -> bool {
-        self.inner.git_push_branch(branch).await
+    async fn git_push_ref(&self, refspec: &str) -> bool {
+        let has_origin = matches!(
+            self.exec_command("git remote get-url origin", 10_000, None, None, None)
+                .await,
+            Ok(result) if result.exit_code == 0
+        );
+        if !has_origin {
+            return true;
+        }
+
+        crate::git_push_via_exec(self, refspec).await
     }
 
     fn parallel_worktree_path(

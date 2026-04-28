@@ -7,16 +7,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use fabro_api::types;
+use fabro_api::types::{self, ManifestPreRunPushOutcome, ManifestPreRunPushOutcomeType};
 use fabro_config::project::{self, discover_project_config, resolve_workflow_path};
 use fabro_config::run::{resolve_run_goal_from_layer, resolve_run_goal_from_namespace};
 use fabro_config::{CliLayer, DaytonaDockerfileLayer, RunLayer, WorkflowSettingsBuilder};
 use fabro_graphviz::graph::AttrValue;
 use fabro_graphviz::parser;
-use fabro_sandbox::daytona::detect_repo_info;
 use fabro_types::settings::run::{ResolvedGoalSource, ResolvedRunGoal};
 use fabro_types::{RunId, WorkflowSettings};
-use fabro_workflow::git::{GitSyncStatus, head_sha, sync_status};
+use fabro_workflow::git::{GitSyncStatus, branch_needs_push, head_sha, push_branch, sync_status};
 
 use crate::args::{PreflightArgs, RunArgs};
 
@@ -162,36 +161,44 @@ pub(crate) fn build_run_manifest(input: ManifestBuildInput) -> Result<BuiltManif
 
 pub(crate) fn run_manifest_args(args: &RunArgs) -> Option<types::ManifestArgs> {
     let payload = types::ManifestArgs {
-        auto_approve:     args.auto_approve.then_some(true),
-        dry_run:          args.dry_run.then_some(true),
-        label:            args.label.clone(),
-        model:            args.model.clone(),
-        no_retro:         args.no_retro.then_some(true),
-        preserve_sandbox: args.preserve_sandbox.then_some(true),
-        provider:         args.provider.clone(),
-        sandbox:          args
+        auto_approve:         args.auto_approve.then_some(true),
+        dry_run:              args.dry_run.then_some(true),
+        label:                args.label.clone(),
+        model:                args.model.clone(),
+        no_retro:             args.no_retro.then_some(true),
+        preserve_sandbox:     args.preserve_sandbox.then_some(true),
+        provider:             args.provider.clone(),
+        sandbox:              args
             .sandbox
-            .map(|provider| fabro_sandbox::SandboxProvider::from(provider).to_string()),
-        docker_image:     None,
-        verbose:          args.verbose.then_some(true),
+            .map(|provider| fabro_sandbox::SandboxProvider::from(provider).to_string())
+            .or_else(|| {
+                args.in_place
+                    .then(|| fabro_sandbox::SandboxProvider::Local.to_string())
+            }),
+        docker_image:         None,
+        verbose:              args.verbose.then_some(true),
+        in_place:             args.in_place.then_some(true),
+        allow_no_checkpoints: args.allow_no_checkpoints.then_some(true),
     };
     (!manifest_args_is_empty(&payload)).then_some(payload)
 }
 
 pub(crate) fn preflight_manifest_args(args: &PreflightArgs) -> Option<types::ManifestArgs> {
     let payload = types::ManifestArgs {
-        auto_approve:     None,
-        dry_run:          None,
-        label:            Vec::new(),
-        model:            args.model.clone(),
-        no_retro:         None,
-        preserve_sandbox: None,
-        provider:         args.provider.clone(),
-        sandbox:          args
+        auto_approve:         None,
+        dry_run:              None,
+        label:                Vec::new(),
+        model:                args.model.clone(),
+        no_retro:             None,
+        preserve_sandbox:     None,
+        provider:             args.provider.clone(),
+        sandbox:              args
             .sandbox
             .map(|provider| fabro_sandbox::SandboxProvider::from(provider).to_string()),
-        docker_image:     None,
-        verbose:          args.verbose.then_some(true),
+        docker_image:         None,
+        verbose:              args.verbose.then_some(true),
+        in_place:             None,
+        allow_no_checkpoints: None,
     };
     (!manifest_args_is_empty(&payload)).then_some(payload)
 }
@@ -493,16 +500,74 @@ fn resolved_goal_to_manifest(resolved: ResolvedRunGoal) -> types::ManifestGoal {
 }
 
 fn build_manifest_git(repo_path: &Path) -> Option<types::ManifestGit> {
-    let (origin_url, branch) = detect_repo_info(repo_path).ok()?;
-    let branch = branch?;
+    let (origin_url, branch) = detect_manifest_repo_info(repo_path)?;
     let sha = head_sha(repo_path).ok()?;
-    let clean = sync_status(repo_path, "origin", Some(&branch)) != GitSyncStatus::Dirty;
+    let status = sync_status(repo_path, "origin", Some(&branch));
+    let clean = status != GitSyncStatus::Dirty;
+    let push_outcome = build_manifest_push_outcome(repo_path, &branch, origin_url.as_deref());
     Some(types::ManifestGit {
         branch,
         clean,
-        origin_url: fabro_github::normalize_repo_origin_url(&origin_url),
+        origin_url: origin_url
+            .as_deref()
+            .map(fabro_github::normalize_repo_origin_url)
+            .unwrap_or_default(),
+        push_outcome,
         sha,
     })
+}
+
+fn detect_manifest_repo_info(repo_path: &Path) -> Option<(Option<String>, String)> {
+    let repo = git2::Repository::discover(repo_path).ok()?;
+    let branch = repo.head().ok()?.shorthand().map(ToOwned::to_owned)?;
+    let origin_url = repo
+        .find_remote("origin")
+        .ok()
+        .and_then(|remote| remote.url().map(ToOwned::to_owned));
+    Some((origin_url, branch))
+}
+
+fn build_manifest_push_outcome(
+    repo_path: &Path,
+    branch: &str,
+    origin_url: Option<&str>,
+) -> ManifestPreRunPushOutcome {
+    if origin_url.is_none() {
+        return ManifestPreRunPushOutcome {
+            type_:           ManifestPreRunPushOutcomeType::SkippedNoRemote,
+            remote:          None,
+            branch:          Some(branch.to_string()),
+            message:         None,
+            repo_origin_url: None,
+        };
+    }
+
+    if !branch_needs_push(repo_path, "origin", branch) {
+        return ManifestPreRunPushOutcome {
+            type_:           ManifestPreRunPushOutcomeType::NotAttempted,
+            remote:          None,
+            branch:          None,
+            message:         None,
+            repo_origin_url: None,
+        };
+    }
+
+    match push_branch(repo_path, "origin", branch) {
+        Ok(()) => ManifestPreRunPushOutcome {
+            type_:           ManifestPreRunPushOutcomeType::Succeeded,
+            remote:          Some("origin".to_string()),
+            branch:          Some(branch.to_string()),
+            message:         None,
+            repo_origin_url: None,
+        },
+        Err(err) => ManifestPreRunPushOutcome {
+            type_:           ManifestPreRunPushOutcomeType::Failed,
+            remote:          Some("origin".to_string()),
+            branch:          Some(branch.to_string()),
+            message:         Some(err.to_string()),
+            repo_origin_url: None,
+        },
+    }
 }
 
 fn normalize_absolute_path(base_dir: &Path, reference: &str) -> Option<PathBuf> {

@@ -5,9 +5,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use ::fabro_types::{
-    ActorRef, BilledTokenCounts, BlockedReason, FailureReason, ParallelBranchId, PullRequestRecord,
-    RunBlobId, RunControlAction, RunEvent, RunId, RunProvenance, StageId, StageStatus,
-    SuccessReason, run_event as fabro_types,
+    ActorRef, BilledTokenCounts, BlockedReason, FailureReason, ForkSourceRef, ParallelBranchId,
+    PreRunGitContext, PullRequestRecord, RunBlobId, RunControlAction, RunEvent, RunId,
+    RunProvenance, StageId, StageStatus, SuccessReason, run_event as fabro_types,
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -37,30 +37,35 @@ use crate::runtime_store::RunStoreHandle;
 )]
 pub enum Event {
     RunCreated {
-        run_id:            RunId,
-        settings:          serde_json::Value,
-        graph:             serde_json::Value,
+        run_id:               RunId,
+        settings:             serde_json::Value,
+        graph:                serde_json::Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        workflow_source:   Option<String>,
+        workflow_source:      Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        workflow_config:   Option<String>,
-        labels:            BTreeMap<String, String>,
-        run_dir:           String,
-        working_directory: String,
+        workflow_config:      Option<String>,
+        labels:               BTreeMap<String, String>,
+        run_dir:              String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        host_repo_path:    Option<String>,
+        source_directory:     Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        repo_origin_url:   Option<String>,
+        repo_origin_url:      Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        base_branch:       Option<String>,
+        base_branch:          Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        workflow_slug:     Option<String>,
+        workflow_slug:        Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        db_prefix:         Option<String>,
+        db_prefix:            Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        provenance:        Option<RunProvenance>,
+        provenance:           Option<RunProvenance>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        manifest_blob:     Option<RunBlobId>,
+        manifest_blob:        Option<RunBlobId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_run_git:          Option<PreRunGitContext>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fork_source_ref:      Option<ForkSourceRef>,
+        #[serde(default)]
+        checkpoints_disabled: bool,
     },
     WorkflowRunStarted {
         name:         String,
@@ -387,20 +392,16 @@ pub enum Event {
     },
     /// Emitted after the sandbox has been initialized (by engine lifecycle).
     SandboxInitialized {
-        working_directory:      String,
-        provider:               String,
+        working_directory: String,
+        provider:          String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        identifier:             Option<String>,
+        identifier:        Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        host_working_directory: Option<String>,
+        repo_cloned:       Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        container_mount_point:  Option<String>,
+        clone_origin_url:  Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        repo_cloned:            Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        clone_origin_url:       Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        clone_branch:           Option<String>,
+        clone_branch:      Option<String>,
     },
     SetupStarted {
         command_count: usize,
@@ -1520,31 +1521,35 @@ fn event_body_from_event(event: &Event) -> EventBody {
             workflow_config,
             labels,
             run_dir,
-            working_directory,
-            host_repo_path,
+            source_directory,
             repo_origin_url,
             base_branch,
             workflow_slug,
             db_prefix,
             provenance,
             manifest_blob,
+            pre_run_git,
+            fork_source_ref,
+            checkpoints_disabled,
             ..
         } => EventBody::RunCreated(fabro_types::RunCreatedProps {
-            settings:          serde_json::from_value(settings.clone())
+            settings:             serde_json::from_value(settings.clone())
                 .expect("run.created settings"),
-            graph:             serde_json::from_value(graph.clone()).expect("run.created graph"),
-            workflow_source:   workflow_source.clone(),
-            workflow_config:   workflow_config.clone(),
-            labels:            labels.clone(),
-            run_dir:           run_dir.clone(),
-            working_directory: working_directory.clone(),
-            host_repo_path:    host_repo_path.clone(),
-            repo_origin_url:   repo_origin_url.clone(),
-            base_branch:       base_branch.clone(),
-            workflow_slug:     workflow_slug.clone(),
-            db_prefix:         db_prefix.clone(),
-            provenance:        provenance.clone(),
-            manifest_blob:     *manifest_blob,
+            graph:                serde_json::from_value(graph.clone()).expect("run.created graph"),
+            workflow_source:      workflow_source.clone(),
+            workflow_config:      workflow_config.clone(),
+            labels:               labels.clone(),
+            run_dir:              run_dir.clone(),
+            source_directory:     source_directory.clone(),
+            repo_origin_url:      repo_origin_url.clone(),
+            base_branch:          base_branch.clone(),
+            workflow_slug:        workflow_slug.clone(),
+            db_prefix:            db_prefix.clone(),
+            provenance:           provenance.clone(),
+            manifest_blob:        *manifest_blob,
+            pre_run_git:          pre_run_git.clone(),
+            fork_source_ref:      fork_source_ref.clone(),
+            checkpoints_disabled: *checkpoints_disabled,
         }),
         Event::WorkflowRunStarted {
             name,
@@ -2249,20 +2254,16 @@ fn event_body_from_event(event: &Event) -> EventBody {
             working_directory,
             provider,
             identifier,
-            host_working_directory,
-            container_mount_point,
             repo_cloned,
             clone_origin_url,
             clone_branch,
         } => EventBody::SandboxInitialized(fabro_types::SandboxInitializedProps {
-            working_directory:      working_directory.clone(),
-            provider:               provider.clone(),
-            identifier:             identifier.clone(),
-            host_working_directory: host_working_directory.clone(),
-            container_mount_point:  container_mount_point.clone(),
-            repo_cloned:            *repo_cloned,
-            clone_origin_url:       clone_origin_url.clone(),
-            clone_branch:           clone_branch.clone(),
+            working_directory: working_directory.clone(),
+            provider:          provider.clone(),
+            identifier:        identifier.clone(),
+            repo_cloned:       *repo_cloned,
+            clone_origin_url:  clone_origin_url.clone(),
+            clone_branch:      clone_branch.clone(),
         }),
         Event::SetupStarted { command_count } => {
             EventBody::SetupStarted(fabro_types::SetupStartedProps {
@@ -3670,21 +3671,23 @@ mod tests {
         };
 
         let stored = to_run_event(&fixtures::RUN_1, &Event::RunCreated {
-            run_id:            fixtures::RUN_1,
-            settings:          serde_json::to_value(WorkflowSettings::default()).unwrap(),
-            graph:             serde_json::to_value(Graph::new("test")).unwrap(),
-            workflow_source:   None,
-            workflow_config:   None,
-            labels:            BTreeMap::default(),
-            run_dir:           "/tmp/run".to_string(),
-            working_directory: "/tmp/run".to_string(),
-            host_repo_path:    None,
-            repo_origin_url:   None,
-            base_branch:       None,
-            workflow_slug:     None,
-            db_prefix:         None,
-            provenance:        Some(provenance),
-            manifest_blob:     None,
+            run_id:               fixtures::RUN_1,
+            settings:             serde_json::to_value(WorkflowSettings::default()).unwrap(),
+            graph:                serde_json::to_value(Graph::new("test")).unwrap(),
+            workflow_source:      None,
+            workflow_config:      None,
+            labels:               BTreeMap::default(),
+            run_dir:              "/tmp/run".to_string(),
+            source_directory:     Some("/tmp/run".to_string()),
+            repo_origin_url:      None,
+            base_branch:          None,
+            workflow_slug:        None,
+            db_prefix:            None,
+            provenance:           Some(provenance),
+            manifest_blob:        None,
+            pre_run_git:          None,
+            fork_source_ref:      None,
+            checkpoints_disabled: false,
         });
         let actor = stored.actor.as_ref().expect("actor set");
         assert_eq!(actor.kind, ActorKind::User);

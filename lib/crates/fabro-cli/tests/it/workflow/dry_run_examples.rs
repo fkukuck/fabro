@@ -20,6 +20,7 @@ fn dry_run_branching() {
 
     warning [node: implement]: Node 'implement' has goal_gate=true but no retry_target or fallback_retry_target (goal_gate_has_retry)
         Run: [ULID]
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ Start  [TIME]
         ✓ Plan  [TIME]
@@ -55,6 +56,7 @@ fn dry_run_conditions() {
     Goal: Test condition evaluation with OR and parentheses
 
         Run: [ULID]
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ start  [TIME]
         ✓ Decide  [TIME]
@@ -88,6 +90,7 @@ fn dry_run_parallel() {
     Goal: Test parallel and fan-in execution
 
         Run: [ULID]
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ start  [TIME]
         ✓ Fork Work  [TIME]
@@ -122,6 +125,7 @@ fn dry_run_styled() {
     Goal: Build a styled pipeline
 
         Run: [ULID]
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ start  [TIME]
         ✓ Plan  [TIME]
@@ -156,6 +160,7 @@ fn dry_run_legacy_tool() {
     Goal: Verify backwards compatibility with old tool naming
 
         Run: [ULID]
+        Warning: Uncommitted changes will not be included in the worktree. [dirty_worktree]
         Sandbox: local (ready in [TIME])
         ✓ Start  [TIME]
         ✓ Echo  [TIME]

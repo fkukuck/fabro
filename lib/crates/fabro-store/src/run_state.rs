@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -48,21 +47,22 @@ impl RunProjectionReducer for RunProjection {
 
         match &stored.body {
             EventBody::RunCreated(props) => {
-                let working_directory = PathBuf::from(&props.working_directory);
                 let labels = props.labels.clone().into_iter().collect::<HashMap<_, _>>();
                 self.spec = Some(RunSpec {
                     run_id,
                     settings: props.settings.clone(),
                     graph: props.graph.clone(),
                     workflow_slug: props.workflow_slug.clone(),
-                    working_directory,
-                    host_repo_path: props.host_repo_path.clone(),
+                    source_directory: props.source_directory.clone(),
                     repo_origin_url: props.repo_origin_url.clone(),
                     base_branch: props.base_branch.clone(),
                     labels,
                     provenance: props.provenance.clone(),
                     manifest_blob: props.manifest_blob,
                     definition_blob: None,
+                    pre_run_git: props.pre_run_git.clone(),
+                    fork_source_ref: props.fork_source_ref.clone(),
+                    checkpoints_disabled: props.checkpoints_disabled,
                 });
                 self.graph_source.clone_from(&props.workflow_source);
             }
@@ -210,14 +210,12 @@ impl RunProjectionReducer for RunProjection {
             }
             EventBody::SandboxInitialized(props) => {
                 self.sandbox = Some(SandboxRecord {
-                    provider:               props.provider.clone(),
-                    working_directory:      props.working_directory.clone(),
-                    identifier:             props.identifier.clone(),
-                    host_working_directory: props.host_working_directory.clone(),
-                    container_mount_point:  props.container_mount_point.clone(),
-                    repo_cloned:            props.repo_cloned,
-                    clone_origin_url:       props.clone_origin_url.clone(),
-                    clone_branch:           props.clone_branch.clone(),
+                    provider:          props.provider.clone(),
+                    working_directory: props.working_directory.clone(),
+                    identifier:        props.identifier.clone(),
+                    repo_cloned:       props.repo_cloned,
+                    clone_origin_url:  props.clone_origin_url.clone(),
+                    clone_branch:      props.clone_branch.clone(),
                 });
             }
             EventBody::RetroStarted(props) => {
@@ -394,7 +392,15 @@ pub(crate) fn build_summary(state: &RunProjection, run_id: &RunId) -> RunSummary
         state
             .spec
             .as_ref()
-            .and_then(|spec| spec.host_repo_path.clone()),
+            .and_then(|spec| spec.source_directory.clone()),
+        state
+            .spec
+            .as_ref()
+            .is_some_and(|spec| spec.checkpoints_disabled),
+        state
+            .spec
+            .as_ref()
+            .and_then(|spec| spec.repo_origin_url.clone()),
         state.start.as_ref().map(|start| start.start_time),
         state.status.unwrap_or(RunStatus::Submitted),
         state.pending_control,
@@ -654,8 +660,7 @@ mod tests {
                 "settings": WorkflowSettings::default(),
                 "graph": { "name": "ship", "nodes": {}, "edges": [], "attrs": {} },
                 "workflow_slug": "demo",
-                "working_directory": "/tmp/project",
-                "host_repo_path": null,
+                "source_directory": "/tmp/project",
                 "repo_origin_url": null,
                 "base_branch": null,
                 "labels": {},
@@ -983,18 +988,20 @@ mod tests {
     fn summary_synthesizes_submitted_when_run_exists_without_status() {
         let mut state = RunProjection::default();
         state.spec = Some(fabro_types::RunSpec {
-            run_id:            fixtures::RUN_1,
-            settings:          WorkflowSettings::default(),
-            graph:             fabro_types::Graph::new("test"),
-            workflow_slug:     Some("test".to_string()),
-            working_directory: std::path::PathBuf::from("/tmp/run"),
-            host_repo_path:    Some("/tmp/repo".to_string()),
-            repo_origin_url:   None,
-            base_branch:       None,
-            labels:            HashMap::new(),
-            provenance:        None,
-            manifest_blob:     None,
-            definition_blob:   None,
+            run_id:               fixtures::RUN_1,
+            settings:             WorkflowSettings::default(),
+            graph:                fabro_types::Graph::new("test"),
+            workflow_slug:        Some("test".to_string()),
+            source_directory:     Some("/tmp/repo".to_string()),
+            repo_origin_url:      None,
+            base_branch:          None,
+            labels:               HashMap::new(),
+            provenance:           None,
+            manifest_blob:        None,
+            definition_blob:      None,
+            pre_run_git:          None,
+            fork_source_ref:      None,
+            checkpoints_disabled: false,
         });
 
         let summary_json = serde_json::to_value(build_summary(&state, &fixtures::RUN_1)).unwrap();
@@ -1024,7 +1031,7 @@ mod tests {
                         },
                         "labels": {},
                         "run_dir": "/tmp/run",
-                        "working_directory": "/tmp/run",
+                        "source_directory": "/tmp/run",
                         "manifest_blob": manifest_blob
                     }
                 }))

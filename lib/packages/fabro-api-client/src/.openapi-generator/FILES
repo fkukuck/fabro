@@ -113,6 +113,7 @@ models/manifest-file-entry.ts
 models/manifest-file-ref.ts
 models/manifest-git.ts
 models/manifest-goal.ts
+models/manifest-pre-run-push-outcome.ts
 models/manifest-target.ts
 models/manifest-workflow-config.ts
 models/manifest-workflow.ts

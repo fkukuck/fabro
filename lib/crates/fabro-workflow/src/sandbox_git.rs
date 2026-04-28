@@ -1,14 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use fabro_agent::Sandbox;
 use fabro_checkpoint::trailer as trailerlink;
 use fabro_checkpoint::trailer::Trailer;
-use fabro_sandbox::daytona::detect_repo_info;
 use fabro_types::RunId;
 
 use crate::artifact_snapshot;
-use crate::git::{GitAuthor, blocking_push_with_timeout, push_ref};
+use crate::git::GitAuthor;
 
 /// Captured git state for a workflow run, shared with handlers.
 #[derive(Debug, Clone)]
@@ -130,59 +128,6 @@ pub async fn git_checkpoint(
         Ok(r) if r.exit_code == 0 => Ok(r.stdout.trim().to_string()),
         Ok(r) => Err(exec_err("git rev-parse HEAD", &r)),
         Err(e) => Err(format!("git rev-parse HEAD failed: {e}")),
-    }
-}
-
-/// Push a refspec from the host repo to origin (best-effort).
-///
-/// Authenticates via resolved GitHub credentials so we don't depend on the
-/// host's ambient git credentials.
-pub async fn git_push_host(
-    repo_path: &Path,
-    refspec: &str,
-    github_app: &Option<fabro_github::GitHubCredentials>,
-    label: &str,
-) -> bool {
-    let (origin_url, _) = match detect_repo_info(repo_path) {
-        Ok(info) => info,
-        Err(e) => {
-            tracing::warn!(error = %e, label, "Cannot detect origin for push");
-            return false;
-        }
-    };
-
-    let https_url = fabro_github::ssh_url_to_https(&origin_url);
-    let push_url = if let Some(creds) = github_app {
-        match fabro_github::resolve_authenticated_url(
-            &fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
-            &https_url,
-        )
-        .await
-        {
-            Ok(url) => url.raw_string(),
-            Err(e) => {
-                tracing::warn!(error = %e, label, "Failed to get token for push");
-                return false;
-            }
-        }
-    } else {
-        tracing::warn!(label, "No GitHub credentials for push");
-        return false;
-    };
-
-    let rp = repo_path.to_path_buf();
-    let refspec_owned = refspec.to_string();
-    let result =
-        blocking_push_with_timeout(60, move || push_ref(&rp, &push_url, &refspec_owned)).await;
-    match result {
-        Ok(()) => {
-            tracing::info!(label, "Pushed to origin");
-            true
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, label, "Failed to push");
-            false
-        }
     }
 }
 
@@ -833,7 +778,7 @@ mod tests {
         reason = "These unit tests use the real git CLI to construct sandbox-git fixture repositories and sync-write fixtures to disk."
     )]
 
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
     use std::sync::Mutex;
 
     use async_trait::async_trait;
@@ -1172,6 +1117,88 @@ mod tests {
             .output()
             .unwrap();
         String::from_utf8(out.stdout).unwrap().trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn sandbox_metadata_writer_preserves_worktree_and_writes_binary_run_dump() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let repo = repo_dir.path();
+        init_git_repo(repo);
+        std::fs::write(repo.join("tracked.txt"), "seed\n").unwrap();
+        let head = git_commit_all(repo, "initial");
+
+        let sandbox = fabro_agent::LocalSandbox::new(repo.to_path_buf());
+        let run_id = fabro_types::fixtures::RUN_1;
+        let mut projection = fabro_store::RunProjection::default();
+        projection.spec = Some(fabro_types::RunSpec {
+            run_id,
+            settings: fabro_types::WorkflowSettings::default(),
+            graph: fabro_types::Graph::new("metadata"),
+            workflow_slug: Some("metadata".to_string()),
+            source_directory: Some("/Users/client/project".to_string()),
+            repo_origin_url: Some("https://github.com/fabro-sh/fabro.git".to_string()),
+            base_branch: Some("main".to_string()),
+            labels: HashMap::new(),
+            provenance: None,
+            manifest_blob: None,
+            definition_blob: None,
+            pre_run_git: None,
+            fork_source_ref: None,
+            checkpoints_disabled: false,
+        });
+        let mut dump = crate::run_dump::RunDump::from_projection(&projection);
+        dump.add_file_bytes("binary/payload.bin", vec![0, 159, 146, 150]);
+
+        let runtime = crate::sandbox_metadata::SandboxGitRuntime::new();
+        let run_id_string = run_id.to_string();
+        let branch = crate::sandbox_metadata::metadata_branch_name(&run_id_string);
+        let writer = crate::sandbox_metadata::SandboxMetadataWriter::new(
+            &sandbox,
+            &runtime,
+            &run_id_string,
+            &branch,
+            crate::git::GitAuthor::default(),
+        );
+
+        let snapshot = writer.write_snapshot(&dump, "checkpoint").await.unwrap();
+        let commit_sha = snapshot.commit_sha;
+
+        let current = std::process::Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(current.stdout).unwrap().trim(), "main");
+        let head_after = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(head_after.stdout).unwrap().trim(), head);
+
+        let run_json = std::process::Command::new("git")
+            .args(["show", &format!("{commit_sha}:run.json")])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(run_json.status.success());
+        let stored_projection: serde_json::Value =
+            serde_json::from_slice(&run_json.stdout).unwrap();
+        assert!(stored_projection.get("spec").is_some());
+
+        let binary = std::process::Command::new("git")
+            .args(["show", &format!("{commit_sha}:binary/payload.bin")])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert_eq!(binary.stdout, vec![0, 159, 146, 150]);
+
+        let status = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(String::from_utf8(status.stdout).unwrap().trim().is_empty());
     }
 
     #[tokio::test]

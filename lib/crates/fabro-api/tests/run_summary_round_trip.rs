@@ -27,6 +27,8 @@ fn run_summary_json_matches_openapi_shape() {
         String::new(),
         HashMap::from([("team".to_string(), "core".to_string())]),
         Some("/tmp/fabro".to_string()),
+        false,
+        None,
         Some(created_at),
         RunStatus::Archived {
             prior: TerminalStatus::Succeeded {
@@ -50,7 +52,9 @@ fn run_summary_json_matches_openapi_shape() {
             "labels": {
                 "team": "core"
             },
-            "host_repo_path": "/tmp/fabro",
+            "source_directory": "/tmp/fabro",
+            "checkpoints_disabled": false,
+            "repo_origin_url": null,
             "repository": {
                 "name": "fabro"
             },
@@ -97,7 +101,7 @@ fn run_summary_deserializes_when_optional_fields_are_absent() {
     assert_eq!(summary.goal, "ship it");
     assert_eq!(summary.title, "ship it");
     assert_eq!(summary.labels, HashMap::new());
-    assert_eq!(summary.host_repo_path, None);
+    assert_eq!(summary.source_directory, None);
     assert_eq!(summary.repository, RepositoryReference {
         name: "fabro".to_string(),
     });

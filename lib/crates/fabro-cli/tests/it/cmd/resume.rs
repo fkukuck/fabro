@@ -5,7 +5,7 @@
 
 use fabro_test::{fabro_snapshot, test_context};
 
-use super::support::{git_stdout, output_stderr, setup_git_backed_changed_run};
+use super::support::{git_stdout, output_stderr, run_state_by_id, setup_git_backed_changed_run};
 
 const SHARED_DAEMON_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -63,10 +63,10 @@ fn resume_rewound_run_succeeds() {
     let setup = setup_git_backed_changed_run(&context);
 
     let new_run_id = rewind_replacement_run_id(&context, &setup);
-    let rewound_head = git_stdout(&setup.repo_dir, &[
-        "rev-parse",
-        &format!("fabro/run/{new_run_id}"),
-    ]);
+    let rewound_head = run_state_by_id(&context, &new_run_id)
+        .checkpoint
+        .and_then(|checkpoint| checkpoint.git_commit_sha)
+        .expect("rewound run should record checkpoint sha");
 
     let mut resume_cmd = context.command();
     resume_cmd.current_dir(&setup.repo_dir);
@@ -95,7 +95,7 @@ fn resume_rewound_run_succeeds() {
         "rev-parse",
         &format!("fabro/run/{new_run_id}"),
     ]);
-    assert_ne!(resumed_head.trim(), rewound_head.trim());
+    assert_ne!(resumed_head.trim(), rewound_head);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn rewind_replacement_run_id(
     let rewind = context
         .command()
         .current_dir(&setup.repo_dir)
-        .args(["rewind", &setup.run.run_id, "@1", "--no-push", "--json"])
+        .args(["rewind", &setup.run.run_id, "@2", "--no-push", "--json"])
         .output()
         .expect("rewind should execute");
     assert!(

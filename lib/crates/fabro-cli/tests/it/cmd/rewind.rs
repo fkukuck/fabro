@@ -2,8 +2,8 @@ use fabro_test::{fabro_snapshot, run_and_format, test_context};
 use insta::assert_snapshot;
 
 use super::support::{
-    git_filters, git_stdout, metadata_run_ids, output_stderr as support_stderr,
-    run_branch_commits_since_base, run_events, run_state, setup_git_backed_changed_run,
+    git_filters, output_stderr as support_stderr, run_branch_commits_since_base, run_events,
+    run_state, run_state_by_id, setup_git_backed_changed_run,
 };
 
 #[test]
@@ -65,9 +65,10 @@ fn rewind_list_prints_timeline_for_completed_git_run() {
     exit_code: 0
     ----- stdout -----
     ----- stderr -----
-    @   Node      Details 
-     @1  step_one          
-     @2  step_two
+    @   Node      Details
+     @1  start     (no run commit)
+     @2  step_one
+     @3  step_two
     ");
 }
 
@@ -75,7 +76,6 @@ fn rewind_list_prints_timeline_for_completed_git_run() {
 fn rewind_target_updates_metadata_and_resume_hint() {
     let context = test_context!();
     let setup = setup_git_backed_changed_run(&context);
-    let before = metadata_run_ids(&setup.repo_dir);
     let expected_run_head =
         run_branch_commits_since_base(&setup.repo_dir, &setup.run.run_id, &setup.base_sha)
             .into_iter()
@@ -84,7 +84,7 @@ fn rewind_target_updates_metadata_and_resume_hint() {
 
     let mut cmd = context.command();
     cmd.current_dir(&setup.repo_dir);
-    cmd.args(["rewind", &setup.run.run_id, "@1", "--no-push"]);
+    cmd.args(["rewind", &setup.run.run_id, "@2", "--no-push"]);
 
     let (snapshot, output) = run_and_format(&mut cmd, &git_filters(&context));
     assert_snapshot!(snapshot, @"
@@ -98,29 +98,20 @@ fn rewind_target_updates_metadata_and_resume_hint() {
     ");
     assert!(output.status.success(), "rewind should succeed");
 
-    let after = metadata_run_ids(&setup.repo_dir);
-    let new_run_ids: Vec<_> = after.difference(&before).cloned().collect();
-    assert_eq!(
-        new_run_ids.len(),
-        1,
-        "rewind should create one replacement run"
-    );
-    let new_run_id = &new_run_ids[0];
-
-    let run_head = git_stdout(&setup.repo_dir, &[
-        "rev-parse",
-        &format!("fabro/run/{new_run_id}"),
-    ]);
-    assert_eq!(run_head.trim(), expected_run_head);
-
     let state = run_state(&setup.run.run_dir);
     assert!(matches!(
         state.status,
         Some(fabro_types::RunStatus::Archived { .. })
     ));
+    let new_run_id = state
+        .superseded_by
+        .expect("rewind should record replacement run");
+    let replacement = run_state_by_id(&context, &new_run_id.to_string());
     assert_eq!(
-        state.superseded_by.map(|run_id| run_id.to_string()),
-        Some(new_run_id.clone())
+        replacement
+            .checkpoint
+            .and_then(|checkpoint| checkpoint.git_commit_sha),
+        Some(expected_run_head)
     );
 }
 
@@ -138,7 +129,7 @@ fn rewind_archives_source_and_records_superseded_by() {
 
     let mut cmd = context.command();
     cmd.current_dir(&setup.repo_dir);
-    cmd.args(["rewind", &setup.run.run_id, "@1", "--no-push"]);
+    cmd.args(["rewind", &setup.run.run_id, "@2", "--no-push"]);
     let output = cmd.output().expect("rewind should execute");
     assert!(
         output.status.success(),

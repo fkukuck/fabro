@@ -9,7 +9,6 @@
     reason = "These CLI integration test helpers shell out to real git and fabro binaries while constructing fixtures."
 )]
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::{Duration, Instant};
@@ -120,7 +119,7 @@ pub(crate) fn mock_resolved_run<'a>(
                 "goal": "Nightly run",
                 "title": "Nightly run",
                 "labels": {},
-                "host_repo_path": null,
+                "source_directory": null,
                 "repository": { "name": "unknown" },
                 "start_time": "2026-04-05T12:00:00Z",
                 "created_at": "2026-04-05T12:00:00Z",
@@ -755,6 +754,13 @@ pub(crate) fn run_state(run_dir: &Path) -> RunProjection {
     ))
 }
 
+pub(crate) fn run_state_by_id(context: &TestContext, run_id: &str) -> RunProjection {
+    block_on(get_server_json_for_storage(
+        &context.storage_dir,
+        &format!("/api/v1/runs/{run_id}/state"),
+    ))
+}
+
 pub(crate) fn run_events(run_dir: &Path) -> Vec<EventEnvelope> {
     let run_id = infer_run_id(run_dir);
     let response: serde_json::Value = block_on(get_server_json(
@@ -796,28 +802,6 @@ pub(crate) fn git_stdout(repo_dir: &Path, args: &[&str]) -> String {
     stdout(&git_success(repo_dir, args))
 }
 
-pub(crate) fn metadata_run_ids(repo_dir: &Path) -> BTreeSet<String> {
-    git_stdout(repo_dir, &["branch", "--format=%(refname:short)"])
-        .lines()
-        .map(str::trim)
-        .filter_map(|line| line.strip_prefix("fabro/meta/"))
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-pub(crate) fn run_branch_commits(repo_dir: &Path, run_id: &str) -> Vec<String> {
-    git_stdout(repo_dir, &[
-        "rev-list",
-        "--reverse",
-        &format!("fabro/run/{run_id}"),
-    ])
-    .lines()
-    .map(str::trim)
-    .filter(|line| !line.is_empty())
-    .map(ToOwned::to_owned)
-    .collect()
-}
-
 pub(crate) fn run_branch_commits_since_base(
     repo_dir: &Path,
     run_id: &str,
@@ -833,12 +817,6 @@ pub(crate) fn run_branch_commits_since_base(
     .filter(|line| !line.is_empty())
     .map(ToOwned::to_owned)
     .collect()
-}
-
-pub(crate) fn git_show_json(repo_dir: &Path, revspec: &str) -> Value {
-    let output = git_success(repo_dir, &["show", revspec]);
-    serde_json::from_str(&stdout(&output))
-        .unwrap_or_else(|err| panic!("failed to parse git show {revspec}: {err}"))
 }
 
 pub(crate) fn text_tree(root: &Path) -> Vec<String> {
@@ -1041,6 +1019,19 @@ fn setup_git_backed_run(context: &TestContext, workflow: GitWorkflowKind) -> Git
 
     git_success(&repo_dir, &["add", "story.txt", "flow.fabro"]);
     git_success(&repo_dir, &["commit", "-qm", "init"]);
+    let remote_dir = context.temp_dir.join(match workflow {
+        GitWorkflowKind::Changed => "git-changed-remote.git",
+        GitWorkflowKind::Noop => "git-noop-remote.git",
+    });
+    let remote_dir_str = remote_dir.display().to_string();
+    git_success(&context.temp_dir, &[
+        "init",
+        "--bare",
+        "-q",
+        &remote_dir_str,
+    ]);
+    git_success(&repo_dir, &["remote", "add", "origin", &remote_dir_str]);
+    git_success(&repo_dir, &["push", "-u", "origin", "HEAD:main"]);
     let base_sha = git_stdout(&repo_dir, &["rev-parse", "HEAD"])
         .trim()
         .to_string();

@@ -12,8 +12,8 @@ use fabro_config::RunScratch;
 use fabro_graphviz::graph;
 use fabro_hooks::{HookContext, HookDecision, HookEvent, HookRunner};
 use fabro_sandbox::{
-    ReadBeforeWriteSandbox, SandboxEventCallback, SandboxSpec, WorkdirStrategy, WorktreeOptions,
-    WorktreeSandbox,
+    GitSetupIntent, ReadBeforeWriteSandbox, SandboxEventCallback, SandboxSpec, WorkdirStrategy,
+    WorktreeOptions, WorktreeSandbox,
 };
 use fabro_vault::Vault;
 use futures::future::try_join_all;
@@ -21,17 +21,17 @@ use shlex::try_quote;
 use tokio::process::Command as TokioCommand;
 use tokio::runtime::Handle;
 use tokio::sync::RwLock as AsyncRwLock;
-use tokio::task::spawn_blocking;
 use tokio::time::timeout as tokio_timeout;
 
 use super::types::{InitOptions, Initialized, LlmSpec, Persisted, SandboxEnvSpec};
 use crate::devcontainer_bridge::{devcontainer_to_snapshot_config, run_devcontainer_lifecycle};
 use crate::error::Error;
 use crate::event::{Emitter, Event, RunNoticeLevel};
-use crate::git::{self, GitSyncStatus, MetadataStore};
+use crate::git::RUN_BRANCH_PREFIX;
 use crate::handler::llm::{AgentApiBackend, AgentCliBackend, BackendRouter};
 use crate::handler::{HandlerRegistry, default_registry, sandbox_cancel_token};
-use crate::run_options::GitCheckpointOptions;
+use crate::run_options::{GitCheckpointOptions, RunOptions};
+use crate::sandbox_metadata::metadata_branch_name;
 use crate::services::{EngineServices, RunServices};
 
 struct WorktreePlan {
@@ -53,44 +53,56 @@ async fn run_hooks(
     runner.run(hook_context, sandbox, work_dir).await
 }
 
-async fn resolve_worktree_plan(options: &mut InitOptions) -> Result<Option<WorktreePlan>, Error> {
+fn resolve_worktree_plan(options: &mut InitOptions) -> Option<WorktreePlan> {
+    if options.run_options.checkpoints_disabled {
+        options.run_options.display_base_sha = None;
+        return None;
+    }
+
     let Some(worktree_mode) = options.worktree_mode else {
         options.run_options.display_base_sha = None;
-        return Ok(None);
+        return None;
     };
+
+    if options.checkpoint.is_some() && matches!(options.sandbox, SandboxSpec::Local { .. }) {
+        if let Some(fork_source) = options.run_options.fork_source_ref.as_ref() {
+            let base_sha = fork_source.checkpoint_sha.clone();
+            options.run_options.display_base_sha = Some(base_sha.clone());
+            return Some(WorktreePlan {
+                branch_name: format!("{RUN_BRANCH_PREFIX}{}", options.run_id),
+                base_sha,
+                worktree_path: RunScratch::new(&options.run_options.run_dir).worktree_dir(),
+                skip_branch_creation: false,
+            });
+        }
+    }
 
     if options.checkpoint.is_some() && matches!(options.sandbox, SandboxSpec::Local { .. }) {
         if let Some(git) = options.run_options.git.as_ref() {
             if let (Some(run_branch), Some(base_sha)) = (&git.run_branch, &git.base_sha) {
                 options.run_options.display_base_sha = Some(base_sha.clone());
-                return Ok(Some(WorktreePlan {
+                return Some(WorktreePlan {
                     branch_name:          run_branch.clone(),
                     base_sha:             base_sha.clone(),
                     worktree_path:        RunScratch::new(&options.run_options.run_dir)
                         .worktree_dir(),
                     skip_branch_creation: true,
-                }));
+                });
             }
         }
     }
 
-    let host_repo_path = options.sandbox.host_repo_path();
-    let git_status = if let Some(path) = host_repo_path.as_ref() {
-        let path = path.clone();
-        let base_branch = options.run_options.base_branch.clone();
-        spawn_blocking(move || git::sync_status(&path, "origin", base_branch.as_deref()))
-            .await
-            .unwrap_or(GitSyncStatus::Dirty)
-    } else {
-        GitSyncStatus::Dirty
-    };
-    let strategy = options.sandbox.workdir_strategy(
-        worktree_mode,
-        git_status.is_clean(),
-        options.checkpoint.is_some(),
-    );
+    let git_is_clean = options
+        .run_options
+        .pre_run_git
+        .as_ref()
+        .is_some_and(|git| matches!(git.local_dirty, fabro_types::DirtyStatus::Clean));
+    let strategy =
+        options
+            .sandbox
+            .workdir_strategy(worktree_mode, git_is_clean, options.checkpoint.is_some());
 
-    if git_status == GitSyncStatus::Dirty {
+    if !git_is_clean {
         let env_name = match strategy {
             WorkdirStrategy::LocalWorktree => Some("worktree"),
             WorkdirStrategy::Cloud => Some("remote sandbox"),
@@ -105,97 +117,59 @@ async fn resolve_worktree_plan(options: &mut InitOptions) -> Result<Option<Workt
         }
     }
 
-    if !options.dry_run
-        && matches!(
-            strategy,
-            WorkdirStrategy::LocalWorktree | WorkdirStrategy::Cloud
-        )
-    {
-        if let (Some(repo_path), Some(branch)) = (
-            host_repo_path.as_ref(),
-            options.run_options.base_branch.as_ref(),
-        ) {
-            let needs_push = match git_status {
-                GitSyncStatus::Synced => false,
-                GitSyncStatus::Unsynced => true,
-                GitSyncStatus::Dirty => {
-                    let repo_path = repo_path.clone();
-                    let branch = branch.clone();
-                    spawn_blocking(move || git::branch_needs_push(&repo_path, "origin", &branch))
-                        .await
-                        .unwrap_or(true)
-                }
-            };
-
-            if needs_push {
-                let repo_path = repo_path.clone();
-                let branch = branch.clone();
-                let branch_for_push = branch.clone();
-                match git::blocking_push_with_timeout(60, move || {
-                    git::push_branch(&repo_path, "origin", &branch_for_push)
-                })
-                .await
-                {
-                    Ok(()) => options.emitter.notice(
-                        RunNoticeLevel::Info,
-                        "git_push_succeeded",
-                        format!("{branch} (synced local commits to remote)"),
-                    ),
-                    Err(e) => options.emitter.notice(
-                        RunNoticeLevel::Warn,
-                        "git_push_failed",
-                        format!("Failed to push {branch} to origin: {e}"),
-                    ),
-                }
-            }
-        }
-    }
-
     match strategy {
         WorkdirStrategy::LocalWorktree => {
-            let Some(repo_path) = host_repo_path else {
-                options.run_options.display_base_sha = None;
-                return Ok(None);
-            };
-            match spawn_blocking(move || git::head_sha(&repo_path))
-                .await
-                .unwrap_or_else(|_| Err(Error::engine("git head_sha task panicked")))
-            {
-                Ok(base_sha) => {
-                    options.run_options.display_base_sha = Some(base_sha.clone());
-                    Ok(Some(WorktreePlan {
-                        branch_name: format!("{}{}", git::RUN_BRANCH_PREFIX, options.run_id),
-                        base_sha,
-                        worktree_path: RunScratch::new(&options.run_options.run_dir).worktree_dir(),
-                        skip_branch_creation: false,
-                    }))
-                }
-                Err(e) => {
-                    options.emitter.notice(
-                        RunNoticeLevel::Warn,
-                        "worktree_setup_failed",
-                        format!("Git worktree setup failed ({e}), running without worktree."),
-                    );
-                    options.run_options.display_base_sha = None;
-                    Ok(None)
-                }
-            }
+            let (branch_name, base_sha) =
+                if let Some(fork_source) = options.run_options.fork_source_ref.as_ref() {
+                    (
+                        format!("{RUN_BRANCH_PREFIX}{}", options.run_id),
+                        fork_source.checkpoint_sha.clone(),
+                    )
+                } else {
+                    let Some(base_sha) = options
+                        .run_options
+                        .pre_run_git
+                        .as_ref()
+                        .and_then(|git| git.display_base_sha.clone())
+                    else {
+                        options.run_options.display_base_sha = None;
+                        return None;
+                    };
+                    (format!("{RUN_BRANCH_PREFIX}{}", options.run_id), base_sha)
+                };
+            options.run_options.display_base_sha = Some(base_sha.clone());
+            Some(WorktreePlan {
+                branch_name,
+                base_sha,
+                worktree_path: RunScratch::new(&options.run_options.run_dir).worktree_dir(),
+                skip_branch_creation: false,
+            })
         }
         WorkdirStrategy::Cloud => {
-            options.run_options.display_base_sha = if let Some(path) = host_repo_path.as_ref() {
-                let path = path.clone();
-                spawn_blocking(move || git::head_sha(&path))
-                    .await
-                    .ok()
-                    .and_then(std::result::Result::ok)
-            } else {
-                None
-            };
-            Ok(None)
+            options.run_options.display_base_sha = options
+                .run_options
+                .pre_run_git
+                .as_ref()
+                .and_then(|git| git.display_base_sha.clone());
+            None
         }
         WorkdirStrategy::LocalDirectory => {
             options.run_options.display_base_sha = None;
-            Ok(None)
+            None
+        }
+    }
+}
+
+fn git_setup_intent(run_options: &RunOptions) -> GitSetupIntent {
+    if let Some(source) = run_options.fork_source_ref.as_ref() {
+        GitSetupIntent::ForkFromCheckpoint {
+            new_run_id:     run_options.run_id.to_string(),
+            source_run_id:  source.source_run_id.to_string(),
+            checkpoint_sha: source.checkpoint_sha.clone(),
+        }
+    } else {
+        GitSetupIntent::NewRun {
+            run_id: run_options.run_id.to_string(),
         }
     }
 }
@@ -464,12 +438,12 @@ pub async fn initialize(
 
     resolve_devcontainer(&mut options).await?;
 
-    let worktree_plan = resolve_worktree_plan(&mut options).await?;
+    let worktree_plan = resolve_worktree_plan(&mut options);
     if let Some(plan) = worktree_plan.as_ref() {
         options.run_options.git = Some(GitCheckpointOptions {
             base_sha:    Some(plan.base_sha.clone()),
             run_branch:  Some(plan.branch_name.clone()),
-            meta_branch: Some(MetadataStore::branch_name(&options.run_id.to_string())),
+            meta_branch: Some(metadata_branch_name(&options.run_id.to_string())),
         });
     }
 
@@ -499,18 +473,7 @@ pub async fn initialize(
                 Arc::new(ReadBeforeWriteSandbox::new(Arc::new(worktree)))
             }
             Err(e) => {
-                options.emitter.notice(
-                    RunNoticeLevel::Warn,
-                    "worktree_setup_failed",
-                    format!("Git worktree setup failed ({e}), running without worktree."),
-                );
-                Arc::new(ReadBeforeWriteSandbox::new(
-                    options
-                        .sandbox
-                        .build(Some(Arc::clone(&sandbox_event_callback)))
-                        .await
-                        .map_err(|e| Error::engine(e.to_string()))?,
-                ))
+                return Err(Error::engine(format!("Git worktree setup failed: {e}")));
             }
         }
     } else {
@@ -557,14 +520,12 @@ pub async fn initialize(
 
     let sandbox_record = options.sandbox.to_sandbox_record(&*sandbox);
     options.emitter.emit(&Event::SandboxInitialized {
-        working_directory:      sandbox_record.working_directory.clone(),
-        provider:               sandbox_record.provider.clone(),
-        identifier:             sandbox_record.identifier.clone(),
-        host_working_directory: sandbox_record.host_working_directory.clone(),
-        container_mount_point:  sandbox_record.container_mount_point.clone(),
-        repo_cloned:            sandbox_record.repo_cloned,
-        clone_origin_url:       sandbox_record.clone_origin_url.clone(),
-        clone_branch:           sandbox_record.clone_branch.clone(),
+        working_directory: sandbox_record.working_directory.clone(),
+        provider:          sandbox_record.provider.clone(),
+        identifier:        sandbox_record.identifier.clone(),
+        repo_cloned:       sandbox_record.repo_cloned,
+        clone_origin_url:  sandbox_record.clone_origin_url.clone(),
+        clone_branch:      sandbox_record.clone_branch.clone(),
     });
 
     let env = build_sandbox_env(
@@ -601,10 +562,8 @@ pub async fn initialize(
         .and_then(|g| g.run_branch.as_ref())
         .is_some();
     if !has_run_branch {
-        match sandbox
-            .setup_git_for_run(&options.run_options.run_id.to_string())
-            .await
-        {
+        let intent = git_setup_intent(&options.run_options);
+        match sandbox.setup_git(&intent).await {
             Ok(Some(info)) => {
                 let base_sha = options
                     .run_options
@@ -616,7 +575,7 @@ pub async fn initialize(
                 options.run_options.git = Some(GitCheckpointOptions {
                     base_sha,
                     run_branch: Some(info.run_branch.clone()),
-                    meta_branch: Some(MetadataStore::branch_name(
+                    meta_branch: Some(metadata_branch_name(
                         &options.run_options.run_id.to_string(),
                     )),
                 });
@@ -626,10 +585,7 @@ pub async fn initialize(
             }
             Ok(None) => {}
             Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "Sandbox git setup failed, running without git checkpoints"
-                );
+                return Err(Error::engine(format!("Sandbox git setup failed: {e}")));
             }
         }
     }
@@ -829,17 +785,19 @@ mod tests {
 
     fn test_settings(run_dir: &std::path::Path) -> RunOptions {
         RunOptions {
-            settings:         WorkflowSettings::default(),
-            run_dir:          run_dir.to_path_buf(),
-            cancel_token:     None,
-            run_id:           test_run_id(),
-            labels:           HashMap::new(),
-            workflow_slug:    None,
-            github_app:       None,
-            host_repo_path:   None,
-            base_branch:      None,
-            display_base_sha: None,
-            git:              None,
+            settings:             WorkflowSettings::default(),
+            run_dir:              run_dir.to_path_buf(),
+            cancel_token:         None,
+            run_id:               test_run_id(),
+            labels:               HashMap::new(),
+            workflow_slug:        None,
+            github_app:           None,
+            pre_run_git:          None,
+            fork_source_ref:      None,
+            checkpoints_disabled: false,
+            base_branch:          None,
+            display_base_sha:     None,
+            git:                  None,
         }
     }
 
@@ -854,14 +812,16 @@ mod tests {
                 settings: WorkflowSettings::default(),
                 graph,
                 workflow_slug: Some("test".to_string()),
-                working_directory: std::env::current_dir().unwrap(),
-                host_repo_path: Some(std::env::current_dir().unwrap().display().to_string()),
+                source_directory: Some(std::env::current_dir().unwrap().display().to_string()),
                 repo_origin_url: None,
                 base_branch: Some("main".to_string()),
                 labels: HashMap::new(),
                 provenance: None,
                 manifest_blob: None,
                 definition_blob: None,
+                pre_run_git: None,
+                fork_source_ref: None,
+                checkpoints_disabled: false,
             },
         )
     }
