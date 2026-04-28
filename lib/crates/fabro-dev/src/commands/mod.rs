@@ -1,3 +1,4 @@
+mod bench_tests;
 mod build;
 mod docker_build;
 mod docs;
@@ -12,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result};
+pub(crate) use bench_tests::{BenchTestsArgs, bench_tests};
 pub(crate) use build::{BuildArgs, build};
 pub(crate) use docker_build::{DockerBuildArgs, docker_build};
 pub(crate) use docs::{DocsArgs, docs};

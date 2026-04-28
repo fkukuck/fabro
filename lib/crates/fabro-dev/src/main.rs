@@ -18,6 +18,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run the test suite N times and capture per-test timing to CSV.
+    BenchTests(commands::BenchTestsArgs),
     /// Refresh embedded SPA assets and run cargo build.
     Build(commands::BuildArgs),
     /// Build Fabro Docker images with the release pipeline layout.
@@ -33,6 +35,7 @@ enum Command {
 impl Command {
     fn run(self) -> Result<()> {
         match self {
+            Self::BenchTests(args) => commands::bench_tests(args),
             Self::Build(args) => commands::build(args),
             Self::DockerBuild(args) => commands::docker_build(args),
             Self::Docs(args) => commands::docs(args),
