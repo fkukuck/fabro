@@ -17,7 +17,7 @@ Fabro only reads `settings.toml`. Older `server.toml`, `user.toml`, and `cli.tom
 
 | Scope | Examples |
 |---|---|
-| Server-owned (runtime-only from local `settings.toml`) | `[server.listen]`, `[server.api]`, `[server.web]`, `[server.auth]`, `[server.storage]`, `[server.artifacts]`, `[server.slatedb]`, `[server.scheduler]`, `[server.logging]`, `[server.integrations]`, `[features]` |
+| Server-owned (runtime-only from local `settings.toml`) | `[server.listen]`, `[server.api]`, `[server.web]`, `[server.auth]`, `[server.storage]`, `[server.sandbox.azure.platform]`, `[server.artifacts]`, `[server.slatedb]`, `[server.scheduler]`, `[server.logging]`, `[server.integrations]`, `[features]` |
 | Shared run defaults (layered through `.fabro/project.toml`/`workflow.toml`) | `[run.model]`, `[run.prepare]`, `[run.sandbox]`, `[run.checkpoint]`, `[run.inputs]`, `[run.pull_request]`, `[run.git]`, `[run.hooks]`, `[run.agent]` |
 
 The CLI-only `[cli.*]` sections (including `[cli.target]`) belong in the client machine's `settings.toml`. They tell CLI commands how to reach a server. The server process does not read `[cli.*]` for its own binding or routing.
@@ -55,6 +55,14 @@ strategy = "tailscale_funnel"
 
 [server.storage]
 root = "/var/lib/fabro"
+
+[server.sandbox.azure.platform]
+subscription_id = "00000000-0000-0000-0000-000000000000"
+resource_group = "fabro-prod"
+location = "eastus"
+subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/fabro-prod/providers/Microsoft.Network/virtualNetworks/fabro/subnets/aci"
+acr_server = "fabro.azurecr.io"
+sandboxd_port = 7777
 
 [server.artifacts]
 provider = "s3"
@@ -222,6 +230,30 @@ configuration path. If you need MinIO, R2, or another S3-compatible backend, con
 `[server.slatedb]` and `[server.artifacts]` directly in `settings.toml`. The runtime still
 honors those hand-edited values even though the browser wizard does not manage them.
 
+### `[server.sandbox.azure.platform]` section
+
+Configure the server-owned Azure platform settings used when `run.sandbox.provider = "azure"`.
+
+| Key | Description | Default |
+|---|---|---|
+| `subscription_id` | Azure subscription used for sandbox provisioning | — |
+| `resource_group` | Resource group that owns the ACI sandboxes | — |
+| `location` | Azure region for sandboxes | — |
+| `subnet_id` | Delegated subnet resource ID for Azure Container Instances | — |
+| `acr_server` | ACR login server used by sandbox images | — |
+| `sandboxd_port` | Port served by `fabro-sandboxd` inside the sandbox | `7777` |
+
+Fabro persists these non-secret values in `settings.toml`. The browser install wizard's `Azure`
+step writes this section automatically.
+
+Optional `FABRO_AZURE_ACR_USERNAME` and `FABRO_AZURE_ACR_PASSWORD` do not live in
+`settings.toml`. When provided through `fabro install`, Fabro stores them in the vault and
+resolves them together for Azure sandbox image pulls.
+
+For Azure sandboxes, configure this section instead of relying on worker-local
+`FABRO_AZURE_SUBSCRIPTION_ID`, `FABRO_AZURE_RESOURCE_GROUP`, `FABRO_AZURE_LOCATION`,
+`FABRO_AZURE_SANDBOX_SUBNET_ID`, or `FABRO_AZURE_ACR_SERVER` environment variables.
+
 ### Run defaults
 
 The `[run.*]` sections in `settings.toml` act as defaults for every run.
@@ -324,6 +356,9 @@ For the auth model above, the main server runtime secrets are:
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` when the install wizard or a manual config uses
   static S3 object-store credentials
 
+Azure ACR credentials saved by the install wizard are different: Fabro stores
+`FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` in the vault instead of `server.env`.
+
 Fabro no longer auto-loads `.env` files. Provider API keys are required for the models you want to use; everything else is optional.
 
 ### LLM provider keys
@@ -380,6 +415,18 @@ restart. If `leftover_env_keys` includes `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCE
 install or remove the managed object-store lines from `server.env` before abandoning the host.
 Rotation is not required solely because finish failed after an atomic `0600` rewrite, but it
 remains the fallback if you no longer trust the host boundary.
+
+### Azure sandbox registry credentials (optional)
+
+Fabro resolves these from the vault for the server-owned Azure sandbox platform config.
+
+| Variable | Description |
+|---|---|
+| `FABRO_AZURE_ACR_USERNAME` | Optional ACR username used when pulling private sandbox images |
+| `FABRO_AZURE_ACR_PASSWORD` | Matching ACR password |
+
+The install wizard stores these only as a pair. If you configure them manually, keep both set or
+both unset.
 
 ### GitHub integration (optional)
 

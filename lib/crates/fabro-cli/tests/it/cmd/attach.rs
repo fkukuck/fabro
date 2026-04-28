@@ -621,6 +621,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
               },
               "pull_request": null,
               "sandbox": {
+                "azure": null,
                 "daytona": null,
                 "devcontainer": false,
                 "docker": {

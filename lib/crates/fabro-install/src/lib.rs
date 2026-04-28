@@ -61,6 +61,16 @@ pub enum InstallSandboxSelection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallAzurePlatformSelection {
+    pub subscription_id: String,
+    pub resource_group:  String,
+    pub location:        String,
+    pub subnet_id:       String,
+    pub acr_server:      String,
+    pub sandboxd_port:   u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallObjectStoreEnvPlan {
     pub writes:   Vec<envfile::EnvFileUpdate>,
     pub removals: Vec<envfile::EnvFileRemoval>,
@@ -252,6 +262,44 @@ pub fn write_github_app_settings(
         "client_id".into(),
         toml::Value::String(client_id.to_string()),
     );
+    Ok(())
+}
+
+pub fn write_azure_platform_settings(
+    doc: &mut toml::Value,
+    selection: &InstallAzurePlatformSelection,
+) -> Result<()> {
+    let root = root_table_mut(doc)?;
+    let server = ensure_table(root, "server")?;
+    let sandbox = ensure_table(server, "sandbox")?;
+    let azure = ensure_table(sandbox, "azure")?;
+    let platform = ensure_table(azure, "platform")?;
+
+    platform.insert(
+        "subscription_id".into(),
+        toml::Value::String(selection.subscription_id.clone()),
+    );
+    platform.insert(
+        "resource_group".into(),
+        toml::Value::String(selection.resource_group.clone()),
+    );
+    platform.insert(
+        "location".into(),
+        toml::Value::String(selection.location.clone()),
+    );
+    platform.insert(
+        "subnet_id".into(),
+        toml::Value::String(selection.subnet_id.clone()),
+    );
+    platform.insert(
+        "acr_server".into(),
+        toml::Value::String(selection.acr_server.clone()),
+    );
+    platform.insert(
+        "sandboxd_port".into(),
+        toml::Value::Integer(i64::from(selection.sandboxd_port)),
+    );
+
     Ok(())
 }
 
@@ -528,11 +576,13 @@ mod tests {
     use fabro_vault::{SecretType as VaultSecretType, Vault};
 
     use super::{
+        InstallAzurePlatformSelection,
         InstallListenConfig, InstallObjectStoreCredentialMode, InstallObjectStoreSelection,
         InstallSandboxSelection, OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_MANAGED_COMMENT,
         OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite, VaultSecretWrite,
         default_web_url, merge_server_settings, persist_install_outputs_direct,
-        write_github_app_settings, write_object_store_settings, write_sandbox_settings,
+        write_azure_platform_settings, write_github_app_settings, write_object_store_settings,
+        write_sandbox_settings,
     };
 
     fn format_config_toml() -> String {
@@ -640,6 +690,31 @@ name = "custom"
                 .collect::<Vec<_>>(),
             vec!["github"]
         );
+    }
+
+    #[test]
+    fn write_azure_platform_settings_creates_server_sandbox_platform_table() {
+        let mut doc = toml::Value::Table(toml::Table::new());
+
+        write_azure_platform_settings(
+            &mut doc,
+            &InstallAzurePlatformSelection {
+                subscription_id: "sub-1".into(),
+                resource_group: "rg-1".into(),
+                location: "eastus".into(),
+                subnet_id:
+                    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
+                        .into(),
+                acr_server: "fabro.azurecr.io".into(),
+                sandboxd_port: 7777,
+            },
+        )
+        .unwrap();
+
+        let rendered = toml::to_string(&doc).unwrap();
+        assert!(rendered.contains("[server.sandbox.azure.platform]"));
+        assert!(rendered.contains("subscription_id = \"sub-1\""));
+        assert!(rendered.contains("acr_server = \"fabro.azurecr.io\""));
     }
 
     #[test]

@@ -6,7 +6,9 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use fabro_config::Storage;
 use fabro_github::GitHubCredentials;
+use fabro_static::EnvVars;
 use fabro_types::RunId;
 use tokio::sync::OnceCell;
 use tokio::{fs, time};
@@ -58,7 +60,7 @@ impl AzureSandbox {
         clone_origin_url: Option<String>,
         clone_branch: Option<String>,
     ) -> Result<Self, String> {
-        let platform = AzurePlatformConfig::from_env()?;
+        let platform = load_platform_from_worker_storage_root()?;
         let arm = AzureArmClient::new(platform.clone())?;
         Ok(Self {
             runtime,
@@ -75,8 +77,8 @@ impl AzureSandbox {
         })
     }
 
-    pub fn reconnect(resource_id: &str) -> Result<Self, String> {
-        let platform = AzurePlatformConfig::from_env()?;
+    pub fn reconnect(resource_id: &str, storage_root: &Path) -> Result<Self, String> {
+        let platform = load_platform_from_storage_root(storage_root)?;
         let arm = AzureArmClient::new(platform.clone())?;
         let parsed = ContainerGroupResourceId::parse(resource_id)?;
         let resource_id_cell = OnceCell::new();
@@ -170,7 +172,7 @@ impl AzureSandbox {
         container_group_base_url(&view, self.platform.sandboxd_port)
     }
 
-    async fn ensure_workspace_clone(&self) -> Result<(), String> {
+    async fn ensure_workspace_clone(&self) -> crate::Result<()> {
         if self
             .file_exists(&format!("{WORKING_DIRECTORY}/.git"))
             .await?
@@ -187,10 +189,10 @@ impl AzureSandbox {
             let mkdir = format!("mkdir -p {}", shell_quote(WORKING_DIRECTORY));
             let result = self.exec_command(&mkdir, 10_000, None, None, None).await?;
             if result.exit_code != 0 {
-                return Err(format!(
+                return Err(crate::Error::message(format!(
                     "failed to create working directory (exit {}): {}",
                     result.exit_code, result.stderr
-                ));
+                )));
             }
             return Ok(());
         };
@@ -206,10 +208,7 @@ impl AzureSandbox {
         let auth_url = match &self.github_app {
             Some(creds) => Some(
                 fabro_github::resolve_authenticated_url(
-                    &fabro_github::GitHubContext::new(
-                        creds,
-                        &fabro_github::github_api_base_url(),
-                    ),
+                    &fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
                     &url,
                 )
                 .await
@@ -242,9 +241,10 @@ impl AzureSandbox {
             );
             self.emit(SandboxEvent::GitCloneFailed {
                 url,
-                error: err.clone(),
+                error:  err.clone(),
+                causes: Vec::new(),
             });
-            return Err(err);
+            return Err(err.into());
         }
 
         let _ = self.origin_url.set(url.clone());
@@ -290,6 +290,23 @@ impl AzureSandbox {
     }
 }
 
+fn load_platform_from_worker_storage_root() -> Result<AzurePlatformConfig, String> {
+    let storage_root = std::env::var(EnvVars::FABRO_STORAGE_ROOT).map_err(|_| {
+        format!(
+            "{} is required to load Azure platform config",
+            EnvVars::FABRO_STORAGE_ROOT
+        )
+    })?;
+    load_platform_from_storage_root(Path::new(&storage_root))
+}
+
+fn load_platform_from_storage_root(storage_root: &Path) -> Result<AzurePlatformConfig, String> {
+    let path = Storage::new(storage_root)
+        .runtime_directory()
+        .azure_platform_config_path();
+    AzurePlatformConfig::load_from_path(&path)
+}
+
 #[async_trait]
 impl Sandbox for AzureSandbox {
     async fn read_file(
@@ -297,7 +314,7 @@ impl Sandbox for AzureSandbox {
         path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> Result<String, String> {
+    ) -> crate::Result<String> {
         let bytes = self
             .sandboxd_client()
             .await?
@@ -307,27 +324,28 @@ impl Sandbox for AzureSandbox {
         Ok(format_lines_numbered(&content, offset, limit))
     }
 
-    async fn write_file(&self, path: &str, content: &str) -> Result<(), String> {
+    async fn write_file(&self, path: &str, content: &str) -> crate::Result<()> {
         self.sandboxd_client()
             .await?
             .write_file(&Self::resolve_path(path), content.as_bytes())
             .await
+            .map_err(Into::into)
     }
 
-    async fn delete_file(&self, path: &str) -> Result<(), String> {
+    async fn delete_file(&self, path: &str) -> crate::Result<()> {
         let cmd = format!("rm -rf {}", shell_quote(&Self::resolve_path(path)));
         let result = self.exec_command(&cmd, 10_000, None, None, None).await?;
         if result.exit_code == 0 {
             Ok(())
         } else {
-            Err(format!(
+            Err(crate::Error::message(format!(
                 "delete failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ))
+            )))
         }
     }
 
-    async fn file_exists(&self, path: &str) -> Result<bool, String> {
+    async fn file_exists(&self, path: &str) -> crate::Result<bool> {
         let cmd = format!("test -e {}", shell_quote(&Self::resolve_path(path)));
         let result = self.exec_command(&cmd, 10_000, None, None, None).await?;
         Ok(result.exit_code == 0)
@@ -337,7 +355,7 @@ impl Sandbox for AzureSandbox {
         &self,
         path: &str,
         depth: Option<usize>,
-    ) -> Result<Vec<DirEntry>, String> {
+    ) -> crate::Result<Vec<DirEntry>> {
         let resolved = Self::resolve_path(path);
         let max_depth = depth.unwrap_or(1);
         let cmd = format!(
@@ -347,10 +365,10 @@ impl Sandbox for AzureSandbox {
         );
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "list_directory failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
 
         Ok(result
@@ -378,9 +396,10 @@ impl Sandbox for AzureSandbox {
         working_dir: Option<&str>,
         env_vars: Option<&HashMap<String, String>>,
         cancel_token: Option<CancellationToken>,
-    ) -> Result<ExecResult, String> {
+    ) -> crate::Result<ExecResult> {
         self.exec_via_sandboxd(command, timeout_ms, working_dir, env_vars, cancel_token)
             .await
+            .map_err(Into::into)
     }
 
     async fn grep(
@@ -388,7 +407,7 @@ impl Sandbox for AzureSandbox {
         pattern: &str,
         path: &str,
         options: &GrepOptions,
-    ) -> Result<Vec<String>, String> {
+    ) -> crate::Result<Vec<String>> {
         let resolved = Self::resolve_path(path);
         let mut rg_cmd = "rg --line-number --no-heading".to_string();
         if options.case_insensitive {
@@ -417,15 +436,15 @@ impl Sandbox for AzureSandbox {
             return Ok(Vec::new());
         }
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
         Ok(result.stdout.lines().map(String::from).collect())
     }
 
-    async fn glob(&self, pattern: &str, path: Option<&str>) -> Result<Vec<String>, String> {
+    async fn glob(&self, pattern: &str, path: Option<&str>) -> crate::Result<Vec<String>> {
         let base = path.map_or_else(|| WORKING_DIRECTORY.to_string(), Self::resolve_path);
         let cmd = format!(
             "find {} -name {} -type f | sort",
@@ -434,10 +453,10 @@ impl Sandbox for AzureSandbox {
         );
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
         if result.exit_code != 0 {
-            return Err(format!(
+            return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
                 result.exit_code, result.stderr
-            ));
+            )));
         }
         Ok(result
             .stdout
@@ -451,35 +470,38 @@ impl Sandbox for AzureSandbox {
         &self,
         remote_path: &str,
         local_path: &Path,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         let bytes = self
             .sandboxd_client()
             .await?
             .read_file(&Self::resolve_path(remote_path))
             .await?;
         if let Some(parent) = local_path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|err| err.to_string())?;
+            fs::create_dir_all(parent).await.map_err(|err| {
+                crate::Error::context("Failed to create local parent dirs", err)
+            })?;
         }
         fs::write(local_path, bytes)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(|err| crate::Error::context(format!("Failed to write {}", local_path.display()), err))
     }
 
     async fn upload_file_from_local(
         &self,
         local_path: &Path,
         remote_path: &str,
-    ) -> Result<(), String> {
-        let bytes = fs::read(local_path).await.map_err(|err| err.to_string())?;
+    ) -> crate::Result<()> {
+        let bytes = fs::read(local_path).await.map_err(|err| {
+            crate::Error::context(format!("Failed to read {}", local_path.display()), err)
+        })?;
         self.sandboxd_client()
             .await?
             .write_file(&Self::resolve_path(remote_path), &bytes)
             .await
+            .map_err(Into::into)
     }
 
-    async fn initialize(&self) -> Result<(), String> {
+    async fn initialize(&self) -> crate::Result<()> {
         self.emit(SandboxEvent::Initializing {
             provider: "azure".into(),
         });
@@ -508,6 +530,7 @@ impl Sandbox for AzureSandbox {
                     self.emit(SandboxEvent::InitializeFailed {
                         provider: "azure".into(),
                         error: err.clone(),
+                        causes: Vec::new(),
                         duration_ms,
                     });
                 })?;
@@ -522,16 +545,18 @@ impl Sandbox for AzureSandbox {
             self.emit(SandboxEvent::InitializeFailed {
                 provider: "azure".into(),
                 error: err.clone(),
+                causes: Vec::new(),
                 duration_ms,
             });
-            return Err(err);
+            return Err(err.into());
         }
 
         if let Err(err) = self.ensure_workspace_clone().await {
             let duration_ms = u64::try_from(init_start.elapsed().as_millis()).unwrap_or(u64::MAX);
             self.emit(SandboxEvent::InitializeFailed {
                 provider: "azure".into(),
-                error: err.clone(),
+                error: err.to_string(),
+                causes: err.causes(),
                 duration_ms,
             });
             return Err(err);
@@ -549,7 +574,7 @@ impl Sandbox for AzureSandbox {
         Ok(())
     }
 
-    async fn cleanup(&self) -> Result<(), String> {
+    async fn cleanup(&self) -> crate::Result<()> {
         self.emit(SandboxEvent::CleanupStarted {
             provider: "azure".into(),
         });
@@ -559,8 +584,9 @@ impl Sandbox for AzureSandbox {
                 self.emit(SandboxEvent::CleanupFailed {
                     provider: "azure".into(),
                     error:    err.clone(),
+                    causes:   Vec::new(),
                 });
-                return Err(err);
+                return Err(err.into());
             }
         }
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -590,7 +616,7 @@ impl Sandbox for AzureSandbox {
             .unwrap_or_default()
     }
 
-    async fn refresh_push_credentials(&self) -> Result<(), String> {
+    async fn refresh_push_credentials(&self) -> crate::Result<()> {
         let Some(origin_url) = self.origin_url.get() else {
             return Ok(());
         };
@@ -612,14 +638,14 @@ impl Sandbox for AzureSandbox {
         if result.exit_code == 0 {
             Ok(())
         } else {
-            Err(format!(
+            Err(crate::Error::message(format!(
                 "Failed to refresh push credentials (exit {}): {}",
                 result.exit_code, result.stderr
-            ))
+            )))
         }
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> Result<Option<crate::GitRunInfo>, String> {
+    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
         setup_git_via_exec(self, run_id).await.map(Some)
     }
 

@@ -9,6 +9,7 @@
 )]
 
 pub mod auth;
+mod azure_platform;
 mod canonical_host;
 mod canonical_origin;
 pub mod csp;

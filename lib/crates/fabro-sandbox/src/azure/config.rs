@@ -1,4 +1,8 @@
-#[derive(Clone, Debug, PartialEq, Eq)]
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct AzurePlatformConfig {
     pub subscription_id: String,
     pub resource_group:  String,
@@ -11,6 +15,13 @@ pub struct AzurePlatformConfig {
 }
 
 impl AzurePlatformConfig {
+    pub fn load_from_path(path: &Path) -> Result<Self, String> {
+        let bytes = std::fs::read(path)
+            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|err| format!("failed to parse {}: {err}", path.display()))
+    }
+
     pub fn from_env() -> Result<Self, String> {
         let required = [
             "FABRO_AZURE_SUBSCRIPTION_ID",
@@ -64,6 +75,8 @@ impl AzurePlatformConfig {
 
 #[cfg(test)]
 mod tests {
+    use fabro_config::Storage;
+
     use super::AzurePlatformConfig;
 
     #[test]
@@ -91,5 +104,31 @@ mod tests {
                 assert_eq!(config.sandboxd_port, 7777);
             },
         );
+    }
+
+    #[test]
+    fn azure_platform_config_loads_from_snapshot_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = Storage::new(dir.path()).runtime_directory();
+        let path = runtime.azure_platform_config_path();
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "subscription_id": "sub-1",
+                "resource_group": "rg-1",
+                "location": "eastus",
+                "subnet_id": "/subscriptions/sub-1/.../aci",
+                "acr_server": "fabro.azurecr.io",
+                "sandboxd_port": 7777,
+                "acr_username": "azure-user",
+                "acr_password": "azure-pass",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let loaded = AzurePlatformConfig::load_from_path(&path).unwrap();
+        assert_eq!(loaded.subscription_id, "sub-1");
+        assert_eq!(loaded.acr_username.as_deref(), Some("azure-user"));
     }
 }

@@ -46,10 +46,11 @@ pub use run::{
 pub use server::{
     DiscordIntegrationSettings, GithubIntegrationSettings, IntegrationWebhooksSettings,
     IpAllowEntry, LogDestination, ObjectStoreSettings, ServerApiSettings, ServerArtifactsSettings,
-    ServerAuthGithubSettings, ServerAuthMethod, ServerAuthSettings, ServerIntegrationsSettings,
-    ServerIpAllowlistOverrideSettings, ServerIpAllowlistSettings, ServerListenSettings,
-    ServerLoggingSettings, ServerNamespace, ServerSchedulerSettings, ServerSlateDbSettings,
-    ServerStorageSettings, ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
+    ServerAuthGithubSettings, ServerAuthMethod, ServerAuthSettings, ServerAzurePlatformSettings,
+    ServerAzureSandboxSettings, ServerIntegrationsSettings, ServerIpAllowlistOverrideSettings,
+    ServerIpAllowlistSettings, ServerListenSettings, ServerLoggingSettings, ServerNamespace,
+    ServerSandboxSettings, ServerSchedulerSettings, ServerSlateDbSettings, ServerStorageSettings,
+    ServerWebSettings, SlackIntegrationSettings, TeamsIntegrationSettings,
 };
 pub use size::{ParseSizeError, Size};
 pub use workflow::WorkflowNamespace;

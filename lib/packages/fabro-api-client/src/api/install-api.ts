@@ -24,6 +24,8 @@ import { BASE_PATH, COLLECTION_FORMATS, type RequestArgs, BaseAPI, RequiredError
 // @ts-ignore
 import type { ErrorResponse } from '../models';
 // @ts-ignore
+import type { InstallAzureConfigInput } from '../models';
+// @ts-ignore
 import type { InstallFinishResponse } from '../models';
 // @ts-ignore
 import type { InstallGithubAppManifestInput } from '../models';
@@ -191,6 +193,41 @@ export const InstallApiAxiosParamCreator = function (configuration?: Configurati
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Records the Azure platform configuration chosen during browser install. Requires the one-time install token.
+         * @summary Save install Azure platform configuration
+         * @param {InstallAzureConfigInput} installAzureConfigInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        putInstallAzure: async (installAzureConfigInput: InstallAzureConfigInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'installAzureConfigInput' is not null or undefined
+            assertParamExists('putInstallAzure', 'installAzureConfigInput', installAzureConfigInput)
+            const localVarPath = `/install/azure`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(installAzureConfigInput, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -573,6 +610,19 @@ export const InstallApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Records the Azure platform configuration chosen during browser install. Requires the one-time install token.
+         * @summary Save install Azure platform configuration
+         * @param {InstallAzureConfigInput} installAzureConfigInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async putInstallAzure(installAzureConfigInput: InstallAzureConfigInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.putInstallAzure(installAzureConfigInput, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['InstallApi.putInstallAzure']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Records the GitHub personal access token chosen during the browser install. Requires the one-time install token.
          * @summary Save install GitHub token
          * @param {InstallGithubTokenInput} installGithubTokenInput 
@@ -738,6 +788,16 @@ export const InstallApiFactory = function (configuration?: Configuration, basePa
             return localVarFp.getInstallSession(options).then((request) => request(axios, basePath));
         },
         /**
+         * Records the Azure platform configuration chosen during browser install. Requires the one-time install token.
+         * @summary Save install Azure platform configuration
+         * @param {InstallAzureConfigInput} installAzureConfigInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        putInstallAzure(installAzureConfigInput: InstallAzureConfigInput, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.putInstallAzure(installAzureConfigInput, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Records the GitHub personal access token chosen during the browser install. Requires the one-time install token.
          * @summary Save install GitHub token
          * @param {InstallGithubTokenInput} installGithubTokenInput 
@@ -875,6 +935,17 @@ export class InstallApi extends BaseAPI {
      */
     public getInstallSession(options?: RawAxiosRequestConfig) {
         return InstallApiFp(this.configuration).getInstallSession(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Records the Azure platform configuration chosen during browser install. Requires the one-time install token.
+     * @summary Save install Azure platform configuration
+     * @param {InstallAzureConfigInput} installAzureConfigInput 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public putInstallAzure(installAzureConfigInput: InstallAzureConfigInput, options?: RawAxiosRequestConfig) {
+        return InstallApiFp(this.configuration).putInstallAzure(installAzureConfigInput, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

@@ -110,6 +110,11 @@ impl RuntimeDirectory {
     }
 
     #[must_use]
+    pub fn azure_platform_config_path(&self) -> PathBuf {
+        self.root.join("azure-platform.json")
+    }
+
+    #[must_use]
     pub fn dev_token_path(&self) -> PathBuf {
         self.root.join("server.dev-token")
     }
@@ -232,6 +237,15 @@ mod tests {
             storage.run_scratch(&run_id).root(),
             std::path::Path::new("/tmp/fabro-data/scratch")
                 .join(format!("{expected_date}-{run_id}"))
+        );
+    }
+
+    #[test]
+    fn runtime_directory_exposes_azure_platform_snapshot_path() {
+        let runtime = RuntimeDirectory::new("/srv/fabro");
+        assert_eq!(
+            runtime.azure_platform_config_path(),
+            std::path::PathBuf::from("/srv/fabro/azure-platform.json")
         );
     }
 
