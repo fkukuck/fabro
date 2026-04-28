@@ -1,18 +1,18 @@
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    ArtifactsSettings, DaytonaSettings, DaytonaSnapshotSettings, DockerSettings, DockerfileSource,
-    GitAuthorSettings, HookDefinition, HookType, InterviewProviderSettings, LocalSandboxSettings,
-    McpServerSettings, McpTransport, MergeStrategy, NotificationProviderSettings,
-    NotificationRouteSettings, PullRequestSettings, RunAgentSettings, RunCheckpointSettings,
-    RunExecutionSettings, RunGitSettings, RunGoal, RunInterviewsSettings, RunModelSettings,
-    RunNamespace, RunPrepareSettings, RunSandboxSettings, RunScmSettings, ScmGitHubSettings,
-    TlsMode,
+    ArtifactsSettings, AzureSettings, DaytonaSettings, DaytonaSnapshotSettings, DockerSettings,
+    DockerfileSource, GitAuthorSettings, HookDefinition, HookType,
+    InterviewProviderSettings, LocalSandboxSettings, McpServerSettings, McpTransport,
+    MergeStrategy, NotificationProviderSettings, NotificationRouteSettings,
+    PullRequestSettings, RunAgentSettings, RunCheckpointSettings, RunExecutionSettings,
+    RunGitSettings, RunGoal, RunInterviewsSettings, RunModelSettings, RunNamespace,
+    RunPrepareSettings, RunSandboxSettings, RunScmSettings, ScmGitHubSettings, TlsMode,
 };
 
 use super::ResolveError;
 use crate::{
-    DaytonaDockerfileLayer, DaytonaSandboxLayer, HookAgentMarker, HookEntry, HookTlsMode,
-    InterviewProviderLayer, InterviewsLayer, McpEntryLayer, ModelRefOrSplice,
+    AzureSandboxLayer, DaytonaDockerfileLayer, DaytonaSandboxLayer, HookAgentMarker, HookEntry,
+    HookTlsMode, InterviewProviderLayer, InterviewsLayer, McpEntryLayer, ModelRefOrSplice,
     NotificationProviderLayer, NotificationRouteLayer, RunAgentLayer, RunArtifactsLayer,
     RunCheckpointLayer, RunExecutionLayer, RunGitLayer, RunGoalLayer, RunLayer, RunModelLayer,
     RunPrepareLayer, RunPullRequestLayer, RunSandboxLayer, RunScmLayer, StringOrSplice,
@@ -152,7 +152,7 @@ fn resolve_sandbox(
         .clone()
         .expect("defaults.toml should provide run.sandbox.provider");
     match provider.as_str() {
-        "local" | "docker" | "daytona" => {}
+        "local" | "docker" | "daytona" | "azure" => {}
         other => errors.push(ResolveError::Invalid {
             path:   "run.sandbox.provider".to_string(),
             reason: format!("unknown sandbox provider: {other}"),
@@ -171,6 +171,15 @@ fn resolve_sandbox(
         local: resolve_local_sandbox(sandbox),
         docker: sandbox.docker.as_ref().map(resolve_docker),
         daytona: sandbox.daytona.as_ref().map(resolve_daytona),
+        azure: sandbox.azure.as_ref().map(resolve_azure),
+    }
+}
+
+fn resolve_azure(azure: &AzureSandboxLayer) -> AzureSettings {
+    AzureSettings {
+        image:     azure.image.clone(),
+        cpu:       azure.cpu,
+        memory_gb: azure.memory_gb,
     }
 }
 

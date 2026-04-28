@@ -6,6 +6,8 @@ use std::path::PathBuf;
 )]
 use anyhow::{Context, Result, bail};
 
+#[cfg(feature = "azure")]
+use crate::azure::AzureSandbox;
 #[cfg(feature = "daytona")]
 use crate::daytona::DaytonaSandbox;
 #[cfg(feature = "docker")]
@@ -19,9 +21,9 @@ use crate::sandbox_record::SandboxRecord;
 /// `"daytona"`. Pass `None` to fall back to the `DAYTONA_API_KEY` env var.
 #[allow(
     clippy::unused_async,
-    unused_variables,
     reason = "Feature-gated sandbox backends leave some parameters unused on partial builds."
 )]
+#[cfg_attr(not(feature = "daytona"), allow(unused_variables))]
 pub async fn reconnect(
     record: &SandboxRecord,
     daytona_api_key: Option<String>,
@@ -69,6 +71,15 @@ pub async fn reconnect(
             )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(Box::new(sandbox))
+        }
+        #[cfg(feature = "azure")]
+        "azure" => {
+            let id = record
+                .identifier
+                .as_deref()
+                .context("Azure sandbox record missing identifier (container group resource ID)")?;
+            let sandbox = AzureSandbox::reconnect(id).map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok(Box::new(sandbox))
         }
         other => bail!("Unknown sandbox provider: {other}"),
