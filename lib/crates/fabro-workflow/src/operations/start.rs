@@ -28,6 +28,7 @@ use fabro_types::settings::run::{
     RunNamespace as ResolvedRunSettings, TlsMode as ResolvedTlsMode,
 };
 use fabro_vault::Vault;
+use git2::Repository;
 use tokio::runtime::Handle;
 use tokio::sync::RwLock as AsyncRwLock;
 
@@ -307,9 +308,11 @@ impl RunSession {
         let workflow_bundle =
             accepted_definition.map(|definition| Arc::new(definition.workflow_bundle()));
 
-        let detected_base_branch = fabro_sandbox::daytona::detect_repo_info(&working_directory)
-            .ok()
-            .and_then(|(_, branch)| branch);
+        let (origin_url, detected_base_branch) = resolve_origin_url_and_base_branch(
+            record.repo_origin_url.clone(),
+            record.base_branch.clone(),
+            &working_directory,
+        );
 
         let resolved = &settings.run;
 
@@ -376,16 +379,17 @@ impl RunSession {
                     config: resolve_daytona_config(resolved).unwrap_or_default(),
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
-                    clone_origin_url: record.repo_origin_url.clone(),
-                    clone_branch: record.base_branch.clone(),
+                    clone_origin_url: origin_url.clone(),
+                    clone_branch: detected_base_branch.clone(),
                     api_key,
                 }
             }
             SandboxProvider::Azure => SandboxSpec::Azure {
-                config:       resolve_azure_config(&resolved).unwrap_or_default(),
-                github_app:   services.github_app.clone(),
-                run_id:       Some(record.run_id),
-                clone_branch: detected_base_branch.or_else(|| record.base_branch.clone()),
+                config:           resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:       services.github_app.clone(),
+                run_id:           Some(record.run_id),
+                clone_origin_url: origin_url.clone(),
+                clone_branch:     detected_base_branch.clone(),
             },
         };
 
@@ -395,13 +399,11 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let github_permissions: Option<HashMap<String, String>> =
-            (!services.github_permissions.is_empty()).then(|| services.github_permissions.clone());
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,
-            github_permissions,
-            origin_url: record.repo_origin_url.clone(),
+            github_permissions: resolved_github_permissions_for_sandbox(&resolved),
+            origin_url: origin_url.clone(),
         };
 
         let devcontainer = resolved.sandbox.devcontainer.then(|| DevcontainerSpec {
@@ -475,6 +477,46 @@ fn resolve_interp(value: &InterpString) -> String {
 )]
 fn process_env_var(name: &str) -> Option<String> {
     std::env::var(name).ok()
+}
+
+fn resolved_github_permissions_for_sandbox(
+    settings: &ResolvedRunSettings,
+) -> Option<HashMap<String, String>> {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .filter(|github| !github.permissions.is_empty())
+        .map(|github| {
+            github
+                .permissions
+                .iter()
+                .map(|(key, value)| (key.clone(), resolve_interp(value)))
+                .collect()
+        })
+}
+
+fn resolve_origin_url_and_base_branch(
+    persisted_origin_url: Option<String>,
+    persisted_base_branch: Option<String>,
+    working_directory: &Path,
+) -> (Option<String>, Option<String>) {
+    let (detected_origin_url, detected_base_branch) =
+        fabro_sandbox::daytona::detect_repo_info(working_directory)
+            .map_or((None, None), |(url, branch)| (Some(url), branch));
+    (
+        persisted_origin_url.or(detected_origin_url),
+        persisted_base_branch.or(detected_base_branch),
+    )
+}
+
+fn existing_host_repo_path(host_repo_path: Option<&str>) -> Option<PathBuf> {
+    host_repo_path.and_then(|path| {
+        let repo = Repository::discover(path).ok()?;
+        repo.workdir()
+            .map(Path::to_path_buf)
+            .or_else(|| repo.path().parent().map(Path::to_path_buf))
+    })
 }
 
 async fn load_accepted_run_definition(
@@ -717,7 +759,7 @@ impl RunSession {
             labels:           record.labels.clone(),
             workflow_slug:    record.workflow_slug.clone(),
             github_app:       self.github_app.clone(),
-            host_repo_path:   record.host_repo_path.as_deref().map(PathBuf::from),
+            host_repo_path:   existing_host_repo_path(record.host_repo_path.as_deref()),
             base_branch:      record.base_branch.clone(),
             display_base_sha: None,
             git:              self.git.clone(),
@@ -1150,6 +1192,112 @@ mod tests {
         );
         assert_eq!(runtime.cpu, Some(2.0));
         assert_eq!(runtime.memory_gb, Some(4.0));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_prefers_persisted_run_record_values() {
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            Some("fabro-software-factory".to_string()),
+            Path::new("/definitely/missing/on/remote/server"),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some("fabro-software-factory"));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_keeps_detected_branch_when_persisted_origin_lacks_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        std::fs::write(dir.path().join("README.md"), "seed\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("Fabro Test", "fabro@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "seed", &tree, &[])
+            .unwrap();
+        repo.remote(
+            "origin",
+            "https://github.com/fkukuck/agentic-factory-prisma.git",
+        )
+        .unwrap();
+
+        let head = repo.head().unwrap();
+        let name = head.shorthand().unwrap().to_string();
+
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            None,
+            dir.path(),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some(name.as_str()));
+    }
+
+    #[test]
+    fn existing_host_repo_path_ignores_missing_paths() {
+        let path = existing_host_repo_path(Some("/definitely/missing/path"));
+
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn existing_host_repo_path_ignores_non_repo_paths() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let path = existing_host_repo_path(Some(dir.path().to_str().unwrap()));
+
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn existing_host_repo_path_keeps_existing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+
+        let path = existing_host_repo_path(Some(dir.path().to_str().unwrap()));
+
+        assert_eq!(
+            path.unwrap().canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn resolved_github_permissions_for_sandbox_reads_run_scm_github_permissions() {
+        let settings = WorkflowSettingsBuilder::from_toml(
+            r#"
+_version = 1
+
+[run.scm.github.permissions]
+contents = "write"
+pull_requests = "write"
+"#,
+        )
+        .unwrap()
+        .run;
+
+        let permissions = resolved_github_permissions_for_sandbox(&settings)
+            .expect("github permissions should be present");
+
+        assert_eq!(
+            permissions.get("contents").map(String::as_str),
+            Some("write")
+        );
+        assert_eq!(
+            permissions.get("pull_requests").map(String::as_str),
+            Some("write")
+        );
     }
 
     #[tokio::test]

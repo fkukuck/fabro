@@ -21,7 +21,6 @@ use fabro_sandbox::config::{
 use fabro_sandbox::daytona::DaytonaConfig;
 use fabro_sandbox::{DockerSandboxOptions, Sandbox, SandboxProvider, SandboxSpec};
 use fabro_static::EnvVars;
-use fabro_types::settings::ServerNamespace;
 use fabro_types::settings::cli::OutputVerbosity;
 use fabro_types::settings::interp::InterpString;
 use fabro_types::settings::run::{
@@ -428,10 +427,11 @@ async fn build_preflight_report(
         } else {
             sandbox_provider
         };
+    let github_permissions = requested_github_permissions(&resolved_run);
     let needs_github_credentials = matches!(
         sandbox_provider,
         SandboxProvider::Docker | SandboxProvider::Daytona | SandboxProvider::Azure
-    ) || !github_integration.permissions.is_empty();
+    ) || !github_permissions.is_empty();
     let github_app = if needs_github_credentials {
         state
             .github_credentials(github_integration)
@@ -458,7 +458,7 @@ async fn build_preflight_report(
         &configured_providers,
     )
     .await;
-    run_github_token_check(&mut checks, prepared, &server_settings.server, github_app).await;
+    run_github_token_check(&mut checks, prepared, &resolved_run, github_app).await;
 
     let checks_ok = sandbox_ok && llm_ok;
 
@@ -594,10 +594,7 @@ async fn run_sandbox_check(
             config: daytona_config.unwrap_or_default(),
             github_app,
             run_id: None,
-            clone_origin_url: prepared
-                .git
-                .as_ref()
-                .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url)),
+            clone_origin_url: prepared.git.as_ref().map(|git| git.origin_url.clone()),
             clone_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
             api_key: daytona_api_key,
         }
@@ -608,6 +605,7 @@ async fn run_sandbox_check(
             config: resolve_azure_config(resolved_run).unwrap_or_default(),
             github_app,
             run_id: None,
+            clone_origin_url: prepared.git.as_ref().map(|git| git.origin_url.clone()),
             clone_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
         }
         .build(None)
@@ -894,25 +892,31 @@ fn runtime_azure_config(settings: &AzureSettings) -> AzureConfig {
     }
 }
 
+fn requested_github_permissions(settings: &RunNamespace) -> HashMap<String, String> {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .map(|github| {
+            github
+                .permissions
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_source()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 async fn run_github_token_check(
     checks: &mut Vec<CheckResult>,
     prepared: &PreparedManifest,
-    settings: &ServerNamespace,
+    settings: &RunNamespace,
     github_app: Option<fabro_github::GitHubCredentials>,
 ) {
-    if settings.integrations.github.permissions.is_empty() {
+    let github_permissions = requested_github_permissions(settings);
+    if github_permissions.is_empty() {
         return;
     }
-
-    // Resolve InterpString permission values eagerly for token minting and
-    // for display in the preflight report.
-    let github_permissions: HashMap<String, String> = settings
-        .integrations
-        .github
-        .permissions
-        .iter()
-        .map(|(k, v)| (k.clone(), v.as_source()))
-        .collect();
 
     let perm_details = github_permissions
         .iter()
@@ -1092,16 +1096,19 @@ mod tests {
         }
     }
 
-    async fn preflight_for_settings(settings: SettingsLayer) -> Result<(CheckReport, bool)> {
+    async fn preflight_for_settings(source: &str) -> Result<(CheckReport, bool)> {
         let state = crate::server::create_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),
-            source: Some(toml::to_string(&settings).unwrap()),
+            source: Some(source.to_string()),
             type_:  types::ManifestConfigType::Project,
         });
 
-        let prepared = prepare_manifest_with_mode(&SettingsLayer::default(), &manifest, false)?;
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )?;
         let validated = validate_prepared_manifest(&prepared)?;
         build_preflight_report(state.as_ref(), &prepared, &validated).await
     }
@@ -1319,6 +1326,90 @@ provider = "local"
     }
 
     #[tokio::test]
+    async fn preflight_reports_github_token_check_for_run_scm_permissions() {
+        let state = crate::server::create_app_state();
+        let mut manifest = minimal_manifest();
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(
+                r#"
+_version = 1
+
+[run.sandbox]
+provider = "local"
+
+[run.scm.github.permissions]
+issues = "read"
+"#
+                .to_string(),
+            ),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
+
+        let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
+            .await
+            .unwrap();
+
+        assert!(ok);
+        assert!(response.workflow.diagnostics.is_empty());
+        assert!(
+            response.checks.sections[0]
+                .checks
+                .iter()
+                .any(|check| check.name == "GitHub Token")
+        );
+    }
+
+    #[tokio::test]
+    async fn preflight_ignores_project_server_github_permissions_under_remote_mode() {
+        let state = crate::server::create_app_state();
+        let mut manifest = minimal_manifest();
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(
+                r#"
+_version = 1
+
+[run.sandbox]
+provider = "local"
+
+[server.integrations.github.permissions]
+issues = "read"
+"#
+                .to_string(),
+            ),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
+
+        let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
+            .await
+            .unwrap();
+
+        assert!(ok);
+        assert!(response.workflow.diagnostics.is_empty());
+        assert!(
+            response.checks.sections[0]
+                .checks
+                .iter()
+                .all(|check| check.name != "GitHub Token")
+        );
+    }
+
+    #[tokio::test]
     async fn preflight_daytona_without_github_credentials_returns_report() {
         let state = crate::server::create_app_state();
         let mut manifest = minimal_manifest();
@@ -1368,16 +1459,13 @@ provider = "daytona"
             "FABRO_AZURE_STORAGE_KEY",
             "FABRO_AZURE_ACR_SERVER",
         ]);
-        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
-            r#"
+        let settings = r#"
             [run.sandbox]
             provider = "azure"
 
             [run.sandbox.azure]
             image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
-            "#,
-        )
-        .unwrap();
+            "#;
 
         let (report, ok) = preflight_for_settings(settings).await.unwrap();
         assert!(!ok);

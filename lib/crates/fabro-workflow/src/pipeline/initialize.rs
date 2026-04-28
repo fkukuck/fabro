@@ -74,23 +74,28 @@ async fn resolve_worktree_plan(options: &mut InitOptions) -> Result<Option<Workt
         }
     }
 
-    let host_repo_path = options.sandbox.host_repo_path();
+    let host_repo_path = options
+        .sandbox
+        .host_repo_path()
+        .or_else(|| options.run_options.host_repo_path.clone());
     let git_status = if let Some(path) = host_repo_path.as_ref() {
         let path = path.clone();
         let base_branch = options.run_options.base_branch.clone();
-        spawn_blocking(move || git::sync_status(&path, "origin", base_branch.as_deref()))
-            .await
-            .unwrap_or(GitSyncStatus::Dirty)
+        Some(
+            spawn_blocking(move || git::sync_status(&path, "origin", base_branch.as_deref()))
+                .await
+                .unwrap_or(GitSyncStatus::Dirty),
+        )
     } else {
-        GitSyncStatus::Dirty
+        None
     };
     let strategy = options.sandbox.workdir_strategy(
         worktree_mode,
-        git_status.is_clean(),
+        git_status.as_ref().map_or(true, GitSyncStatus::is_clean),
         options.checkpoint.is_some(),
     );
 
-    if git_status == GitSyncStatus::Dirty {
+    if git_status == Some(GitSyncStatus::Dirty) {
         let env_name = match strategy {
             WorkdirStrategy::LocalWorktree => Some("worktree"),
             WorkdirStrategy::Cloud => Some("remote sandbox"),
@@ -116,15 +121,16 @@ async fn resolve_worktree_plan(options: &mut InitOptions) -> Result<Option<Workt
             options.run_options.base_branch.as_ref(),
         ) {
             let needs_push = match git_status {
-                GitSyncStatus::Synced => false,
-                GitSyncStatus::Unsynced => true,
-                GitSyncStatus::Dirty => {
+                Some(GitSyncStatus::Synced) => false,
+                Some(GitSyncStatus::Unsynced) => true,
+                Some(GitSyncStatus::Dirty) => {
                     let repo_path = repo_path.clone();
                     let branch = branch.clone();
                     spawn_blocking(move || git::branch_needs_push(&repo_path, "origin", &branch))
                         .await
                         .unwrap_or(true)
                 }
+                None => false,
             };
 
             if needs_push {
@@ -746,6 +752,7 @@ mod tests {
     use fabro_graphviz::graph::{AttrValue, Edge, Graph, Node};
     use fabro_interview::AutoApproveInterviewer;
     use fabro_sandbox::SandboxSpec;
+    use fabro_sandbox::config::WorktreeMode;
     use fabro_store::Database;
     use fabro_types::{RunId, WorkflowSettings, fixtures};
     use fabro_vault::{SecretType, Vault};
@@ -753,7 +760,7 @@ mod tests {
     use tokio::sync::RwLock as AsyncRwLock;
 
     use super::*;
-    use crate::event::StoreProgressLogger;
+    use crate::event::{EventBody, StoreProgressLogger};
     use crate::pipeline::types::InitOptions;
     use crate::records::RunSpec;
     use crate::run_options::RunOptions;
@@ -864,6 +871,173 @@ mod tests {
                 definition_blob: None,
             },
         )
+    }
+
+    #[tokio::test]
+    async fn resolve_worktree_plan_skips_dirty_warning_when_cloud_host_repo_path_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let run_dir = temp.path().join("run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+
+        let emitter = Arc::new(crate::event::Emitter::new(test_run_id()));
+        let notice_codes = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        emitter.on_event({
+            let notice_codes = Arc::clone(&notice_codes);
+            move |event| {
+                if let EventBody::RunNotice(props) = &event.body {
+                    notice_codes.lock().unwrap().push(props.code.clone());
+                }
+            }
+        });
+
+        let store = memory_store();
+        let mut options = InitOptions {
+            run_id: test_run_id(),
+            run_store: {
+                let inner = store.create_run(&test_run_id()).await.unwrap();
+                inner.into()
+            },
+            dry_run: false,
+            emitter,
+            sandbox: SandboxSpec::Azure {
+                config:           Default::default(),
+                github_app:       None,
+                run_id:           None,
+                clone_origin_url: None,
+                clone_branch:     None,
+            },
+            llm: LlmSpec {
+                model:          "test-model".to_string(),
+                provider:       fabro_llm::Provider::Anthropic,
+                fallback_chain: Vec::new(),
+                mcp_servers:    Vec::new(),
+                dry_run:        true,
+            },
+            interviewer: Arc::new(AutoApproveInterviewer),
+            lifecycle: crate::run_options::LifecycleOptions {
+                setup_commands:           vec![],
+                setup_command_timeout_ms: 1_000,
+                devcontainer_phases:      vec![],
+            },
+            run_options: test_settings(&run_dir),
+            workflow_path: None,
+            workflow_bundle: None,
+            hooks: fabro_hooks::HookSettings { hooks: vec![] },
+            sandbox_env: SandboxEnvSpec {
+                devcontainer_env:   HashMap::new(),
+                toml_env:           HashMap::new(),
+                github_permissions: None,
+                origin_url:         None,
+            },
+            vault: None,
+            devcontainer: None,
+            git: None,
+            worktree_mode: Some(WorktreeMode::Clean),
+            run_control: None,
+            registry_override: None,
+            artifact_sink: None,
+            checkpoint: None,
+            seed_context: None,
+        };
+
+        let worktree_plan = resolve_worktree_plan(&mut options).await.unwrap();
+
+        assert!(worktree_plan.is_none());
+        assert_eq!(options.run_options.display_base_sha, None);
+        assert!(
+            !notice_codes
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|code| code == "dirty_worktree")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_worktree_plan_warns_for_dirty_explicit_host_repo_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_dir = temp.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        git2::Repository::init(&repo_dir).unwrap();
+        std::fs::write(repo_dir.join("README.md"), "dirty\n").unwrap();
+
+        let run_dir = temp.path().join("run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+
+        let emitter = Arc::new(crate::event::Emitter::new(test_run_id()));
+        let notice_codes = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        emitter.on_event({
+            let notice_codes = Arc::clone(&notice_codes);
+            move |event| {
+                if let EventBody::RunNotice(props) = &event.body {
+                    notice_codes.lock().unwrap().push(props.code.clone());
+                }
+            }
+        });
+
+        let store = memory_store();
+        let mut run_options = test_settings(&run_dir);
+        run_options.host_repo_path = Some(repo_dir.clone());
+        run_options.base_branch = Some("main".to_string());
+
+        let mut options = InitOptions {
+            run_id: test_run_id(),
+            run_store: {
+                let inner = store.create_run(&test_run_id()).await.unwrap();
+                inner.into()
+            },
+            dry_run: false,
+            emitter,
+            sandbox: SandboxSpec::Azure {
+                config:           Default::default(),
+                github_app:       None,
+                run_id:           None,
+                clone_origin_url: None,
+                clone_branch:     None,
+            },
+            llm: LlmSpec {
+                model:          "test-model".to_string(),
+                provider:       fabro_llm::Provider::Anthropic,
+                fallback_chain: Vec::new(),
+                mcp_servers:    Vec::new(),
+                dry_run:        true,
+            },
+            interviewer: Arc::new(AutoApproveInterviewer),
+            lifecycle: crate::run_options::LifecycleOptions {
+                setup_commands:           vec![],
+                setup_command_timeout_ms: 1_000,
+                devcontainer_phases:      vec![],
+            },
+            run_options,
+            workflow_path: None,
+            workflow_bundle: None,
+            hooks: fabro_hooks::HookSettings { hooks: vec![] },
+            sandbox_env: SandboxEnvSpec {
+                devcontainer_env:   HashMap::new(),
+                toml_env:           HashMap::new(),
+                github_permissions: None,
+                origin_url:         None,
+            },
+            vault: None,
+            devcontainer: None,
+            git: None,
+            worktree_mode: Some(WorktreeMode::Clean),
+            run_control: None,
+            registry_override: None,
+            artifact_sink: None,
+            checkpoint: None,
+            seed_context: None,
+        };
+
+        let _ = resolve_worktree_plan(&mut options).await.unwrap();
+
+        assert!(
+            notice_codes
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|code| code == "dirty_worktree")
+        );
     }
 
     #[tokio::test]
