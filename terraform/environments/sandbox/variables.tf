@@ -44,10 +44,6 @@ variable "storage_account_name" {
   type = string
 }
 
-variable "workspace_share_name" {
-  type = string
-}
-
 variable "server_storage_share_name" {
   type = string
 }
