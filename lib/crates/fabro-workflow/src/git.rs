@@ -171,6 +171,21 @@ pub fn push_branch(repo: &Path, remote: &str, branch: &str) -> Result<()> {
     run_git_push(git_cmd(repo).args(["push", remote, branch]))
 }
 
+/// Push a local branch to the named remote without allowing Git to prompt.
+pub fn push_branch_noninteractive(repo: &Path, remote: &str, branch: &str) -> Result<()> {
+    tracing::info!(
+        repo_dir = %repo.display(),
+        remote,
+        branch,
+        "Pushing branch to remote without terminal prompts"
+    );
+    run_git_push(
+        git_cmd(repo)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(["push", remote, branch]),
+    )
+}
+
 /// Push run and metadata branches to origin if a remote tracking branch exists.
 ///
 /// Callers supply pre-built refspecs so they control force-push (`+` prefix).

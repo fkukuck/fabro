@@ -15,7 +15,9 @@ use fabro_graphviz::graph::AttrValue;
 use fabro_graphviz::parser;
 use fabro_types::settings::run::{ResolvedGoalSource, ResolvedRunGoal};
 use fabro_types::{DirtyStatus, GitContext, PreRunPushOutcome, RunId, WorkflowSettings};
-use fabro_workflow::git::{GitSyncStatus, branch_needs_push, head_sha, push_branch, sync_status};
+use fabro_workflow::git::{
+    GitSyncStatus, branch_needs_push, head_sha, push_branch_noninteractive, sync_status,
+};
 
 use crate::args::{PreflightArgs, RunArgs};
 
@@ -589,7 +591,7 @@ fn build_manifest_push_outcome(
         return PreRunPushOutcome::NotAttempted;
     }
 
-    match push_branch(repo_path, "origin", branch) {
+    match push_branch_noninteractive(repo_path, "origin", branch) {
         Ok(()) => PreRunPushOutcome::Succeeded {
             remote: "origin".to_string(),
             branch: branch.to_string(),
@@ -901,11 +903,13 @@ file = "prompts/goal.md"
             "workspace-branch",
             "https://github.com/example/workspace.git",
         );
+        mark_origin_branch_synced(workspace, "workspace-branch");
         init_git_repo(
             &target,
             "target-branch",
             "https://github.com/example/target.git",
         );
+        mark_origin_branch_synced(&target, "target-branch");
 
         let workflow_dir = workspace.join(".fabro/workflows/demo");
         std::fs::create_dir_all(&workflow_dir).unwrap();
@@ -946,6 +950,7 @@ working_dir = "repos/target"
             .expect("manifest git info should be detected");
         assert_eq!(git.branch, "target-branch");
         assert_eq!(git.origin_url, "https://github.com/example/target");
+        assert_eq!(git.push_outcome, PreRunPushOutcome::NotAttempted);
     }
 
     #[test]
@@ -1005,28 +1010,84 @@ repository = "target"
         });
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn build_manifest_push_attempt_disables_terminal_prompts() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        init_git_repo(&workspace, "feature", "fabro-prompt-test::target");
+
+        let helper_dir = temp.path().join("bin");
+        std::fs::create_dir_all(&helper_dir).unwrap();
+        let helper_path = helper_dir.join("git-remote-fabro-prompt-test");
+        std::fs::write(
+            &helper_path,
+            r#"#!/bin/sh
+printf '%s\n' "${GIT_TERMINAL_PROMPT-unset}" > "$FABRO_PROMPT_ENV_LOG"
+echo "helper saw GIT_TERMINAL_PROMPT=${GIT_TERMINAL_PROMPT-unset}" >&2
+exit 1
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&helper_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&helper_path, permissions).unwrap();
+
+        let workflow_dir = workspace.join(".fabro/workflows/demo");
+        std::fs::create_dir_all(&workflow_dir).unwrap();
+        std::fs::write(workspace.join(".fabro/project.toml"), "_version = 1\n").unwrap();
+        std::fs::write(
+            workflow_dir.join("workflow.toml"),
+            "_version = 1\n\n[workflow]\ngraph = \"workflow.fabro\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            workflow_dir.join("workflow.fabro"),
+            r"digraph Demo { start [shape=Mdiamond] exit [shape=Msquare] start -> exit }",
+        )
+        .unwrap();
+
+        let helper_log = temp.path().join("prompt-env.txt");
+        let mut path_entries = vec![helper_dir];
+        if let Some(path) = std::env::var_os("PATH") {
+            path_entries.extend(std::env::split_paths(&path));
+        }
+        let path = std::env::join_paths(path_entries).unwrap();
+        temp_env::with_var("PATH", Some(path), || {
+            temp_env::with_var("FABRO_PROMPT_ENV_LOG", Some(helper_log.as_os_str()), || {
+                let built = build_run_manifest(ManifestBuildInput {
+                    workflow:           PathBuf::from(".fabro/workflows/demo/workflow.toml"),
+                    cwd:                workspace.to_path_buf(),
+                    run_overrides:      None,
+                    cli_overrides:      None,
+                    args:               None,
+                    run_id:             None,
+                    user_settings_path: None,
+                })
+                .unwrap();
+
+                let git = built
+                    .manifest
+                    .git
+                    .expect("manifest git info should be detected");
+                assert!(matches!(git.push_outcome, PreRunPushOutcome::Failed { .. }));
+            });
+        });
+
+        assert_eq!(std::fs::read_to_string(helper_log).unwrap(), "0\n");
+    }
+
     fn init_git_repo(path: &Path, branch: &str, origin_url: &str) {
-        use std::process::Command;
-        let run = |args: &[&str]| {
-            let output = Command::new("git")
-                .args(args)
-                .current_dir(path)
-                .output()
-                .unwrap_or_else(|e| panic!("failed to spawn git {args:?}: {e}"));
-            assert!(
-                output.status.success(),
-                "git {args:?} failed: stdout={} stderr={}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
-            );
-        };
-        run(&[
+        run_git(path, &[
             "-c",
             &format!("init.defaultBranch={branch}"),
             "init",
             "--quiet",
         ]);
-        run(&[
+        run_git(path, &[
             "-c",
             "user.name=test",
             "-c",
@@ -1037,6 +1098,26 @@ repository = "target"
             "-m",
             "init",
         ]);
-        run(&["remote", "add", "origin", origin_url]);
+        run_git(path, &["remote", "add", "origin", origin_url]);
+    }
+
+    fn mark_origin_branch_synced(path: &Path, branch: &str) {
+        let remote_ref = format!("refs/remotes/origin/{branch}");
+        run_git(path, &["update-ref", &remote_ref, "HEAD"]);
+    }
+
+    fn run_git(path: &Path, args: &[&str]) {
+        use std::process::Command;
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(path)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn git {args:?}: {e}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
     }
 }
