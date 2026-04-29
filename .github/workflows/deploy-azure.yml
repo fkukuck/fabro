@@ -1,0 +1,153 @@
+name: Deploy Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  deploy:
+    name: Deploy production Azure environment
+    runs-on: ubuntu-24.04-x86-32-cores
+    environment: production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - uses: hashicorp/setup-terraform@3c0c8c4d6d0e6df0c1cb8a27a0c4ea5a20a6f6ff # v3.1.2
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - uses: azure/login@4c8e52c0fb44e13c6e6c1f4bc8d32707fd6f0ca7 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Export Terraform inputs
+        run: |
+          {
+            echo "TF_VAR_subscription_id=${{ vars.AZURE_SUBSCRIPTION_ID }}"
+            echo "TF_VAR_location=${{ vars.AZURE_LOCATION }}"
+            echo "TF_VAR_resource_group_name=${{ vars.AZURE_RESOURCE_GROUP_NAME }}"
+            echo "TF_VAR_vnet_name=${{ vars.AZURE_VNET_NAME }}"
+            echo "TF_VAR_vnet_cidr=${{ vars.AZURE_VNET_CIDR }}"
+            echo "TF_VAR_aca_subnet_name=${{ vars.AZURE_ACA_SUBNET_NAME }}"
+            echo "TF_VAR_aca_subnet_cidr=${{ vars.AZURE_ACA_SUBNET_CIDR }}"
+            echo "TF_VAR_aci_subnet_name=${{ vars.AZURE_ACI_SUBNET_NAME }}"
+            echo "TF_VAR_aci_subnet_cidr=${{ vars.AZURE_ACI_SUBNET_CIDR }}"
+            echo "TF_VAR_storage_account_name=${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}"
+            echo "TF_VAR_server_storage_share_name=${{ vars.AZURE_SERVER_STORAGE_SHARE_NAME }}"
+            echo "TF_VAR_acr_name=${{ vars.AZURE_ACR_NAME }}"
+            echo "TF_VAR_identity_name=${{ vars.AZURE_IDENTITY_NAME }}"
+            echo "TF_VAR_container_apps_environment_name=${{ vars.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME }}"
+            echo "TF_VAR_fabro_server_name=${{ vars.AZURE_FABRO_SERVER_NAME }}"
+            echo "TF_VAR_fabro_server_enabled=true"
+            echo "TF_VAR_github_actions_principal_id=${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Init Terraform backend
+        run: |
+          terraform -chdir=terraform/environments/sandbox init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_BACKEND_KEY }}"
+
+      - name: Compute deploy metadata
+        run: |
+          echo "DEPLOY_ID=$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Resolve ACR outputs
+        run: |
+          echo "ACR_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw acr_name)" >> "$GITHUB_ENV"
+          echo "ACR_SERVER=$(terraform -chdir=terraform/environments/sandbox output -raw acr_login_server)" >> "$GITHUB_ENV"
+
+      - name: Login to ACR
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Install bun deps
+        run: bun install --frozen-lockfile
+
+      - name: Stage server Docker context
+        run: cargo dev docker-build --arch amd64 --compile-only
+
+      - name: Build and push fabro-server
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -f Dockerfile \
+            -t "$ACR_SERVER/fabro-server:$DEPLOY_ID" \
+            --push .
+
+      - name: Build fabro-sandboxd
+        run: cargo build --release -p fabro-sandboxd
+
+      - name: Stage sandbox base Docker context
+        run: |
+          mkdir -p tmp/azure-sandbox-base
+          cp target/release/fabro-sandboxd tmp/azure-sandbox-base/fabro-sandboxd
+
+      - name: Build and push fabro-azure-sandbox-base
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -f docker/azure-sandbox-base.Dockerfile \
+            -t "$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID" \
+            --push tmp/azure-sandbox-base
+
+      - name: Apply Terraform
+        run: |
+          terraform -chdir=terraform/environments/sandbox apply -auto-approve \
+            -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
+
+      - name: Resolve live server URL
+        run: echo "FABRO_SERVER_URL=$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)" >> "$GITHUB_ENV"
+
+      - name: Health check
+        run: curl -fsSL "$FABRO_SERVER_URL/health"
+
+      # v1 expects the install wizard's GitHub step to use token auth so the
+      # operator receives a reusable dev token for CI smoke checks.
+      - name: Authenticated API check
+        env:
+          FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
+        run: |
+          curl -fsSL \
+            -H "Authorization: Bearer $FABRO_DEPLOY_DEV_TOKEN" \
+            "$FABRO_SERVER_URL/api/v1/models"
+
+      - name: Render smoke workflow with deployed sandbox image
+        run: |
+          sed \
+            "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
+            .fabro/workflows/azure-deploy-smoke/workflow.toml \
+            > "$RUNNER_TEMP/azure-deploy-smoke.toml"
+
+      - name: Run Azure smoke workflow
+        env:
+          FABRO_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
+        run: |
+          cargo run -p fabro-cli -- \
+            run "$RUNNER_TEMP/azure-deploy-smoke.toml" \
+            --server "$FABRO_SERVER_URL/api/v1"

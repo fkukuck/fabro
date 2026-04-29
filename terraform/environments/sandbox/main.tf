@@ -35,6 +35,16 @@ module "acr" {
   tags                = var.tags
 }
 
+module "github_actions_access" {
+  count = var.github_actions_principal_id == null ? 0 : 1
+
+  source            = "../../modules/github_actions_access"
+  principal_id      = var.github_actions_principal_id
+  resource_group_id = module.resource_group.id
+  acr_id            = module.acr.id
+  identity_id       = module.identity.id
+}
+
 module "identity" {
   source              = "../../modules/identity"
   resource_group_name = module.resource_group.name
@@ -64,26 +74,13 @@ module "fabro_server" {
   resource_group_name          = module.resource_group.name
   container_app_environment_id = module.container_apps_env.id
   image                        = var.fabro_server_image
-  registry_server              = var.fabro_server_image_registry_server
-  registry_username            = var.fabro_server_image_registry_username
-  registry_password            = var.fabro_server_image_registry_password
+  registry_server              = module.acr.login_server
+  registry_username            = module.acr.admin_username
+  registry_password            = module.acr.admin_passwords
   cpu                          = var.fabro_server_cpu
   memory                       = var.fabro_server_memory
   identity_id                  = module.identity.id
   identity_client_id           = module.identity.client_id
   storage_attachment_name      = module.container_apps_env.storage_attachment_name
-  azure_subscription_id        = var.subscription_id
-  azure_resource_group         = module.resource_group.name
-  azure_location               = module.resource_group.location
-  azure_sandbox_subnet_id      = module.network.aci_subnet_id
-  azure_acr_server             = module.acr.login_server
-  azure_acr_username           = module.acr.admin_username
-  azure_acr_password           = module.acr.admin_passwords
-  azure_sandboxd_port          = var.azure_sandboxd_port
-  fabro_dev_token              = var.fabro_dev_token
-  session_secret               = var.session_secret
-  github_token                 = var.github_token
-  openai_api_key               = var.openai_api_key
-  anthropic_api_key            = var.anthropic_api_key
   tags                         = var.tags
 }
