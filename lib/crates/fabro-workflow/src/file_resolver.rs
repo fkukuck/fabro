@@ -167,13 +167,8 @@ mod tests {
         // segments. The normalizer must preserve these so that the lookup
         // key matches the stored key.
         assert_eq!(
-            normalize_logical_path(
-                Path::new("../.fabro/workflows/demo"),
-                "prompts/hello.md"
-            ),
-            Some(PathBuf::from(
-                "../.fabro/workflows/demo/prompts/hello.md"
-            ))
+            normalize_logical_path(Path::new("../.fabro/workflows/demo"), "prompts/hello.md"),
+            Some(PathBuf::from("../.fabro/workflows/demo/prompts/hello.md"))
         );
     }
 
@@ -205,10 +200,7 @@ mod tests {
         )]));
 
         let resolved = resolver
-            .resolve(
-                Path::new("../.fabro/workflows/demo"),
-                "prompts/hello.md",
-            )
+            .resolve(Path::new("../.fabro/workflows/demo"), "prompts/hello.md")
             .expect("file should resolve for out-of-CWD workflow");
 
         assert_eq!(resolved.content, "prompt content");
