@@ -102,6 +102,11 @@ terraform -chdir=terraform/environments/sandbox apply
 
 That apply provisions the resource group, networking, storage, ACR, managed identity, Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
 
+Record these Terraform outputs for the install flow:
+
+- `storage_account_name`
+- `blob_data_container_name`
+
 ## 3. Configure the GitHub `production` environment
 
 Add the Azure and Terraform backend variables from bootstrap, then add the sandbox environment variables consumed by `.github/workflows/deploy-azure.yml`:
@@ -153,8 +158,9 @@ Once the Container App is reachable, open the deployed URL and complete the web 
 The important runtime model is:
 
 - the Container App mounts `/storage`
-- the install wizard writes Fabro runtime state and configuration there
-- later deploys reuse the same persisted state
+- the install wizard writes runtime configuration there
+- Azure Blob is the durable data plane for artifacts, SlateDB, and archived raw run logs
+- later deploys reuse the same persisted config and Blob-backed runtime data
 
 The server should come up in install mode without relying on install-time `SESSION_SECRET`, `FABRO_DEV_TOKEN`, or `FABRO_AZURE_*` worker env injection from Terraform.
 

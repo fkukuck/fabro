@@ -24,6 +24,7 @@ module "storage" {
   location                  = module.resource_group.location
   account_name              = var.storage_account_name
   server_storage_share_name = var.server_storage_share_name
+  data_container_name       = var.blob_data_container_name
   tags                      = var.tags
 }
 
@@ -51,6 +52,7 @@ module "identity" {
   location            = module.resource_group.location
   name                = var.identity_name
   contributor_scope   = module.resource_group.id
+  blob_data_scope     = module.storage.id
   tags                = var.tags
 }
 

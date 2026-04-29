@@ -14,3 +14,9 @@ resource "azurerm_storage_share" "server" {
   quota              = var.server_storage_share_quota_gb
   storage_account_id = azurerm_storage_account.this.id
 }
+
+resource "azurerm_storage_container" "fabro_data" {
+  name                  = var.data_container_name
+  storage_account_id    = azurerm_storage_account.this.id
+  container_access_type = "private"
+}

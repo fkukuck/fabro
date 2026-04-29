@@ -14,3 +14,7 @@ output "primary_access_key" {
 output "server_storage_share_name" {
   value = azurerm_storage_share.server.name
 }
+
+output "data_container_name" {
+  value = azurerm_storage_container.fabro_data.name
+}
