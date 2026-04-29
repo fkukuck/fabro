@@ -33,9 +33,10 @@ impl BundleFileResolver {
 impl FileResolver for BundleFileResolver {
     fn resolve(&self, current_dir: &Path, reference: &str) -> Option<ResolvedFile> {
         let path = ManifestPath::from_reference(current_dir, reference)?;
-        self.files.get(&path).map(|content| ResolvedFile {
-            path:    path.as_path().to_path_buf(),
-            content: content.clone(),
+        let content = self.files.get(&path)?.clone();
+        Some(ResolvedFile {
+            path: path.into(),
+            content,
         })
     }
 }

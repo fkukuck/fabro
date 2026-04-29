@@ -43,6 +43,19 @@ impl ManifestPath {
     pub fn parent(&self) -> Option<&Path> {
         self.0.parent()
     }
+
+    /// Directory that contains this path, falling back to `.` when the path
+    /// has no parent component (e.g. a bare file name).
+    #[must_use]
+    pub fn parent_or_dot(&self) -> &Path {
+        self.0.parent().unwrap_or_else(|| Path::new("."))
+    }
+}
+
+impl From<ManifestPath> for PathBuf {
+    fn from(value: ManifestPath) -> Self {
+        value.0
+    }
 }
 
 impl TryFrom<String> for ManifestPath {

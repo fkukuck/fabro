@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -29,9 +29,7 @@ impl BundledWorkflow {
 
     #[must_use]
     pub fn current_dir(&self) -> PathBuf {
-        self.path
-            .parent()
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        self.path.parent_or_dot().to_path_buf()
     }
 }
 
@@ -55,10 +53,7 @@ impl WorkflowBundle {
         current_workflow_path: &ManifestPath,
         reference: &str,
     ) -> Option<&BundledWorkflow> {
-        let current_dir = current_workflow_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
-        let path = ManifestPath::from_reference(current_dir, reference)?;
+        let path = ManifestPath::from_reference(current_workflow_path.parent_or_dot(), reference)?;
         self.workflows.get(&path)
     }
 

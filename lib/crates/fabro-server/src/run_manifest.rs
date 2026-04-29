@@ -385,11 +385,8 @@ fn resolve_manifest_dockerfile(
         return Ok(());
     };
     let path_owned = path.clone();
-    let manifest_path = ManifestPath::from_reference(
-        config_path.parent().unwrap_or_else(|| Path::new(".")),
-        &path_owned,
-    )
-    .ok_or_else(|| anyhow!("unsupported dockerfile reference: {path_owned}"))?;
+    let manifest_path = ManifestPath::from_reference(config_path.parent_or_dot(), &path_owned)
+        .ok_or_else(|| anyhow!("unsupported dockerfile reference: {path_owned}"))?;
     let content = files
         .get(&manifest_path)
         .cloned()
