@@ -1744,7 +1744,7 @@ fn system_sandbox_provider(
     )
 }
 
-fn clone_sandbox_requires_github_credentials(provider: &str) -> bool {
+fn clone_sandbox_can_use_github_credentials(provider: &str) -> bool {
     matches!(provider, "docker" | "daytona")
 }
 
@@ -3644,6 +3644,55 @@ async fn persist_cancelled_run_status(state: &AppState, run_id: RunId) -> anyhow
     .await
 }
 
+async fn finish_cancelled_run_before_execution(state: &Arc<AppState>, run_id: RunId) {
+    if let Err(err) = persist_cancelled_run_status(state.as_ref(), run_id).await {
+        error!(run_id = %run_id, error = %err, "Failed to persist cancelled run status");
+    }
+
+    let mut runs = state.runs.lock().expect("runs lock poisoned");
+    if let Some(managed_run) = runs.get_mut(&run_id) {
+        managed_run.status = RunStatus::Failed {
+            reason: FailureReason::Cancelled,
+        };
+        clear_live_run_state(managed_run);
+    }
+    drop(runs);
+    state.scheduler_notify.notify_one();
+}
+
+async fn fail_run_before_execution(
+    state: &Arc<AppState>,
+    run_id: RunId,
+    reason: FailureReason,
+    message: String,
+) {
+    match state.store.open_run(&run_id).await {
+        Ok(run_store) => {
+            if let Err(err) = workflow_event::append_event(
+                &run_store,
+                &run_id,
+                &workflow_event::Event::WorkflowRunFailed {
+                    error: WorkflowError::engine(message.clone()),
+                    duration_ms: 0,
+                    reason,
+                    git_commit_sha: None,
+                    final_patch: None,
+                },
+            )
+            .await
+            {
+                error!(run_id = %run_id, error = %err, "Failed to persist run failure status");
+            }
+        }
+        Err(err) => {
+            error!(run_id = %run_id, error = %err, "Failed to open run store while persisting run failure");
+        }
+    }
+
+    fail_managed_run(state, run_id, reason, message);
+    state.scheduler_notify.notify_one();
+}
+
 async fn forward_run_events_to_global(
     state: Arc<AppState>,
     run_id: RunId,
@@ -4621,28 +4670,35 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         Ok(persisted) => persisted,
         Err(e) => {
             tracing::error!(run_id = %run_id, error = %e, "Failed to load persisted run");
-            let mut runs = state.runs.lock().expect("runs lock poisoned");
-            if let Some(managed_run) = runs.get_mut(&run_id) {
-                managed_run.status = RunStatus::Failed {
-                    reason: FailureReason::WorkflowError,
-                };
-                managed_run.error = Some(format!("Failed to load persisted run: {e}"));
-                clear_live_run_state(managed_run);
-            }
-            state.scheduler_notify.notify_one();
+            fail_run_before_execution(
+                &state,
+                run_id,
+                FailureReason::WorkflowError,
+                format!("Failed to load persisted run: {e}"),
+            )
+            .await;
             return;
         }
     };
     let server_settings = state.server_settings();
     let github_settings = &server_settings.server.integrations.github;
+    if cancel_token.load(Ordering::SeqCst) {
+        finish_cancelled_run_before_execution(&state, run_id).await;
+        return;
+    }
     let github_app_result = {
-        let settings = &persisted.run_spec().settings.run;
-        let required_github_credentials = (settings.execution.mode != RunMode::DryRun
-            && clone_sandbox_requires_github_credentials(&settings.sandbox.provider))
-            || !github_settings.permissions.is_empty();
-        if required_github_credentials {
+        let run_spec = persisted.run_spec();
+        let settings = &run_spec.settings.run;
+        let clone_can_use_github_credentials = settings.execution.mode != RunMode::DryRun
+            && clone_sandbox_can_use_github_credentials(&settings.sandbox.provider)
+            && run_spec
+                .repo_origin_url()
+                .is_some_and(|origin| !origin.trim().is_empty());
+        let pull_request_can_use_github_credentials =
+            settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some();
+        if !github_settings.permissions.is_empty() {
             state.github_credentials(github_settings)
-        } else if settings.execution.mode != RunMode::DryRun && settings.pull_request.is_some() {
+        } else if clone_can_use_github_credentials || pull_request_can_use_github_credentials {
             match state.github_credentials(github_settings) {
                 Ok(github_app) => Ok(github_app),
                 Err(err) => {
@@ -4661,16 +4717,18 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
     let github_app = match github_app_result {
         Ok(github_app) => github_app,
         Err(e) => {
-            tracing::error!(run_id = %run_id, error = %e, "Invalid GitHub credentials");
-            let mut runs = state.runs.lock().expect("runs lock poisoned");
-            if let Some(managed_run) = runs.get_mut(&run_id) {
-                managed_run.status = RunStatus::Failed {
-                    reason: FailureReason::WorkflowError,
-                };
-                managed_run.error = Some(format!("Invalid GitHub credentials: {e}"));
-                clear_live_run_state(managed_run);
+            if cancel_token.load(Ordering::SeqCst) {
+                finish_cancelled_run_before_execution(&state, run_id).await;
+                return;
             }
-            state.scheduler_notify.notify_one();
+            tracing::error!(run_id = %run_id, error = %e, "Invalid GitHub credentials");
+            fail_run_before_execution(
+                &state,
+                run_id,
+                FailureReason::WorkflowError,
+                format!("Invalid GitHub credentials: {e}"),
+            )
+            .await;
             return;
         }
     };
@@ -8674,10 +8732,10 @@ provider = "invalid-provider"
     }
 
     #[test]
-    fn clone_sandbox_credentials_are_required_for_clone_based_providers() {
-        assert!(clone_sandbox_requires_github_credentials("docker"));
-        assert!(clone_sandbox_requires_github_credentials("daytona"));
-        assert!(!clone_sandbox_requires_github_credentials("local"));
+    fn clone_sandbox_credentials_are_available_for_clone_based_providers() {
+        assert!(clone_sandbox_can_use_github_credentials("docker"));
+        assert!(clone_sandbox_can_use_github_credentials("daytona"));
+        assert!(!clone_sandbox_can_use_github_credentials("local"));
     }
 
     #[tokio::test]
