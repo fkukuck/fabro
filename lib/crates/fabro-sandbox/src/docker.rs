@@ -30,6 +30,7 @@ use crate::{
 };
 
 const WORKING_DIRECTORY: &str = "/workspace";
+const GIT_CLONE_DEPTH: usize = 10;
 
 const MANAGED_LABEL: &str = "sh.fabro.managed";
 const RUN_ID_LABEL: &str = "sh.fabro.run_id";
@@ -381,16 +382,7 @@ impl DockerSandbox {
             .as_ref()
             .map_or(origin_url.as_str(), |url| url.as_raw_url().as_str());
 
-        let mut command = "git -c maintenance.auto=0 -c gc.auto=0 clone".to_string();
-        if let Some(branch) = branch.as_ref() {
-            command.push_str(" --branch ");
-            command.push_str(&shell_quote(branch));
-            command.push_str(" --single-branch");
-        }
-        command.push_str(" -- ");
-        command.push_str(&shell_quote(clone_url));
-        command.push(' ');
-        command.push_str(&shell_quote(WORKING_DIRECTORY));
+        let command = git_clone_command(clone_url, branch.as_deref());
 
         let result = self
             .docker_exec_shell(&command, 300_000, Some("/"), None, None)
@@ -552,6 +544,23 @@ impl DockerSandbox {
 
 fn container_name(run_id: &RunId) -> String {
     format!("fabro-run-{run_id}")
+}
+
+fn git_clone_command(clone_url: &str, branch: Option<&str>) -> String {
+    let mut command = "git -c maintenance.auto=0 -c gc.auto=0 clone".to_string();
+    if let Some(branch) = branch {
+        command.push_str(" --branch ");
+        command.push_str(&shell_quote(branch));
+        command.push_str(" --single-branch");
+    }
+    command.push_str(" --depth ");
+    command.push_str(&GIT_CLONE_DEPTH.to_string());
+    command.push_str(" --no-tags");
+    command.push_str(" -- ");
+    command.push_str(&shell_quote(clone_url));
+    command.push(' ');
+    command.push_str(&shell_quote(WORKING_DIRECTORY));
+    command
 }
 
 fn container_labels(run_id: Option<&RunId>) -> HashMap<String, String> {
@@ -1288,6 +1297,15 @@ mod tests {
         assert_eq!(options.image, "buildpack-deps:noble");
         assert_eq!(options.network_mode.as_deref(), Some("bridge"));
         assert!(!options.skip_clone);
+    }
+
+    #[test]
+    fn clone_command_uses_depth_ten_without_tags_for_branch_clone() {
+        let command = git_clone_command("https://github.com/fabro-sh/fabro", Some("main"));
+        assert_eq!(
+            command,
+            "git -c maintenance.auto=0 -c gc.auto=0 clone --branch main --single-branch --depth 10 --no-tags -- https://github.com/fabro-sh/fabro /workspace"
+        );
     }
 
     #[test]
