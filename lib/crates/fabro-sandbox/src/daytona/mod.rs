@@ -13,7 +13,7 @@ use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
 use crate::clone_source::{self, CloneDecision, EmptyWorkspaceReason};
-use crate::redact::{classify_credential_refresh_failure, redact_auth_url};
+use crate::redact::redact_auth_url;
 use crate::sandbox::resolve_path;
 use crate::{
     DirEntry, ExecResult, GrepOptions, Sandbox, SandboxEvent, SandboxEventCallback,
@@ -878,9 +878,8 @@ impl Sandbox for DaytonaSandbox {
             origin_url,
         )
         .await
-        .map_err(|e| {
-            let class = classify_credential_refresh_failure(&format!("token_mint_failed: {e}"));
-            crate::Error::message(format!("Failed to refresh push credentials: {class}"))
+        .map_err(|_| {
+            crate::Error::message("Failed to refresh push credentials: token_mint_failed")
         })?;
 
         let cmd = format!(
@@ -890,10 +889,8 @@ impl Sandbox for DaytonaSandbox {
         let result = self
             .exec_command(&cmd, 10_000, None, None, None)
             .await
-            .map_err(|e| {
-                let class =
-                    classify_credential_refresh_failure(&format!("set_url_exec_failed: {e}"));
-                crate::Error::message(format!("Failed to refresh push credentials: {class}"))
+            .map_err(|_| {
+                crate::Error::message("Failed to refresh push credentials: set_url_exec_failed")
             })?;
         if result.exit_code != 0 {
             return Err(result.into_exec_error_with_redactor(

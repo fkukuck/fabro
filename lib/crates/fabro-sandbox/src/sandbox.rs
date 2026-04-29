@@ -751,8 +751,14 @@ mod tests {
             duration_ms: 42,
         };
         let error = result.into_result("git push").unwrap_err();
-        assert_eq!(error.exec_label(), Some("git push"));
-        assert_eq!(error.exec_exit_code(), Some(128));
+        let crate::Error::Exec {
+            label, exit_code, ..
+        } = &error
+        else {
+            panic!("expected Error::Exec, got {error:?}");
+        };
+        assert_eq!(label, "git push");
+        assert_eq!(*exit_code, 128);
         assert!(error.to_string().contains("no credentials in origin URL"));
     }
 
@@ -787,8 +793,11 @@ mod tests {
             s.replace("https://token@example.com", "https://****@example.com")
         });
 
-        assert_eq!(error.exec_stderr(), Some("stderr https://****@example.com"));
-        assert_eq!(error.exec_stdout(), Some("stdout https://****@example.com"));
+        let crate::Error::Exec { stderr, stdout, .. } = &error else {
+            panic!("expected Error::Exec, got {error:?}");
+        };
+        assert_eq!(stderr, "stderr https://****@example.com");
+        assert_eq!(stdout, "stdout https://****@example.com");
     }
 
     #[test]

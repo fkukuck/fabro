@@ -1351,7 +1351,6 @@ mod tests {
         );
 
         let snapshot = writer.write_snapshot(&dump, "checkpoint").await.unwrap();
-        assert!(snapshot.pushed);
         assert_eq!(snapshot.push_error, None);
         let commit_sha = snapshot.commit_sha;
 
@@ -1494,7 +1493,6 @@ mod tests {
 
         let snapshot = writer.write_snapshot(&dump, "checkpoint").await.unwrap();
 
-        assert!(!snapshot.pushed);
         let push_error = snapshot.push_error.unwrap();
         assert!(push_error.contains("git push origin"));
         assert!(push_error.contains("hint:"));

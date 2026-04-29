@@ -22,7 +22,7 @@ use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
 use crate::clone_source::{self, CloneDecision, EmptyWorkspaceReason};
-use crate::redact::{classify_credential_refresh_failure, redact_auth_url};
+use crate::redact::redact_auth_url;
 use crate::sandbox::resolve_path;
 use crate::{
     DirEntry, ExecResult, GrepOptions, Sandbox, SandboxEvent, SandboxEventCallback,
@@ -1250,9 +1250,8 @@ impl Sandbox for DockerSandbox {
             origin_url,
         )
         .await
-        .map_err(|e| {
-            let class = classify_credential_refresh_failure(&format!("token_mint_failed: {e}"));
-            crate::Error::message(format!("Failed to refresh push credentials: {class}"))
+        .map_err(|_| {
+            crate::Error::message("Failed to refresh push credentials: token_mint_failed")
         })?;
 
         let command = format!(
@@ -1263,10 +1262,10 @@ impl Sandbox for DockerSandbox {
             .docker_exec_shell(&command, 10_000, Some(WORKING_DIRECTORY), None, None)
             .await?;
         if result.exit_code != 0 {
-            let class = classify_credential_refresh_failure("set_url_nonzero");
-            return Err(crate::Error::message(format!(
-                "Failed to refresh push credentials: {class}"
-            )));
+            return Err(result.into_exec_error_with_redactor(
+                "git remote set-url origin (refresh push credentials)",
+                |s| redact_auth_url(s, Some(&auth_url)),
+            ));
         }
 
         Ok(())

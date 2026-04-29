@@ -86,48 +86,6 @@ impl Error {
         }
     }
 
-    pub fn exec_stderr(&self) -> Option<&str> {
-        match self {
-            Self::Exec { stderr, .. } => Some(stderr),
-            _ => None,
-        }
-    }
-
-    pub fn exec_stdout(&self) -> Option<&str> {
-        match self {
-            Self::Exec { stdout, .. } => Some(stdout),
-            _ => None,
-        }
-    }
-
-    pub fn exec_label(&self) -> Option<&str> {
-        match self {
-            Self::Exec { label, .. } => Some(label),
-            _ => None,
-        }
-    }
-
-    pub fn exec_exit_code(&self) -> Option<i32> {
-        match self {
-            Self::Exec { exit_code, .. } => Some(*exit_code),
-            _ => None,
-        }
-    }
-
-    pub fn exec_timed_out(&self) -> Option<bool> {
-        match self {
-            Self::Exec { timed_out, .. } => Some(*timed_out),
-            _ => None,
-        }
-    }
-
-    pub fn exec_duration_ms(&self) -> Option<u64> {
-        match self {
-            Self::Exec { duration_ms, .. } => Some(*duration_ms),
-            _ => None,
-        }
-    }
-
     #[cfg(feature = "docker")]
     pub fn docker_connect(source: BollardError) -> Self {
         Self::DockerConnect { source }
@@ -244,34 +202,6 @@ mod tests {
         assert!(rendered.contains("timed_out=false"));
         assert!(rendered.contains("duration_ms=210"));
         assert!(rendered.contains("hint:"));
-    }
-
-    #[test]
-    fn exec_accessors_return_stored_values() {
-        let error = Error::exec("git push", 1, true, 5000, "stored stderr", "stored stdout");
-
-        assert_eq!(error.exec_label(), Some("git push"));
-        assert_eq!(error.exec_exit_code(), Some(1));
-        assert_eq!(error.exec_timed_out(), Some(true));
-        assert_eq!(error.exec_duration_ms(), Some(5000));
-        assert_eq!(error.exec_stderr(), Some("stored stderr"));
-        assert_eq!(error.exec_stdout(), Some("stored stdout"));
-    }
-
-    #[test]
-    fn non_exec_accessors_return_none() {
-        let message = Error::message("plain");
-        assert_eq!(message.exec_label(), None);
-        assert_eq!(message.exec_exit_code(), None);
-        assert_eq!(message.exec_timed_out(), None);
-        assert_eq!(message.exec_duration_ms(), None);
-        assert_eq!(message.exec_stderr(), None);
-        assert_eq!(message.exec_stdout(), None);
-
-        let source = std::io::Error::other("source");
-        let context = Error::context("context", source);
-        assert_eq!(context.exec_label(), None);
-        assert_eq!(context.exec_stderr(), None);
     }
 
     #[test]

@@ -258,8 +258,7 @@ impl GitLifecycle {
         );
         match writer.write_snapshot(dump, message).await {
             Ok(snapshot) => {
-                if !snapshot.pushed {
-                    let detail = snapshot.push_error.as_deref().unwrap_or("unknown error");
+                if let Some(detail) = snapshot.push_error.as_deref() {
                     self.emit_metadata_warning(
                         "checkpoint_metadata_push_failed",
                         format!("failed to push metadata ref refs/heads/{meta_branch}: {detail}"),
