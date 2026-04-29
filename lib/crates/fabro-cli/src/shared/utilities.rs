@@ -16,7 +16,20 @@ use fabro_types::RunStatus;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
 use fabro_validate::{Diagnostic, Severity};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
+
+pub(crate) fn cyan_spinner(message: impl Into<std::borrow::Cow<'static, str>>) -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .expect("valid template")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", ""]),
+    );
+    spinner.set_message(message);
+    spinner.enable_steady_tick(Duration::from_millis(80));
+    spinner
+}
 
 pub(crate) fn read_workflow_file(path: &Path) -> anyhow::Result<String> {
     std::fs::read_to_string(path)

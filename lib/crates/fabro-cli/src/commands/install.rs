@@ -58,6 +58,7 @@ use crate::args::{
 use crate::command_context::CommandContext;
 use crate::commands::server::{start, stop};
 use crate::gh::GhCli;
+use crate::shared::cyan_spinner;
 use crate::shared::provider_auth::{
     ApiKeySource, authenticate_provider, authenticate_provider_with_api_key_source,
     authenticate_provider_with_method, prompt_confirm, prompt_password, provider_display_name,
@@ -791,14 +792,7 @@ async fn best_effort_github_username() -> Option<String> {
 ///
 /// Returns `(owner, username)`.
 async fn prompt_github_app_owner(_s: &Styles) -> Result<(GitHubAppOwner, Option<String>)> {
-    let spinner = indicatif::ProgressBar::new_spinner();
-    spinner.set_style(
-        indicatif::ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .expect("valid template")
-            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", ""]),
-    );
-    spinner.set_message("Checking GitHub CLI...");
-    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+    let spinner = cyan_spinner("Checking GitHub CLI...");
 
     let Some(gh) = GhCli::detect().await else {
         spinner.finish_and_clear();

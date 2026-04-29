@@ -14,7 +14,7 @@ use fabro_util::version::FABRO_VERSION;
 
 use crate::args::DoctorArgs;
 use crate::command_context::CommandContext;
-use crate::shared::print_json_pretty;
+use crate::shared::{cyan_spinner, print_json_pretty};
 
 pub(crate) fn check_config(settings_path: Option<PathBuf>) -> CheckResult {
     match settings_path {
@@ -250,19 +250,7 @@ pub(crate) async fn run_doctor(
     let printer = base_ctx.printer();
     let styles = Styles::detect_stdout();
     let json = base_ctx.json_output();
-    let spinner = if json {
-        None
-    } else {
-        let spinner = indicatif::ProgressBar::new_spinner();
-        spinner.set_style(
-            indicatif::ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .expect("valid template")
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", ""]),
-        );
-        spinner.set_message("Running checks...");
-        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
-        Some(spinner)
-    };
+    let spinner = (!json).then(|| cyan_spinner("Running checks..."));
 
     let settings_config_path = active_settings_path(None);
 

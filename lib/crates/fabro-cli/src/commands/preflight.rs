@@ -9,7 +9,7 @@ use crate::commands::run::output::{
 };
 use crate::commands::run::overrides::preflight_args_overrides;
 use crate::manifest_builder::{ManifestBuildInput, build_run_manifest, preflight_manifest_args};
-use crate::shared::print_json_pretty;
+use crate::shared::{cyan_spinner, print_json_pretty};
 
 pub(crate) async fn execute(
     mut args: PreflightArgs,
@@ -31,19 +31,7 @@ pub(crate) async fn execute(
         user_settings_path: Some(active_settings_path(None)),
     })?;
 
-    let spinner = if ctx.json_output() {
-        None
-    } else {
-        let spinner = indicatif::ProgressBar::new_spinner();
-        spinner.set_style(
-            indicatif::ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .expect("valid template")
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", ""]),
-        );
-        spinner.set_message("Running checks...");
-        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
-        Some(spinner)
-    };
+    let spinner = (!ctx.json_output()).then(|| cyan_spinner("Running checks..."));
 
     let result = async {
         let client = ctx.server().await?;

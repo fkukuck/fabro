@@ -20,6 +20,13 @@ impl SandboxProvider {
     pub fn is_local(&self) -> bool {
         matches!(self, Self::Local)
     }
+
+    /// True for providers that clone repository sources into their workspace
+    /// (Docker, Daytona). Used by preflight to decide whether repository
+    /// access checks apply.
+    pub fn is_clone_based(&self) -> bool {
+        matches!(self, Self::Docker | Self::Daytona)
+    }
 }
 
 #[cfg(test)]

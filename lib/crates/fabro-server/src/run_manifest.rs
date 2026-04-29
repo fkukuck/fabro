@@ -16,11 +16,11 @@ use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_model::Catalog;
-use fabro_redact::DisplaySafeUrl;
 use fabro_sandbox::config::{
     DaytonaNetwork, DaytonaSnapshotSettings, DockerfileSource as SandboxDockerfileSource,
 };
 use fabro_sandbox::daytona::DaytonaConfig;
+use fabro_sandbox::redact::redact_auth_url;
 use fabro_sandbox::{DockerSandboxOptions, Sandbox, SandboxProvider, SandboxSpec};
 use fabro_static::EnvVars;
 use fabro_types::settings::ServerNamespace;
@@ -489,10 +489,8 @@ async fn build_preflight_report(
         } else {
             sandbox_provider
         };
-    let needs_github_credentials = matches!(
-        sandbox_provider,
-        SandboxProvider::Docker | SandboxProvider::Daytona
-    ) || !github_integration.permissions.is_empty();
+    let needs_github_credentials =
+        sandbox_provider.is_clone_based() || !github_integration.permissions.is_empty();
     let github_app = if needs_github_credentials {
         state
             .github_credentials(github_integration)
@@ -618,26 +616,10 @@ fn resolve_docker_config(settings: &RunNamespace) -> Option<DockerSandboxOptions
     settings.sandbox.docker.as_ref().map(runtime_docker_config)
 }
 
-fn preflight_docker_config(config: &DockerSandboxOptions) -> DockerSandboxOptions {
-    let mut config = config.clone();
-    config.skip_clone = true;
-    config
-}
-
-fn preflight_daytona_config(config: &DaytonaConfig) -> DaytonaConfig {
-    let mut config = config.clone();
-    config.skip_clone = true;
-    config
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct GitRemoteRefCheck {
     origin_url: String,
     branch:     Option<String>,
-}
-
-fn is_clone_based_provider(provider: SandboxProvider) -> bool {
-    matches!(provider, SandboxProvider::Docker | SandboxProvider::Daytona)
 }
 
 fn clone_disabled_for_provider(provider: SandboxProvider, resolved_run: &RunNamespace) -> bool {
@@ -694,7 +676,7 @@ where
     F: FnOnce(GitRemoteRefCheck, Option<fabro_github::GitHubCredentials>) -> Fut,
     Fut: Future<Output = Result<(), String>>,
 {
-    if !is_clone_based_provider(sandbox_provider)
+    if !sandbox_provider.is_clone_based()
         || clone_disabled_for_provider(sandbox_provider, resolved_run)
     {
         return true;
@@ -778,9 +760,9 @@ async fn check_git_remote_ref(
         command.arg(branch);
     }
 
-    let output = time::timeout(Duration::from_secs(30), command.output())
+    let output = time::timeout(Duration::from_secs(10), command.output())
         .await
-        .map_err(|_| "git ls-remote timed out after 30s".to_string())?
+        .map_err(|_| "git ls-remote timed out after 10s".to_string())?
         .map_err(|err| format!("Failed to run git ls-remote: {err}"))?;
 
     if output.status.success() {
@@ -796,14 +778,7 @@ async fn check_git_remote_ref(
     } else {
         format!("git ls-remote exited with status {}", output.status)
     };
-    Err(redact_remote_output(&message, auth_url.as_ref()))
-}
-
-fn redact_remote_output(text: &str, auth_url: Option<&DisplaySafeUrl>) -> String {
-    auth_url.map_or_else(
-        || text.to_string(),
-        |url| text.replace(url.as_raw_url().as_str(), &url.redacted_string()),
-    )
+    Err(redact_auth_url(&message, auth_url.as_ref()))
 }
 
 fn preflight_sandbox_spec(
@@ -824,9 +799,10 @@ fn preflight_sandbox_spec(
             working_directory: prepared.source_directory.clone(),
         },
         SandboxProvider::Docker => {
-            let config = resolve_docker_config(resolved_run).unwrap_or_default();
+            let mut config = resolve_docker_config(resolved_run).unwrap_or_default();
+            config.skip_clone = true;
             SandboxSpec::Docker {
-                config: preflight_docker_config(&config),
+                config,
                 github_app,
                 run_id: None,
                 clone_origin_url,
@@ -834,9 +810,10 @@ fn preflight_sandbox_spec(
             }
         }
         SandboxProvider::Daytona => {
-            let config = resolve_daytona_config(resolved_run).unwrap_or_default();
+            let mut config = resolve_daytona_config(resolved_run).unwrap_or_default();
+            config.skip_clone = true;
             SandboxSpec::Daytona {
-                config: preflight_daytona_config(&config),
+                config,
                 github_app,
                 run_id: None,
                 clone_origin_url,
@@ -874,10 +851,8 @@ async fn run_sandbox_check(
         Ok(sandbox) => match sandbox.initialize().await {
             Ok(()) => {
                 let mut details = vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))];
-                if matches!(
-                    sandbox_provider,
-                    SandboxProvider::Docker | SandboxProvider::Daytona
-                ) && prepared.git.is_none()
+                if sandbox_provider.is_clone_based()
+                    && prepared.git.is_none()
                     && !clone_disabled_for_provider(sandbox_provider, resolved_run)
                 {
                     details.push(CheckDetail {
@@ -1386,7 +1361,7 @@ mod tests {
     }
 
     fn prepared_and_resolved_for_sandbox(
-        provider: &str,
+        provider: SandboxProvider,
         skip_clone: bool,
         git: Option<types::GitContext>,
     ) -> (PreparedManifest, RunNamespace) {
@@ -1425,36 +1400,10 @@ skip_clone = {skip_clone}
         (prepared, resolved)
     }
 
-    #[test]
-    fn preflight_docker_config_forces_skip_clone_without_mutating_runtime_config() {
-        let runtime = DockerSandboxOptions {
-            skip_clone: false,
-            ..DockerSandboxOptions::default()
-        };
-
-        let preflight = preflight_docker_config(&runtime);
-
-        assert!(preflight.skip_clone);
-        assert!(!runtime.skip_clone);
-    }
-
-    #[test]
-    fn preflight_daytona_config_forces_skip_clone_without_mutating_runtime_config() {
-        let runtime = DaytonaConfig {
-            skip_clone: false,
-            ..DaytonaConfig::default()
-        };
-
-        let preflight = preflight_daytona_config(&runtime);
-
-        assert!(preflight.skip_clone);
-        assert!(!runtime.skip_clone);
-    }
-
     #[tokio::test]
     async fn repository_access_check_skips_when_clone_is_disabled() {
         let (prepared, resolved) = prepared_and_resolved_for_sandbox(
-            "docker",
+            SandboxProvider::Docker,
             true,
             Some(git_context("https://github.com/acme/widgets", "main")),
         );
@@ -1483,7 +1432,7 @@ skip_clone = {skip_clone}
     #[tokio::test]
     async fn repository_access_check_rejects_non_github_origins_before_remote_probe() {
         let (prepared, resolved) = prepared_and_resolved_for_sandbox(
-            "docker",
+            SandboxProvider::Docker,
             false,
             Some(git_context("https://gitlab.com/acme/widgets", "main")),
         );
@@ -1521,7 +1470,7 @@ skip_clone = {skip_clone}
     #[tokio::test]
     async fn repository_access_check_probes_normalized_github_branch() {
         let (prepared, resolved) = prepared_and_resolved_for_sandbox(
-            "docker",
+            SandboxProvider::Docker,
             false,
             Some(git_context(
                 "git@github.com:acme/widgets.git",
@@ -1558,7 +1507,7 @@ skip_clone = {skip_clone}
     #[tokio::test]
     async fn repository_access_check_surfaces_remote_probe_failure() {
         let (prepared, resolved) = prepared_and_resolved_for_sandbox(
-            "docker",
+            SandboxProvider::Docker,
             false,
             Some(git_context("https://github.com/acme/widgets", "missing")),
         );
@@ -1590,7 +1539,7 @@ skip_clone = {skip_clone}
     #[test]
     fn preflight_sandbox_spec_disables_docker_clone_but_preserves_clone_metadata() {
         let (prepared, resolved) = prepared_and_resolved_for_sandbox(
-            "docker",
+            SandboxProvider::Docker,
             false,
             Some(git_context("https://github.com/acme/widgets", "main")),
         );

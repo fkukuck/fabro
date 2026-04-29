@@ -47,23 +47,21 @@ pub(crate) async fn create_run(
         run_id,
         user_settings_path: Some(active_settings_path(None)),
     })?;
+    let validation = manifest_validation::validate_manifest(&RunLayer::default(), &built.manifest)?;
+    let diagnostics = api_diagnostics_to_local(&validation.workflow.diagnostics);
     if !quiet {
-        let printer = ctx.printer();
-        let validation =
-            manifest_validation::validate_manifest(&RunLayer::default(), &built.manifest)?;
-        let diagnostics = api_diagnostics_to_local(&validation.workflow.diagnostics);
         print_workflow_summary(
             &validation.workflow,
             Some(&built.target_path),
             styles,
-            printer,
+            ctx.printer(),
         );
-        if diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == fabro_validate::Severity::Error)
-        {
-            bail!("Validation failed");
-        }
+    }
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == fabro_validate::Severity::Error)
+    {
+        bail!("Validation failed");
     }
 
     let client = ctx.server().await?;
