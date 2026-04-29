@@ -14,6 +14,7 @@ use fabro_types::settings::server::LogDestination;
 use fabro_types::settings::{CliNamespace, InterpString, RunNamespace};
 use fabro_types::{ServerSettings, UserSettings};
 use fabro_util::version::FABRO_VERSION;
+use toml_edit::{DocumentMut, Item, Table, value};
 use tracing::debug;
 
 use crate::args::ServerTargetArgs;
@@ -260,6 +261,80 @@ pub(crate) fn resolve_server_target(
     Ok(resolve_nondefault_server_target(args, settings)?.unwrap_or_else(default_server_target))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "CLI auth/login updates the user settings file synchronously after successful login."
+)]
+pub(crate) fn configure_cli_target_if_missing(
+    config_path: &Path,
+    settings: &UserSettings,
+    target: &ServerTarget,
+) -> Result<bool> {
+    if settings.cli.target.is_some() {
+        return Ok(false);
+    }
+
+    let mut document = read_settings_document_for_write(config_path)?;
+    if document
+        .get("cli")
+        .and_then(Item::as_table)
+        .is_some_and(|cli| cli.get("target").is_some_and(|target| !target.is_none()))
+    {
+        return Ok(false);
+    }
+
+    if document.get("_version").is_none() {
+        document["_version"] = value(1);
+    }
+
+    let cli = ensure_document_table(&mut document, "cli")?;
+    cli.insert("target", Item::Table(cli_target_table(target)));
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(config_path, document.to_string())
+        .with_context(|| format!("failed to write {}", config_path.display()))?;
+
+    Ok(true)
+}
+
+fn read_settings_document_for_write(config_path: &Path) -> Result<DocumentMut> {
+    if !config_path.exists() {
+        return Ok(DocumentMut::new());
+    }
+
+    let contents = std::fs::read_to_string(config_path)
+        .with_context(|| format!("failed to read {}", config_path.display()))?;
+    contents
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", config_path.display()))
+}
+
+fn ensure_document_table<'a>(document: &'a mut DocumentMut, key: &str) -> Result<&'a mut Table> {
+    if document.get(key).is_none() {
+        let mut table = Table::new();
+        table.set_implicit(true);
+        document[key] = Item::Table(table);
+    }
+    document[key]
+        .as_table_mut()
+        .ok_or_else(|| anyhow!("settings.toml [{key}] is not a table"))
+}
+
+fn cli_target_table(target: &ServerTarget) -> Table {
+    let mut table = Table::new();
+    if let Some(url) = target.as_http_url() {
+        table.insert("type", value("http"));
+        table.insert("url", value(url));
+    } else if let Some(path) = target.as_unix_socket_path() {
+        table.insert("type", value("unix"));
+        table.insert("path", value(path.display().to_string()));
+    }
+    table
+}
+
 pub(crate) fn exec_server_target(args: &ServerTargetArgs) -> Result<Option<ServerTarget>> {
     let target = explicit_server_target(args)?;
     debug!(?target, "Resolved exec server target");
@@ -426,6 +501,58 @@ url = "https://config.example.com"
             error.to_string(),
             "server target must be an http(s) URL or absolute Unix socket path"
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "unit test writes a temporary settings fixture with sync std::fs"
+    )]
+    fn configure_cli_target_creates_settings_file_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(".fabro").join("settings.toml");
+        let settings = UserSettings::default();
+        let target = ServerTarget::http_url("http://127.0.0.1:32276").unwrap();
+
+        assert!(configure_cli_target_if_missing(&config_path, &settings, &target).unwrap());
+
+        let contents = std::fs::read_to_string(&config_path).unwrap();
+        insta::assert_snapshot!(contents, @r#"
+        _version = 1
+
+        [cli.target]
+        type = "http"
+        url = "http://127.0.0.1:32276"
+        "#);
+        let settings = UserSettingsBuilder::load_from(&config_path).unwrap();
+        assert_eq!(
+            resolve_server_target(&server_target_args(None), &settings).unwrap(),
+            target
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "unit test writes a temporary settings fixture with sync std::fs"
+    )]
+    fn configure_cli_target_does_not_overwrite_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("settings.toml");
+        let existing = r#"
+_version = 1
+
+[cli.target]
+type = "http"
+url = "https://configured.example.com"
+"#;
+        std::fs::write(&config_path, existing).unwrap();
+        let settings = UserSettingsBuilder::load_from(&config_path).unwrap();
+        let target = ServerTarget::http_url("https://new.example.com").unwrap();
+
+        assert!(!configure_cli_target_if_missing(&config_path, &settings, &target).unwrap());
+
+        assert_eq!(std::fs::read_to_string(&config_path).unwrap(), existing);
     }
 
     #[test]

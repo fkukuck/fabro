@@ -49,6 +49,7 @@ pub(super) async fn login_command(args: AuthLoginArgs, base_ctx: &CommandContext
                 logged_in_at: Utc::now(),
             }),
         )?;
+        configure_cli_target_after_login(base_ctx, &target)?;
         fabro_util::printerr!(printer, "Logged in to {} with dev-token", target);
         return Ok(());
     }
@@ -113,9 +114,22 @@ pub(super) async fn login_command(args: AuthLoginArgs, base_ctx: &CommandContext
         };
         let summary = identity_summary(&entry.subject);
         AuthStore::default().put(&target, AuthEntry::OAuth(entry))?;
+        configure_cli_target_after_login(base_ctx, &target)?;
         fabro_util::printerr!(printer, "Logged in to {} as {}", target, summary);
         Ok(())
     }
+}
+
+fn configure_cli_target_after_login(
+    base_ctx: &CommandContext,
+    target: &ServerTarget,
+) -> Result<()> {
+    user_config::configure_cli_target_if_missing(
+        base_ctx.base_config_path(),
+        base_ctx.user_settings(),
+        target,
+    )?;
+    Ok(())
 }
 
 #[cfg(unix)]
