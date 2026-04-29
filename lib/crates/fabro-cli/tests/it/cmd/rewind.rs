@@ -2,8 +2,8 @@ use fabro_test::{fabro_snapshot, run_and_format, test_context};
 use insta::assert_snapshot;
 
 use super::support::{
-    git_filters, output_stderr as support_stderr, run_branch_commits_since_base, run_events,
-    run_state, run_state_by_id, setup_git_backed_changed_run,
+    git_filters, output_stderr as support_stderr, run_events, run_state, run_state_by_id,
+    setup_seeded_git_backed_changed_run,
 };
 
 #[test]
@@ -54,9 +54,8 @@ fn rewind_outside_git_repo_errors() {
 #[test]
 fn rewind_list_prints_timeline_for_completed_git_run() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let mut cmd = context.command();
-    cmd.current_dir(&setup.repo_dir);
     cmd.args(["rewind", &setup.run.run_id, "--list"]);
 
     fabro_snapshot!(git_filters(&context), cmd, @"
@@ -74,15 +73,9 @@ fn rewind_list_prints_timeline_for_completed_git_run() {
 #[test]
 fn rewind_target_updates_metadata_and_resume_hint() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
-    let expected_run_head =
-        run_branch_commits_since_base(&setup.repo_dir, &setup.run.run_id, &setup.base_sha)
-            .into_iter()
-            .next()
-            .expect("source run should have a first run commit");
+    let setup = setup_seeded_git_backed_changed_run(&context);
 
     let mut cmd = context.command();
-    cmd.current_dir(&setup.repo_dir);
     cmd.args(["rewind", &setup.run.run_id, "@2"]);
 
     let (snapshot, output) = run_and_format(&mut cmd, &git_filters(&context));
@@ -110,14 +103,14 @@ fn rewind_target_updates_metadata_and_resume_hint() {
         replacement
             .checkpoint
             .and_then(|checkpoint| checkpoint.git_commit_sha),
-        Some(expected_run_head)
+        Some(setup.step_one_sha)
     );
 }
 
 #[test]
 fn rewind_archives_source_and_records_superseded_by() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let before_events = run_events(&setup.run.run_dir);
     assert!(
         before_events
@@ -127,7 +120,6 @@ fn rewind_archives_source_and_records_superseded_by() {
     );
 
     let mut cmd = context.command();
-    cmd.current_dir(&setup.repo_dir);
     cmd.args(["rewind", &setup.run.run_id, "@2"]);
     let output = cmd.output().expect("rewind should execute");
     assert!(

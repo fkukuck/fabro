@@ -2,8 +2,7 @@ use fabro_test::{fabro_snapshot, run_and_format, test_context};
 use insta::assert_snapshot;
 
 use super::support::{
-    git_filters, output_stdout, run_branch_commits_since_base, run_state_by_id,
-    setup_git_backed_changed_run,
+    git_filters, output_stdout, run_state_by_id, setup_seeded_git_backed_changed_run,
 };
 
 #[test]
@@ -54,10 +53,9 @@ fn fork_outside_git_repo_errors() {
 #[test]
 fn fork_latest_prints_new_run_and_resume_hint() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
 
     let mut cmd = context.command();
-    cmd.current_dir(&setup.repo_dir);
     cmd.args(["fork", &setup.run.run_id]);
 
     let (snapshot, output) = run_and_format(&mut cmd, &git_filters(&context));
@@ -76,16 +74,10 @@ fn fork_latest_prints_new_run_and_resume_hint() {
 #[test]
 fn fork_from_earlier_checkpoint_uses_expected_sha() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
-    let expected_head =
-        run_branch_commits_since_base(&setup.repo_dir, &setup.run.run_id, &setup.base_sha)
-            .into_iter()
-            .next()
-            .expect("source run should have a first run commit");
+    let setup = setup_seeded_git_backed_changed_run(&context);
 
     let output = context
         .command()
-        .current_dir(&setup.repo_dir)
         .args(["fork", &setup.run.run_id, "@2", "--json"])
         .output()
         .expect("fork should execute");
@@ -114,7 +106,7 @@ fn fork_from_earlier_checkpoint_uses_expected_sha() {
             .checkpoint
             .as_ref()
             .and_then(|checkpoint| checkpoint.git_commit_sha.as_deref()),
-        Some(expected_head.as_str())
+        Some(setup.step_one_sha.as_str())
     );
 
     assert_eq!(
@@ -123,7 +115,7 @@ fn fork_from_earlier_checkpoint_uses_expected_sha() {
             .as_ref()
             .and_then(|spec| spec.fork_source_ref.as_ref())
             .map(|source| source.checkpoint_sha.as_str()),
-        Some(expected_head.as_str())
+        Some(setup.step_one_sha.as_str())
     );
     assert_eq!(
         run_snapshot

@@ -1,7 +1,7 @@
 use fabro_test::test_context;
 use serde_json::Value;
 
-use super::support::{fixture, output_stderr, output_stdout, setup_completed_fast_dry_run};
+use super::support::{fixture, output_stderr, output_stdout, setup_seeded_completed_dry_run};
 
 #[test]
 fn completion_rejects_json() {
@@ -115,7 +115,7 @@ fn completion_succeeds_with_json_output_format_from_home_config() {
 #[test]
 fn ps_supports_global_flag_and_env_var() {
     let context = test_context!();
-    setup_completed_fast_dry_run(&context);
+    setup_seeded_completed_dry_run(&context);
     let test_case_label = context.test_case_label();
 
     let global_output = context
@@ -174,7 +174,7 @@ fn ps_supports_global_flag_and_env_var() {
 #[test]
 fn logs_json_wins_over_pretty() {
     let context = test_context!();
-    let run = setup_completed_fast_dry_run(&context);
+    let run = setup_seeded_completed_dry_run(&context);
 
     let output = context
         .command()

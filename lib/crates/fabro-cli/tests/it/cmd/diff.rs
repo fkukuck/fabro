@@ -1,6 +1,6 @@
 use fabro_test::{fabro_snapshot, test_context};
 
-use super::support::{git_filters, setup_git_backed_changed_run, setup_git_backed_noop_run};
+use super::support::{git_filters, setup_git_backed_noop_run, setup_seeded_git_backed_changed_run};
 
 #[test]
 fn help() {
@@ -50,7 +50,7 @@ fn diff_completed_run_without_changes_reports_no_patch() {
 #[test]
 fn diff_missing_node_diff_reports_helpful_error() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let mut cmd = context.command();
     cmd.args(["diff", &setup.run.run_id, "--node", "missing"]);
 
@@ -66,7 +66,7 @@ fn diff_missing_node_diff_reports_helpful_error() {
 #[test]
 fn diff_completed_run_with_changes_prints_patch() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let mut cmd = context.command();
     cmd.args(["diff", &setup.run.run_id]);
 
@@ -89,7 +89,7 @@ fn diff_completed_run_with_changes_prints_patch() {
 #[test]
 fn diff_completed_run_reads_store_final_patch_without_disk_file() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let _ = std::fs::remove_file(setup.run.run_dir.join("final.patch"));
 
     let mut cmd = context.command();
@@ -114,7 +114,7 @@ fn diff_completed_run_reads_store_final_patch_without_disk_file() {
 #[test]
 fn diff_node_outputs_specific_patch() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
     let mut cmd = context.command();
     cmd.args(["diff", &setup.run.run_id, "--node", "step_one"]);
 
@@ -136,7 +136,7 @@ fn diff_node_outputs_specific_patch() {
 #[test]
 fn diff_node_reads_store_patch_without_disk_file() {
     let context = test_context!();
-    let setup = setup_git_backed_changed_run(&context);
+    let setup = setup_seeded_git_backed_changed_run(&context);
 
     let mut cmd = context.command();
     cmd.args(["diff", &setup.run.run_id, "--node", "step_one"]);
