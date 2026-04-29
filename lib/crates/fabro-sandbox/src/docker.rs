@@ -423,9 +423,12 @@ impl DockerSandbox {
                 .docker_exec_shell(&command, 10_000, Some(WORKING_DIRECTORY), None, None)
                 .await?;
             if result.exit_code != 0 {
+                let stderr = redact_auth_url(&result.stderr, Some(auth_url));
                 tracing::warn!(
                     exit_code = result.exit_code,
-                    "Failed to set Docker sandbox push credentials on origin"
+                    stderr = %stderr.trim(),
+                    "Failed to set Docker sandbox push credentials on origin — \
+                     subsequent git push from this sandbox will fail"
                 );
             }
         }

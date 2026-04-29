@@ -637,19 +637,37 @@ impl Sandbox for DaytonaSandbox {
                                             ..Default::default()
                                         };
                                         let wrapped = wrap_bash_command(&cmd);
-                                        if let Ok(r) = ps.execute_command(&wrapped, opts).await {
-                                            if r.exit_code != 0 {
+                                        match ps.execute_command(&wrapped, opts).await {
+                                            Ok(r) if r.exit_code != 0 => {
+                                                let stderr = r.result.replace(
+                                                    &auth_url.raw_string(),
+                                                    &auth_url.redacted_string(),
+                                                );
                                                 tracing::warn!(
                                                     exit_code = r.exit_code,
-                                                    "Failed to set push credentials on origin"
+                                                    output = %stderr.trim(),
+                                                    "Failed to set Daytona sandbox push credentials \
+                                                     on origin — subsequent git push from this \
+                                                     sandbox will fail"
+                                                );
+                                            }
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    error = %e,
+                                                    "Daytona exec failed while setting push credentials \
+                                                     on origin — subsequent git push from this \
+                                                     sandbox will fail"
                                                 );
                                             }
                                         }
                                     }
                                     Err(e) => {
                                         tracing::warn!(
+                                            origin = %origin_url,
                                             error = %e,
-                                            "Failed to build authenticated origin URL"
+                                            "Failed to build authenticated origin URL — \
+                                             subsequent git push from this sandbox will fail"
                                         );
                                     }
                                 }
