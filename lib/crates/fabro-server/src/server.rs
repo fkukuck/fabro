@@ -801,6 +801,7 @@ impl AppState {
                     fabro_github::GitHubAppCredentials {
                         app_id,
                         private_key_pem,
+                        slug: settings.slug.as_ref().map(InterpString::as_source),
                     },
                 )))
             }
@@ -1743,6 +1744,10 @@ fn system_sandbox_provider(
     )
 }
 
+fn clone_sandbox_requires_github_credentials(provider: &str) -> bool {
+    matches!(provider, "docker" | "daytona")
+}
+
 fn parse_system_duration(raw: &str) -> anyhow::Result<chrono::Duration> {
     let raw = raw.trim();
     anyhow::ensure!(!raw.is_empty(), "empty duration string");
@@ -2033,13 +2038,14 @@ async fn get_github_repo(
                     .into_response();
             }
 
-            match fabro_github::create_installation_access_token_with_permissions(
+            match fabro_github::create_installation_access_token_with_permissions_and_install_url(
                 client_ref,
                 &jwt,
                 &owner,
                 &name,
                 &base_url,
                 serde_json::json!({ "contents": "write", "pull_requests": "write" }),
+                Some(&install_url),
             )
             .await
             {
@@ -4632,7 +4638,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
     let github_app_result = {
         let settings = &persisted.run_spec().settings.run;
         let required_github_credentials = (settings.execution.mode != RunMode::DryRun
-            && settings.sandbox.provider == "daytona")
+            && clone_sandbox_requires_github_credentials(&settings.sandbox.provider))
             || !github_settings.permissions.is_empty();
         if required_github_credentials {
             state.github_credentials(github_settings)
@@ -8665,6 +8671,13 @@ provider = "invalid-provider"
             system_sandbox_provider(&manifest_run_settings),
             SandboxProvider::default().to_string()
         );
+    }
+
+    #[test]
+    fn clone_sandbox_credentials_are_required_for_clone_based_providers() {
+        assert!(clone_sandbox_requires_github_credentials("docker"));
+        assert!(clone_sandbox_requires_github_credentials("daytona"));
+        assert!(!clone_sandbox_requires_github_credentials("local"));
     }
 
     #[tokio::test]

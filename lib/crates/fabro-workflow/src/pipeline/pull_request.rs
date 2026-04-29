@@ -1510,6 +1510,7 @@ mod tests {
         let creds = fabro_github::GitHubCredentials::App(fabro_github::GitHubAppCredentials {
             app_id:          "123".to_string(),
             private_key_pem: "unused".to_string(),
+            slug:            None,
         });
         let base_url = github_app::github_api_base_url();
         let result = maybe_open_pull_request(OpenPullRequestRequest {

@@ -969,13 +969,15 @@ async fn mint_github_token(
         .map_err(|err| anyhow!("{err}"))?;
     let client = fabro_http::http_client()?;
     let perms_json = serde_json::to_value(permissions)?;
-    fabro_github::create_installation_access_token_with_permissions(
+    let install_url = creds.installation_url(&owner);
+    fabro_github::create_installation_access_token_with_permissions_and_install_url(
         &client,
         &jwt,
         &owner,
         &repo,
         &fabro_github::github_api_base_url(),
         perms_json,
+        install_url.as_deref(),
     )
     .await
     .map_err(|err| anyhow!("{err}"))

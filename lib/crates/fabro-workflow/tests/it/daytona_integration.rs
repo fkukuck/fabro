@@ -207,6 +207,7 @@ fn load_github_app_credentials() -> fabro_github::GitHubCredentials {
     fabro_github::GitHubCredentials::App(fabro_github::GitHubAppCredentials {
         app_id,
         private_key_pem,
+        slug: None,
     })
 }
 
