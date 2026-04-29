@@ -7,8 +7,8 @@ use clap::{Arg, ArgAction, Command};
 use super::{markdown_cell, replace_generated_region};
 
 const CLI_REFERENCE_PATH: &str = "docs/public/reference/cli.mdx";
-const FENCE_START: &str = "<!-- generated:cli -->";
-const FENCE_END: &str = "<!-- /generated:cli -->";
+const FENCE_START: &str = "{/* generated:cli */}";
+const FENCE_END: &str = "{/* /generated:cli */}";
 
 #[expect(
     clippy::print_stdout,

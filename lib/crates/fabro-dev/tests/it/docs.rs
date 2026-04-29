@@ -24,9 +24,9 @@ title: CLI
 
 Intro copy.
 
-<!-- generated:cli -->
+{/* generated:cli */}
 stale cli
-<!-- /generated:cli -->
+{/* /generated:cli */}
 
 Tail copy.
 ",
@@ -40,9 +40,9 @@ title: Settings
 
 Settings intro copy.
 
-<!-- generated:options -->
+{/* generated:options */}
 stale options
-<!-- /generated:options -->
+{/* /generated:options */}
 
 Settings tail copy.
 ",
