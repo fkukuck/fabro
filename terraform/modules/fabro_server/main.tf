@@ -69,6 +69,16 @@ resource "azurerm_container_app" "this" {
         value = var.identity_client_id
       }
 
+      env {
+        name  = "FABRO_SKIP_PRIV_DROP"
+        value = "1"
+      }
+
+      env {
+        name  = "FABRO_SERVER_RUNTIME_DIR"
+        value = "/tmp/fabro-runtime"
+      }
+
       volume_mounts {
         name = var.storage_volume_name
         path = var.storage_mount_path

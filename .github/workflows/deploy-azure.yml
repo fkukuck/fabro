@@ -100,21 +100,29 @@ jobs:
             -t "$ACR_SERVER/fabro-server:$DEPLOY_ID" \
             --push .
 
-      - name: Build fabro-sandboxd
-        run: cargo build --release -p fabro-sandboxd
-
       - name: Stage sandbox base Docker context
         run: |
-          mkdir -p tmp/azure-sandbox-base
-          cp target/release/fabro-sandboxd tmp/azure-sandbox-base/fabro-sandboxd
+          rm -rf "$RUNNER_TEMP/azure-sandbox-build"
+          mkdir -p "$RUNNER_TEMP/azure-sandbox-build"
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.terraform' \
+            --exclude 'target' \
+            --exclude 'tmp' \
+            --exclude '.worktrees' \
+            --exclude 'node_modules' \
+            --exclude 'apps/fabro-web/node_modules' \
+            --exclude 'apps/marketing/node_modules' \
+            ./ "$RUNNER_TEMP/azure-sandbox-build/"
+          rm -f "$RUNNER_TEMP/azure-sandbox-build/.dockerignore"
 
       - name: Build and push fabro-azure-sandbox-base
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -f docker/azure-sandbox-base.Dockerfile \
+            -f "$RUNNER_TEMP/azure-sandbox-build/docker/azure-sandbox-base.Dockerfile" \
             -t "$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID" \
-            --push tmp/azure-sandbox-base
+            --push "$RUNNER_TEMP/azure-sandbox-build"
 
       - name: Apply Terraform
         run: |
