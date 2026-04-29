@@ -178,7 +178,7 @@ Configure the embedded SlateDB key-value store used for run event storage.
 
 | Key | Description | Default |
 |---|---|---|
-| `provider` | Object store backend: `local` or `s3` | `"local"` |
+| `provider` | Object store backend: `local`, `s3`, or `azure` | `"local"` |
 | `prefix` | Key prefix within the object store | `""` |
 | `flush_interval` | How often to flush the write-ahead log | `"1ms"` |
 | `disk_cache` | Enable a local disk cache for object store reads | `false` |
@@ -200,9 +200,11 @@ region = "us-east-1"
 ```
 
 The browser install wizard's `Object store` step manages both `[server.slatedb]` and
-`[server.artifacts]` together. `Local disk` uses the detected local object-store root, defaulting
-to `<storage_root>/objects`, with fixed prefixes `slatedb` and `artifacts`. `AWS S3` writes one
-shared bucket with the same fixed prefixes.
+`[server.artifacts]` together.
+
+- `Local disk` uses `<storage_root>/objects`
+- `AWS S3` uses one shared bucket with fixed prefixes for `artifacts`, `slatedb`, and `run-logs`
+- `Azure Blob` uses one shared storage account container with fixed prefixes for `artifacts`, `slatedb`, and `run-logs`, plus runtime managed identity auth
 
 ```toml title="Local disk object store"
 [server.artifacts]
@@ -229,6 +231,24 @@ Advanced S3-compatible settings such as custom `endpoint` or `path_style` remain
 configuration path. If you need MinIO, R2, or another S3-compatible backend, configure
 `[server.slatedb]` and `[server.artifacts]` directly in `settings.toml`. The runtime still
 honors those hand-edited values even though the browser wizard does not manage them.
+
+```toml title="Azure Blob object store"
+[server.artifacts]
+provider = "azure"
+prefix = "artifacts"
+
+[server.artifacts.azure]
+account = "fkukuckfabrosbx01"
+container = "fabro-data"
+
+[server.slatedb]
+provider = "azure"
+prefix = "slatedb"
+
+[server.slatedb.azure]
+account = "fkukuckfabrosbx01"
+container = "fabro-data"
+```
 
 ### `[server.sandbox.azure.platform]` section
 

@@ -14,6 +14,14 @@ output "server_storage_share_name" {
   value = module.storage.server_storage_share_name
 }
 
+output "storage_account_name" {
+  value = module.storage.account_name
+}
+
+output "blob_data_container_name" {
+  value = module.storage.data_container_name
+}
+
 output "acr_login_server" {
   value = module.acr.login_server
 }

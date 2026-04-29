@@ -313,6 +313,7 @@ impl InstallAzureState {
 enum InstallObjectStoreProvider {
     Local,
     S3,
+    Azure,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, strum::IntoStaticStr)]
@@ -329,6 +330,8 @@ struct InstallObjectStoreInput {
     root:              Option<String>,
     bucket:            Option<String>,
     region:            Option<String>,
+    account:           Option<String>,
+    container:         Option<String>,
     credential_mode:   Option<InstallObjectStoreCredentialMode>,
     access_key_id:     Option<String>,
     secret_access_key: Option<String>,
@@ -403,6 +406,10 @@ enum InstallObjectStoreState {
         credential_mode:    InstallObjectStoreCredentialMode,
         manual_credentials: Option<InstallAwsCredentialPair>,
     },
+    Azure {
+        account:   String,
+        container: String,
+    },
 }
 
 impl InstallObjectStoreState {
@@ -426,6 +433,11 @@ impl InstallObjectStoreState {
                     credential_mode,
                     InstallObjectStoreCredentialMode::AccessKey
                 ) && manual_credentials.is_some(),
+            }),
+            Self::Azure { account, container } => serde_json::json!({
+                "provider": "azure",
+                "account": account,
+                "container": container,
             }),
         }
     }
@@ -458,6 +470,12 @@ impl InstallObjectStoreState {
                     .as_ref()
                     .map(|credentials| credentials.secret_access_key.expose_secret().to_string()),
             },
+            Self::Azure { account, container } => {
+                fabro_install::InstallObjectStoreSelection::Azure {
+                    account:   account.clone(),
+                    container: container.clone(),
+                }
+            }
         }
     }
 }
@@ -1123,6 +1141,8 @@ fn resolve_install_object_store_state(
     let root = trim_install_field(input.root);
     let bucket = trim_install_field(input.bucket);
     let region = trim_install_field(input.region);
+    let account = trim_install_field(input.account);
+    let container = trim_install_field(input.container);
     let access_key_id = trim_install_field(input.access_key_id);
     let secret_access_key = trim_install_field(input.secret_access_key);
 
@@ -1130,12 +1150,14 @@ fn resolve_install_object_store_state(
         InstallObjectStoreProvider::Local => {
             if bucket.is_some()
                 || region.is_some()
+                || account.is_some()
+                || container.is_some()
                 || input.credential_mode.is_some()
                 || access_key_id.is_some()
                 || secret_access_key.is_some()
             {
                 return Err(
-                    "Local disk does not accept S3 bucket, region, or AWS credential fields."
+                    "Local disk does not accept S3 bucket, region, Azure account/container, or AWS credential fields."
                         .to_string(),
                 );
             }
@@ -1148,6 +1170,9 @@ fn resolve_install_object_store_state(
             Ok(InstallObjectStoreState::Local { root })
         }
         InstallObjectStoreProvider::S3 => {
+            if account.is_some() || container.is_some() {
+                return Err("AWS S3 does not accept Azure account or container fields.".to_string());
+            }
             let bucket = bucket.ok_or_else(|| "Bucket is required.".to_string())?;
             let region = region
                 .ok_or_else(|| "Region is required. Use a value like us-east-1.".to_string())?;
@@ -1177,6 +1202,25 @@ fn resolve_install_object_store_state(
                 credential_mode,
                 manual_credentials,
             })
+        }
+        InstallObjectStoreProvider::Azure => {
+            if root.is_some()
+                || bucket.is_some()
+                || region.is_some()
+                || input.credential_mode.is_some()
+                || access_key_id.is_some()
+                || secret_access_key.is_some()
+            {
+                return Err(
+                    "Azure Blob does not accept local-root, S3 bucket, region, or AWS credential fields."
+                        .to_string(),
+                );
+            }
+
+            let account = account.ok_or_else(|| "Storage account is required.".to_string())?;
+            let container = container.ok_or_else(|| "Container is required.".to_string())?;
+
+            Ok(InstallObjectStoreState::Azure { account, container })
         }
     }
 }
@@ -1220,7 +1264,15 @@ fn object_store_validation_settings(
             endpoint:   None,
             path_style: false,
         }),
+        InstallObjectStoreState::Azure { account, container } => Some(ObjectStoreSettings::Azure {
+            account:   InterpString::parse(account),
+            container: InterpString::parse(container),
+        }),
     }
+}
+
+fn object_store_validation_prefixes() -> [&'static str; 3] {
+    ["artifacts", "slatedb", "run-logs"]
 }
 
 fn install_object_store_lookup<'a>(
@@ -1247,6 +1299,9 @@ async fn validate_install_object_store_selection(
         return Ok(());
     };
 
+    let client_options = ClientOptions::new()
+        .with_connect_timeout(VALIDATION_CONNECT_TIMEOUT)
+        .with_timeout(VALIDATION_TIMEOUT);
     let (bucket, region, manual_credentials) = match selection {
         InstallObjectStoreState::Local { .. } => return Ok(()),
         InstallObjectStoreState::S3 {
@@ -1254,38 +1309,34 @@ async fn validate_install_object_store_selection(
             region,
             credential_mode: _,
             manual_credentials,
-        } => (
-            bucket.as_str(),
-            region.as_str(),
-            manual_credentials.as_ref(),
-        ),
-    };
-
-    let client_options = ClientOptions::new()
-        .with_connect_timeout(VALIDATION_CONNECT_TIMEOUT)
-        .with_timeout(VALIDATION_TIMEOUT);
-    match timeout(
-        VALIDATION_TIMEOUT,
-        resolve_bucket_region(bucket, &client_options),
-    )
-    .await
-    {
-        Ok(Ok(actual_region)) if actual_region != region => {
-            return Err(format!(
-                "Bucket {bucket} is in region {actual_region}, not {region}. Use the bucket's AWS region and try again."
-            ));
-        }
-        Ok(Err(err)) => {
-            let rendered = err.to_string();
-            if rendered.contains("not found") {
-                return Err(format!("Bucket {bucket} was not found."));
+        } => {
+            match timeout(
+                VALIDATION_TIMEOUT,
+                resolve_bucket_region(bucket, &client_options),
+            )
+            .await
+            {
+                Ok(Ok(actual_region)) if actual_region != *region => {
+                    return Err(format!(
+                        "Bucket {bucket} is in region {actual_region}, not {region}. Use the bucket's AWS region and try again."
+                    ));
+                }
+                Ok(Err(err)) => {
+                    let rendered = err.to_string();
+                    if rendered.contains("not found") {
+                        return Err(format!("Bucket {bucket} was not found."));
+                    }
+                }
+                Err(_) => {
+                    return Err(VALIDATION_TIMEOUT_MSG.to_string());
+                }
+                Ok(Ok(_)) => {}
             }
+
+            (Some(bucket.as_str()), Some(region.as_str()), manual_credentials.as_ref())
         }
-        Err(_) => {
-            return Err(VALIDATION_TIMEOUT_MSG.to_string());
-        }
-        Ok(Ok(_)) => {}
-    }
+        InstallObjectStoreState::Azure { .. } => (None, None, None),
+    };
 
     let server_env_path = Storage::new(state.storage_dir.as_ref())
         .runtime_directory()
@@ -1320,19 +1371,27 @@ async fn validate_install_object_store_selection(
         }
     };
     let probe = async {
-        tokio::try_join!(probe_prefix(0, "artifacts"), probe_prefix(1, "slatedb")).map(|_| ())
+        tokio::try_join!(
+            probe_prefix(0, object_store_validation_prefixes()[0]),
+            probe_prefix(1, object_store_validation_prefixes()[1]),
+            probe_prefix(2, object_store_validation_prefixes()[2]),
+        )
+        .map(|_| ())
     };
 
     match timeout(VALIDATION_TIMEOUT, probe).await {
         Ok(Ok(())) => Ok(()),
         Err(_) => Err(VALIDATION_TIMEOUT_MSG.to_string()),
-        Ok(Err((index, err))) => Err(classify_object_store_validation_error(
-            bucket, region, index, &err,
-        )),
+        Ok(Err((index, err))) => match (bucket, region) {
+            (Some(bucket), Some(region)) => {
+                Err(classify_object_store_validation_error(bucket, region, index, &err))
+            }
+            _ => Err(err.to_string()),
+        },
     }
 }
 
-const PREFIX_ACCESS_ERROR_MSG: &str = "Fabro reached the bucket but could not verify access to slatedb/ and artifacts/. Validation requires bucket list access plus object access under both prefixes.";
+const PREFIX_ACCESS_ERROR_MSG: &str = "Fabro reached the bucket but could not verify access to artifacts/, slatedb/, and run-logs/. Validation requires bucket list access plus object access under all three prefixes.";
 const VALIDATION_TIMEOUT_MSG: &str = "Timed out while checking S3 access. Verify the bucket, region, and network path, then try again.";
 
 fn bucket_credentials_error(bucket: &str, region: &str) -> String {
@@ -2374,7 +2433,8 @@ mod tests {
         InstallFinishGuard, InstallObjectStoreCredentialMode, InstallObjectStoreInput,
         InstallObjectStoreProvider, InstallObjectStoreState, PendingInstall, ServerSecrets,
         classify_object_store_validation_error, detect_canonical_url, install_object_store_lookup,
-        lock_unpoisoned, resolve_install_object_store_state, token_is_valid,
+        lock_unpoisoned, object_store_validation_prefixes, resolve_install_object_store_state,
+        token_is_valid,
         write_artifact_store_metadata,
     };
 
@@ -2497,6 +2557,8 @@ methods = ["dev-token"]
                 root:              Some("/srv/fabro/objects".to_string()),
                 bucket:            Some("fabro-data".to_string()),
                 region:            None,
+                account:           None,
+                container:         None,
                 credential_mode:   None,
                 access_key_id:     None,
                 secret_access_key: None,
@@ -2507,7 +2569,7 @@ methods = ["dev-token"]
 
         assert_eq!(
             err,
-            "Local disk does not accept S3 bucket, region, or AWS credential fields."
+            "Local disk does not accept S3 bucket, region, Azure account/container, or AWS credential fields."
         );
     }
 
@@ -2520,6 +2582,8 @@ methods = ["dev-token"]
                 root:              Some(" /srv/fabro/objects ".to_string()),
                 bucket:            None,
                 region:            None,
+                account:           None,
+                container:         None,
                 credential_mode:   None,
                 access_key_id:     None,
                 secret_access_key: None,
@@ -2535,6 +2599,57 @@ methods = ["dev-token"]
     }
 
     #[test]
+    fn resolve_install_object_store_state_accepts_azure_storage() {
+        let selection = resolve_install_object_store_state(
+            None,
+            InstallObjectStoreInput {
+                provider:          InstallObjectStoreProvider::Azure,
+                root:              None,
+                bucket:            None,
+                region:            None,
+                account:           Some("fkukuckfabrosbx01".to_string()),
+                container:         Some("fabro-data".to_string()),
+                credential_mode:   None,
+                access_key_id:     None,
+                secret_access_key: None,
+            },
+            "/srv/fabro/objects",
+        )
+        .expect("azure mode should accept account + container");
+
+        assert!(matches!(
+            selection,
+            InstallObjectStoreState::Azure { ref account, ref container }
+                if account == "fkukuckfabrosbx01" && container == "fabro-data"
+        ));
+    }
+
+    #[test]
+    fn resolve_install_object_store_state_rejects_s3_fields_for_azure() {
+        let err = resolve_install_object_store_state(
+            None,
+            InstallObjectStoreInput {
+                provider:          InstallObjectStoreProvider::Azure,
+                root:              None,
+                bucket:            Some("fabro-data".to_string()),
+                region:            None,
+                account:           Some("fkukuckfabrosbx01".to_string()),
+                container:         Some("fabro-data".to_string()),
+                credential_mode:   None,
+                access_key_id:     None,
+                secret_access_key: None,
+            },
+            "/srv/fabro/objects",
+        )
+        .expect_err("azure mode should reject S3 bucket fields");
+
+        assert_eq!(
+            err,
+            "Azure Blob does not accept local-root, S3 bucket, region, or AWS credential fields."
+        );
+    }
+
+    #[test]
     fn resolve_install_object_store_state_rejects_runtime_with_submitted_access_keys() {
         let err = resolve_install_object_store_state(
             None,
@@ -2543,6 +2658,8 @@ methods = ["dev-token"]
                 root:              None,
                 bucket:            Some("fabro-data".to_string()),
                 region:            Some("us-east-1".to_string()),
+                account:           None,
+                container:         None,
                 credential_mode:   Some(InstallObjectStoreCredentialMode::Runtime),
                 access_key_id:     Some("AKIA_FAKE_VALUE".to_string()),
                 secret_access_key: Some("fake-secret-value".to_string()),
@@ -2608,6 +2725,11 @@ AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/fabro-web-identity-token\n",
             classify_object_store_validation_error("fabro-data", "us-east-1", 0, &err),
             "Bucket fabro-data is not reachable in region us-east-1. Verify the AWS region and try again."
         );
+    }
+
+    #[test]
+    fn object_store_validation_prefixes_include_run_logs() {
+        assert_eq!(object_store_validation_prefixes(), ["artifacts", "slatedb", "run-logs"]);
     }
 
     #[test]

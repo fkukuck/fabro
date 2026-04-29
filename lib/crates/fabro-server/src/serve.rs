@@ -20,6 +20,7 @@ use fabro_types::settings::{
     ServerNamespace,
 };
 use fabro_util::terminal::Styles;
+use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::client::{HttpClient, HttpConnector};
 use object_store::local::LocalFileSystem;
@@ -441,6 +442,29 @@ where
     Ok(builder)
 }
 
+fn configure_azure_builder_from_env_lookup<F>(
+    mut builder: MicrosoftAzureBuilder,
+    env_lookup: &F,
+) -> anyhow::Result<MicrosoftAzureBuilder>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if std::env::var_os(EnvVars::IDENTITY_HEADER).is_none() {
+        bail!("{} is required for Azure managed identity", EnvVars::IDENTITY_HEADER);
+    }
+    if let Some(value) = env_lookup(EnvVars::AZURE_CLIENT_ID) {
+        builder = builder.with_config(AzureConfigKey::ClientId, value);
+    }
+    if let Some(value) = env_lookup(EnvVars::IDENTITY_ENDPOINT) {
+        builder = builder.with_config(AzureConfigKey::MsiEndpoint, value);
+    }
+    if builder.get_config_value(&AzureConfigKey::MsiEndpoint).is_none() {
+        bail!("msi endpoint is required for Azure managed identity");
+    }
+
+    Ok(builder)
+}
+
 pub(crate) fn build_object_store_from_settings_with_lookup<F>(
     settings: &ObjectStoreSettings,
     env_lookup: &F,
@@ -473,6 +497,14 @@ where
                 builder = builder.with_endpoint(resolve_interp(endpoint)?);
             }
             builder = configure_s3_builder_from_env_lookup(builder, env_lookup, &build_options)?;
+            Ok(Arc::new(builder.build()?))
+        }
+        ObjectStoreSettings::Azure { account, container } => {
+            let builder = MicrosoftAzureBuilder::new()
+                .with_http_connector(NoProxyReqwestConnector)
+                .with_account(resolve_interp(account)?)
+                .with_container_name(resolve_interp(container)?);
+            let builder = configure_azure_builder_from_env_lookup(builder, env_lookup)?;
             Ok(Arc::new(builder.build()?))
         }
     }
@@ -674,6 +706,10 @@ where
         &resolved_server_settings,
         &server_secrets,
     )?;
+    let (run_log_store, _) = build_artifact_object_store_with_server_secrets(
+        &resolved_server_settings,
+        &server_secrets,
+    )?;
     let artifact_store = fabro_store::ArtifactStore::new(artifact_object_store, artifact_prefix);
     let env_lookup: EnvLookup = Arc::new(process_env_var);
     resolve_canonical_origin(&resolved_server_settings, &env_lookup).map_err(anyhow::Error::msg)?;
@@ -683,6 +719,7 @@ where
         max_concurrent_runs,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets,
         env_lookup,
@@ -1087,6 +1124,7 @@ mod tests {
 
     use fabro_config::bind::{Bind, BindRequest};
     use fabro_config::{RunSettingsBuilder, ServerSettingsBuilder};
+    use fabro_static::EnvVars;
     use fabro_types::ServerSettings;
     use fabro_types::settings::interp::InterpString;
     use fabro_types::settings::server::ObjectStoreSettings;
@@ -1448,6 +1486,84 @@ disk_cache = true
             err.to_string()
                 .contains("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must both be set")
         );
+    }
+
+    #[test]
+    fn build_object_store_from_settings_supports_azure_managed_identity() {
+        let settings = ObjectStoreSettings::Azure {
+            account:   InterpString::parse("fkukuckfabrosbx01"),
+            container: InterpString::parse("fabro-data"),
+        };
+
+        let store = temp_env::with_vars(
+            [(EnvVars::IDENTITY_HEADER, Some("identity-header-value"))],
+            || {
+                build_object_store_from_settings_with_lookup(
+                    &settings,
+                    &|name| match name {
+                        EnvVars::AZURE_CLIENT_ID => Some("client-id-123".to_string()),
+                        EnvVars::IDENTITY_ENDPOINT => {
+                            Some("http://127.0.0.1:42356/msi/token".to_string())
+                        }
+                        _ => None,
+                    },
+                    None,
+                )
+            },
+        );
+
+        assert!(
+            store.is_ok(),
+            "azure managed identity settings should build, got {store:?}"
+        );
+    }
+
+    #[test]
+    fn build_object_store_from_settings_rejects_azure_without_msi_endpoint() {
+        let settings = ObjectStoreSettings::Azure {
+            account:   InterpString::parse("fkukuckfabrosbx01"),
+            container: InterpString::parse("fabro-data"),
+        };
+
+        let err = temp_env::with_vars(
+            [(EnvVars::IDENTITY_HEADER, Some("identity-header-value"))],
+            || {
+                build_object_store_from_settings_with_lookup(
+                    &settings,
+                    &|name| match name {
+                        EnvVars::AZURE_CLIENT_ID => Some("client-id-123".to_string()),
+                        _ => None,
+                    },
+                    None,
+                )
+            },
+        )
+        .expect_err("azure config without an MSI endpoint must fail");
+
+        assert!(err.to_string().contains("msi"));
+    }
+
+    #[test]
+    fn build_object_store_from_settings_rejects_azure_without_identity_header() {
+        let settings = ObjectStoreSettings::Azure {
+            account:   InterpString::parse("fkukuckfabrosbx01"),
+            container: InterpString::parse("fabro-data"),
+        };
+
+        let err = build_object_store_from_settings_with_lookup(
+            &settings,
+            &|name| match name {
+                EnvVars::AZURE_CLIENT_ID => Some("client-id-123".to_string()),
+                EnvVars::IDENTITY_ENDPOINT => {
+                    Some("http://127.0.0.1:42356/msi/token".to_string())
+                }
+                _ => None,
+            },
+            None,
+        )
+        .expect_err("azure config without IDENTITY_HEADER must fail");
+
+        assert!(err.to_string().contains(EnvVars::IDENTITY_HEADER));
     }
 
     #[test]

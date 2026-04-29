@@ -14,6 +14,10 @@ variable "contributor_scope" {
   type = string
 }
 
+variable "blob_data_scope" {
+  type = string
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

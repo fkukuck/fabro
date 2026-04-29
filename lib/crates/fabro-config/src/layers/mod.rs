@@ -30,12 +30,12 @@ pub use run::{
 };
 pub use server::{
     DiscordIntegrationLayer, GithubIntegrationLayer, IntegrationWebhooksLayer,
-    ObjectStoreLocalLayer, ObjectStoreS3Layer, ServerApiLayer, ServerArtifactsLayer,
-    ServerAuthGithubLayer, ServerAuthLayer, ServerAzurePlatformLayer, ServerAzureSandboxLayer,
-    ServerIntegrationsLayer, ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerLayer,
-    ServerListenLayer, ServerLoggingLayer, ServerSandboxLayer, ServerSchedulerLayer,
-    ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer, SlackIntegrationLayer,
-    TeamsIntegrationLayer,
+    ObjectStoreAzureLayer, ObjectStoreLocalLayer, ObjectStoreS3Layer, ServerApiLayer,
+    ServerArtifactsLayer, ServerAuthGithubLayer, ServerAuthLayer, ServerAzurePlatformLayer,
+    ServerAzureSandboxLayer, ServerIntegrationsLayer, ServerIpAllowlistLayer,
+    ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer, ServerLoggingLayer,
+    ServerSandboxLayer, ServerSchedulerLayer, ServerSlateDbLayer, ServerStorageLayer,
+    ServerWebLayer, SlackIntegrationLayer, TeamsIntegrationLayer,
 };
 pub(crate) use settings::SettingsLayer;
 pub use workflow::WorkflowLayer;

@@ -34,6 +34,11 @@ variable "server_storage_share_quota_gb" {
   default = 100
 }
 
+variable "data_container_name" {
+  type    = string
+  default = "fabro-data"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

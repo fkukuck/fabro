@@ -48,6 +48,11 @@ variable "server_storage_share_name" {
   type = string
 }
 
+variable "blob_data_container_name" {
+  type    = string
+  default = "fabro-data"
+}
+
 variable "acr_name" {
   type = string
 }

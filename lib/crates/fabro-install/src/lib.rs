@@ -52,6 +52,10 @@ pub enum InstallObjectStoreSelection {
         access_key_id:     Option<String>,
         secret_access_key: Option<String>,
     },
+    Azure {
+        account:   String,
+        container: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -364,6 +368,34 @@ fn write_local_store_settings(
     Ok(())
 }
 
+fn write_azure_store_settings(
+    server: &mut toml::Table,
+    domain: &str,
+    prefix: &str,
+    account: &str,
+    container: &str,
+) -> Result<()> {
+    let store = ensure_table(server, domain)?;
+    store.insert(
+        "provider".to_string(),
+        toml::Value::String("azure".to_string()),
+    );
+    store.insert(
+        "prefix".to_string(),
+        toml::Value::String(prefix.to_string()),
+    );
+    let azure = ensure_table(store, "azure")?;
+    azure.insert(
+        "account".to_string(),
+        toml::Value::String(account.to_string()),
+    );
+    azure.insert(
+        "container".to_string(),
+        toml::Value::String(container.to_string()),
+    );
+    Ok(())
+}
+
 pub fn write_object_store_settings(
     doc: &mut toml::Value,
     selection: &InstallObjectStoreSelection,
@@ -429,6 +461,22 @@ pub fn write_object_store_settings(
             };
 
             Ok(InstallObjectStoreEnvPlan { writes, removals })
+        }
+        InstallObjectStoreSelection::Azure { account, container } => {
+            let account = account.trim();
+            anyhow::ensure!(!account.is_empty(), "account is required");
+            let container = container.trim();
+            anyhow::ensure!(!container.is_empty(), "container is required");
+
+            let root = root_table_mut(doc)?;
+            let server = ensure_table(root, "server")?;
+            write_azure_store_settings(server, "artifacts", "artifacts", account, container)?;
+            write_azure_store_settings(server, "slatedb", "slatedb", account, container)?;
+
+            Ok(InstallObjectStoreEnvPlan {
+                writes:   Vec::new(),
+                removals: object_store_env_removals(),
+            })
         }
     }
 }
@@ -952,6 +1000,42 @@ name = "custom"
                 .map(|write| write.value.as_str()),
             Some("secret-test")
         );
+    }
+
+    #[test]
+    fn write_object_store_settings_configures_azure_runtime_identity() {
+        let mut doc = toml::Value::Table(toml::Table::default());
+        let plan = write_object_store_settings(&mut doc, &InstallObjectStoreSelection::Azure {
+            account:   "fkukuckfabrosbx01".to_string(),
+            container: "fabro-data".to_string(),
+        })
+        .expect("azure object store selection should succeed");
+
+        let server = doc
+            .get("server")
+            .and_then(toml::Value::as_table)
+            .expect("server table should exist");
+
+        assert_eq!(
+            server
+                .get("artifacts")
+                .and_then(toml::Value::as_table)
+                .and_then(|artifacts| artifacts.get("provider"))
+                .and_then(toml::Value::as_str),
+            Some("azure")
+        );
+        assert_eq!(
+            server
+                .get("artifacts")
+                .and_then(toml::Value::as_table)
+                .and_then(|artifacts| artifacts.get("azure"))
+                .and_then(toml::Value::as_table)
+                .and_then(|azure| azure.get("container"))
+                .and_then(toml::Value::as_str),
+            Some("fabro-data")
+        );
+        assert!(plan.writes.is_empty());
+        assert_eq!(plan.removals.len(), 2);
     }
 
     #[test]

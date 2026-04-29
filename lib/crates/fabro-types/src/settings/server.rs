@@ -250,6 +250,10 @@ pub enum ObjectStoreSettings {
         endpoint:   Option<InterpString>,
         path_style: bool,
     },
+    Azure {
+        account:   InterpString,
+        container: InterpString,
+    },
 }
 
 impl Default for ObjectStoreSettings {
@@ -369,6 +373,7 @@ where
 pub enum ObjectStoreProvider {
     Local,
     S3,
+    Azure,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

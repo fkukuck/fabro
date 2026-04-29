@@ -22,9 +22,9 @@ Local Terraform state is no longer the supported production path for this enviro
 ## Runtime model
 
 - The Container App mounts Azure Files at `/storage`.
+- Fabro durable runtime data lives in the Terraform-managed Azure Blob container.
 - Fabro runtime configuration is completed through the install wizard, not Terraform secret injection.
 - The server image is expected to come from the environment ACR.
-- Azure sandbox runtime settings are persisted by the install flow and reused across redeploys.
 
 ## Notes
 
