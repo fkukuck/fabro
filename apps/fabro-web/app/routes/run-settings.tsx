@@ -98,9 +98,7 @@ function WorkflowPanel({ snapshot }: { snapshot: Snapshot }) {
   const run = getObject(snapshot, "run");
   const name = getString(workflow, "name");
   const description = getString(workflow, "description");
-  const graph = getString(workflow, "graph");
   const goal = getObject(run, "goal");
-  const workingDir = getString(run, "working_dir");
   return (
     <Panel title="Workflow">
       <Row title="Name" help="Workflow identifier used by this run.">
@@ -111,14 +109,8 @@ function WorkflowPanel({ snapshot }: { snapshot: Snapshot }) {
           <span className="text-fg-2">{description}</span>
         </Row>
       ) : null}
-      <Row title="Graph" help="Path to the workflow definition file.">
-        {graph ? <Mono>{graph}</Mono> : <Muted>Default</Muted>}
-      </Row>
       <Row title="Goal" help="Goal text or file used for this run.">
         <GoalValue goal={goal} />
-      </Row>
-      <Row title="Working dir" help="Sandbox path used as the run's working directory.">
-        {workingDir ? <Mono>{workingDir}</Mono> : <Muted>Default</Muted>}
       </Row>
       <Row title="Inputs" help="Run input variables.">
         <Count
