@@ -25,6 +25,7 @@ export default function Settings() {
         <PanelSkeleton />
         <PanelSkeleton />
         <PanelSkeleton />
+        <PanelSkeleton />
       </div>
     );
   }
@@ -35,7 +36,8 @@ export default function Settings() {
       {view === "settings" ? (
         <>
           <ServerPanel settings={settings} />
-          <AccessPanel settings={settings} />
+          <DataPanel settings={settings} />
+          <SecurityPanel settings={settings} />
           <IntegrationsPanel settings={settings} />
         </>
       ) : (
@@ -93,30 +95,47 @@ function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void 
 }
 
 function ServerPanel({ settings }: { settings: ServerSettings }) {
-  const { listen, web, api, storage } = settings.server;
+  const { listen, web, api, scheduler } = settings.server;
   return (
     <Panel title="Server">
+      <Row title="Web URL" help="Public URL for the browser UI.">
+        {web.enabled ? <UrlValue url={web.url} /> : <Toggle on={false} />}
+      </Row>
+      <Row title="API URL" help="Base URL advertised to API clients.">
+        {api.url ? <UrlValue url={api.url} /> : <Muted>Same origin</Muted>}
+      </Row>
       <Row title="Listen" help="Address the API server is bound to.">
         <ListenValue listen={listen} />
       </Row>
-      <Row title="Web" help="Public URL for the browser UI.">
-        {web.enabled ? <UrlValue url={web.url} /> : <Toggle on={false} />}
-      </Row>
-      <Row title="API" help="Base URL advertised to API clients.">
-        {api.url ? <UrlValue url={api.url} /> : <Muted>Same origin</Muted>}
-      </Row>
-      <Row title="Storage root" help="Filesystem path for run state and logs.">
-        <Mono>{storage.root}</Mono>
+      <Row title="Max concurrent runs" help="Scheduler ceiling on simultaneous runs.">
+        <Number value={scheduler.max_concurrent_runs} />
       </Row>
     </Panel>
   );
 }
 
-function AccessPanel({ settings }: { settings: ServerSettings }) {
-  const { auth, ip_allowlist, scheduler } = settings.server;
+function DataPanel({ settings }: { settings: ServerSettings }) {
+  const { storage, slatedb, artifacts } = settings.server;
+  return (
+    <Panel title="Data">
+      <Row title="Storage root" help="Filesystem path for run state and logs.">
+        <Mono>{storage.root}</Mono>
+      </Row>
+      <Row title="SlateDB" help="Object store backing the embedded database.">
+        <ObjectStoreValue store={slatedb.store} prefix={slatedb.prefix} />
+      </Row>
+      <Row title="Artifacts" help="Where run artifacts are persisted.">
+        <ObjectStoreValue store={artifacts.store} prefix={artifacts.prefix} />
+      </Row>
+    </Panel>
+  );
+}
+
+function SecurityPanel({ settings }: { settings: ServerSettings }) {
+  const { auth, ip_allowlist } = settings.server;
   const githubUsers = auth.github.allowed_usernames;
   return (
-    <Panel title="Access & Capacity">
+    <Panel title="Security">
       <Row title="Auth methods" help="How users may sign in to this server.">
         {auth.methods.length === 0 ? (
           <Muted>None configured</Muted>
@@ -129,8 +148,8 @@ function AccessPanel({ settings }: { settings: ServerSettings }) {
         )}
       </Row>
       <Row
-        title="GitHub allowlist"
-        help="Usernames permitted to authenticate via GitHub."
+        title="Allowed usernames"
+        help="GitHub usernames permitted to authenticate."
       >
         {githubUsers.length === 0 ? (
           <Muted>Anyone</Muted>
@@ -150,17 +169,14 @@ function AccessPanel({ settings }: { settings: ServerSettings }) {
           }
         />
       </Row>
-      <Row title="Max concurrent runs" help="Scheduler ceiling on simultaneous runs.">
-        <Number value={scheduler.max_concurrent_runs} />
-      </Row>
     </Panel>
   );
 }
 
 function IntegrationsPanel({ settings }: { settings: ServerSettings }) {
-  const { integrations, artifacts } = settings.server;
+  const { integrations } = settings.server;
   return (
-    <Panel title="Integrations & Artifacts">
+    <Panel title="Integrations">
       <Row title="GitHub" help="App for repo access, checks, and PR automation.">
         <IntegrationValue
           enabled={integrations.github.enabled}
@@ -172,9 +188,6 @@ function IntegrationsPanel({ settings }: { settings: ServerSettings }) {
                 : undefined
           }
         />
-      </Row>
-      <Row title="Artifacts store" help="Where run artifacts are persisted.">
-        <ObjectStoreValue store={artifacts.store} prefix={artifacts.prefix} />
       </Row>
     </Panel>
   );
