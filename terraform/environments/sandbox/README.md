@@ -18,6 +18,7 @@ Local Terraform state is no longer the supported production path for this enviro
 - Set the Azure naming and network variables in `terraform.tfvars`.
 - Set `github_actions_principal_id` to the bootstrap-created service principal object ID if you want Terraform to grant CI access during the first manual apply.
 - Keep `fabro_server_enabled = false` until the first CI deploy is ready to publish a real immutable server image.
+- The validated `fabro-server` shape for this Azure environment is `fabro_server_cpu = 2` and `fabro_server_memory = "4Gi"`.
 
 ## Runtime model
 

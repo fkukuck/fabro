@@ -51,12 +51,12 @@ variable "registry_password" {
 
 variable "cpu" {
   type    = number
-  default = 1
+  default = 2
 }
 
 variable "memory" {
   type    = string
-  default = "2Gi"
+  default = "4Gi"
 }
 
 variable "target_port" {
