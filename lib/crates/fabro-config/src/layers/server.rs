@@ -163,6 +163,8 @@ pub struct ServerArtifactsLayer {
     pub local:    Option<ObjectStoreLocalLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3:       Option<ObjectStoreS3Layer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure:    Option<ObjectStoreAzureLayer>,
 }
 
 /// `[server.slatedb]` — SlateDB bottomless storage plus tunables.
@@ -179,6 +181,8 @@ pub struct ServerSlateDbLayer {
     pub local:          Option<ObjectStoreLocalLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3:             Option<ObjectStoreS3Layer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure:          Option<ObjectStoreAzureLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_cache:     Option<bool>,
 }
@@ -203,6 +207,15 @@ pub struct ObjectStoreS3Layer {
     pub endpoint:   Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_style: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, fabro_macros::Combine)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectStoreAzureLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<InterpString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<InterpString>,
 }
 
 /// `[server.scheduler]` — server-managed execution policy.
