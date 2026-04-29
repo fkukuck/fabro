@@ -1,5 +1,78 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum MetadataSnapshotPhase {
+    Init,
+    Checkpoint,
+    Finalize,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum MetadataSnapshotFailureKind {
+    LoadState,
+    Write,
+    Push,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataSnapshotStartedProps {
+    pub phase:  MetadataSnapshotPhase,
+    pub branch: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataSnapshotCompletedProps {
+    pub phase:       MetadataSnapshotPhase,
+    pub branch:      String,
+    pub duration_ms: u64,
+    pub entry_count: usize,
+    pub bytes:       u64,
+    pub commit_sha:  String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataSnapshotFailedProps {
+    pub phase:        MetadataSnapshotPhase,
+    pub branch:       String,
+    pub duration_ms:  u64,
+    pub failure_kind: MetadataSnapshotFailureKind,
+    pub error:        String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub causes:       Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_sha:   Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_count:  Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes:        Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SandboxInitializingProps {
     pub provider: String,
