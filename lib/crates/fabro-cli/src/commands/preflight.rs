@@ -30,8 +30,30 @@ pub(crate) async fn execute(
         run_id:             None,
         user_settings_path: Some(active_settings_path(None)),
     })?;
-    let client = ctx.server().await?;
-    let response = client.run_preflight(manifest.manifest).await?;
+
+    let spinner = if ctx.json_output() {
+        None
+    } else {
+        let spinner = indicatif::ProgressBar::new_spinner();
+        spinner.set_style(
+            indicatif::ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .expect("valid template")
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", ""]),
+        );
+        spinner.set_message("Running checks...");
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+        Some(spinner)
+    };
+
+    let result = async {
+        let client = ctx.server().await?;
+        client.run_preflight(manifest.manifest).await
+    }
+    .await;
+    if let Some(spinner) = spinner.as_ref() {
+        spinner.finish_and_clear();
+    }
+    let response = result?;
     let diagnostics = api_diagnostics_to_local(&response.workflow.diagnostics);
 
     if ctx.json_output() {
