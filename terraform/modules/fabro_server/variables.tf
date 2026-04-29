@@ -106,69 +106,6 @@ variable "storage_mount_path" {
   default = "/storage"
 }
 
-variable "azure_subscription_id" {
-  type = string
-}
-
-variable "azure_resource_group" {
-  type = string
-}
-
-variable "azure_location" {
-  type = string
-}
-
-variable "azure_sandbox_subnet_id" {
-  type = string
-}
-
-variable "azure_acr_server" {
-  type = string
-}
-
-variable "azure_acr_username" {
-  type      = string
-  sensitive = true
-}
-
-variable "azure_acr_password" {
-  type      = string
-  sensitive = true
-}
-
-variable "azure_sandboxd_port" {
-  type    = number
-  default = 7777
-}
-
-variable "fabro_dev_token" {
-  type      = string
-  sensitive = true
-}
-
-variable "session_secret" {
-  type      = string
-  sensitive = true
-}
-
-variable "github_token" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "openai_api_key" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "anthropic_api_key" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
 variable "tags" {
   type    = map(string)
   default = {}

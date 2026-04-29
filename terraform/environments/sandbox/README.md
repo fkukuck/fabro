@@ -1,45 +1,34 @@
 # Sandbox Environment
 
-This environment provisions the documented Fabro Azure topology using local Terraform state by default.
+This Terraform root is the steady-state Azure environment for Fabro production deploys.
 
-## Bootstrap flow
+## Supported production flow
 
-1. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in real values.
-2. Set `fabro_server_enabled = false` if the first app image does not exist yet.
-3. Run `terraform init`.
-4. Run `terraform apply`.
-5. Build and push a `fabro-server` image to ACR or choose an immutable GHCR tag.
-6. Set `fabro_server_enabled = true` and update `fabro_server_image`.
-7. Run `terraform apply` again.
-8. Open the deployed server and finish the install flow, including the `Azure` step that saves the platform settings and optional ACR credentials.
+1. Run `terraform/bootstrap/github_actions` once to create the remote backend and the GitHub Actions OIDC identity.
+2. Initialize this root with the Azure Blob backend created by bootstrap.
+3. Run this environment manually once with `fabro_server_enabled = false`.
+4. Trigger `.github/workflows/deploy-azure.yml` to build images, push them to ACR, and deploy `fabro-server`.
+5. Complete the web install wizard with the GitHub token path, then store the resulting dev token in the GitHub `production` environment as `FABRO_DEPLOY_DEV_TOKEN`.
+6. Use the same workflow for all steady-state deploys.
 
-## Steady-state deploy flow
+Local Terraform state is no longer the supported production path for this environment.
 
-1. Build and push a new immutable image tag.
-2. Update `fabro_server_image`.
-3. Run `terraform apply`.
+## Inputs
 
-## Private image registries
+- Set the Azure naming and network variables in `terraform.tfvars`.
+- Set `github_actions_principal_id` to the bootstrap-created service principal object ID if you want Terraform to grant CI access during the first manual apply.
+- Keep `fabro_server_enabled = false` until the first CI deploy is ready to publish a real immutable server image.
 
-If the `fabro-server` image lives in a private registry, set all three of these variables together:
+## Runtime model
 
-- `fabro_server_image_registry_server`
-- `fabro_server_image_registry_username`
-- `fabro_server_image_registry_password`
-
-Leave them unset for public GHCR images.
-
-## Local state
-
-This environment uses local Terraform state unless you configure a backend. That is fine for one operator getting started.
-
-For team or CI usage, move state to a shared remote backend later.
+- The Container App mounts Azure Files at `/storage`.
+- Fabro runtime configuration is completed through the install wizard, not Terraform secret injection.
+- The server image is expected to come from the environment ACR.
+- Azure sandbox runtime settings are persisted by the install flow and reused across redeploys.
 
 ## Notes
 
-- Storage account and ACR names must be globally unique and meet Azure naming rules.
+- Storage account and ACR names must be globally unique.
 - Keep the Container App at one replica.
-- ACR is provisioned even when `fabro-server` runs from GHCR because Azure sandbox images still use ACR.
-- Azure ACI sandboxes now use ephemeral `emptyDir` storage for `/workspace`; only the server's `/storage` share is persistent.
-- Azure sandbox startup now uses the server's persisted `[server.sandbox.azure.platform]` config plus optional vault-backed ACR credentials, rather than treating `FABRO_AZURE_*` worker env vars as the primary source of truth.
-- v1 is create-only. Attaching Terraform to pre-existing Azure resources is a future enhancement.
+- This root owns shared infrastructure and the live `fabro-server` image reference.
+- Workflow-specific Azure sandbox image refs remain owned by the workflow repositories that use them.

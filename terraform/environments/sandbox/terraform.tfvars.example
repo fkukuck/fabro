@@ -14,11 +14,9 @@ identity_name                           = "fabro-server-identity"
 container_apps_environment_name         = "fabro-env"
 container_apps_environment_storage_name = "fabrostorage"
 fabro_server_name                       = "fabro-server"
-fabro_server_enabled                    = true
-fabro_server_image                      = "ghcr.io/fabro-sh/fabro:2026-04-22-1"
-fabro_dev_token                         = "replace-me"
-session_secret                          = "replace-me"
-openai_api_key                          = "replace-me"
+fabro_server_enabled                    = false
+fabro_server_image                      = "example.azurecr.io/fabro-server:bootstrap"
+github_actions_principal_id             = "00000000-0000-0000-0000-000000000000"
 
 tags = {
   environment = "sandbox"
