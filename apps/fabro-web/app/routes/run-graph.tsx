@@ -195,35 +195,38 @@ export default function RunGraph() {
           <ViewToggle view={view} setView={setView} />
         </div>
 
-        {view === "graph" ? (
-          <div className="graph-svg relative rounded-md border border-line bg-panel-alt">
-            <GraphToolbar
-              direction={direction}
-              setDirection={setDirection}
-              fitToWindow={fitToWindow}
-              zoomIndex={zoomIndex}
-              setZoomIndex={setZoomIndex}
-            />
+        <div
+          className="graph-svg relative rounded-md border border-line bg-panel-alt"
+          hidden={view !== "graph"}
+        >
+          <GraphToolbar
+            direction={direction}
+            setDirection={setDirection}
+            fitToWindow={fitToWindow}
+            zoomIndex={zoomIndex}
+            setZoomIndex={setZoomIndex}
+          />
 
+          <div
+            ref={containerRef}
+            className="overflow-hidden p-6"
+            style={{ cursor: dragState.current ? "grabbing" : "grab" }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
             <div
-              ref={containerRef}
-              className="overflow-hidden p-6"
-              style={{ cursor: dragState.current ? "grabbing" : "grab" }}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={onPointerUp}
+              ref={innerRef}
+              className="flex items-center justify-center"
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
             >
-              <div
-                ref={innerRef}
-                className="flex items-center justify-center"
-                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: "center center" }}
-              >
-                <p className="text-sm text-fg-muted">Loading diagram...</p>
-              </div>
+              <p className="text-sm text-fg-muted">Loading diagram...</p>
             </div>
           </div>
-        ) : (
+        </div>
+
+        {view === "source" && (
           <SourcePanel source={sourceQuery.data} loading={sourceQuery.data === undefined && !sourceQuery.error} />
         )}
       </div>
