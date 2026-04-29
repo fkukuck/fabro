@@ -16,6 +16,8 @@ container_apps_environment_storage_name = "fabrostorage"
 fabro_server_name                       = "fabro-server"
 fabro_server_enabled                    = false
 fabro_server_image                      = "example.azurecr.io/fabro-server:bootstrap"
+fabro_server_cpu                        = 2
+fabro_server_memory                     = "4Gi"
 github_actions_principal_id             = "00000000-0000-0000-0000-000000000000"
 
 tags = {

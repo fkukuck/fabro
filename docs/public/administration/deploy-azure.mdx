@@ -107,6 +107,9 @@ Record these Terraform outputs for the install flow:
 - `storage_account_name`
 - `blob_data_container_name`
 
+The checked-in Terraform defaults currently assume `fabro-server` runs on Azure Container Apps with
+`2 CPU / 4Gi`. That is the validated shape for the Azure deploy path in this repo.
+
 ## 3. Configure the GitHub `production` environment
 
 Add the Azure and Terraform backend variables from bootstrap, then add the sandbox environment variables consumed by `.github/workflows/deploy-azure.yml`:
