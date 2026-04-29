@@ -34,6 +34,9 @@ ensure_docker_socket_group() {
 if [ "$(id -u)" = 0 ]; then
     ensure_docker_socket_group
     mkdir -p "${FABRO_HOME:-/storage/.home}"
+    if [ "${FABRO_SKIP_PRIV_DROP:-0}" = 1 ]; then
+        exec "$@"
+    fi
     chown fabro:fabro /storage
     chown -R fabro:fabro "${FABRO_HOME:-/storage/.home}"
     exec su-exec fabro "$@"

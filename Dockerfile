@@ -31,6 +31,7 @@ COPY --chmod=0755 tmp/docker-context/${TARGETARCH}/fabro /usr/local/bin/fabro
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/fabro-entrypoint
 
 ENV FABRO_HOME=/storage/.home \
+    FABRO_SERVER_RUNTIME_DIR=/tmp/fabro-runtime \
     FABRO_STORAGE_DIR=/storage \
     FABRO_LOG_DESTINATION=stdout
 
