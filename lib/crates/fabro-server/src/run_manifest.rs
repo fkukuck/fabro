@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use fabro_api::types;
@@ -14,6 +16,7 @@ use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_model::Catalog;
+use fabro_redact::DisplaySafeUrl;
 use fabro_sandbox::config::{
     DaytonaNetwork, DaytonaSnapshotSettings, DockerfileSource as SandboxDockerfileSource,
 };
@@ -35,6 +38,8 @@ use fabro_workflow::pipeline::Validated;
 use fabro_workflow::run_materialization::materialize_run;
 use fabro_workflow::workflow_bundle::{BundledWorkflow, ParsedWorkflowConfig, WorkflowBundle};
 use fabro_workflow::{Error as WorkflowError, ManifestPath};
+use tokio::process::Command;
+use tokio::time;
 
 use crate::server::AppState;
 
@@ -506,6 +511,14 @@ async fn build_preflight_report(
         daytona_api_key,
     )
     .await;
+    let repository_access_ok = run_repository_access_check(
+        &mut checks,
+        sandbox_provider,
+        prepared,
+        &resolved_run,
+        github_app.clone(),
+    )
+    .await;
     let llm_ok = run_llm_check(
         state,
         &mut checks,
@@ -516,7 +529,7 @@ async fn build_preflight_report(
     .await;
     run_github_token_check(&mut checks, prepared, &server_settings.server, github_app).await;
 
-    let checks_ok = sandbox_ok && llm_ok;
+    let checks_ok = sandbox_ok && repository_access_ok && llm_ok;
 
     Ok((
         CheckReport {
@@ -605,6 +618,235 @@ fn resolve_docker_config(settings: &RunNamespace) -> Option<DockerSandboxOptions
     settings.sandbox.docker.as_ref().map(runtime_docker_config)
 }
 
+fn preflight_docker_config(config: &DockerSandboxOptions) -> DockerSandboxOptions {
+    let mut config = config.clone();
+    config.skip_clone = true;
+    config
+}
+
+fn preflight_daytona_config(config: &DaytonaConfig) -> DaytonaConfig {
+    let mut config = config.clone();
+    config.skip_clone = true;
+    config
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GitRemoteRefCheck {
+    origin_url: String,
+    branch:     Option<String>,
+}
+
+fn is_clone_based_provider(provider: SandboxProvider) -> bool {
+    matches!(provider, SandboxProvider::Docker | SandboxProvider::Daytona)
+}
+
+fn clone_disabled_for_provider(provider: SandboxProvider, resolved_run: &RunNamespace) -> bool {
+    match provider {
+        SandboxProvider::Docker => resolved_run
+            .sandbox
+            .docker
+            .as_ref()
+            .is_some_and(|docker| docker.skip_clone),
+        SandboxProvider::Daytona => resolved_run
+            .sandbox
+            .daytona
+            .as_ref()
+            .is_some_and(|daytona| daytona.skip_clone),
+        SandboxProvider::Local => false,
+    }
+}
+
+fn repository_access_details(request: &GitRemoteRefCheck) -> Vec<CheckDetail> {
+    let mut details = vec![CheckDetail::new(format!("Origin: {}", request.origin_url))];
+    if let Some(branch) = request.branch.as_ref() {
+        details.push(CheckDetail::new(format!("Branch: {branch}")));
+    }
+    details
+}
+
+async fn run_repository_access_check(
+    checks: &mut Vec<CheckResult>,
+    sandbox_provider: SandboxProvider,
+    prepared: &PreparedManifest,
+    resolved_run: &RunNamespace,
+    github_app: Option<fabro_github::GitHubCredentials>,
+) -> bool {
+    run_repository_access_check_with(
+        checks,
+        sandbox_provider,
+        prepared,
+        resolved_run,
+        github_app,
+        check_git_remote_ref,
+    )
+    .await
+}
+
+async fn run_repository_access_check_with<F, Fut>(
+    checks: &mut Vec<CheckResult>,
+    sandbox_provider: SandboxProvider,
+    prepared: &PreparedManifest,
+    resolved_run: &RunNamespace,
+    github_app: Option<fabro_github::GitHubCredentials>,
+    check_remote_ref: F,
+) -> bool
+where
+    F: FnOnce(GitRemoteRefCheck, Option<fabro_github::GitHubCredentials>) -> Fut,
+    Fut: Future<Output = Result<(), String>>,
+{
+    if !is_clone_based_provider(sandbox_provider)
+        || clone_disabled_for_provider(sandbox_provider, resolved_run)
+    {
+        return true;
+    }
+
+    let Some(git) = prepared.git.as_ref() else {
+        return true;
+    };
+
+    let origin_url = fabro_github::normalize_repo_origin_url(&git.origin_url);
+    if let Err(err) = fabro_github::parse_github_owner_repo(&origin_url) {
+        checks.push(CheckResult {
+            name:        "Repository Access".into(),
+            status:      CheckStatus::Error,
+            summary:     "failed".into(),
+            details:     vec![CheckDetail::new(format!("Origin: {origin_url}"))],
+            remediation: Some(format!(
+                "Clone-based sandboxes currently support GitHub repository origins only: {err}"
+            )),
+        });
+        return false;
+    }
+
+    let request = GitRemoteRefCheck {
+        origin_url,
+        branch: Some(git.branch.clone()).filter(|branch| !branch.trim().is_empty()),
+    };
+    let details = repository_access_details(&request);
+
+    match check_remote_ref(request, github_app).await {
+        Ok(()) => {
+            checks.push(CheckResult {
+                name: "Repository Access".into(),
+                status: CheckStatus::Pass,
+                summary: "reachable".into(),
+                details,
+                remediation: None,
+            });
+            true
+        }
+        Err(err) => {
+            checks.push(CheckResult {
+                name: "Repository Access".into(),
+                status: CheckStatus::Error,
+                summary: "failed".into(),
+                details,
+                remediation: Some(format!("Failed to verify repository access: {err}")),
+            });
+            false
+        }
+    }
+}
+
+async fn check_git_remote_ref(
+    request: GitRemoteRefCheck,
+    github_app: Option<fabro_github::GitHubCredentials>,
+) -> Result<(), String> {
+    let auth_url = match github_app.as_ref() {
+        Some(creds) => Some(
+            fabro_github::resolve_authenticated_url(
+                &fabro_github::GitHubContext::new(creds, &fabro_github::github_api_base_url()),
+                &request.origin_url,
+            )
+            .await
+            .map_err(|err| format!("Failed to resolve GitHub credentials: {err}"))?,
+        ),
+        None => None,
+    };
+    let remote_url = auth_url
+        .as_ref()
+        .map_or(request.origin_url.as_str(), |url| url.as_raw_url().as_str());
+
+    let mut command = Command::new("git");
+    command.env("GIT_TERMINAL_PROMPT", "0").args([
+        "ls-remote",
+        "--heads",
+        "--exit-code",
+        remote_url,
+    ]);
+    if let Some(branch) = request.branch.as_ref() {
+        command.arg(branch);
+    }
+
+    let output = time::timeout(Duration::from_secs(30), command.output())
+        .await
+        .map_err(|_| "git ls-remote timed out after 30s".to_string())?
+        .map_err(|err| format!("Failed to run git ls-remote: {err}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let message = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("git ls-remote exited with status {}", output.status)
+    };
+    Err(redact_remote_output(&message, auth_url.as_ref()))
+}
+
+fn redact_remote_output(text: &str, auth_url: Option<&DisplaySafeUrl>) -> String {
+    auth_url.map_or_else(
+        || text.to_string(),
+        |url| text.replace(url.as_raw_url().as_str(), &url.redacted_string()),
+    )
+}
+
+fn preflight_sandbox_spec(
+    sandbox_provider: SandboxProvider,
+    prepared: &PreparedManifest,
+    resolved_run: &RunNamespace,
+    github_app: Option<fabro_github::GitHubCredentials>,
+    daytona_api_key: Option<String>,
+) -> SandboxSpec {
+    let clone_origin_url = prepared
+        .git
+        .as_ref()
+        .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url));
+    let clone_branch = prepared.git.as_ref().map(|git| git.branch.clone());
+
+    match sandbox_provider {
+        SandboxProvider::Local => SandboxSpec::Local {
+            working_directory: prepared.source_directory.clone(),
+        },
+        SandboxProvider::Docker => {
+            let config = resolve_docker_config(resolved_run).unwrap_or_default();
+            SandboxSpec::Docker {
+                config: preflight_docker_config(&config),
+                github_app,
+                run_id: None,
+                clone_origin_url,
+                clone_branch,
+            }
+        }
+        SandboxProvider::Daytona => {
+            let config = resolve_daytona_config(resolved_run).unwrap_or_default();
+            SandboxSpec::Daytona {
+                config: preflight_daytona_config(&config),
+                github_app,
+                run_id: None,
+                clone_origin_url,
+                clone_branch,
+                api_key: daytona_api_key,
+            }
+        }
+    }
+}
+
 async fn run_sandbox_check(
     checks: &mut Vec<CheckResult>,
     sandbox_provider: SandboxProvider,
@@ -613,43 +855,20 @@ async fn run_sandbox_check(
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
 ) -> bool {
-    let daytona_config = resolve_daytona_config(resolved_run);
-    let docker_config = resolve_docker_config(resolved_run);
-    let sandbox_result: Result<Arc<dyn Sandbox>, String> = match sandbox_provider {
-        SandboxProvider::Local => SandboxSpec::Local {
-            working_directory: prepared.source_directory.clone(),
+    let spec = preflight_sandbox_spec(
+        sandbox_provider,
+        prepared,
+        resolved_run,
+        github_app.clone(),
+        daytona_api_key,
+    );
+    let sandbox_result: Result<Arc<dyn Sandbox>, String> = spec.build(None).await.map_err(|err| {
+        if matches!(sandbox_provider, SandboxProvider::Daytona) {
+            format!("Daytona sandbox creation failed: {err}")
+        } else {
+            err.to_string()
         }
-        .build(None)
-        .await
-        .map_err(|err| err.to_string()),
-        SandboxProvider::Docker => SandboxSpec::Docker {
-            config:           docker_config.unwrap_or_default(),
-            github_app:       github_app.clone(),
-            run_id:           None,
-            clone_origin_url: prepared
-                .git
-                .as_ref()
-                .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url)),
-            clone_branch:     prepared.git.as_ref().map(|git| git.branch.clone()),
-        }
-        .build(None)
-        .await
-        .map_err(|err| err.to_string()),
-        SandboxProvider::Daytona => SandboxSpec::Daytona {
-            config: daytona_config.unwrap_or_default(),
-            github_app,
-            run_id: None,
-            clone_origin_url: prepared
-                .git
-                .as_ref()
-                .map(|git| fabro_github::normalize_repo_origin_url(&git.origin_url)),
-            clone_branch: prepared.git.as_ref().map(|git| git.branch.clone()),
-            api_key: daytona_api_key,
-        }
-        .build(None)
-        .await
-        .map_err(|err| format!("Daytona sandbox creation failed: {err}")),
-    };
+    });
 
     match sandbox_result {
         Ok(sandbox) => match sandbox.initialize().await {
@@ -1162,6 +1381,247 @@ mod tests {
                 original: "prompt.md".to_string(),
                 type_:    types::ManifestFileRefType::FileInline,
             },
+        }
+    }
+
+    fn git_context(origin_url: &str, branch: &str) -> types::GitContext {
+        types::GitContext {
+            origin_url:   origin_url.to_string(),
+            branch:       branch.to_string(),
+            sha:          None,
+            dirty:        fabro_types::DirtyStatus::Clean,
+            push_outcome: fabro_types::PreRunPushOutcome::NotAttempted,
+        }
+    }
+
+    fn prepared_and_resolved_for_sandbox(
+        provider: &str,
+        skip_clone: bool,
+        git: Option<types::GitContext>,
+    ) -> (PreparedManifest, RunNamespace) {
+        let mut manifest = minimal_manifest();
+        manifest.git = git;
+        manifest.configs.push(types::ManifestConfig {
+            path:   Some("/tmp/project/.fabro/project.toml".to_string()),
+            source: Some(format!(
+                r#"
+_version = 1
+
+[run.sandbox]
+provider = "{provider}"
+
+[run.sandbox.{provider}]
+skip_clone = {skip_clone}
+"#
+            )),
+            type_:  types::ManifestConfigType::Project,
+        });
+
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
+        let resolved = materialize_run(
+            prepared.settings.clone(),
+            validated.graph(),
+            Catalog::builtin(),
+            &[Provider::Anthropic],
+        )
+        .run;
+
+        (prepared, resolved)
+    }
+
+    #[test]
+    fn preflight_docker_config_forces_skip_clone_without_mutating_runtime_config() {
+        let runtime = DockerSandboxOptions {
+            skip_clone: false,
+            ..DockerSandboxOptions::default()
+        };
+
+        let preflight = preflight_docker_config(&runtime);
+
+        assert!(preflight.skip_clone);
+        assert!(!runtime.skip_clone);
+    }
+
+    #[test]
+    fn preflight_daytona_config_forces_skip_clone_without_mutating_runtime_config() {
+        let runtime = DaytonaConfig {
+            skip_clone: false,
+            ..DaytonaConfig::default()
+        };
+
+        let preflight = preflight_daytona_config(&runtime);
+
+        assert!(preflight.skip_clone);
+        assert!(!runtime.skip_clone);
+    }
+
+    #[tokio::test]
+    async fn repository_access_check_skips_when_clone_is_disabled() {
+        let (prepared, resolved) = prepared_and_resolved_for_sandbox(
+            "docker",
+            true,
+            Some(git_context("https://github.com/acme/widgets", "main")),
+        );
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls_for_check = Arc::clone(&calls);
+        let mut checks = Vec::new();
+
+        let ok = run_repository_access_check_with(
+            &mut checks,
+            SandboxProvider::Docker,
+            &prepared,
+            &resolved,
+            None,
+            move |request, _github_app| {
+                calls_for_check.lock().unwrap().push(request);
+                async { Ok(()) }
+            },
+        )
+        .await;
+
+        assert!(ok);
+        assert!(checks.is_empty());
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn repository_access_check_rejects_non_github_origins_before_remote_probe() {
+        let (prepared, resolved) = prepared_and_resolved_for_sandbox(
+            "docker",
+            false,
+            Some(git_context("https://gitlab.com/acme/widgets", "main")),
+        );
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls_for_check = Arc::clone(&calls);
+        let mut checks = Vec::new();
+
+        let ok = run_repository_access_check_with(
+            &mut checks,
+            SandboxProvider::Docker,
+            &prepared,
+            &resolved,
+            None,
+            move |request, _github_app| {
+                calls_for_check.lock().unwrap().push(request);
+                async { Ok(()) }
+            },
+        )
+        .await;
+
+        assert!(!ok);
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "Repository Access");
+        assert_eq!(checks[0].status, CheckStatus::Error);
+        assert!(
+            checks[0]
+                .remediation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("GitHub repository origins only")
+        );
+    }
+
+    #[tokio::test]
+    async fn repository_access_check_probes_normalized_github_branch() {
+        let (prepared, resolved) = prepared_and_resolved_for_sandbox(
+            "docker",
+            false,
+            Some(git_context(
+                "git@github.com:acme/widgets.git",
+                "feature/demo",
+            )),
+        );
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls_for_check = Arc::clone(&calls);
+        let mut checks = Vec::new();
+
+        let ok = run_repository_access_check_with(
+            &mut checks,
+            SandboxProvider::Docker,
+            &prepared,
+            &resolved,
+            None,
+            move |request, _github_app| {
+                calls_for_check.lock().unwrap().push(request);
+                async { Ok(()) }
+            },
+        )
+        .await;
+
+        assert!(ok);
+        assert_eq!(calls.lock().unwrap().as_slice(), [GitRemoteRefCheck {
+            origin_url: "https://github.com/acme/widgets".to_string(),
+            branch:     Some("feature/demo".to_string()),
+        }]);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "Repository Access");
+        assert_eq!(checks[0].status, CheckStatus::Pass);
+    }
+
+    #[tokio::test]
+    async fn repository_access_check_surfaces_remote_probe_failure() {
+        let (prepared, resolved) = prepared_and_resolved_for_sandbox(
+            "docker",
+            false,
+            Some(git_context("https://github.com/acme/widgets", "missing")),
+        );
+        let mut checks = Vec::new();
+
+        let ok = run_repository_access_check_with(
+            &mut checks,
+            SandboxProvider::Docker,
+            &prepared,
+            &resolved,
+            None,
+            |_request, _github_app| async { Err("remote branch not found".to_string()) },
+        )
+        .await;
+
+        assert!(!ok);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "Repository Access");
+        assert_eq!(checks[0].status, CheckStatus::Error);
+        assert!(
+            checks[0]
+                .remediation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("remote branch not found")
+        );
+    }
+
+    #[test]
+    fn preflight_sandbox_spec_disables_docker_clone_but_preserves_clone_metadata() {
+        let (prepared, resolved) = prepared_and_resolved_for_sandbox(
+            "docker",
+            false,
+            Some(git_context("https://github.com/acme/widgets", "main")),
+        );
+
+        let spec =
+            preflight_sandbox_spec(SandboxProvider::Docker, &prepared, &resolved, None, None);
+
+        match spec {
+            SandboxSpec::Docker {
+                config,
+                clone_origin_url,
+                clone_branch,
+                ..
+            } => {
+                assert!(config.skip_clone);
+                assert_eq!(
+                    clone_origin_url.as_deref(),
+                    Some("https://github.com/acme/widgets")
+                );
+                assert_eq!(clone_branch.as_deref(), Some("main"));
+            }
+            _ => panic!("expected Docker preflight sandbox spec"),
         }
     }
 
