@@ -674,7 +674,11 @@ pub(crate) async fn fetch_source_run_ref(
 /// Pushes a refspec to origin via exec_command inside the sandbox.
 pub async fn git_push_via_exec(sandbox: &dyn Sandbox, refspec: &str) -> bool {
     if let Err(e) = sandbox.refresh_push_credentials().await {
-        tracing::warn!(error = %e, "Failed to refresh push credentials");
+        tracing::warn!(
+            refspec,
+            error = %fabro_redact::redact_string(&e.to_string()),
+            "Failed to refresh push credentials before git push"
+        );
     }
     let cmd = format!("{GIT} push origin {}", shell_quote(refspec));
     match sandbox.exec_command(&cmd, 60_000, None, None, None).await {
@@ -683,13 +687,77 @@ pub async fn git_push_via_exec(sandbox: &dyn Sandbox, refspec: &str) -> bool {
             true
         }
         Ok(r) => {
-            tracing::warn!(refspec, exit_code = r.exit_code, "Failed to push git ref");
+            tracing::warn!(
+                refspec,
+                exit_code = r.exit_code,
+                timed_out = r.timed_out,
+                stderr = %trim_for_log(&r.stderr, GIT_LOG_TAIL_BYTES),
+                stdout = %trim_for_log(&r.stdout, GIT_LOG_TAIL_BYTES),
+                hint = classify_git_push_failure(&r.stderr).unwrap_or(""),
+                "Failed to push git ref"
+            );
             false
         }
         Err(e) => {
-            tracing::warn!(refspec, error = %e, "Failed to push git ref");
+            tracing::warn!(
+                refspec,
+                error = %fabro_redact::redact_string(&e.to_string()),
+                "Failed to invoke git push in sandbox"
+            );
             false
         }
+    }
+}
+
+/// Maximum bytes of git stdout/stderr to include in a single log line.
+/// Long enough to capture the typical 1-3 line `fatal:` / `remote:` output
+/// without flooding the log when git emits a large progress dump.
+const GIT_LOG_TAIL_BYTES: usize = 2048;
+
+/// Redact secrets from `text`, then keep at most the trailing `limit` bytes.
+/// Trailing because git's relevant `fatal:` / `remote: rejected` lines are
+/// emitted at the end of the output.
+fn trim_for_log(text: &str, limit: usize) -> String {
+    let redacted = fabro_redact::redact_string(text);
+    let trimmed = redacted.trim_end();
+    if trimmed.len() <= limit {
+        return trimmed.to_string();
+    }
+    let start = trimmed.len() - limit;
+    let safe_start = (start..=trimmed.len())
+        .find(|i| trimmed.is_char_boundary(*i))
+        .unwrap_or(trimmed.len());
+    format!("…{}", &trimmed[safe_start..])
+}
+
+/// Map a git stderr to a short hint pointing at the likely cause. Returns
+/// `None` when no known pattern matches; callers should still log the raw
+/// (redacted) stderr so unknown failures stay debuggable.
+fn classify_git_push_failure(stderr: &str) -> Option<&'static str> {
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("could not read username") || lower.contains("terminal prompts disabled") {
+        Some(
+            "no credentials in origin URL — check that the sandbox forwarded \
+             GITHUB_APP_PRIVATE_KEY (or GITHUB_TOKEN) and that refresh_push_credentials succeeded",
+        )
+    } else if lower.contains("permission to") && lower.contains("denied") {
+        Some(
+            "github denied the push — installation token lacks contents:write \
+             on this repo, or a branch protection / push ruleset is rejecting the ref",
+        )
+    } else if lower.contains("protected branch")
+        || lower.contains("ruleset")
+        || lower.contains("rejected")
+    {
+        Some("github rejected the ref — likely a branch protection rule or push ruleset")
+    } else if lower.contains("authentication failed") || lower.contains("invalid username") {
+        Some("github authentication failed — installation token may be expired or wrong scope")
+    } else if lower.contains("could not resolve host") || lower.contains("network is unreachable") {
+        Some("network failure inside sandbox — check DNS / egress from the run container")
+    } else if lower.contains("repository not found") {
+        Some("github 404 — the App installation may not include this repo")
+    } else {
+        None
     }
 }
 
@@ -709,6 +777,60 @@ mod tests {
         assert_eq!(result.exit_code, 1);
         assert!(result.timed_out);
         assert_eq!(result.duration_ms, 5000);
+    }
+
+    #[test]
+    fn trim_for_log_keeps_short_output_intact() {
+        assert_eq!(trim_for_log("fatal: nope\n", 2048), "fatal: nope");
+    }
+
+    #[test]
+    fn trim_for_log_keeps_trailing_bytes_when_oversized() {
+        let prefix = "x".repeat(3000);
+        let suffix = "fatal: rejected";
+        let trimmed = trim_for_log(&format!("{prefix}{suffix}"), 64);
+        assert!(trimmed.starts_with('…'));
+        assert!(trimmed.ends_with(suffix));
+        assert!(trimmed.chars().count() <= 64 + 1);
+    }
+
+    #[test]
+    fn trim_for_log_redacts_high_entropy_secrets() {
+        let stderr = "fatal: unable to access \
+                      'https://x-access-token:ghs_xK9mZ2vL8nQ5rT1wY4bC7dF0gH3jE6pA@github.com/owner/repo/'";
+        let trimmed = trim_for_log(stderr, 2048);
+        assert!(!trimmed.contains("ghs_xK9mZ2vL8nQ5rT1wY4bC7dF0gH3jE6pA"));
+        assert!(trimmed.contains("REDACTED"));
+    }
+
+    #[test]
+    fn classify_git_push_failure_recognises_missing_credentials() {
+        let hint = classify_git_push_failure(
+            "fatal: could not read Username for 'https://github.com': No such device or address",
+        );
+        assert!(hint.unwrap().contains("no credentials in origin URL"));
+    }
+
+    #[test]
+    fn classify_git_push_failure_recognises_permission_denied() {
+        let hint = classify_git_push_failure(
+            "remote: Permission to owner/repo.git denied to fabro-app[bot].",
+        );
+        assert!(hint.unwrap().contains("github denied the push"));
+    }
+
+    #[test]
+    fn classify_git_push_failure_recognises_branch_protection() {
+        let hint = classify_git_push_failure(
+            "remote: error: GH013: Repository rule violations found for refs/heads/main\n\
+             remote: - Cannot create ref 'refs/heads/fabro/run/X' due to ruleset",
+        );
+        assert!(hint.unwrap().contains("ruleset"));
+    }
+
+    #[test]
+    fn classify_git_push_failure_returns_none_for_unknown() {
+        assert!(classify_git_push_failure("fatal: weird new git error message").is_none());
     }
 
     #[test]
