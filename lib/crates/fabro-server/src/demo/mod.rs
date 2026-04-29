@@ -668,6 +668,7 @@ pub(crate) async fn get_system_info(
         StatusCode::OK,
         Json(json!({
             "version": env!("CARGO_PKG_VERSION"),
+            "server_url": "http://localhost:3000",
             "git_sha": option_env!("FABRO_GIT_SHA"),
             "build_date": option_env!("FABRO_BUILD_DATE"),
             "profile": option_env!("FABRO_BUILD_PROFILE"),

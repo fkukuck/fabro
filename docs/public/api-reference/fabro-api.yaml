@@ -6439,6 +6439,9 @@ components:
         version:
           type: string
           description: Server version string.
+        server_url:
+          type: string
+          description: Configured public server URL for browser and CLI authentication flows.
         git_sha:
           type: ["string", "null"]
           description: Build git SHA when available.

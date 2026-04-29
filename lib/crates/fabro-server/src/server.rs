@@ -1395,6 +1395,7 @@ async fn get_system_info(
 
     let response = SystemInfoResponse {
         version:          Some(FABRO_VERSION.to_string()),
+        server_url:       Some(server_settings.server.web.url.as_source()),
         git_sha:          option_env!("FABRO_GIT_SHA").map(str::to_string),
         build_date:       option_env!("FABRO_BUILD_DATE").map(str::to_string),
         profile:          option_env!("FABRO_BUILD_PROFILE").map(str::to_string),

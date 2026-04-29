@@ -10,6 +10,7 @@ import type {
   RunProjection,
   ServerSettings,
   RunSummary,
+  SystemInfoResponse,
 } from "@qltysh/fabro-api-client";
 
 import type { PaginatedWorkflowListResponse, WorkflowDetailResponse } from "./workflow-api";
@@ -48,7 +49,7 @@ export function useAuthMe() {
 }
 
 export function useSystemInfo() {
-  return useSWR<{ features: { session_sandboxes: boolean; retros: boolean } }>(
+  return useSWR<SystemInfoResponse>(
     queryKeys.system.info(),
     apiFetcher,
     immutableOptions,

@@ -23,7 +23,7 @@ import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnSta
 import { EmptyState } from "../components/state";
 import { shouldRefreshBoardForEvent, useBoardEvents } from "../lib/board-events";
 import { useDemoMode } from "../lib/demo-mode";
-import { useAuthConfig, useBoardsRuns } from "../lib/queries";
+import { useAuthConfig, useBoardsRuns, useSystemInfo } from "../lib/queries";
 import type { PaginatedBoardRunList } from "@qltysh/fabro-api-client";
 
 export { shouldRefreshBoardForEvent };
@@ -585,12 +585,25 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function RunsLandingEmpty({ hasGitHubAuth }: { hasGitHubAuth: boolean }) {
-  const quickStartCommands = [
-    hasGitHubAuth ? "fabro auth login" : null,
+export function runsQuickStartCommands(
+  hasGitHubAuth: boolean,
+  serverUrl?: string,
+) {
+  return [
+    hasGitHubAuth && serverUrl ? `fabro auth login --server ${serverUrl}` : null,
     "fabro repo init",
     "fabro run hello",
   ].filter((command): command is string => command !== null);
+}
+
+function RunsLandingEmpty({
+  hasGitHubAuth,
+  serverUrl,
+}: {
+  hasGitHubAuth: boolean;
+  serverUrl?: string;
+}) {
+  const quickStartCommands = runsQuickStartCommands(hasGitHubAuth, serverUrl);
   return (
     <div className="mt-4 flex flex-col items-center">
       <div className="w-full max-w-lg space-y-5">
@@ -654,11 +667,13 @@ function RunsLandingEmpty({ hasGitHubAuth }: { hasGitHubAuth: boolean }) {
 export default function Runs() {
   const boardRuns = useBoardsRuns();
   const authConfig = useAuthConfig();
+  const systemInfo = useSystemInfo();
   const initialColumns = useMemo(
     () => boardRuns.data ? buildBoardColumns(boardRuns.data) : [],
     [boardRuns.data],
   );
   const hasGitHubAuth = authConfig.data?.methods.includes("github") === true;
+  const serverUrl = systemInfo.data?.server_url;
   const allRepos = [
     ...new Set(
       initialColumns.flatMap((col: Column) => col.items.map((item: RunItem) => String(item.repo))),
@@ -781,7 +796,10 @@ export default function Runs() {
               ))}
             </div>
             {totalRuns === 0 ? (
-              <RunsLandingEmpty hasGitHubAuth={hasGitHubAuth} />
+              <RunsLandingEmpty
+                hasGitHubAuth={hasGitHubAuth}
+                serverUrl={serverUrl}
+              />
             ) : filteredRuns === 0 ? (
               <div className="py-8">
                 <EmptyState
@@ -833,7 +851,10 @@ export default function Runs() {
               })}
             </div>
             {totalRuns === 0 ? (
-              <RunsLandingEmpty hasGitHubAuth={hasGitHubAuth} />
+              <RunsLandingEmpty
+                hasGitHubAuth={hasGitHubAuth}
+                serverUrl={serverUrl}
+              />
             ) : filteredRuns === 0 ? (
               <div className="py-8">
                 <EmptyState
