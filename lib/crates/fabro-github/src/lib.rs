@@ -432,9 +432,10 @@ pub async fn create_installation_access_token_with_permissions_and_install_url(
     match resp.status {
         200 => {}
         404 => {
-            let install_url = install_url.map(str::to_string).unwrap_or_else(|| {
-                format!("https://github.com/organizations/{owner}/settings/installations")
-            });
+            let install_url = install_url.map_or_else(
+                || format!("https://github.com/organizations/{owner}/settings/installations"),
+                str::to_string,
+            );
             return Err(format!(
                 "GitHub App is not installed for {owner}. \
                  Install it at {install_url}"

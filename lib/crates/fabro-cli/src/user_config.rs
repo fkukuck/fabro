@@ -300,6 +300,10 @@ pub(crate) fn configure_cli_target_if_missing(
     Ok(true)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "CLI auth/login reads the user settings file synchronously before writing it."
+)]
 fn read_settings_document_for_write(config_path: &Path) -> Result<DocumentMut> {
     if !config_path.exists() {
         return Ok(DocumentMut::new());
