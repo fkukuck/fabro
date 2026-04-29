@@ -1,0 +1,15 @@
+digraph AzureDeploySmoke {
+    graph [goal="Verify that the deployed Azure server can launch an Azure sandbox"]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    probe [
+        shape=parallelogram,
+        label="Probe",
+        script="test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace"
+    ]
+
+    start -> probe -> exit
+}

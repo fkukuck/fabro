@@ -76,33 +76,7 @@ variable "fabro_server_enabled" {
 
 variable "fabro_server_image" {
   type        = string
-  description = "Immutable image reference for fabro-server, from ACR or GHCR."
-}
-
-variable "fabro_server_image_registry_server" {
-  type        = string
-  default     = null
-  description = "Optional registry host for private fabro-server images, for example an ACR login server or ghcr.io."
-}
-
-variable "fabro_server_image_registry_username" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "fabro_server_image_registry_password" {
-  type      = string
-  sensitive = true
-  default   = null
-
-  validation {
-    condition = (
-      (var.fabro_server_image_registry_server == null && var.fabro_server_image_registry_username == null && var.fabro_server_image_registry_password == null) ||
-      (var.fabro_server_image_registry_server != null && var.fabro_server_image_registry_username != null && var.fabro_server_image_registry_password != null)
-    )
-    error_message = "Set fabro_server_image_registry_server, fabro_server_image_registry_username, and fabro_server_image_registry_password together, or leave all of them null."
-  }
+  description = "Immutable image reference for fabro-server, published in the environment ACR."
 }
 
 variable "fabro_server_cpu" {
@@ -115,35 +89,8 @@ variable "fabro_server_memory" {
   default = "2Gi"
 }
 
-variable "fabro_dev_token" {
-  type      = string
-  sensitive = true
-}
-
-variable "session_secret" {
-  type      = string
-  sensitive = true
-}
-
-variable "github_token" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "openai_api_key" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "anthropic_api_key" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "azure_sandboxd_port" {
-  type    = number
-  default = 7777
+variable "github_actions_principal_id" {
+  type        = string
+  description = "Object ID of the bootstrap-created GitHub Actions service principal."
+  default     = null
 }

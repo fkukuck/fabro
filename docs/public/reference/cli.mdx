@@ -76,7 +76,7 @@ fabro [OPTIONS] [COMMAND]
 | `fabro fork` | Fork a workflow run from an earlier checkpoint into a new run |
 | `fabro graph` | Render a workflow graph as SVG |
 | `fabro inspect` | Show detailed information about a workflow run |
-| `fabro install` | Set up the Fabro environment (server settings, Azure, object store, LLMs, GitHub) |
+| `fabro install` | Set up the Fabro environment (LLMs, certs, GitHub) |
 | `fabro logs` | View the event log of a workflow run |
 | `fabro model` | List and test LLM models |
 | `fabro pr` | Pull request operations |
@@ -306,7 +306,7 @@ fabro create [OPTIONS] <WORKFLOW>
 | `--no-retro` | Skip retro generation after the run |
 | `--preserve-sandbox` | Keep the sandbox alive after the run finishes (for debugging) |
 | `--provider <provider>` | Override default LLM provider |
-| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona` |
+| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona`, `azure` |
 | `--server <server>` | Fabro server target: http(s) URL or absolute Unix socket path |
 | `-v, --verbose` | Enable verbose output |
 
@@ -430,7 +430,7 @@ fabro inspect [OPTIONS] <RUN>
 
 ### `fabro install`
 
-Set up the Fabro environment (server settings, Azure, object store, LLMs, GitHub)
+Set up the Fabro environment (LLMs, certs, GitHub)
 
 ```bash
 fabro install [OPTIONS] [COMMAND]
@@ -658,7 +658,7 @@ fabro preflight [OPTIONS] <WORKFLOW>
 | `--goal-file <goal_file>` | Read the workflow goal from a file |
 | `--model <model>` | Override default LLM model |
 | `--provider <provider>` | Override default LLM provider |
-| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona` |
+| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona`, `azure` |
 | `--server <server>` | Fabro server target: http(s) URL or absolute Unix socket path |
 | `-v, --verbose` | Enable verbose output |
 
@@ -822,7 +822,7 @@ fabro run [OPTIONS] <WORKFLOW>
 | `--no-retro` | Skip retro generation after the run |
 | `--preserve-sandbox` | Keep the sandbox alive after the run finishes (for debugging) |
 | `--provider <provider>` | Override default LLM provider |
-| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona` |
+| `--sandbox <sandbox>` | Sandbox for agent tools<br />Values: `local`, `docker`, `daytona`, `azure` |
 | `--server <server>` | Fabro server target: http(s) URL or absolute Unix socket path |
 | `-v, --verbose` | Enable verbose output |
 
