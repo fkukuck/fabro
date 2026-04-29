@@ -11,6 +11,14 @@ resource "azurerm_subnet" "aca" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [var.aca_subnet_cidr]
+
+  delegation {
+    name = "aca-delegation"
+
+    service_delegation {
+      name = "Microsoft.App/environments"
+    }
+  }
 }
 
 resource "azurerm_subnet" "aci" {
