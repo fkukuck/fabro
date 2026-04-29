@@ -878,16 +878,7 @@ async fn run_sandbox_check(
                     sandbox_provider,
                     SandboxProvider::Docker | SandboxProvider::Daytona
                 ) && prepared.git.is_none()
-                    && !resolved_run
-                        .sandbox
-                        .docker
-                        .as_ref()
-                        .is_some_and(|docker| docker.skip_clone)
-                    && !resolved_run
-                        .sandbox
-                        .daytona
-                        .as_ref()
-                        .is_some_and(|daytona| daytona.skip_clone)
+                    && !clone_disabled_for_provider(sandbox_provider, resolved_run)
                 {
                     details.push(CheckDetail {
                         text: "No clone source present; sandbox workspace will be empty".into(),
