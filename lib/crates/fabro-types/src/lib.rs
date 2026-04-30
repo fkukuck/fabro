@@ -48,7 +48,7 @@ pub use diff::DiffStats;
 pub use event_envelope::EventEnvelope;
 pub use failure_signature::FailureSignature;
 pub use graph::{AttrValue, Edge, Graph, Node, is_llm_handler_type, shape_to_handler_type};
-pub use interview::{InterviewQuestionRecord, InterviewQuestionType};
+pub use interview::{InterviewQuestionRecord, QuestionType};
 pub use node_status::NodeStatusRecord;
 pub use outcome::{FailureCategory, FailureDetail, NodeResult, Outcome, OutcomeMeta, StageStatus};
 pub use pull_request::{
@@ -64,7 +64,7 @@ pub use run::{
     RunProvenance, RunServerProvenance, RunSpec, RunSubjectProvenance,
 };
 pub use run_blob_id::RunBlobId;
-pub use run_event::{ActorKind, ActorRef, EventBody, RunEvent, RunNoticeLevel};
+pub use run_event::{ActorKind, ActorRef, EventBody, InterviewOption, RunEvent, RunNoticeLevel};
 pub use run_id::{RunId, fixtures};
 pub use run_projection::{NodeState, PendingInterviewRecord, RunProjection};
 pub use run_summary::RunSummary;

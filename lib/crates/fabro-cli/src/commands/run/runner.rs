@@ -594,13 +594,13 @@ mod tests {
     use chrono::Utc;
     use fabro_auth::{AuthCredential, AuthDetails};
     use fabro_config::Storage;
-    use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
+    use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question};
     use fabro_model::Provider;
     use fabro_types::run_event::{
         InterviewCompletedProps, InterviewStartedProps, RunCompletedProps, RunControlEffectProps,
         RunFailedProps, RunStatusTransitionProps,
     };
-    use fabro_types::{ActorRef, EventBody, FailureReason, SuccessReason, fixtures};
+    use fabro_types::{ActorRef, EventBody, FailureReason, QuestionType, SuccessReason, fixtures};
     use fabro_vault::{SecretType, Vault};
     use fabro_workflow::event::RunEventSink;
 

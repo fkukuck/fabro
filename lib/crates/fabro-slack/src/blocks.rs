@@ -1,4 +1,5 @@
-use fabro_interview::{Question, QuestionType};
+use fabro_interview::Question;
+use fabro_types::QuestionType;
 use serde_json::{Value, json};
 
 use crate::payload::{SlackActionPayload, encode_action_value};
@@ -120,7 +121,7 @@ pub fn question_to_blocks(run_id: &str, question_id: &str, question: &Question) 
 
 #[cfg(test)]
 mod tests {
-    use fabro_interview::QuestionOption;
+    use fabro_types::InterviewOption;
 
     use super::*;
 
@@ -164,15 +165,15 @@ mod tests {
     fn multiple_choice_produces_button_per_option() {
         let mut q = Question::new("Pick a language:", QuestionType::MultipleChoice);
         q.options = vec![
-            QuestionOption {
+            InterviewOption {
                 key:   "rs".to_string(),
                 label: "Rust".to_string(),
             },
-            QuestionOption {
+            InterviewOption {
                 key:   "ts".to_string(),
                 label: "TypeScript".to_string(),
             },
-            QuestionOption {
+            InterviewOption {
                 key:   "py".to_string(),
                 label: "Python".to_string(),
             },
@@ -250,11 +251,11 @@ mod tests {
     fn multi_select_produces_checkboxes_and_submit_button() {
         let mut q = Question::new("Select features:", QuestionType::MultiSelect);
         q.options = vec![
-            QuestionOption {
+            InterviewOption {
                 key:   "a".to_string(),
                 label: "Auth".to_string(),
             },
-            QuestionOption {
+            InterviewOption {
                 key:   "b".to_string(),
                 label: "Billing".to_string(),
             },

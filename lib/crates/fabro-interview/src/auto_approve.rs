@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use fabro_types::QuestionType;
 
-use crate::{Answer, AnswerValue, Interviewer, Question, QuestionType};
+use crate::{Answer, AnswerValue, Interviewer, Question};
 
 /// Always approves: YES for yes/no, first option for multiple choice,
 /// "auto-approved" for freeform.
@@ -28,8 +29,9 @@ impl Interviewer for AutoApproveInterviewer {
 
 #[cfg(test)]
 mod tests {
+    use fabro_types::InterviewOption;
+
     use super::*;
-    use crate::QuestionOption;
 
     #[tokio::test]
     async fn yes_no_returns_yes() {
@@ -52,11 +54,11 @@ mod tests {
         let interviewer = AutoApproveInterviewer;
         let mut q = Question::new("Choose:", QuestionType::MultipleChoice);
         q.options = vec![
-            QuestionOption {
+            InterviewOption {
                 key:   "A".to_string(),
                 label: "Alpha".to_string(),
             },
-            QuestionOption {
+            InterviewOption {
                 key:   "B".to_string(),
                 label: "Beta".to_string(),
             },
@@ -65,7 +67,7 @@ mod tests {
         assert_eq!(answer.value, AnswerValue::Selected("A".to_string()));
         assert_eq!(
             answer.selected_option,
-            Some(QuestionOption {
+            Some(InterviewOption {
                 key:   "A".to_string(),
                 label: "Alpha".to_string(),
             })

@@ -5,9 +5,8 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use fabro_graphviz::graph::{Graph, Node};
-use fabro_interview::{Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType};
-use fabro_types::BlockedReason;
-use fabro_types::run_event::InterviewOption;
+use fabro_interview::{Answer, AnswerValue, Interviewer, Question};
+use fabro_types::{BlockedReason, InterviewOption, QuestionType};
 use ulid::Ulid;
 
 use super::{EngineServices, Handler};
@@ -226,9 +225,9 @@ impl Handler for HumanHandler {
         }
 
         // 2. Build question
-        let options: Vec<QuestionOption> = choices
+        let options: Vec<InterviewOption> = choices
             .iter()
-            .map(|c| QuestionOption {
+            .map(|c| InterviewOption {
                 key:   c.key.clone(),
                 label: c.label.clone(),
             })
@@ -718,7 +717,7 @@ mod tests {
     #[tokio::test]
     async fn wait_human_emits_blocked_then_unblocked_around_interview() {
         let interviewer = Arc::new(CallbackInterviewer::new(|_| {
-            Answer::selected("A", QuestionOption {
+            Answer::selected("A", InterviewOption {
                 key:   "A".to_string(),
                 label: "Approve".to_string(),
             })

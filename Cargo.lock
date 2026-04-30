@@ -1924,6 +1924,7 @@ version = "0.218.0-nightly.0"
 dependencies = [
  "async-trait",
  "dialoguer",
+ "fabro-types",
  "fabro-util",
  "serde",
  "serde_json",
@@ -2198,6 +2199,7 @@ dependencies = [
  "fabro-http",
  "fabro-interview",
  "fabro-static",
+ "fabro-types",
  "fabro-workflow",
  "futures-util",
  "rustls",

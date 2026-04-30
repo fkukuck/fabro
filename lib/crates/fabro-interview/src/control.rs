@@ -124,10 +124,11 @@ impl Interviewer for ControlInterviewer {
 mod tests {
     use std::sync::Arc;
 
+    use fabro_types::QuestionType;
     use tokio::task;
 
     use super::*;
-    use crate::{AnswerValue, QuestionType};
+    use crate::AnswerValue;
 
     #[tokio::test]
     async fn submit_before_ask_buffers_answer() {

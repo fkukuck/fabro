@@ -3,11 +3,12 @@ use std::io::IsTerminal;
 use async_trait::async_trait;
 use dialoguer::console::Term;
 use dialoguer::theme::ColorfulTheme;
+use fabro_types::{InterviewOption, QuestionType};
 use fabro_util::terminal::Styles;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::task;
 
-use crate::{Answer, AnswerValue, Interviewer, Question, QuestionOption, QuestionType};
+use crate::{Answer, AnswerValue, Interviewer, Question};
 
 enum PromptRead {
     Line(String),
@@ -28,7 +29,7 @@ impl ConsoleInterviewer {
     }
 }
 
-fn find_matching_option(response: &str, options: &[QuestionOption]) -> Option<Answer> {
+fn find_matching_option(response: &str, options: &[InterviewOption]) -> Option<Answer> {
     let trimmed = response.trim();
     // Try matching by key (case-insensitive)
     for opt in options {
@@ -291,11 +292,11 @@ mod tests {
     #[test]
     fn find_matching_option_by_key() {
         let options = vec![
-            crate::QuestionOption {
+            InterviewOption {
                 key:   "A".to_string(),
                 label: "Approve".to_string(),
             },
-            crate::QuestionOption {
+            InterviewOption {
                 key:   "R".to_string(),
                 label: "Reject".to_string(),
             },
@@ -308,7 +309,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_by_key_case_insensitive() {
-        let options = vec![crate::QuestionOption {
+        let options = vec![InterviewOption {
             key:   "Y".to_string(),
             label: "Yes".to_string(),
         }];
@@ -319,11 +320,11 @@ mod tests {
     #[test]
     fn find_matching_option_by_index() {
         let options = vec![
-            crate::QuestionOption {
+            InterviewOption {
                 key:   "A".to_string(),
                 label: "Alpha".to_string(),
             },
-            crate::QuestionOption {
+            InterviewOption {
                 key:   "B".to_string(),
                 label: "Beta".to_string(),
             },
@@ -336,7 +337,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_no_match() {
-        let options = vec![crate::QuestionOption {
+        let options = vec![InterviewOption {
             key:   "A".to_string(),
             label: "Alpha".to_string(),
         }];
@@ -346,7 +347,7 @@ mod tests {
 
     #[test]
     fn find_matching_option_index_out_of_range() {
-        let options = vec![crate::QuestionOption {
+        let options = vec![InterviewOption {
             key:   "A".to_string(),
             label: "Alpha".to_string(),
         }];
@@ -357,7 +358,7 @@ mod tests {
     #[test]
     fn non_tty_multiple_choice_eof_returns_interrupted() {
         let mut question = Question::new("Approve?", QuestionType::MultipleChoice);
-        question.options = vec![crate::QuestionOption {
+        question.options = vec![InterviewOption {
             key:   "A".to_string(),
             label: "Approve".to_string(),
         }];

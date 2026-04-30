@@ -24,8 +24,10 @@ impl Interviewer for CallbackInterviewer {
 
 #[cfg(test)]
 mod tests {
+    use fabro_types::QuestionType;
+
     use super::*;
-    use crate::{AnswerValue, QuestionType};
+    use crate::AnswerValue;
 
     #[tokio::test]
     async fn calls_callback_with_question() {

@@ -32,21 +32,19 @@ pub use fabro_api::types::{
     ForkRequest, ForkResponse, MergeRunPullRequestRequest, MergeRunPullRequestResponse,
     ModelReference, PaginatedEventList, PaginatedRunList, PaginationMeta, PreflightResponse,
     PreviewUrlRequest, PreviewUrlResponse, PruneRunEntry, PruneRunsRequest, PruneRunsResponse,
-    QuestionType as ApiQuestionType, RenderWorkflowGraphDirection, RenderWorkflowGraphRequest,
-    RewindRequest, RewindResponse, RunArtifactEntry, RunArtifactListResponse, RunBilling,
-    RunBillingStage, RunBillingTotals, RunError, RunManifest, RunStage, RunStatusResponse,
-    SandboxFileEntry, SandboxFileListResponse, SshAccessRequest, SshAccessResponse,
-    StageStatus as ApiStageStatus, StartRunRequest, SubmitAnswerRequest, SystemFeatures,
-    SystemInfoResponse, SystemRunCounts, TimelineEntryResponse, WriteBlobResponse,
+    RenderWorkflowGraphDirection, RenderWorkflowGraphRequest, RewindRequest, RewindResponse,
+    RunArtifactEntry, RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals,
+    RunError, RunManifest, RunStage, RunStatusResponse, SandboxFileEntry, SandboxFileListResponse,
+    SshAccessRequest, SshAccessResponse, StageStatus as ApiStageStatus, StartRunRequest,
+    SubmitAnswerRequest, SystemFeatures, SystemInfoResponse, SystemRunCounts,
+    TimelineEntryResponse, WriteBlobResponse,
 };
 use fabro_auth::{
     CredentialSource, VaultCredentialSource, auth_issue_message, parse_credential_secret,
 };
 use fabro_config::daemon::ServerDaemon;
 use fabro_config::{RunLayer, RunSettingsBuilder, ServerSettingsBuilder, Storage, envfile};
-use fabro_interview::{
-    Answer, ControlInterviewer, Interviewer, Question, QuestionType, WorkerControlEnvelope,
-};
+use fabro_interview::{Answer, ControlInterviewer, Interviewer, Question, WorkerControlEnvelope};
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::generate::{GenerateParams, generate_object};
 use fabro_llm::model_test::{ModelTestMode, run_model_test};
@@ -76,9 +74,9 @@ use fabro_types::settings::server::{
 };
 use fabro_types::settings::{InterpString, RunNamespace};
 use fabro_types::{
-    ActorRef, EventBody, InterviewQuestionRecord, InterviewQuestionType, PullRequestRecord,
-    RunBlobId, RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance,
-    RunServerProvenance, RunSubjectProvenance, ServerSettings,
+    ActorRef, EventBody, InterviewQuestionRecord, PullRequestRecord, QuestionType, RunBlobId,
+    RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance, RunServerProvenance,
+    RunSubjectProvenance, ServerSettings,
 };
 use fabro_util::error::{collect_causes, render_with_causes};
 use fabro_util::version::FABRO_VERSION;
@@ -3988,39 +3986,12 @@ fn resolved_log_destination(state: &AppState) -> anyhow::Result<LogDestination> 
     )
 }
 
-fn api_question_type(question_type: InterviewQuestionType) -> ApiQuestionType {
-    match question_type {
-        InterviewQuestionType::YesNo => ApiQuestionType::YesNo,
-        InterviewQuestionType::MultipleChoice => ApiQuestionType::MultipleChoice,
-        InterviewQuestionType::MultiSelect => ApiQuestionType::MultiSelect,
-        InterviewQuestionType::Freeform => ApiQuestionType::Freeform,
-        InterviewQuestionType::Confirmation => ApiQuestionType::Confirmation,
-    }
-}
-
-fn runtime_question_type(question_type: InterviewQuestionType) -> QuestionType {
-    match question_type {
-        InterviewQuestionType::YesNo => QuestionType::YesNo,
-        InterviewQuestionType::MultipleChoice => QuestionType::MultipleChoice,
-        InterviewQuestionType::MultiSelect => QuestionType::MultiSelect,
-        InterviewQuestionType::Freeform => QuestionType::Freeform,
-        InterviewQuestionType::Confirmation => QuestionType::Confirmation,
-    }
-}
-
 fn runtime_question_from_interview_record(question: &InterviewQuestionRecord) -> Question {
     Question {
         id:              question.id.clone(),
         text:            question.text.clone(),
-        question_type:   runtime_question_type(question.question_type),
-        options:         question
-            .options
-            .iter()
-            .map(|option| fabro_interview::QuestionOption {
-                key:   option.key.clone(),
-                label: option.label.clone(),
-            })
-            .collect(),
+        question_type:   question.question_type,
+        options:         question.options.clone(),
         allow_freeform:  question.allow_freeform,
         default:         None,
         timeout_seconds: question.timeout_seconds,
@@ -4035,7 +4006,7 @@ fn api_question_from_interview_record(question: &InterviewQuestionRecord) -> Api
         id:              question.id.clone(),
         text:            question.text.clone(),
         stage:           question.stage.clone(),
-        question_type:   api_question_type(question.question_type),
+        question_type:   question.question_type,
         options:         question
             .options
             .iter()
@@ -4107,7 +4078,7 @@ fn validate_answer_for_question(
 ) -> Result<(), Response> {
     match (&question.question_type, &answer.value) {
         (
-            InterviewQuestionType::YesNo | InterviewQuestionType::Confirmation,
+            QuestionType::YesNo | QuestionType::Confirmation,
             fabro_interview::AnswerValue::Yes | fabro_interview::AnswerValue::No,
         )
         | (
@@ -4116,14 +4087,14 @@ fn validate_answer_for_question(
             | fabro_interview::AnswerValue::Skipped
             | fabro_interview::AnswerValue::Timeout,
         ) => Ok(()),
-        (InterviewQuestionType::MultipleChoice, fabro_interview::AnswerValue::Selected(key)) => {
+        (QuestionType::MultipleChoice, fabro_interview::AnswerValue::Selected(key)) => {
             if question.options.iter().any(|option| option.key == *key) {
                 Ok(())
             } else {
                 Err(ApiError::bad_request("Invalid option key.").into_response())
             }
         }
-        (InterviewQuestionType::MultiSelect, fabro_interview::AnswerValue::MultiSelected(keys)) => {
+        (QuestionType::MultiSelect, fabro_interview::AnswerValue::MultiSelected(keys)) => {
             if keys
                 .iter()
                 .all(|key| question.options.iter().any(|option| option.key == *key))
@@ -4133,7 +4104,7 @@ fn validate_answer_for_question(
                 Err(ApiError::bad_request("Invalid option key.").into_response())
             }
         }
-        (InterviewQuestionType::Freeform, fabro_interview::AnswerValue::Text(text))
+        (QuestionType::Freeform, fabro_interview::AnswerValue::Text(text))
             if !text.trim().is_empty() =>
         {
             Ok(())
@@ -4216,10 +4187,7 @@ fn answer_from_request(
             .find(|option| option.key == key)
             .cloned();
         match option {
-            Some(option) => Ok(Answer::selected(key, fabro_interview::QuestionOption {
-                key:   option.key,
-                label: option.label,
-            })),
+            Some(option) => Ok(Answer::selected(key, option)),
             None => Err(ApiError::bad_request("Invalid option key.").into_response()),
         }
     } else if !req.selected_option_keys.is_empty() {
@@ -8119,13 +8087,13 @@ mod tests {
     use fabro_auth::{AuthCredential, AuthDetails};
     use fabro_config::ServerSettingsBuilder;
     use fabro_config::bind::Bind;
-    use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question, QuestionType};
+    use fabro_interview::{AnswerValue, ControlInterviewer, Interviewer, Question};
     use fabro_llm::types::{Message as LlmMessage, Request as LlmRequest};
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
     use fabro_types::{
-        AttrValue, Graph, InterviewQuestionRecord, InterviewQuestionType, RunAuthMethod, RunBlobId,
-        RunId, RunSpec, fixtures,
+        AttrValue, Graph, InterviewQuestionRecord, QuestionType, RunAuthMethod, RunBlobId, RunId,
+        RunSpec, fixtures,
     };
     use httpmock::Method::POST;
     use httpmock::MockServer;
@@ -10488,7 +10456,7 @@ slug = "fabro"
                 id:              "q-1".to_string(),
                 text:            "Approve deploy?".to_string(),
                 stage:           "gate".to_string(),
-                question_type:   InterviewQuestionType::MultipleChoice,
+                question_type:   QuestionType::MultipleChoice,
                 options:         vec![fabro_types::run_event::InterviewOption {
                     key:   "approve".to_string(),
                     label: "Approve".to_string(),

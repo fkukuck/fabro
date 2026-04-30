@@ -36,8 +36,10 @@ impl Interviewer for ReplayInterviewer {
 
 #[cfg(test)]
 mod tests {
+    use fabro_types::QuestionType;
+
     use super::*;
-    use crate::{AnswerValue, QuestionType};
+    use crate::AnswerValue;
 
     #[tokio::test]
     async fn replays_recorded_answers() {

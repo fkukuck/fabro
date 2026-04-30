@@ -17,10 +17,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 use fabro_api::types;
-use fabro_interview::{AnswerValue, ConsoleInterviewer, Question, QuestionOption, QuestionType};
+use fabro_interview::{AnswerValue, ConsoleInterviewer, Question};
 use fabro_store::EventEnvelope;
 use fabro_types::settings::run::ApprovalMode;
-use fabro_types::{EventBody, RunId};
+use fabro_types::{EventBody, InterviewOption, RunId};
 use fabro_util::json::normalize_json_value;
 use fabro_util::printer::Printer;
 use fabro_util::terminal::Styles;
@@ -287,19 +287,12 @@ async fn handle_detach_signal(
 }
 
 fn api_question_to_question(question: &types::ApiQuestion) -> Question {
-    let question_type = match question.question_type {
-        types::QuestionType::YesNo => QuestionType::YesNo,
-        types::QuestionType::MultipleChoice => QuestionType::MultipleChoice,
-        types::QuestionType::MultiSelect => QuestionType::MultiSelect,
-        types::QuestionType::Freeform => QuestionType::Freeform,
-        types::QuestionType::Confirmation => QuestionType::Confirmation,
-    };
-    let mut converted = Question::new(question.text.clone(), question_type);
+    let mut converted = Question::new(question.text.clone(), question.question_type);
     converted.id.clone_from(&question.id);
     converted.options = question
         .options
         .iter()
-        .map(|option| QuestionOption {
+        .map(|option| InterviewOption {
             key:   option.key.clone(),
             label: option.label.clone(),
         })

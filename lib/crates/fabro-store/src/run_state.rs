@@ -566,9 +566,9 @@ mod tests {
         InterviewCompletedProps, InterviewOption, InterviewStartedProps, RunControlEffectProps,
     };
     use fabro_types::{
-        BlockedReason, Checkpoint, EventBody, FailureReason, InterviewQuestionType, NodeState,
-        RunBlobId, RunControlAction, RunEvent, RunStatus, SuccessReason, TerminalStatus,
-        WorkflowSettings, fixtures,
+        BlockedReason, Checkpoint, EventBody, FailureReason, NodeState, QuestionType, RunBlobId,
+        RunControlAction, RunEvent, RunStatus, SuccessReason, TerminalStatus, WorkflowSettings,
+        fixtures,
     };
     use serde_json::json;
 
@@ -783,10 +783,7 @@ mod tests {
             .expect("pending interview should be present");
         assert_eq!(pending.question.id, "q-1");
         assert_eq!(pending.question.stage, "gate");
-        assert_eq!(
-            pending.question.question_type,
-            InterviewQuestionType::MultipleChoice
-        );
+        assert_eq!(pending.question.question_type, QuestionType::MultipleChoice);
         assert_eq!(pending.question.options.len(), 2);
         assert!(pending.question.allow_freeform);
         assert_eq!(pending.question.timeout_seconds, Some(30.0));

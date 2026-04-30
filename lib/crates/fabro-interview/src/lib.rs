@@ -10,37 +10,9 @@ mod replay;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use fabro_types::{InterviewOption, QuestionType};
 use serde::{Deserialize, Serialize};
 use tokio::time;
-
-/// The type of question being asked.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum QuestionType {
-    YesNo,
-    MultipleChoice,
-    MultiSelect,
-    Freeform,
-    Confirmation,
-}
-
-impl std::fmt::Display for QuestionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::YesNo => write!(f, "yes_no"),
-            Self::MultipleChoice => write!(f, "multiple_choice"),
-            Self::MultiSelect => write!(f, "multi_select"),
-            Self::Freeform => write!(f, "freeform"),
-            Self::Confirmation => write!(f, "confirmation"),
-        }
-    }
-}
-
-/// An option presented to the user for multiple-choice questions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuestionOption {
-    pub key:   String,
-    pub label: String,
-}
 
 /// A question presented to the user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +21,7 @@ pub struct Question {
     pub id:              String,
     pub text:            String,
     pub question_type:   QuestionType,
-    pub options:         Vec<QuestionOption>,
+    pub options:         Vec<InterviewOption>,
     pub allow_freeform:  bool,
     pub default:         Option<Answer>,
     pub timeout_seconds: Option<f64>,
@@ -94,7 +66,7 @@ pub enum AnswerValue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Answer {
     pub value:           AnswerValue,
-    pub selected_option: Option<QuestionOption>,
+    pub selected_option: Option<InterviewOption>,
     pub text:            Option<String>,
 }
 
@@ -153,7 +125,7 @@ impl Answer {
         }
     }
 
-    pub fn selected(key: impl Into<String>, option: QuestionOption) -> Self {
+    pub fn selected(key: impl Into<String>, option: InterviewOption) -> Self {
         let key = key.into();
         Self {
             value:           AnswerValue::Selected(key),
@@ -300,7 +272,7 @@ mod tests {
 
     #[test]
     fn answer_selected() {
-        let opt = QuestionOption {
+        let opt = InterviewOption {
             key:   "A".to_string(),
             label: "Approve".to_string(),
         };
@@ -318,11 +290,11 @@ mod tests {
 
     #[test]
     fn question_option_eq() {
-        let a = QuestionOption {
+        let a = InterviewOption {
             key:   "Y".to_string(),
             label: "Yes".to_string(),
         };
-        let b = QuestionOption {
+        let b = InterviewOption {
             key:   "Y".to_string(),
             label: "Yes".to_string(),
         };

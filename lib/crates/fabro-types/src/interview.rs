@@ -16,7 +16,7 @@ use crate::run_event::InterviewOption;
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
-pub enum InterviewQuestionType {
+pub enum QuestionType {
     YesNo,
     MultipleChoice,
     MultiSelect,
@@ -34,7 +34,7 @@ pub struct InterviewQuestionRecord {
     #[serde(default)]
     pub stage:           String,
     #[serde(default)]
-    pub question_type:   InterviewQuestionType,
+    pub question_type:   QuestionType,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options:         Vec<InterviewOption>,
     #[serde(default)]
@@ -52,18 +52,15 @@ mod tests {
     #[test]
     fn question_type_wire_names_roundtrip() {
         let cases = [
-            ("yes_no", InterviewQuestionType::YesNo),
-            ("multiple_choice", InterviewQuestionType::MultipleChoice),
-            ("multi_select", InterviewQuestionType::MultiSelect),
-            ("freeform", InterviewQuestionType::Freeform),
-            ("confirmation", InterviewQuestionType::Confirmation),
+            ("yes_no", QuestionType::YesNo),
+            ("multiple_choice", QuestionType::MultipleChoice),
+            ("multi_select", QuestionType::MultiSelect),
+            ("freeform", QuestionType::Freeform),
+            ("confirmation", QuestionType::Confirmation),
         ];
 
         for (wire, question_type) in cases {
-            assert_eq!(
-                wire.parse::<InterviewQuestionType>().unwrap(),
-                question_type
-            );
+            assert_eq!(wire.parse::<QuestionType>().unwrap(), question_type);
             assert_eq!(question_type.to_string(), wire);
         }
     }

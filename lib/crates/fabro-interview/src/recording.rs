@@ -99,8 +99,10 @@ impl Interviewer for RecordingInterviewer {
 
 #[cfg(test)]
 mod tests {
+    use fabro_types::QuestionType;
+
     use super::*;
-    use crate::{AnswerValue, AutoApproveInterviewer, QuestionType};
+    use crate::{AnswerValue, AutoApproveInterviewer};
 
     #[tokio::test]
     async fn records_question_answer_pairs() {
@@ -149,14 +151,14 @@ mod tests {
 
         let json = recorder.to_json().unwrap();
         assert!(json.contains("approve?"));
-        assert!(json.contains("YesNo"));
+        assert!(json.contains("yes_no"));
     }
 
     #[test]
     fn from_json_deserializes_recordings() {
         let json = r#"[
             [
-                {"text":"approve?","question_type":"YesNo","options":[],"allow_freeform":false,"default":null,"timeout_seconds":null,"stage":"","metadata":{}},
+                {"text":"approve?","question_type":"yes_no","options":[],"allow_freeform":false,"default":null,"timeout_seconds":null,"stage":"","metadata":{}},
                 {"value":"Yes","selected_option":null,"text":null}
             ]
         ]"#;
