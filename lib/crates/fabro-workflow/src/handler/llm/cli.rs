@@ -8,6 +8,7 @@ use fabro_auth::{CliAgentKind, CredentialResolver, CredentialUsage, ResolvedCred
 use fabro_graphviz::graph::Node;
 use fabro_llm::types::TokenCounts;
 use fabro_model::Provider;
+use fabro_types::CommandTermination;
 use tokio::time::sleep;
 
 use super::super::agent::{CodergenBackend, CodergenResult};
@@ -87,7 +88,7 @@ async fn ensure_cli(
         .await
         .map_err(|e| Error::handler(format!("Failed to check {cli_name} version: {e}")))?;
 
-    if version_check.exit_code == 0 {
+    if version_check.is_success() {
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         emitter.emit(&Event::CliEnsureCompleted {
             cli_name: cli_name.to_string(),
@@ -113,7 +114,7 @@ async fn ensure_cli(
         .map_err(|e| Error::handler(format!("Failed to install {cli_name}: {e}")))?;
 
     let node_installed = true;
-    if install_result.exit_code != 0 {
+    if !install_result.is_success() {
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         let output = if install_result.stderr.is_empty() {
             &install_result.stdout
@@ -130,7 +131,7 @@ async fn ensure_cli(
             .collect();
         let error_msg = format!(
             "{cli_name} install exited with code {}: {detail}",
-            install_result.exit_code
+            install_result.display_exit_code()
         );
         emitter.emit(&Event::CliEnsureFailed {
             cli_name: cli_name.to_string(),
@@ -444,7 +445,7 @@ impl AgentCliBackend {
         let mut files: Vec<String> = Vec::new();
 
         if let Ok(result) = diff_result {
-            if result.exit_code == 0 {
+            if result.is_success() {
                 files.extend(
                     result
                         .stdout
@@ -456,7 +457,7 @@ impl AgentCliBackend {
         }
 
         if let Ok(result) = untracked_result {
-            if result.exit_code == 0 {
+            if result.is_success() {
                 files.extend(
                     result
                         .stdout
@@ -551,9 +552,9 @@ impl CodergenBackend for AgentCliBackend {
                     .exec_command(login_cmd, 30_000, None, None, None)
                     .await
                     .map_err(|e| Error::handler(format!("codex login failed: {e}")))?;
-                if login_result.exit_code != 0 {
+                if !login_result.is_success() {
                     tracing::warn!(
-                        exit_code = login_result.exit_code,
+                        exit_code = login_result.display_exit_code(),
                         "codex login --with-api-key failed: {}",
                         login_result.stderr
                     );
@@ -648,8 +649,8 @@ impl CodergenBackend for AgentCliBackend {
         let result = ExecResult {
             stdout: stdout_result.stdout,
             stderr: stderr_result.stdout,
-            exit_code,
-            timed_out: false,
+            exit_code: Some(exit_code),
+            termination: CommandTermination::Exited,
             duration_ms,
         };
         emitter.emit_scoped(
@@ -657,7 +658,7 @@ impl CodergenBackend for AgentCliBackend {
                 node_id:     node.id.clone(),
                 stdout:      result.stdout.clone(),
                 stderr:      result.stderr.clone(),
-                exit_code:   result.exit_code,
+                exit_code:   result.exit_code.unwrap_or(-1),
                 duration_ms: result.duration_ms,
             },
             &stage_scope,
@@ -668,7 +669,7 @@ impl CodergenBackend for AgentCliBackend {
             .exec_command(&format!("rm -f {tmp_prefix}_*"), 30_000, None, None, None)
             .await;
 
-        if result.exit_code != 0 {
+        if !result.is_success() {
             let tail = |s: &str, n: usize| -> String {
                 s.chars()
                     .rev()
@@ -688,7 +689,7 @@ impl CodergenBackend for AgentCliBackend {
             };
             return Err(Error::handler(format!(
                 "CLI command exited with code {}: {detail}",
-                result.exit_code,
+                result.display_exit_code(),
             )));
         }
 
@@ -714,7 +715,7 @@ impl CodergenBackend for AgentCliBackend {
             let cmd = format!("ls -t {} | head -1", quoted_files.join(" "));
             if let Ok(result) = sandbox.exec_command(&cmd, 5_000, None, None, None).await {
                 let trimmed = result.stdout.trim().to_string();
-                if result.exit_code == 0 && !trimmed.is_empty() {
+                if result.is_success() && !trimmed.is_empty() {
                     Some(trimmed)
                 } else {
                     None
@@ -975,20 +976,20 @@ mod tests {
 
     fn ok_result() -> ExecResult {
         ExecResult {
-            exit_code:   0,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             stdout:      String::new(),
             stderr:      String::new(),
-            timed_out:   false,
             duration_ms: 10,
         }
     }
 
     fn fail_result(code: i32) -> ExecResult {
         ExecResult {
-            exit_code:   code,
+            exit_code:   Some(code),
+            termination: CommandTermination::Exited,
             stdout:      String::new(),
             stderr:      "error".to_string(),
-            timed_out:   false,
             duration_ms: 10,
         }
     }

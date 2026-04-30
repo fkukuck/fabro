@@ -14,12 +14,17 @@
 
 
 
-export interface DockerSettings {
-    'image': string;
-    'network_mode': string | null;
-    'memory_limit': number | null;
-    'cpu_quota': number | null;
-    'env_vars': { [key: string]: string; };
-    'skip_clone': boolean;
-}
+/**
+ * Terminal state for a command execution.
+ */
+
+export const CommandTermination = {
+    EXITED: 'exited',
+    TIMED_OUT: 'timed_out',
+    CANCELLED: 'cancelled'
+} as const;
+
+export type CommandTermination = typeof CommandTermination[keyof typeof CommandTermination];
+
+
 

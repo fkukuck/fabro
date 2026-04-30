@@ -542,6 +542,7 @@ mod tests {
             stderr_bytes:      None,
             streams_separated: None,
             live_streaming:    None,
+            termination:       None,
         });
 
         let dump = RunDump::from_projection(&projection);

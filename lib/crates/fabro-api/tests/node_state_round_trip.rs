@@ -26,7 +26,8 @@ fn node_state_round_trips_representative_json() {
         "script_timing": { "duration_ms": 42 },
         "parallel_results": [{ "branch": 0, "status": "succeeded" }],
         "stdout": "ok",
-        "stderr": ""
+        "stderr": "",
+        "termination": "exited"
     });
 
     let state: NodeState = serde_json::from_value(value.clone()).unwrap();

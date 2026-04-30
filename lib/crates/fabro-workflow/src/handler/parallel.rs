@@ -392,7 +392,10 @@ impl Handler for ParallelHandler {
                         .sandbox
                         .exec_command(&add_cmd, 30_000, None, None, None)
                         .await;
-                    if add_result.as_ref().is_ok_and(|r| r.exit_code == 0) {
+                    if add_result
+                        .as_ref()
+                        .is_ok_and(fabro_sandbox::ExecResult::is_success)
+                    {
                         let msg = format!("fabro({rid}): {nid} ({status_str})");
                         let commit_cmd = format!(
                             "{git_r} -c 'user.name={name}' -c 'user.email={email}' commit --allow-empty -m '{msg}'",
@@ -410,7 +413,7 @@ impl Handler for ParallelHandler {
                         .exec_command(&sha_cmd, 10_000, None, None, None)
                         .await;
                     match sha_result {
-                        Ok(r) if r.exit_code == 0 => {
+                        Ok(r) if r.is_success() => {
                             let sha = r.stdout.trim().to_string();
                             parent_run.emitter.emit_scoped(
                                 &Event::GitCommit {

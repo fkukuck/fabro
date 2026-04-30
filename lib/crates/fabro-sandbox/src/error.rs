@@ -1,5 +1,6 @@
 #[cfg(feature = "docker")]
 use bollard::errors::Error as BollardError;
+use fabro_types::CommandTermination;
 use fabro_util::error::{collect_causes, render_with_causes};
 
 #[derive(Debug, thiserror::Error)]
@@ -38,15 +39,16 @@ pub enum Error {
     },
 
     #[error(
-        "{label} failed (exit {exit_code}, timed_out={timed_out}, duration_ms={duration_ms}) - hint: {hint}",
+        "{label} failed (exit {exit}, termination={termination}, duration_ms={duration_ms}) - hint: {hint}",
+        exit = format_exit_code(*exit_code),
         hint = classify_exec_failure(stderr)
             .or_else(|| classify_exec_failure(stdout))
             .unwrap_or("unclassified")
     )]
     Exec {
         label:       String,
-        exit_code:   i32,
-        timed_out:   bool,
+        exit_code:   Option<i32>,
+        termination: CommandTermination,
         duration_ms: u64,
         stderr:      String,
         stdout:      String,
@@ -70,8 +72,8 @@ impl Error {
 
     pub fn exec(
         label: impl Into<String>,
-        exit_code: i32,
-        timed_out: bool,
+        exit_code: Option<i32>,
+        termination: CommandTermination,
         duration_ms: u64,
         stderr: impl Into<String>,
         stdout: impl Into<String>,
@@ -79,7 +81,7 @@ impl Error {
         Self::Exec {
             label: label.into(),
             exit_code,
-            timed_out,
+            termination,
             duration_ms,
             stderr: stderr.into(),
             stdout: stdout.into(),
@@ -162,6 +164,10 @@ pub(crate) fn classify_exec_failure(stderr: &str) -> Option<&'static str> {
     }
 }
 
+fn format_exit_code(exit_code: Option<i32>) -> String {
+    exit_code.map_or_else(|| "none".to_string(), |code| code.to_string())
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
@@ -176,8 +182,8 @@ mod tests {
                       identity ~/.ssh/id_rsa_work";
         let error = Error::exec(
             "git push origin refs/heads/run",
-            128,
-            false,
+            Some(128),
+            CommandTermination::Exited,
             210,
             stderr,
             "",
@@ -199,7 +205,7 @@ mod tests {
         }
         assert!(rendered.contains("git push origin refs/heads/run"));
         assert!(rendered.contains("exit 128"));
-        assert!(rendered.contains("timed_out=false"));
+        assert!(rendered.contains("termination=exited"));
         assert!(rendered.contains("duration_ms=210"));
         assert!(rendered.contains("hint:"));
     }

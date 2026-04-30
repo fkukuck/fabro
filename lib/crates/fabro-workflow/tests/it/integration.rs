@@ -32,7 +32,7 @@ use fabro_interview::{
 };
 use fabro_llm::provider::Provider;
 use fabro_store::{ArtifactStore, Database};
-use fabro_types::{RunEvent, RunId, StageId, WorkflowSettings, parse_blob_ref};
+use fabro_types::{CommandTermination, RunEvent, RunId, StageId, WorkflowSettings, parse_blob_ref};
 use fabro_validate::{Severity, validate, validate_or_raise};
 use fabro_workflow::context::Context;
 use fabro_workflow::error::{Error, FailureSignatureExt};
@@ -9554,8 +9554,9 @@ impl fabro_agent::Sandbox for CliTestEnv {
             return Ok(fabro_agent::ExecResult {
                 stdout,
                 stderr: String::new(),
-                exit_code: 0,
-                timed_out: false,
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 5,
             });
         }
@@ -9563,10 +9564,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         // Background launch: return PID
         if command.contains("echo $!") {
             return Ok(fabro_agent::ExecResult {
-                stdout:      "12345\n".into(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    "12345\n".into(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 1,
             });
         }
@@ -9574,10 +9576,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         // Poll for completion: return exit code 0 immediately
         if command.contains("exit_code") && command.contains("echo running") {
             return Ok(fabro_agent::ExecResult {
-                stdout:      "0\n".into(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    "0\n".into(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 1,
             });
         }
@@ -9585,10 +9588,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         // Read stdout file
         if command.starts_with("cat") && command.contains("stdout.log") {
             return Ok(fabro_agent::ExecResult {
-                stdout:      self.cli_stdout.clone(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    self.cli_stdout.clone(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 1,
             });
         }
@@ -9596,10 +9600,11 @@ impl fabro_agent::Sandbox for CliTestEnv {
         // Read stderr file
         if command.starts_with("cat") && command.contains("stderr.log") {
             return Ok(fabro_agent::ExecResult {
-                stdout:      String::new(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    String::new(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 1,
             });
         }
@@ -9607,20 +9612,22 @@ impl fabro_agent::Sandbox for CliTestEnv {
         // Cleanup temp files
         if command.starts_with("rm -f") {
             return Ok(fabro_agent::ExecResult {
-                stdout:      String::new(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    String::new(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 1,
             });
         }
 
         // Fallback
         Ok(fabro_agent::ExecResult {
-            stdout:      self.cli_stdout.clone(),
-            stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            stdout:    self.cli_stdout.clone(),
+            stderr:    String::new(),
+            exit_code: Some(0),
+
+            termination: CommandTermination::Exited,
             duration_ms: 100,
         })
     }
@@ -9868,48 +9875,53 @@ async fn cli_backend_run_fails_on_nonzero_exit() {
         ) -> fabro_sandbox::Result<fabro_agent::ExecResult> {
             if command.starts_with("git") {
                 return Ok(fabro_agent::ExecResult {
-                    stdout:      String::new(),
-                    stderr:      String::new(),
-                    exit_code:   0,
-                    timed_out:   false,
+                    stdout:    String::new(),
+                    stderr:    String::new(),
+                    exit_code: Some(0),
+
+                    termination: CommandTermination::Exited,
                     duration_ms: 0,
                 });
             }
             // Background launch: return PID
             if command.contains("echo $!") {
                 return Ok(fabro_agent::ExecResult {
-                    stdout:      "12345\n".into(),
-                    stderr:      String::new(),
-                    exit_code:   0,
-                    timed_out:   false,
+                    stdout:    "12345\n".into(),
+                    stderr:    String::new(),
+                    exit_code: Some(0),
+
+                    termination: CommandTermination::Exited,
                     duration_ms: 0,
                 });
             }
             // Poll: return non-zero exit code
             if command.contains("exit_code") && command.contains("echo running") {
                 return Ok(fabro_agent::ExecResult {
-                    stdout:      "127\n".into(),
-                    stderr:      String::new(),
-                    exit_code:   0,
-                    timed_out:   false,
+                    stdout:    "127\n".into(),
+                    stderr:    String::new(),
+                    exit_code: Some(0),
+
+                    termination: CommandTermination::Exited,
                     duration_ms: 0,
                 });
             }
             // Read stderr file
             if command.starts_with("cat") && command.contains("stderr.log") {
                 return Ok(fabro_agent::ExecResult {
-                    stdout:      "command not found: claude".into(),
-                    stderr:      String::new(),
-                    exit_code:   0,
-                    timed_out:   false,
+                    stdout:    "command not found: claude".into(),
+                    stderr:    String::new(),
+                    exit_code: Some(0),
+
+                    termination: CommandTermination::Exited,
                     duration_ms: 0,
                 });
             }
             Ok(fabro_agent::ExecResult {
-                stdout:      String::new(),
-                stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                stdout:    String::new(),
+                stderr:    String::new(),
+                exit_code: Some(0),
+
+                termination: CommandTermination::Exited,
                 duration_ms: 0,
             })
         }

@@ -6,7 +6,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use daytona_sdk::api_types::SignedPortPreviewUrl;
 use fabro_github::GitHubCredentials;
-use fabro_types::{CommandOutputStream, RunId};
+use fabro_types::{CommandOutputStream, CommandTermination, RunId};
 use rand::Rng;
 use tokio::sync::OnceCell;
 use tokio::{fs, time};
@@ -659,8 +659,8 @@ impl Sandbox for DaytonaSandbox {
                                             Ok(r) if r.exit_code != 0 => {
                                                 let err = crate::Error::exec(
                                                     "git remote set-url origin (Daytona post-clone)",
-                                                    r.exit_code,
-                                                    false,
+                                                    Some(r.exit_code),
+                                                    CommandTermination::Exited,
                                                     0,
                                                     redact_auth_url(&r.result, Some(&auth_url)),
                                                     String::new(),
@@ -892,7 +892,7 @@ impl Sandbox for DaytonaSandbox {
             .map_err(|_| {
                 crate::Error::message("Failed to refresh push credentials: set_url_exec_failed")
             })?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(result.into_exec_error_with_redactor(
                 "git remote set-url origin (refresh push credentials)",
                 |s| redact_auth_url(s, Some(&auth_url)),
@@ -1116,8 +1116,8 @@ impl Sandbox for DaytonaSandbox {
                 return Ok(ExecResult {
                     stdout: String::new(),
                     stderr: "Command timed out locally".to_string(),
-                    exit_code: -1,
-                    timed_out: true,
+                    exit_code: None,
+                    termination: CommandTermination::TimedOut,
                     duration_ms: elapsed_ms(&start),
                 });
             }
@@ -1129,8 +1129,8 @@ impl Sandbox for DaytonaSandbox {
                 return Ok(ExecResult {
                     stdout: String::new(),
                     stderr: "Command cancelled".to_string(),
-                    exit_code: -1,
-                    timed_out: true,
+                    exit_code: None,
+                    termination: CommandTermination::Cancelled,
                     duration_ms: elapsed_ms(&start),
                 });
             }
@@ -1143,8 +1143,8 @@ impl Sandbox for DaytonaSandbox {
         Ok(ExecResult {
             stdout: result.result.clone(),
             stderr: String::new(),
-            exit_code: result.exit_code,
-            timed_out: false,
+            exit_code: Some(result.exit_code),
+            termination: CommandTermination::Exited,
             duration_ms,
         })
     }
@@ -1197,7 +1197,7 @@ impl Sandbox for DaytonaSandbox {
                 let result = self
                     .exec_command("rg --version", 10_000, None, None, None)
                     .await;
-                matches!(result, Ok(r) if r.exit_code == 0)
+                matches!(result, Ok(r) if r.is_success())
             })
             .await;
 
@@ -1241,14 +1241,15 @@ impl Sandbox for DaytonaSandbox {
 
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
 
-        if result.exit_code == 1 {
+        if result.exit_code == Some(1) {
             // Both rg and grep exit 1 for no matches
             return Ok(Vec::new());
         }
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
 
@@ -1266,10 +1267,11 @@ impl Sandbox for DaytonaSandbox {
 
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
 
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
 

@@ -50,7 +50,9 @@ type TurnType =
   | { kind: "system"; content: string }
   | { kind: "assistant"; content: string }
   | { kind: "tool"; tools: ToolUse[] }
-  | { kind: "command"; stageId: string; script: string; language: string; stdout?: string; stderr?: string; exitCode?: number | null; durationMs?: number; timedOut?: boolean; running: boolean };
+  | { kind: "command"; stageId: string; script: string; language: string; stdout?: string; stderr?: string; exitCode?: number | null; durationMs?: number; termination?: CommandTermination; running: boolean };
+
+type CommandTermination = "exited" | "timed_out" | "cancelled";
 
 interface RawEvent {
   node_id?: string;
@@ -128,7 +130,7 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
           stderr: props.stderr as string ?? "",
           exitCode: props.exit_code as number | null ?? null,
           durationMs: props.duration_ms as number ?? 0,
-          timedOut: props.timed_out as boolean ?? false,
+          termination: props.termination as CommandTermination ?? "exited",
           running: false,
         });
         pendingCommand = undefined;
@@ -478,7 +480,7 @@ function CommandBlock({
   runId: string | undefined;
   turn: Extract<TurnType, { kind: "command" }>;
 }) {
-  const failed = !turn.running && turn.exitCode !== 0;
+  const failed = !turn.running && (turn.termination !== "exited" || turn.exitCode !== 0);
   const stdout = useCommandLog(runId, turn.stageId, "stdout", turn.running);
   const stderr = useCommandLog(runId, turn.stageId, "stderr", turn.running);
   const borderColor = turn.running ? "border-teal-500/20" : failed ? "border-coral/15" : "border-mint/15";
@@ -495,8 +497,10 @@ function CommandBlock({
         <div className="ml-auto flex items-center gap-2">
           {turn.running ? (
             <StatusPill tone="running">Running…</StatusPill>
-          ) : turn.timedOut ? (
+          ) : turn.termination === "timed_out" ? (
             <StatusPill tone="failed">Timed out</StatusPill>
+          ) : turn.termination === "cancelled" ? (
+            <StatusPill tone="failed">Cancelled</StatusPill>
           ) : (
             <>
               <StatusPill tone={failed ? "failed" : "success"}>

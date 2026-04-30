@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use ::fabro_types::{
-    ActorRef, BilledTokenCounts, BlockedReason, FailureReason, ForkSourceRef, GitContext,
-    ParallelBranchId, PullRequestRecord, RunBlobId, RunControlAction, RunEvent, RunId,
+    ActorRef, BilledTokenCounts, BlockedReason, CommandTermination, FailureReason, ForkSourceRef,
+    GitContext, ParallelBranchId, PullRequestRecord, RunBlobId, RunControlAction, RunEvent, RunId,
     RunProvenance, StageId, StageOutcome, SuccessReason, run_event as fabro_types,
 };
 use anyhow::{Context, Result};
@@ -505,7 +505,7 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exit_code:         Option<i32>,
         duration_ms:       u64,
-        timed_out:         bool,
+        termination:       CommandTermination,
         stdout_bytes:      u64,
         stderr_bytes:      u64,
         streams_separated: bool,
@@ -1114,7 +1114,7 @@ impl Event {
                 node_id,
                 exit_code,
                 duration_ms,
-                timed_out,
+                termination,
                 stdout_bytes,
                 stderr_bytes,
                 ..
@@ -1123,7 +1123,7 @@ impl Event {
                     node_id,
                     exit_code,
                     duration_ms,
-                    timed_out,
+                    termination = %termination,
                     stdout_bytes,
                     stderr_bytes,
                     "Command completed"
@@ -2497,7 +2497,7 @@ fn event_body_from_event(event: &Event) -> EventBody {
             stderr,
             exit_code,
             duration_ms,
-            timed_out,
+            termination,
             stdout_bytes,
             stderr_bytes,
             streams_separated,
@@ -2508,7 +2508,7 @@ fn event_body_from_event(event: &Event) -> EventBody {
             stderr:            stderr.clone(),
             exit_code:         *exit_code,
             duration_ms:       *duration_ms,
-            timed_out:         *timed_out,
+            termination:       *termination,
             stdout_bytes:      *stdout_bytes,
             stderr_bytes:      *stderr_bytes,
             streams_separated: *streams_separated,

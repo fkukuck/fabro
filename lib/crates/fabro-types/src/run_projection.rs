@@ -57,6 +57,8 @@ pub struct NodeState {
     pub streams_separated: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_streaming:    Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination:       Option<crate::CommandTermination>,
 }
 
 impl RunProjection {

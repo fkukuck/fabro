@@ -122,28 +122,30 @@ pub async fn run_devcontainer_lifecycle(
                                 token.cancel();
                             }
                             let cmd_duration = crate::millis_u64(cmd_start.elapsed());
-                            if result.exit_code != 0 {
+                            if !result.is_success() {
+                                let exit_code = result.display_exit_code();
                                 emitter.emit(
                                     &Event::DevcontainerLifecycleFailed {
                                         phase: phase.clone(),
                                         command: name.clone(),
                                         index,
-                                        exit_code: result.exit_code,
+                                        exit_code,
                                         stderr: result.stderr.clone(),
                                     },
                                 );
                                 return Err(Error::engine(format!(
                                     "Devcontainer {phase} parallel command '{name}' failed (exit code {}): {}",
-                                    result.exit_code,
+                                    exit_code,
                                     result.stderr,
                                 )));
                             }
+                            let exit_code = result.exit_code.unwrap_or(0);
                             emitter.emit(
                                 &Event::DevcontainerLifecycleCommandCompleted {
                                     phase: phase.clone(),
                                     command: name.clone(),
                                     index,
-                                    exit_code: result.exit_code,
+                                    exit_code,
                                     duration_ms: cmd_duration,
                                 },
                             );
@@ -191,24 +193,26 @@ async fn run_single_lifecycle_command(
         token.cancel();
     }
     let cmd_duration = crate::millis_u64(cmd_start.elapsed());
-    if result.exit_code != 0 {
+    if !result.is_success() {
+        let exit_code = result.display_exit_code();
         emitter.emit(&Event::DevcontainerLifecycleFailed {
             phase: phase.to_string(),
             command: command.to_string(),
             index,
-            exit_code: result.exit_code,
+            exit_code,
             stderr: result.stderr.clone(),
         });
         return Err(Error::engine(format!(
             "Devcontainer {phase} command failed (exit code {}): {command}\n{}",
-            result.exit_code, result.stderr,
+            exit_code, result.stderr,
         )));
     }
+    let exit_code = result.exit_code.unwrap_or(0);
     emitter.emit(&Event::DevcontainerLifecycleCommandCompleted {
         phase: phase.to_string(),
         command: command.to_string(),
         index,
-        exit_code: result.exit_code,
+        exit_code,
         duration_ms: cmd_duration,
     });
     Ok(())
@@ -222,6 +226,7 @@ mod tests {
 
     use async_trait::async_trait;
     use fabro_agent::sandbox::{ExecResult, GrepOptions, Sandbox};
+    use fabro_types::CommandTermination;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -317,8 +322,8 @@ mod tests {
                 return Ok(ExecResult {
                     stdout:      String::new(),
                     stderr:      "cancelled".to_string(),
-                    exit_code:   -1,
-                    timed_out:   true,
+                    exit_code:   None,
+                    termination: CommandTermination::Cancelled,
                     duration_ms: 10,
                 });
             }
@@ -329,8 +334,8 @@ mod tests {
                 } else {
                     String::new()
                 },
-                exit_code:   self.exit_code,
-                timed_out:   false,
+                exit_code:   Some(self.exit_code),
+                termination: CommandTermination::Exited,
                 duration_ms: 10,
             })
         }

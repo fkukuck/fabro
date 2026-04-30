@@ -343,7 +343,7 @@ mod tests {
     use std::time::Duration;
 
     use fabro_store::Database;
-    use fabro_types::fixtures;
+    use fabro_types::{CommandTermination, fixtures};
     use object_store::memory::InMemory;
 
     use super::*;
@@ -514,7 +514,7 @@ mod tests {
             stderr:            String::new(),
             exit_code:         Some(0),
             duration_ms:       10,
-            timed_out:         false,
+            termination:       CommandTermination::Exited,
             stdout_bytes:      3,
             stderr_bytes:      0,
             streams_separated: true,

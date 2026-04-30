@@ -100,6 +100,7 @@ fn serializable_projection_round_trips_and_trims_bulky_node_fields() {
         stderr_bytes:      None,
         streams_separated: None,
         live_streaming:    None,
+        termination:       None,
     });
 
     let serialized = serde_json::to_value(SerializableProjection(&projection))

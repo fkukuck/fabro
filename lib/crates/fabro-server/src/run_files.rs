@@ -805,7 +805,7 @@ async fn resolve_head_sha_and_time(
         )
         .await
         .map_err(|err| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.display_with_causes()))?;
-    if res.exit_code != 0 {
+    if !res.is_success() {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "Failed to resolve sandbox HEAD.",
@@ -1268,7 +1268,7 @@ fn count_flags(data: &[FileDiff]) -> (u64, u64, u64, u64) {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use fabro_types::RunId;
+    use fabro_types::{CommandTermination, RunId};
     use tokio::time::{Duration, sleep};
 
     use super::*;
@@ -2304,8 +2304,8 @@ rename to .env.production
         ExecResult {
             stdout:      stdout.to_string(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 0,
         }
     }
@@ -2314,8 +2314,8 @@ rename to .env.production
         ExecResult {
             stdout:      String::new(),
             stderr:      stderr.to_string(),
-            exit_code:   1,
-            timed_out:   false,
+            exit_code:   Some(1),
+            termination: CommandTermination::Exited,
             duration_ms: 0,
         }
     }

@@ -25,16 +25,19 @@ pub const GIT_REMOTE: &str =
     "git -c maintenance.auto=0 -c gc.auto=0 -c commit.gpgsign=false -c tag.gpgsign=false";
 
 fn exec_err(label: &str, r: &fabro_sandbox::ExecResult) -> String {
-    if r.timed_out {
+    if r.is_timed_out() {
         return format!("{label} timed out after {}ms", r.duration_ms);
+    }
+    if r.is_cancelled() {
+        return format!("{label} cancelled after {}ms", r.duration_ms);
     }
 
     let detail = format!("{}{}", r.stdout, r.stderr);
     let detail = detail.trim();
     if detail.is_empty() {
-        format!("{label} killed (exit {}, no output)", r.exit_code)
+        format!("{label} killed (exit {}, no output)", r.display_exit_code())
     } else {
-        format!("{label} failed (exit {}): {detail}", r.exit_code)
+        format!("{label} failed (exit {}): {detail}", r.display_exit_code())
     }
 }
 
@@ -68,7 +71,7 @@ pub async fn git_checkpoint(
         .exec_command(&add_cmd, 30_000, None, None, None)
         .await;
     match &add_result {
-        Ok(r) if r.exit_code == 0 => {}
+        Ok(r) if r.is_success() => {}
         Ok(r) => return Err(exec_err("git add", r)),
         Err(e) => return Err(format!("git add failed: {e}")),
     }
@@ -109,7 +112,7 @@ pub async fn git_checkpoint(
         .exec_command(&commit_cmd, 30_000, None, None, None)
         .await;
     match &commit_result {
-        Ok(r) if r.exit_code == 0 => {}
+        Ok(r) if r.is_success() => {}
         Ok(r) => return Err(exec_err("git commit", r)),
         Err(e) => return Err(format!("git commit failed: {e}")),
     }
@@ -119,7 +122,7 @@ pub async fn git_checkpoint(
         .exec_command(&sha_cmd, 10_000, None, None, None)
         .await;
     match sha_result {
-        Ok(r) if r.exit_code == 0 => Ok(r.stdout.trim().to_string()),
+        Ok(r) if r.is_success() => Ok(r.stdout.trim().to_string()),
         Ok(r) => Err(exec_err("git rev-parse HEAD", &r)),
         Err(e) => Err(format!("git rev-parse HEAD failed: {e}")),
     }
@@ -188,7 +191,7 @@ pub(crate) async fn git_diff_with_timeout(
         .exec_command(&cmd, timeout_ms, None, None, None)
         .await
     {
-        Ok(r) if r.exit_code == 0 => Ok(r.stdout),
+        Ok(r) if r.is_success() => Ok(r.stdout),
         Ok(r) => Err(exec_err("git diff", &r)),
         Err(e) => Err(e.display_with_causes()),
     }
@@ -199,7 +202,7 @@ pub async fn git_create_branch_at(sandbox: &dyn Sandbox, name: &str, sha: &str) 
     let cmd = format!("{GIT_REMOTE} branch --force {name} {sha}");
     matches!(
         sandbox.exec_command(&cmd, 30_000, None, None, None).await,
-        Ok(r) if r.exit_code == 0
+        Ok(r) if r.is_success()
     )
 }
 
@@ -208,7 +211,7 @@ pub async fn git_add_worktree(sandbox: &dyn Sandbox, path: &str, branch: &str) -
     let cmd = format!("{GIT_REMOTE} worktree add {path} {branch}");
     matches!(
         sandbox.exec_command(&cmd, 30_000, None, None, None).await,
-        Ok(r) if r.exit_code == 0
+        Ok(r) if r.is_success()
     )
 }
 
@@ -217,7 +220,7 @@ pub async fn git_remove_worktree(sandbox: &dyn Sandbox, path: &str) -> bool {
     let cmd = format!("{GIT_REMOTE} worktree remove --force {path}");
     matches!(
         sandbox.exec_command(&cmd, 30_000, None, None, None).await,
-        Ok(r) if r.exit_code == 0
+        Ok(r) if r.is_success()
     )
 }
 
@@ -226,7 +229,7 @@ pub async fn git_merge_ff_only(sandbox: &dyn Sandbox, sha: &str) -> bool {
     let cmd = format!("{GIT_REMOTE} merge --ff-only {sha}");
     matches!(
         sandbox.exec_command(&cmd, 30_000, None, None, None).await,
-        Ok(r) if r.exit_code == 0
+        Ok(r) if r.is_success()
     )
 }
 
@@ -377,12 +380,12 @@ pub async fn list_changed_files_raw(
             message: e.display_with_causes(),
         })?;
 
-    if res.timed_out {
+    if res.is_timed_out() {
         return Err(DiffError::Transient {
             message: "git diff --raw timed out".to_string(),
         });
     }
-    if res.exit_code != 0 {
+    if !res.is_success() {
         // An unknown-object / bad-revision error is permanent; everything
         // else we treat as transient so the server can retry safely.
         let stderr = res.stderr.trim().to_string();
@@ -559,12 +562,12 @@ pub async fn list_diff_numstat(
             message: e.display_with_causes(),
         })?;
 
-    if res.timed_out {
+    if res.is_timed_out() {
         return Err(DiffError::Transient {
             message: "git diff --numstat timed out".to_string(),
         });
     }
-    if res.exit_code != 0 {
+    if !res.is_success() {
         let stderr = res.stderr.trim().to_string();
         if is_permanent_git_error(&stderr) {
             return Err(DiffError::Permanent { message: stderr });
@@ -650,12 +653,12 @@ pub async fn stream_blob_metadata(
             message: e.display_with_causes(),
         })?;
 
-    if res.timed_out {
+    if res.is_timed_out() {
         return Err(DiffError::Transient {
             message: "git cat-file --batch-check timed out".to_string(),
         });
     }
-    if res.exit_code != 0 {
+    if !res.is_success() {
         return Err(DiffError::Transient {
             message: format!("git cat-file --batch-check failed: {}", res.stderr.trim()),
         });
@@ -717,12 +720,12 @@ pub async fn stream_blobs(
             message: e.display_with_causes(),
         })?;
 
-    if res.timed_out {
+    if res.is_timed_out() {
         return Err(DiffError::Transient {
             message: "git cat-file --batch timed out".to_string(),
         });
     }
-    if res.exit_code != 0 {
+    if !res.is_success() {
         return Err(DiffError::Transient {
             message: format!("git cat-file --batch failed: {}", res.stderr.trim()),
         });
@@ -806,6 +809,7 @@ mod tests {
 
     use async_trait::async_trait;
     use fabro_agent::{DirEntry, ExecResult, GrepOptions};
+    use fabro_types::CommandTermination;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -1064,8 +1068,8 @@ mod tests {
         ExecResult {
             stdout:      String::new(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 1,
         }
     }
@@ -1074,18 +1078,18 @@ mod tests {
         ExecResult {
             stdout: String::new(),
             stderr: String::new(),
-            exit_code: -1,
-            timed_out: true,
+            exit_code: None,
+            termination: CommandTermination::TimedOut,
             duration_ms,
         }
     }
 
     fn exec_failed(exit_code: i32, stdout: &str, stderr: &str) -> ExecResult {
         ExecResult {
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
-            exit_code,
-            timed_out: false,
+            stdout:      stdout.to_string(),
+            stderr:      stderr.to_string(),
+            exit_code:   Some(exit_code),
+            termination: CommandTermination::Exited,
             duration_ms: 1,
         }
     }

@@ -61,7 +61,7 @@ async fn resolve_worktree_base_sha(
         )
         .await
         .map_err(|err| Error::engine(format!("git rev-parse HEAD failed: {err}")))?;
-    if result.exit_code != 0 {
+    if !result.is_success() {
         let output = result.stderr.trim();
         let output = if output.is_empty() {
             result.stdout.trim()
@@ -73,7 +73,8 @@ async fn resolve_worktree_base_sha(
         }
         return Err(Error::engine(format!(
             "git rev-parse HEAD failed (exit {}): {}",
-            result.exit_code, output
+            result.display_exit_code(),
+            output
         )));
     }
 
@@ -672,22 +673,24 @@ pub async fn initialize(
                 token.cancel();
             }
             let duration_ms = crate::millis_u64(cmd_start.elapsed());
-            if result.exit_code != 0 {
+            if !result.is_success() {
+                let exit_code = result.display_exit_code();
                 options.emitter.emit(&Event::SetupFailed {
                     command: command.clone(),
                     index,
-                    exit_code: result.exit_code,
+                    exit_code,
                     stderr: result.stderr.clone(),
                 });
                 return Err(Error::engine(format!(
                     "Setup command failed (exit code {}): {command}\n{}",
-                    result.exit_code, result.stderr,
+                    exit_code, result.stderr,
                 )));
             }
+            let exit_code = result.exit_code.unwrap_or(0);
             options.emitter.emit(&Event::SetupCommandCompleted {
                 command: command.clone(),
                 index,
-                exit_code: result.exit_code,
+                exit_code,
                 duration_ms,
             });
         }

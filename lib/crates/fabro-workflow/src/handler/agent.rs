@@ -371,7 +371,7 @@ impl Handler for AgentHandler {
                 .exec_command("cat status.json", 5_000, None, None, None)
                 .await
             {
-                if result.exit_code == 0 {
+                if result.is_success() {
                     found_in_status_json = extract_status_fields(&result.stdout, &mut outcome);
                 }
             }
@@ -385,7 +385,7 @@ impl Handler for AgentHandler {
                         .exec_command(&cmd, 5_000, None, None, None)
                         .await
                     {
-                        if result.exit_code == 0 {
+                        if result.is_success() {
                             extract_status_fields(&result.stdout, &mut outcome);
                         }
                     }

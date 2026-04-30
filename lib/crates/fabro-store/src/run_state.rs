@@ -346,6 +346,7 @@ impl RunProjectionReducer for RunProjection {
                 node.stderr_bytes = Some(props.stderr_bytes);
                 node.streams_separated = Some(props.streams_separated);
                 node.live_streaming = Some(props.live_streaming);
+                node.termination = Some(props.termination);
                 node.script_timing = Some(serde_json::to_value(props).map_err(|err| {
                     Error::InvalidEvent(format!("invalid command.completed payload: {err}"))
                 })?);

@@ -4891,6 +4891,14 @@ components:
         - stdout
         - stderr
 
+    CommandTermination:
+      description: Terminal state for a command execution.
+      type: string
+      enum:
+        - exited
+        - timed_out
+        - cancelled
+
     CommandLogResponse:
       description: Byte-offset command log slice.
       type: object
@@ -5115,6 +5123,10 @@ components:
           type: ["boolean", "null"]
         live_streaming:
           type: ["boolean", "null"]
+        termination:
+          oneOf:
+            - $ref: "#/components/schemas/CommandTermination"
+            - type: "null"
 
     InterviewOption:
       description: Option stored with an interview question in the event log.

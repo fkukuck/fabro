@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use fabro_types::CommandOutputStream;
+use fabro_types::{CommandOutputStream, CommandTermination};
 use serde::{Deserialize, Serialize};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -399,21 +399,33 @@ pub fn format_lines_numbered(content: &str, offset: Option<usize>, limit: Option
 pub struct ExecResult {
     pub stdout:      String,
     pub stderr:      String,
-    pub exit_code:   i32,
-    pub timed_out:   bool,
+    pub exit_code:   Option<i32>,
+    pub termination: CommandTermination,
     pub duration_ms: u64,
 }
 
 impl ExecResult {
     pub fn is_success(&self) -> bool {
-        self.exit_code == 0 && !self.timed_out
+        self.exit_code == Some(0) && self.termination == CommandTermination::Exited
+    }
+
+    pub fn is_timed_out(&self) -> bool {
+        self.termination == CommandTermination::TimedOut
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.termination == CommandTermination::Cancelled
+    }
+
+    pub fn display_exit_code(&self) -> i32 {
+        self.exit_code.unwrap_or(-1)
     }
 
     pub fn into_exec_error(self, label: impl Into<String>) -> crate::Error {
         crate::Error::exec(
             label,
             self.exit_code,
-            self.timed_out,
+            self.termination,
             self.duration_ms,
             self.stderr,
             self.stdout,
@@ -430,7 +442,7 @@ impl ExecResult {
         crate::Error::exec(
             label,
             self.exit_code,
-            self.timed_out,
+            self.termination,
             self.duration_ms,
             stderr,
             stdout,
@@ -674,7 +686,7 @@ pub async fn setup_git_via_exec(
         .map_err(|e| {
             crate::Error::message(format!("git rev-parse --abbrev-ref HEAD failed: {e}"))
         })?;
-    let base_branch = if branch_result.exit_code == 0 {
+    let base_branch = if branch_result.is_success() {
         let name = branch_result.stdout.trim().to_string();
         if name.is_empty() || name == "HEAD" {
             None
@@ -748,7 +760,7 @@ pub(crate) async fn fetch_source_run_ref(
         let fetch = sandbox
             .exec_command(&fetch_cmd, 30_000, None, None, None)
             .await?;
-        if fetch.exit_code != 0 {
+        if !fetch.is_success() {
             last_error = fetch
                 .into_exec_error("git fetch source run ref")
                 .to_string();
@@ -756,7 +768,7 @@ pub(crate) async fn fetch_source_run_ref(
             let check = sandbox
                 .exec_command(&check_cmd, 10_000, None, None, None)
                 .await?;
-            if check.exit_code == 0 {
+            if check.is_success() {
                 return Ok(());
             }
             last_error = check
@@ -801,12 +813,12 @@ mod tests {
         let result = ExecResult {
             stdout:      "out".into(),
             stderr:      "err".into(),
-            exit_code:   1,
-            timed_out:   true,
+            exit_code:   Some(1),
+            termination: CommandTermination::Exited,
             duration_ms: 5000,
         };
-        assert_eq!(result.exit_code, 1);
-        assert!(result.timed_out);
+        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(result.termination, CommandTermination::Exited);
         assert_eq!(result.duration_ms, 5000);
     }
 
@@ -815,8 +827,8 @@ mod tests {
         let result = ExecResult {
             stdout:      "out".into(),
             stderr:      "fatal: could not read Username".into(),
-            exit_code:   128,
-            timed_out:   false,
+            exit_code:   Some(128),
+            termination: CommandTermination::Exited,
             duration_ms: 42,
         };
         let error = result.into_result("git push").unwrap_err();
@@ -827,7 +839,7 @@ mod tests {
             panic!("expected Error::Exec, got {error:?}");
         };
         assert_eq!(label, "git push");
-        assert_eq!(*exit_code, 128);
+        assert_eq!(*exit_code, Some(128));
         assert!(error.to_string().contains("no credentials in origin URL"));
     }
 
@@ -836,14 +848,15 @@ mod tests {
         let success = ExecResult {
             stdout:      String::new(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 1,
         };
         assert!(success.is_success());
 
         let timeout = ExecResult {
-            timed_out: true,
+            exit_code: None,
+            termination: CommandTermination::TimedOut,
             ..success
         };
         assert!(!timeout.is_success());
@@ -854,8 +867,8 @@ mod tests {
         let result = ExecResult {
             stdout:      "stdout https://token@example.com".into(),
             stderr:      "stderr https://token@example.com".into(),
-            exit_code:   1,
-            timed_out:   false,
+            exit_code:   Some(1),
+            termination: CommandTermination::Exited,
             duration_ms: 1,
         };
         let error = result.into_exec_error_with_redactor("git set-url", |s| {

@@ -560,7 +560,7 @@ async fn ensure_remote_dir(sandbox: &Arc<dyn Sandbox>, path: &Path) -> anyhow::R
         .exec_command(&command, 10_000, None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create retro upload dir: {e}"))?;
-    if result.exit_code != 0 {
+    if !result.is_success() {
         return Err(anyhow::anyhow!(
             "Failed to create retro upload dir {}: {}",
             parent.display(),
@@ -675,6 +675,7 @@ mod tests {
             stderr_bytes:      None,
             streams_separated: None,
             live_streaming:    None,
+            termination:       None,
         });
 
         upload_data_files(

@@ -16,7 +16,7 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::HostConfig;
 use fabro_github::GitHubCredentials;
-use fabro_types::{CommandOutputStream, RunId};
+use fabro_types::{CommandOutputStream, CommandTermination, RunId};
 use futures::StreamExt;
 use tokio::sync::OnceCell;
 use tokio::{fs, time};
@@ -319,8 +319,8 @@ impl DockerSandbox {
                 Ok(ExecResult {
                     stdout,
                     stderr,
-                    exit_code,
-                    timed_out: false,
+                    exit_code: Some(exit_code),
+                    termination: CommandTermination::Exited,
                     duration_ms,
                 })
             }
@@ -329,8 +329,8 @@ impl DockerSandbox {
                 Ok(ExecResult {
                     stdout: String::new(),
                     stderr: "Command timed out".to_string(),
-                    exit_code: -1,
-                    timed_out: true,
+                    exit_code: None,
+                    termination: CommandTermination::TimedOut,
                     duration_ms,
                 })
             }
@@ -339,8 +339,8 @@ impl DockerSandbox {
                 Ok(ExecResult {
                     stdout: String::new(),
                     stderr: "Command cancelled".to_string(),
-                    exit_code: -1,
-                    timed_out: true,
+                    exit_code: None,
+                    termination: CommandTermination::Cancelled,
                     duration_ms,
                 })
             }
@@ -381,21 +381,21 @@ impl DockerSandbox {
             output_callback,
         ));
 
-        let mut interrupted = false;
+        let mut termination = CommandTermination::Exited;
         let output = tokio::select! {
             joined = &mut output_task => {
                 joined
                     .map_err(|e| crate::Error::context("Docker exec stream task failed", e))??
             }
             () = time::sleep(timeout_duration) => {
-                interrupted = true;
+                termination = CommandTermination::TimedOut;
                 self.request_docker_exec_stop(&stop_file).await?;
                 output_task
                     .await
                     .map_err(|e| crate::Error::context("Docker exec stream task failed", e))??
             }
             () = token.cancelled() => {
-                interrupted = true;
+                termination = CommandTermination::Cancelled;
                 self.request_docker_exec_stop(&stop_file).await?;
                 output_task
                     .await
@@ -409,8 +409,8 @@ impl DockerSandbox {
             result:            ExecResult {
                 stdout: String::from_utf8_lossy(&stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
-                exit_code: if interrupted { -1 } else { exit_code },
-                timed_out: interrupted,
+                exit_code: (termination == CommandTermination::Exited).then_some(exit_code),
+                termination,
                 duration_ms,
             },
             streams_separated: true,
@@ -481,10 +481,11 @@ impl DockerSandbox {
                 None,
             )
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "Failed to create Docker workspace (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
         Ok(())
@@ -494,7 +495,7 @@ impl DockerSandbox {
         let result = self
             .docker_exec_shell("git --version", 10_000, Some("/"), None, None)
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "Docker image '{}' must include git for repository clone and git lifecycle operations. Use an image with bash and git, such as buildpack-deps:noble.",
                 self.config.image
@@ -540,7 +541,7 @@ impl DockerSandbox {
         let result = self
             .docker_exec_shell(&command, 300_000, Some("/"), None, None)
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             let stderr = redact_auth_url(&result.stderr, auth_url.as_ref());
             let err = crate::Error::message(if self.github_app.is_none() {
                 format!(
@@ -568,7 +569,7 @@ impl DockerSandbox {
             let result = self
                 .docker_exec_shell(&command, 10_000, Some(WORKING_DIRECTORY), None, None)
                 .await?;
-            if result.exit_code != 0 {
+            if !result.is_success() {
                 let err = result
                     .into_exec_error_with_redactor("git remote set-url origin (post-clone)", |s| {
                         redact_auth_url(s, Some(auth_url))
@@ -655,7 +656,7 @@ impl DockerSandbox {
                 None,
             )
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "Failed to create parent dirs for {container_path}: {}",
                 result.stderr
@@ -1343,13 +1344,14 @@ impl Sandbox for DockerSandbox {
         let result = self
             .docker_exec_shell(&command, 30_000, None, None, None)
             .await?;
-        if result.exit_code == 1 {
+        if result.exit_code == Some(1) {
             return Ok(Vec::new());
         }
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
 
@@ -1374,10 +1376,11 @@ impl Sandbox for DockerSandbox {
         let result = self
             .docker_exec_shell(&command, 30_000, None, None, None)
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
 
@@ -1486,7 +1489,7 @@ impl Sandbox for DockerSandbox {
         let result = self
             .docker_exec_shell(&command, 10_000, Some(WORKING_DIRECTORY), None, None)
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(result.into_exec_error_with_redactor(
                 "git remote set-url origin (refresh push credentials)",
                 |s| redact_auth_url(s, Some(&auth_url)),
@@ -1615,7 +1618,7 @@ mod tests {
             .await
             .expect("streaming command should return a timeout result");
 
-        assert!(result.result.timed_out);
+        assert!(result.result.is_timed_out());
         assert!(
             String::from_utf8_lossy(&chunks.lock().unwrap()).contains("start"),
             "stream should include output emitted before timeout"

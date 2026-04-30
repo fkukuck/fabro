@@ -351,6 +351,7 @@ mod tests {
     use std::collections::HashMap;
 
     use fabro_agent::sandbox::ExecResult;
+    use fabro_types::CommandTermination;
 
     use super::*;
 
@@ -369,8 +370,8 @@ mod tests {
                 exec_result: ExecResult {
                     stdout:      exec_stdout.to_string(),
                     stderr:      String::new(),
-                    exit_code:   0,
-                    timed_out:   false,
+                    exit_code:   Some(0),
+                    termination: CommandTermination::Exited,
                     duration_ms: 10,
                 },
                 working_dir: "/home/test",

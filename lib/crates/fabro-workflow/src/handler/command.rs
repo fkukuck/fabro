@@ -3,6 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use fabro_agent::CommandOutputCallback;
 use fabro_graphviz::graph::{Graph, Node};
+use fabro_types::CommandTermination;
 
 use super::{EngineServices, Handler};
 use crate::command_log::CommandLogRecorder;
@@ -154,9 +155,9 @@ impl Handler for CommandHandler {
                 node_id:           node.id.clone(),
                 stdout:            finalized.stdout_ref.clone(),
                 stderr:            finalized.stderr_ref.clone(),
-                exit_code:         (!result.timed_out).then_some(result.exit_code),
+                exit_code:         result.exit_code,
                 duration_ms:       result.duration_ms,
-                timed_out:         result.timed_out,
+                termination:       result.termination,
                 stdout_bytes:      finalized.stdout_bytes,
                 stderr_bytes:      finalized.stderr_bytes,
                 streams_separated: streaming.streams_separated,
@@ -165,13 +166,19 @@ impl Handler for CommandHandler {
             &stage_scope,
         );
 
-        if result.timed_out {
+        if result.termination == CommandTermination::TimedOut {
             let mut reason = format!("Script timed out after {timeout_ms}ms: {script}");
             append_output_tails(&mut reason, &finalized.stdout_text, &finalized.stderr_text);
             return Err(Error::handler(reason));
         }
 
-        if result.exit_code == 0 {
+        if result.termination == CommandTermination::Cancelled {
+            let mut reason = format!("Script cancelled: {script}");
+            append_output_tails(&mut reason, &finalized.stdout_text, &finalized.stderr_text);
+            return Err(Error::handler(reason));
+        }
+
+        if result.exit_code == Some(0) {
             let mut outcome = Outcome::success();
             outcome.context_updates.insert(
                 keys::COMMAND_OUTPUT.to_string(),
@@ -184,7 +191,10 @@ impl Handler for CommandHandler {
             outcome.notes = Some(format!("Script completed: {script}"));
             Ok(outcome)
         } else {
-            let mut reason = format!("Script failed with exit code: {}", result.exit_code);
+            let mut reason = format!(
+                "Script failed with exit code: {}",
+                result.exit_code.unwrap_or(-1)
+            );
             append_output_tails(&mut reason, &finalized.stdout_text, &finalized.stderr_text);
             let mut outcome = Outcome::fail_classify(reason);
             outcome.context_updates.insert(
@@ -613,7 +623,7 @@ mod tests {
         let json = node_state.script_timing.as_ref().unwrap();
         assert!(json["duration_ms"].is_u64());
         assert_eq!(json["exit_code"], 0);
-        assert_eq!(json["timed_out"], false);
+        assert_eq!(json["termination"], "exited");
     }
 
     #[tokio::test]
@@ -637,7 +647,7 @@ mod tests {
         let node_state = snapshot.node(&StageId::new("script_node", 1)).unwrap();
         let json = node_state.script_timing.as_ref().unwrap();
         assert_eq!(json["exit_code"], 1);
-        assert_eq!(json["timed_out"], false);
+        assert_eq!(json["termination"], "exited");
     }
 
     #[tokio::test]
@@ -668,7 +678,7 @@ mod tests {
         let json = node_state.script_timing.as_ref().unwrap();
         assert!(json["duration_ms"].is_u64());
         assert_eq!(json["exit_code"], serde_json::Value::Null);
-        assert_eq!(json["timed_out"], true);
+        assert_eq!(json["termination"], "timed_out");
     }
 
     #[tokio::test]
@@ -867,8 +877,8 @@ mod tests {
                 exec_result:           fabro_agent::sandbox::ExecResult {
                     stdout:      String::new(),
                     stderr:      String::new(),
-                    exit_code:   -1,
-                    timed_out:   false,
+                    exit_code:   Some(1),
+                    termination: CommandTermination::Exited,
                     duration_ms: 0,
                 },
                 exec_error:            Some(message.into()),
@@ -978,8 +988,8 @@ mod tests {
         let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
             stdout:      "SANDBOX_MARKER\n".into(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 5,
         }));
 
@@ -1018,8 +1028,8 @@ mod tests {
         let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
             stdout:      "PYTHON_SANDBOX\n".into(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 5,
         }));
 
@@ -1061,8 +1071,8 @@ mod tests {
         let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
             stdout:      String::new(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 5,
         }));
 
@@ -1096,8 +1106,8 @@ mod tests {
         let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
             stdout:      String::new(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 5,
         }));
 
@@ -1127,8 +1137,8 @@ mod tests {
         let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
             stdout:      "partial stdout\n".into(),
             stderr:      "partial stderr\n".into(),
-            exit_code:   -1,
-            timed_out:   true,
+            exit_code:   None,
+            termination: CommandTermination::TimedOut,
             duration_ms: 50,
         }));
 

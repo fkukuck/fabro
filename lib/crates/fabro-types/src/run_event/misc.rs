@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::CommandTermination;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterviewOption {
     pub key:   String,
@@ -206,7 +208,7 @@ pub struct CommandCompletedProps {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code:         Option<i32>,
     pub duration_ms:       u64,
-    pub timed_out:         bool,
+    pub termination:       CommandTermination,
     #[serde(default)]
     pub stdout_bytes:      u64,
     #[serde(default)]

@@ -363,7 +363,7 @@ impl Session {
             .exec_command("git rev-parse --abbrev-ref HEAD", 5000, None, None, None)
             .await
             .ok()
-            .filter(|r| r.exit_code == 0)
+            .filter(fabro_sandbox::ExecResult::is_success)
             .map(|r| r.stdout.trim().to_string());
 
         let is_git_repo = git_branch.is_some();
@@ -373,7 +373,7 @@ impl Session {
                 .exec_command("git status --short", 5000, None, None, None)
                 .await
                 .ok()
-                .filter(|r| r.exit_code == 0)
+                .filter(fabro_sandbox::ExecResult::is_success)
                 .map(|r| r.stdout.trim().to_string())
                 .filter(|s| !s.is_empty())
         } else {
@@ -385,7 +385,7 @@ impl Session {
                 .exec_command("git log --oneline -10", 5000, None, None, None)
                 .await
                 .ok()
-                .filter(|r| r.exit_code == 0)
+                .filter(fabro_sandbox::ExecResult::is_success)
                 .map(|r| r.stdout.trim().to_string())
                 .filter(|s| !s.is_empty())
         } else {

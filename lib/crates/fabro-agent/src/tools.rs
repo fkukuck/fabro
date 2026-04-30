@@ -260,13 +260,19 @@ pub fn make_shell_tool_with_config(config: &SessionOptions) -> RegisteredTool {
                     .map_err(|e| e.display_with_causes())?;
 
                 let mut output = String::new();
-                if result.timed_out {
+                if result.is_timed_out() {
                     output.push_str("Command timed out.\n");
+                } else if result.is_cancelled() {
+                    output.push_str("Command cancelled.\n");
                 }
                 let _ = write!(
                     output,
                     "Exit code: {}\nstdout:\n{}\nstderr:\n{}",
-                    result.exit_code, result.stdout, result.stderr
+                    result
+                        .exit_code
+                        .map_or_else(|| "none".to_string(), |code| code.to_string()),
+                    result.stdout,
+                    result.stderr
                 );
                 Ok(output)
             })
@@ -615,10 +621,10 @@ pub(crate) fn make_web_fetch_tool(summarizer: Option<WebFetchSummarizer>) -> Reg
                     .await
                     .map_err(|e| e.display_with_causes())?;
 
-                if result.exit_code != 0 {
+                if !result.is_success() {
                     return Err(format!(
                         "curl failed (exit code {}): {}",
-                        result.exit_code,
+                        result.display_exit_code(),
                         result.stderr.trim()
                     ));
                 }
@@ -671,6 +677,7 @@ mod tests {
     use std::collections::HashMap;
 
     use fabro_llm::provider::ProviderAdapter;
+    use fabro_types::CommandTermination;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -861,8 +868,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      "hello".into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 10,
             },
             ..Default::default()
@@ -902,8 +909,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      String::new(),
                 stderr:      "error".into(),
-                exit_code:   1,
-                timed_out:   false,
+                exit_code:   Some(1),
+                termination: CommandTermination::Exited,
                 duration_ms: 10,
             },
             ..Default::default()
@@ -926,8 +933,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      String::new(),
                 stderr:      String::new(),
-                exit_code:   -1,
-                timed_out:   true,
+                exit_code:   None,
+                termination: CommandTermination::TimedOut,
                 duration_ms: 10000,
             },
             ..Default::default()
@@ -984,8 +991,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      "fetched content".into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1109,8 +1116,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      "<html><body><h1>hello</h1></body></html>".into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1221,8 +1228,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      large_content,
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1248,8 +1255,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      String::new(),
                 stderr:      "curl: (6) Could not resolve host".into(),
-                exit_code:   6,
-                timed_out:   false,
+                exit_code:   Some(6),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1296,8 +1303,8 @@ mod tests {
                 stdout:      "<html><body><p>Lots of content about Rust...</p></body></html>"
                     .into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1327,8 +1334,8 @@ mod tests {
                     "<html><body><p>Rust is a systems programming language.</p></body></html>"
                         .into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()
@@ -1396,8 +1403,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      "<html><body><p>Page content</p></body></html>".into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 100,
             },
             ..Default::default()

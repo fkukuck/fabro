@@ -221,7 +221,7 @@ async fn daytona_exec_command() {
         .exec_command("echo hello", 30_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.exit_code, Some(0));
     assert!(result.stdout.contains("hello"));
 
     env.cleanup().await.unwrap();
@@ -237,7 +237,7 @@ async fn daytona_exec_command_with_pipe() {
         .exec_command("echo hello world | wc -w", 30_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.exit_code, Some(0));
     assert!(result.stdout.trim().contains('2'));
 
     env.cleanup().await.unwrap();
@@ -264,8 +264,8 @@ async fn daytona_exec_command_cancelled() {
         .await
         .unwrap();
 
-    assert_eq!(result.exit_code, -1);
-    assert!(result.timed_out);
+    assert_eq!(result.exit_code, None);
+    assert!(result.is_cancelled());
     assert_eq!(result.stderr, "Command cancelled");
 
     env.cleanup().await.unwrap();
@@ -300,7 +300,7 @@ async fn daytona_exec_command_local_timeout() {
         duration < std::time::Duration::from_secs(3),
         "Command stalled for longer than the local timeout mechanism"
     );
-    assert!(result.exit_code != 0);
+    assert!(!result.is_success());
 
     env.cleanup().await.unwrap();
 }
@@ -345,7 +345,7 @@ async fn daytona_full_lifecycle() {
         .exec_command("pwd", 10_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.exit_code, Some(0));
 
     // List directory
     let entries = env.list_directory(".", None).await.unwrap();
@@ -384,7 +384,7 @@ async fn daytona_snapshot_sandbox() {
         .exec_command("rg --version", 10_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.exit_code, Some(0));
     assert!(result.stdout.contains("ripgrep"));
 
     env.cleanup().await.unwrap();
@@ -592,7 +592,8 @@ async fn setup_daytona_git(sandbox: &dyn Sandbox) -> (RunId, String, String) {
         .await
         .expect("git rev-parse HEAD should succeed");
     assert_eq!(
-        sha_result.exit_code, 0,
+        sha_result.exit_code,
+        Some(0),
         "git rev-parse HEAD failed: {}",
         sha_result.stderr
     );
@@ -607,9 +608,12 @@ async fn setup_daytona_git(sandbox: &dyn Sandbox) -> (RunId, String, String) {
         .await
         .expect("git checkout should succeed");
     assert_eq!(
-        checkout_result.exit_code, 0,
-        "git checkout -b failed (exit {}): stdout={} stderr={}",
-        checkout_result.exit_code, checkout_result.stdout, checkout_result.stderr
+        checkout_result.exit_code,
+        Some(0),
+        "git checkout -b failed (exit {:?}): stdout={} stderr={}",
+        checkout_result.exit_code,
+        checkout_result.stdout,
+        checkout_result.stderr
     );
 
     (run_id, base_sha, branch_name)
@@ -625,7 +629,7 @@ async fn daytona_git_checkpoint_remote_emits_events() {
     let git_check = env
         .exec_command("git --version", 10_000, None, None, None)
         .await;
-    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if git_check.as_ref().map_or(true, |r| !r.is_success()) {
         let install = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
@@ -637,7 +641,8 @@ async fn daytona_git_checkpoint_remote_emits_events() {
             .await
             .expect("apt-get install git should not error");
         assert_eq!(
-            install.exit_code, 0,
+            install.exit_code,
+            Some(0),
             "git install failed: {}",
             install.stderr
         );
@@ -776,7 +781,7 @@ async fn daytona_parallel_git_branching_e2e() {
     let git_check = env
         .exec_command("git --version", 10_000, None, None, None)
         .await;
-    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if git_check.as_ref().map_or(true, |r| !r.is_success()) {
         let install = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
@@ -788,7 +793,8 @@ async fn daytona_parallel_git_branching_e2e() {
             .await
             .expect("apt-get install git should not error");
         assert_eq!(
-            install.exit_code, 0,
+            install.exit_code,
+            Some(0),
             "git install failed: {}",
             install.stderr
         );
@@ -947,7 +953,11 @@ async fn daytona_parallel_git_branching_e2e() {
         .exec_command("cat branch_a.txt", 10_000, None, None, None)
         .await
         .expect("cat should succeed");
-    assert_eq!(winner_check.exit_code, 0, "winner's file should exist");
+    assert_eq!(
+        winner_check.exit_code,
+        Some(0),
+        "winner's file should exist"
+    );
     assert!(
         winner_check.stdout.contains("branch_a"),
         "winner's file should have correct content, got: {}",
@@ -1021,7 +1031,7 @@ async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: 
             None,
         )
         .await;
-    if prereq_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if prereq_check.as_ref().map_or(true, |r| !r.is_success()) {
         let prereq = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq bash curl ca-certificates gnupg >/dev/null 2>&1 \
@@ -1035,7 +1045,8 @@ async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: 
             .await
             .expect("prerequisite install should not error");
         assert_eq!(
-            prereq.exit_code, 0,
+            prereq.exit_code,
+            Some(0),
             "prerequisite install failed: {}",
             prereq.stderr
         );
@@ -1047,9 +1058,11 @@ async fn run_daytona_cli_test(provider: Provider, model: &str, install_command: 
         .await
         .expect("install command should not error");
     assert_eq!(
-        install_result.exit_code, 0,
-        "install command failed (exit {}): {}",
-        install_result.exit_code, install_result.stdout
+        install_result.exit_code,
+        Some(0),
+        "install command failed (exit {:?}): {}",
+        install_result.exit_code,
+        install_result.stdout
     );
 
     let backend = AgentCliBackend::new_from_env(model.to_string(), provider);
@@ -1133,7 +1146,7 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
     let git_check = env
         .exec_command("git --version", 10_000, None, None, None)
         .await;
-    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if git_check.as_ref().map_or(true, |r| !r.is_success()) {
         let install = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
@@ -1145,7 +1158,8 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
             .await
             .expect("apt-get install git should not error");
         assert_eq!(
-            install.exit_code, 0,
+            install.exit_code,
+            Some(0),
             "git install failed: {}",
             install.stderr
         );
@@ -1228,7 +1242,7 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
         )
         .await
         .expect("git show should succeed");
-    assert_eq!(run_json.exit_code, 0, "{}", run_json.stderr);
+    assert_eq!(run_json.exit_code, Some(0), "{}", run_json.stderr);
     let projection: fabro_store::RunProjection =
         serde_json::from_slice(run_json.stdout.as_bytes()).expect("run.json should parse");
     let checkpoint = projection
@@ -1248,7 +1262,7 @@ async fn daytona_git_checkpoint_with_shadow_branch() {
         .exec_command("git log --format=%B -1", 10_000, None, None, None)
         .await
         .expect("git log should succeed");
-    assert_eq!(log_result.exit_code, 0);
+    assert_eq!(log_result.exit_code, Some(0));
     let commit_msg = log_result.stdout.trim().to_string();
     assert!(
         commit_msg.contains("Fabro-Checkpoint:"),
@@ -1440,7 +1454,11 @@ async fn daytona_clone_private_repo_with_github_app_iat() {
         .exec_command("test -f CLAUDE.md && echo EXISTS", 10_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0, "CLAUDE.md should exist after clone");
+    assert_eq!(
+        result.exit_code,
+        Some(0),
+        "CLAUDE.md should exist after clone"
+    );
     assert!(
         result.stdout.contains("EXISTS"),
         "clone should have populated the workspace"
@@ -1450,7 +1468,7 @@ async fn daytona_clone_private_repo_with_github_app_iat() {
     let git_check = env
         .exec_command("git --version", 10_000, None, None, None)
         .await;
-    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if git_check.as_ref().map_or(true, |r| !r.is_success()) {
         let install = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
@@ -1462,7 +1480,8 @@ async fn daytona_clone_private_repo_with_github_app_iat() {
             .await
             .expect("apt-get install git should not error");
         assert_eq!(
-            install.exit_code, 0,
+            install.exit_code,
+            Some(0),
             "git install failed: {}",
             install.stderr
         );
@@ -1473,7 +1492,7 @@ async fn daytona_clone_private_repo_with_github_app_iat() {
         .exec_command("git remote get-url origin", 10_000, None, None, None)
         .await
         .unwrap();
-    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.exit_code, Some(0));
     assert!(
         result.stdout.contains("fabro-sh/fabro"),
         "origin should point to fabro-sh/fabro, got: {}",
@@ -1551,7 +1570,7 @@ async fn daytona_git_push_run_branch_to_origin() {
     let git_check = env
         .exec_command("git --version", 10_000, None, None, None)
         .await;
-    if git_check.as_ref().map_or(true, |r| r.exit_code != 0) {
+    if git_check.as_ref().map_or(true, |r| !r.is_success()) {
         let install = env
             .exec_command(
                 "apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1",
@@ -1563,7 +1582,8 @@ async fn daytona_git_push_run_branch_to_origin() {
             .await
             .expect("apt-get install git should not error");
         assert_eq!(
-            install.exit_code, 0,
+            install.exit_code,
+            Some(0),
             "git install failed: {}",
             install.stderr
         );
@@ -1639,7 +1659,8 @@ async fn daytona_git_push_run_branch_to_origin() {
         .await
         .expect("git ls-remote should succeed");
     assert_eq!(
-        ls_result.exit_code, 0,
+        ls_result.exit_code,
+        Some(0),
         "git ls-remote failed: {}",
         ls_result.stdout
     );
@@ -1655,7 +1676,7 @@ async fn daytona_git_push_run_branch_to_origin() {
         .exec_command(&delete_cmd, 30_000, None, None, None)
         .await;
     if let Ok(r) = &delete_result {
-        if r.exit_code != 0 {
+        if !r.is_success() {
             eprintln!(
                 "Warning: failed to delete remote branch {branch_name}: {}",
                 r.stdout
@@ -1708,7 +1729,7 @@ async fn daytona_toolbox_idle_diagnostic() {
         match &result {
             Ok(r) => {
                 eprintln!(
-                    "[t=+{sleep_secs}s] OK exit_code={} stdout={}",
+                    "[t=+{sleep_secs}s] OK exit_code={:?} stdout={}",
                     r.exit_code,
                     r.stdout.trim()
                 );
@@ -1945,11 +1966,11 @@ async fn daytona_computer_use_browser_screenshot() {
             .await
             .unwrap();
         eprintln!(
-            "Browser install exit_code={}, last_line={}",
+            "Browser install exit_code={:?}, last_line={}",
             install_result.exit_code,
             install_result.stdout.lines().last().unwrap_or("")
         );
-        assert_eq!(install_result.exit_code, 0, "Chromium install failed");
+        assert_eq!(install_result.exit_code, Some(0), "Chromium install failed");
     }
 
     let browser_bin = env
@@ -1989,7 +2010,7 @@ async fn daytona_computer_use_browser_screenshot() {
         .exec_command(&launch_cmd, 30_000, None, None, None)
         .await
         .unwrap();
-    eprintln!("Browser launch exit_code={}", launch_result.exit_code);
+    eprintln!("Browser launch exit_code={:?}", launch_result.exit_code);
 
     // 5. Wait for the page to load, then check if browser is running
     tokio::time::sleep(std::time::Duration::from_secs(8)).await;
@@ -2085,7 +2106,7 @@ async fn daytona_playwright_mcp_sandbox_transport() {
         .await
         .unwrap();
     eprintln!(
-        "Install exit_code={}, last_lines:\n{}",
+        "Install exit_code={:?}, last_lines:\n{}",
         install.exit_code,
         install
             .stdout
@@ -2098,7 +2119,7 @@ async fn daytona_playwright_mcp_sandbox_transport() {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    assert_eq!(install.exit_code, 0, "Playwright install failed");
+    assert_eq!(install.exit_code, Some(0), "Playwright install failed");
 
     // 2. Start the Playwright MCP server via the sandbox transport resolution path
     let mcp_port = 3100u16;

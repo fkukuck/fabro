@@ -320,6 +320,7 @@ fn main() {
             "fabro_types::CommandOutputStream",
             &[],
         ),
+        ("CommandTermination", "fabro_types::CommandTermination", &[]),
         ("NodeState", "fabro_types::NodeState", &[]),
         ("SecretMetadata", "fabro_types::SecretMetadata", &[]),
         ("InterviewOption", "fabro_types::InterviewOption", &[]),

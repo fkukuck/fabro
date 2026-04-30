@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use fabro_types::CommandTermination;
 use tokio::fs;
 use tokio_util::sync::CancellationToken;
 
@@ -61,8 +62,8 @@ impl Default for MockSandbox {
             exec_result:             ExecResult {
                 stdout:      "mock output".into(),
                 stderr:      String::new(),
-                exit_code:   0,
-                timed_out:   false,
+                exit_code:   Some(0),
+                termination: CommandTermination::Exited,
                 duration_ms: 10,
             },
             grep_results:            vec![],
@@ -323,8 +324,8 @@ impl Sandbox for MutableMockSandbox {
         Ok(ExecResult {
             stdout:      String::new(),
             stderr:      String::new(),
-            exit_code:   0,
-            timed_out:   false,
+            exit_code:   Some(0),
+            termination: CommandTermination::Exited,
             duration_ms: 0,
         })
     }

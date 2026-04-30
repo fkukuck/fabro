@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use fabro_static::EnvVars;
-use fabro_types::CommandOutputStream;
+use fabro_types::{CommandOutputStream, CommandTermination};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::task::spawn_blocking;
@@ -294,19 +294,19 @@ impl Sandbox for LocalSandbox {
             buf
         });
 
-        let (timed_out, exit_code) = tokio::select! {
+        let (termination, exit_code) = tokio::select! {
             status_result = child.wait() => {
                 let status = status_result
                     .map_err(|e| crate::Error::context("Failed to wait for process", e))?;
-                (false, status.code().unwrap_or(-1))
+                (CommandTermination::Exited, status.code())
             }
             () = time::sleep(timeout_duration) => {
                 sigterm_then_kill(&mut child).await;
-                (true, -1)
+                (CommandTermination::TimedOut, None)
             }
             () = token.cancelled() => {
                 sigterm_then_kill(&mut child).await;
-                (true, -1)
+                (CommandTermination::Cancelled, None)
             }
         };
 
@@ -319,7 +319,7 @@ impl Sandbox for LocalSandbox {
             stdout: stdout_str,
             stderr: stderr_str,
             exit_code,
-            timed_out,
+            termination,
             duration_ms,
         })
     }
@@ -381,19 +381,19 @@ impl Sandbox for LocalSandbox {
             drain_command_pipe(stderr_pipe, CommandOutputStream::Stderr, stderr_callback).await
         });
 
-        let (timed_out, exit_code) = tokio::select! {
+        let (termination, exit_code) = tokio::select! {
             status_result = child.wait() => {
                 let status = status_result
                     .map_err(|e| crate::Error::context("Failed to wait for process", e))?;
-                (false, status.code().unwrap_or(-1))
+                (CommandTermination::Exited, status.code())
             }
             () = time::sleep(timeout_duration) => {
                 sigterm_then_kill(&mut child).await;
-                (true, -1)
+                (CommandTermination::TimedOut, None)
             }
             () = token.cancelled() => {
                 sigterm_then_kill(&mut child).await;
-                (true, -1)
+                (CommandTermination::Cancelled, None)
             }
         };
 
@@ -410,7 +410,7 @@ impl Sandbox for LocalSandbox {
                 stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
                 exit_code,
-                timed_out,
+                termination,
                 duration_ms,
             },
             streams_separated: true,
@@ -591,7 +591,7 @@ impl Sandbox for LocalSandbox {
             .exec_command("git remote get-url origin", 10_000, None, None, None)
             .await
         {
-            Ok(result) if result.exit_code == 0 => true,
+            Ok(result) if result.is_success() => true,
             Ok(_) => false,
             Err(err) => return Err(crate::Error::context("git remote get-url origin", err)),
         };
@@ -824,8 +824,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.stdout.trim(), "hello");
-        assert_eq!(result.exit_code, 0);
-        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.termination, CommandTermination::Exited);
         assert!(result.duration_ms < 5000);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -839,8 +839,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.exit_code, 42);
-        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, Some(42));
+        assert_eq!(result.termination, CommandTermination::Exited);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -853,8 +853,24 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.timed_out);
-        assert_eq!(result.exit_code, -1);
+        assert_eq!(result.termination, CommandTermination::TimedOut);
+        assert_eq!(result.exit_code, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn exec_command_cancelled() {
+        let dir = temp_dir();
+        let env = LocalSandbox::new(dir.clone());
+        let token = CancellationToken::new();
+        token.cancel();
+        let result = env
+            .exec_command("sleep 10", 5000, None, None, Some(token))
+            .await
+            .unwrap();
+
+        assert_eq!(result.termination, CommandTermination::Cancelled);
+        assert_eq!(result.exit_code, None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

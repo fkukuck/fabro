@@ -180,7 +180,7 @@ impl HookExecutorImpl {
                 .exec_command(&command, timeout_ms, None, Some(&env_vars), None)
                 .await
             {
-                Ok(result) => Self::parse_decision(result.exit_code, &result.stdout),
+                Ok(result) => Self::parse_decision(result.exit_code.unwrap_or(-1), &result.stdout),
                 Err(e) => HookDecision::Block {
                     reason: Some(format!("sandbox exec failed: {e}")),
                 },

@@ -23,6 +23,34 @@ pub enum CommandOutputStream {
     Stderr,
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Display,
+    EnumString,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum CommandTermination {
+    Exited,
+    TimedOut,
+    Cancelled,
+}
+
+impl CommandTermination {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+}
+
 impl CommandOutputStream {
     #[must_use]
     pub fn as_str(self) -> &'static str {

@@ -8223,8 +8223,9 @@ mod tests {
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
     use fabro_types::{
-        AttrValue, FailureCategory, FailureDetail, Graph, InterviewQuestionRecord, Outcome,
-        QuestionType, RunAuthMethod, RunBlobId, RunId, RunSpec, StageOutcome, fixtures,
+        AttrValue, CommandTermination, FailureCategory, FailureDetail, Graph,
+        InterviewQuestionRecord, Outcome, QuestionType, RunAuthMethod, RunBlobId, RunId, RunSpec,
+        StageOutcome, fixtures,
     };
     use httpmock::Method::POST;
     use httpmock::MockServer;
@@ -11040,7 +11041,7 @@ slug = "fabro"
                 stderr:            stderr_ref,
                 exit_code:         Some(0),
                 duration_ms:       5,
-                timed_out:         false,
+                termination:       CommandTermination::Exited,
                 stdout_bytes:      11,
                 stderr_bytes:      0,
                 streams_separated: true,
@@ -11111,7 +11112,7 @@ slug = "fabro"
                 stderr:            stderr_ref,
                 exit_code:         Some(0),
                 duration_ms:       5,
-                timed_out:         false,
+                termination:       CommandTermination::Exited,
                 stdout_bytes:      7,
                 stderr_bytes:      0,
                 streams_separated: true,

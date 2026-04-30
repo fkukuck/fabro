@@ -358,7 +358,7 @@ async fn exec_stdout(
         .exec_command(command, 30_000, None, env, None)
         .await
         .map_err(|err| SandboxMetadataError::Sandbox(err.display_with_causes()))?;
-    if result.exit_code == 0 {
+    if result.is_success() {
         Ok(result.stdout.trim().to_string())
     } else {
         Err(SandboxMetadataError::Git(exec_err(command, &result)))
@@ -374,15 +374,21 @@ async fn exec_ok(
 }
 
 fn exec_err(label: &str, result: &fabro_sandbox::ExecResult) -> String {
-    if result.timed_out {
+    if result.is_timed_out() {
         return format!("{label} timed out after {}ms", result.duration_ms);
+    }
+    if result.is_cancelled() {
+        return format!("{label} cancelled after {}ms", result.duration_ms);
     }
     let detail = format!("{}{}", result.stdout, result.stderr);
     let detail = detail.trim();
     if detail.is_empty() {
-        format!("{label} failed with exit {}", result.exit_code)
+        format!("{label} failed with exit {}", result.display_exit_code())
     } else {
-        format!("{label} failed with exit {}: {detail}", result.exit_code)
+        format!(
+            "{label} failed with exit {}: {detail}",
+            result.display_exit_code()
+        )
     }
 }
 

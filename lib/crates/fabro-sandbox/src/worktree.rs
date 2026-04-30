@@ -160,10 +160,10 @@ impl Sandbox for WorktreeSandbox {
                 .inner
                 .exec_command(&cmd, 30_000, None, None, None)
                 .await?;
-            if result.exit_code != 0 {
+            if !result.is_success() {
                 return Err(crate::Error::message(format!(
                     "git branch --force failed (exit {}): {}",
-                    result.exit_code,
+                    result.display_exit_code(),
                     result.stderr.trim()
                 )));
             }
@@ -178,7 +178,7 @@ impl Sandbox for WorktreeSandbox {
             .inner
             .exec_command(&add_cmd, 30_000, None, None, None)
             .await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             // Roll back the branch created above so we don't leak partial state.
             if !self.config.skip_branch_creation {
                 let rollback_cmd = format!("{GIT} branch -D {branch}");
@@ -189,7 +189,7 @@ impl Sandbox for WorktreeSandbox {
             }
             return Err(crate::Error::message(format!(
                 "git worktree add failed (exit {}): {}",
-                result.exit_code,
+                result.display_exit_code(),
                 result.stderr.trim()
             )));
         }
@@ -349,7 +349,7 @@ impl Sandbox for WorktreeSandbox {
             .exec_command("git remote get-url origin", 10_000, None, None, None)
             .await
         {
-            Ok(result) if result.exit_code == 0 => true,
+            Ok(result) if result.is_success() => true,
             Ok(_) => false,
             Err(err) => return Err(crate::Error::context("git remote get-url origin", err)),
         };
@@ -403,6 +403,8 @@ impl Sandbox for WorktreeSandbox {
 )]
 mod tests {
     use std::sync::Mutex;
+
+    use fabro_types::CommandTermination;
 
     use super::*;
     use crate::local::LocalSandbox;
@@ -562,8 +564,8 @@ mod tests {
             exec_result: ExecResult {
                 stdout:      String::new(),
                 stderr:      "fatal: not a git repo".to_string(),
-                exit_code:   128,
-                timed_out:   false,
+                exit_code:   Some(128),
+                termination: CommandTermination::Exited,
                 duration_ms: 5,
             },
             ..MockSandbox::linux()
