@@ -20,7 +20,7 @@ env:
 jobs:
   deploy:
     name: Deploy production Azure environment
-    runs-on: ubuntu-24.04-x86-32-cores
+    runs-on: ubuntu-24.04
     environment: production
     env:
       HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
