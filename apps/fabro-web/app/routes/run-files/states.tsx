@@ -43,15 +43,9 @@ export function emptyStateCopy(kind: EmptyKind): string {
   }
 }
 
-/// Derive the empty-state variant from the full loader context. `runStatus`
-/// comes from the parent run loader (`run.lifecycleStatus`); its absence
-/// collapses to the "unknown" catchall so the empty state never displays
-/// misleading copy.
-///
-/// The full RunStatus enum (per fabro-types/src/status.rs) is:
-///   submitted, queued, starting, running, blocked, paused, removing,
-///   succeeded, failed, dead, archived
-/// partially_succeeded is a stage outcome, not a run status.
+/// `runStatus` comes from the parent run loader (`run.lifecycleStatus`); its
+/// absence collapses to the "unknown" catchall so the empty state never
+/// displays misleading copy.
 export function deriveEmptyKind(args: {
   runStatus: string | undefined;
   totalChanged: number;

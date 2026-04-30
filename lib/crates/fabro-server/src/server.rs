@@ -2150,23 +2150,18 @@ async fn openapi_spec() -> Response {
 }
 
 fn active_stage_state_from_events(events: &[EventEnvelope], node_id: &str) -> StageState {
-    let latest_stage_event = events.iter().rev().find_map(|envelope| {
-        let event = &envelope.event;
-        if event.node_id.as_deref() == Some(node_id) {
-            match event.event_name() {
-                "stage.retrying" | "stage.started" | "stage.completed" | "stage.failed" => {
-                    Some(event.event_name())
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }
+    let latest = events.iter().rev().find(|envelope| {
+        envelope.event.node_id.as_deref() == Some(node_id)
+            && matches!(
+                envelope.event.event_name(),
+                "stage.retrying" | "stage.started" | "stage.completed" | "stage.failed"
+            )
     });
 
-    match latest_stage_event {
-        Some("stage.retrying") => StageState::Retrying,
-        _ => StageState::Running,
+    if latest.is_some_and(|e| e.event.event_name() == "stage.retrying") {
+        StageState::Retrying
+    } else {
+        StageState::Running
     }
 }
 
@@ -2270,7 +2265,6 @@ async fn list_run_stages(
             .into_response();
     };
 
-    // Get durations and active retrying state from events.
     let events = match state.store.open_run_reader(&id).await {
         Ok(run_store) => run_store.list_events().await.unwrap_or_default(),
         Err(_) => Vec::new(),

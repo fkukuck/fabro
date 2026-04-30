@@ -11,6 +11,7 @@ import {
 } from "@heroicons/react/24/solid";
 import { Bars3BottomLeftIcon, DocumentTextIcon, MapIcon } from "@heroicons/react/24/outline";
 import { formatDurationSecs } from "../lib/format";
+import { ACTIVE_STAGE_STATES } from "../lib/stage-sidebar";
 
 export interface Stage {
   id: string;
@@ -19,8 +20,6 @@ export interface Stage {
   duration: string;
   dotId?: string;
 }
-
-const activeStageStates = new Set<StageState>(["running", "retrying"]);
 
 export const statusConfig: Record<StageState, { icon: ComponentType<{ className?: string }>; color: string }> = {
   pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
@@ -48,7 +47,7 @@ export function StageSidebar({ stages, runId, selectedStageId, activeLink }: Sta
   // Track start times for running stages
   useEffect(() => {
     const running = new Set<string>(
-      stages.filter((s) => activeStageStates.has(s.status)).map((s) => s.id),
+      stages.filter((s) => ACTIVE_STAGE_STATES.has(s.status)).map((s) => s.id),
     );
     for (const stageId of running) {
       if (!runningStartRef.current.has(stageId)) {
@@ -64,13 +63,13 @@ export function StageSidebar({ stages, runId, selectedStageId, activeLink }: Sta
 
   // Tick every second while any stage is running
   useEffect(() => {
-    if (!stages.some((s) => activeStageStates.has(s.status))) return;
+    if (!stages.some((s) => ACTIVE_STAGE_STATES.has(s.status))) return;
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(interval);
   }, [stages]);
 
   function stageDuration(stage: Stage): string {
-    if (activeStageStates.has(stage.status)) {
+    if (ACTIVE_STAGE_STATES.has(stage.status)) {
       const start = runningStartRef.current.get(stage.id);
       if (start) return formatDurationSecs(Math.floor((Date.now() - start) / 1000));
       return "0s";
@@ -100,7 +99,7 @@ export function StageSidebar({ stages, runId, selectedStageId, activeLink }: Sta
                         : "text-fg-3 hover:bg-overlay hover:text-fg"
                     }`}
                   >
-                    <Icon className={`size-4 shrink-0 ${config.color} ${activeStageStates.has(stage.status) ? "animate-spin" : ""}`} />
+                    <Icon className={`size-4 shrink-0 ${config.color} ${ACTIVE_STAGE_STATES.has(stage.status) ? "animate-spin" : ""}`} />
                     <span className="flex-1 truncate">{stage.name}</span>
                     <span className="font-mono text-xs tabular-nums text-fg-muted">{stageDuration(stage)}</span>
                   </Link>

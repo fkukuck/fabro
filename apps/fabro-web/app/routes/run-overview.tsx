@@ -10,7 +10,11 @@ import {
   GraphToolbar,
 } from "../components/graph-toolbar";
 import { EmptyState } from "../components/state";
-import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
+import {
+  ACTIVE_STAGE_STATES,
+  SUCCEEDED_STAGE_STATES,
+  mapRunStagesToSidebarStages,
+} from "../lib/stage-sidebar";
 
 export const handle = { wide: true };
 
@@ -52,13 +56,13 @@ export default function RunOverview() {
 
     const gt = graphTheme;
     const runningDotIds = new Set<string>(
-      stages.filter((s: Stage) => s.status === "running" || s.status === "retrying").map((s: Stage) => s.dotId ?? s.id),
+      stages.filter((s: Stage) => ACTIVE_STAGE_STATES.has(s.status)).map((s: Stage) => s.dotId ?? s.id),
     );
     const failedDotIds = new Set<string>(
       stages.filter((s: Stage) => s.status === "failed").map((s: Stage) => s.dotId ?? s.id),
     );
     const completedDotIds = new Set<string>(
-      stages.filter((s: Stage) => s.status === "succeeded" || s.status === "partially_succeeded").map((s: Stage) => s.dotId ?? s.id),
+      stages.filter((s: Stage) => SUCCEEDED_STAGE_STATES.has(s.status)).map((s: Stage) => s.dotId ?? s.id),
     );
     const dotIdToStageId = new Map<string, string>(
       stages.map((s: Stage) => [s.dotId ?? s.id, s.id]),

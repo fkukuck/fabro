@@ -95,9 +95,6 @@ function sampleSettings({
   };
 }
 
-// Static sample data used by the `workflow-definition` index route for the
-// hardcoded showcase workflows. Shape mirrors the persisted
-// `WorkflowSettings` snapshot returned by `/api/v1/runs/:id/settings`.
 export const workflowData: Record<string, WorkflowEntry> = {
   fix_build: {
     name: "Fix Build",
