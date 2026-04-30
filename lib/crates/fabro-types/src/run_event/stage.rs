@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{BilledModelUsage, FailureDetail, Outcome, StageStatus};
+use crate::{BilledModelUsage, FailureDetail, Outcome, StageOutcome};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StageStartedProps {
@@ -17,7 +17,7 @@ pub struct StageStartedProps {
 pub struct StageCompletedProps {
     pub index: usize,
     pub duration_ms: u64,
-    pub status: StageStatus,
+    pub status: StageOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_label: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

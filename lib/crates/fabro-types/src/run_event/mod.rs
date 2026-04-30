@@ -843,7 +843,7 @@ mod tests {
             body:               EventBody::StageCompleted(StageCompletedProps {
                 index: 1,
                 duration_ms: 1234,
-                status: crate::StageStatus::Success,
+                status: crate::StageOutcome::Succeeded,
                 preferred_label: None,
                 suggested_next_ids: vec!["next".to_string()],
                 billing: None,
@@ -969,7 +969,7 @@ mod tests {
         let body = EventBody::StageCompleted(StageCompletedProps {
             index: 1,
             duration_ms: 1234,
-            status: crate::StageStatus::Success,
+            status: crate::StageOutcome::Succeeded,
             preferred_label: None,
             suggested_next_ids: vec!["next".to_string()],
             billing: None,

@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::BilledTokenCounts;
-use crate::outcome::StageStatus;
+use crate::outcome::StageOutcome;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StageSummary {
@@ -17,7 +17,7 @@ pub struct StageSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conclusion {
     pub timestamp:            DateTime<Utc>,
-    pub status:               StageStatus,
+    pub status:               StageOutcome,
     pub duration_ms:          u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_reason:       Option<String>,

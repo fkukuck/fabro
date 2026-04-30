@@ -50,7 +50,10 @@ pub use failure_signature::FailureSignature;
 pub use graph::{AttrValue, Edge, Graph, Node, is_llm_handler_type, shape_to_handler_type};
 pub use interview::{InterviewQuestionRecord, QuestionType};
 pub use node_status::NodeStatusRecord;
-pub use outcome::{FailureCategory, FailureDetail, NodeResult, Outcome, OutcomeMeta, StageStatus};
+pub use outcome::{
+    FailureCategory, FailureDetail, NodeResult, Outcome, OutcomeMeta, StageOutcome, StageState,
+    StageStatus,
+};
 pub use pull_request::{
     PullRequestDetail, PullRequestGithubDetail, PullRequestRecord, PullRequestRef, PullRequestUser,
 };

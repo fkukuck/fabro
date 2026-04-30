@@ -4,8 +4,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+use strum::{Display, EnumString, IntoStaticStr};
 
 pub trait OutcomeMeta:
     Default + Clone + Send + Sync + fmt::Debug + Serialize + DeserializeOwned + 'static
@@ -17,42 +18,146 @@ impl<T> OutcomeMeta for T where
 {
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StageStatus {
-    Success,
-    Fail,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageOutcome {
+    Succeeded,
+    PartiallySucceeded,
+    Failed { retry_requested: bool },
     Skipped,
-    PartialSuccess,
-    Retry,
 }
 
-impl fmt::Display for StageStatus {
+impl StageOutcome {
+    #[must_use]
+    pub fn is_successful(self) -> bool {
+        matches!(self, Self::Succeeded | Self::PartiallySucceeded)
+    }
+
+    #[must_use]
+    pub fn is_failure(self) -> bool {
+        matches!(self, Self::Failed { .. })
+    }
+
+    #[must_use]
+    pub fn retry_requested(self) -> bool {
+        matches!(self, Self::Failed {
+            retry_requested: true,
+        })
+    }
+}
+
+impl fmt::Display for StageOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Success => write!(f, "success"),
-            Self::Fail => write!(f, "fail"),
+            Self::Succeeded => write!(f, "succeeded"),
+            Self::PartiallySucceeded => write!(f, "partially_succeeded"),
+            Self::Failed { .. } => write!(f, "failed"),
             Self::Skipped => write!(f, "skipped"),
-            Self::PartialSuccess => write!(f, "partial_success"),
-            Self::Retry => write!(f, "retry"),
         }
     }
 }
 
-impl FromStr for StageStatus {
+impl FromStr for StageOutcome {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "success" => Ok(Self::Success),
-            "fail" => Ok(Self::Fail),
+            "succeeded" => Ok(Self::Succeeded),
+            "partially_succeeded" => Ok(Self::PartiallySucceeded),
+            "failed" => Ok(Self::Failed {
+                retry_requested: false,
+            }),
             "skipped" => Ok(Self::Skipped),
-            "partial_success" => Ok(Self::PartialSuccess),
-            "retry" => Ok(Self::Retry),
-            other => Err(format!("unknown stage status: {other}")),
+            other => Err(format!("unknown stage outcome: {other}")),
         }
     }
 }
+
+impl Serialize for StageOutcome {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for StageOutcome {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Display,
+    EnumString,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum StageState {
+    Pending,
+    Running,
+    Retrying,
+    Succeeded,
+    PartiallySucceeded,
+    Failed,
+    Skipped,
+    Cancelled,
+}
+
+impl StageState {
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Succeeded
+                | Self::PartiallySucceeded
+                | Self::Failed
+                | Self::Skipped
+                | Self::Cancelled
+        )
+    }
+}
+
+impl From<StageOutcome> for StageState {
+    fn from(outcome: StageOutcome) -> Self {
+        match outcome {
+            StageOutcome::Succeeded => Self::Succeeded,
+            StageOutcome::PartiallySucceeded => Self::PartiallySucceeded,
+            StageOutcome::Failed { .. } => Self::Failed,
+            StageOutcome::Skipped => Self::Skipped,
+        }
+    }
+}
+
+#[allow(
+    non_upper_case_globals,
+    reason = "Temporary compatibility constants allow the staged refactor to compile between phase commits."
+)]
+impl StageOutcome {
+    pub const Success: Self = Self::Succeeded;
+    pub const Fail: Self = Self::Failed {
+        retry_requested: false,
+    };
+    pub const PartialSuccess: Self = Self::PartiallySucceeded;
+    pub const Retry: Self = Self::Failed {
+        retry_requested: true,
+    };
+}
+
+pub type StageStatus = StageOutcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -143,7 +248,7 @@ impl FailureDetail {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "M: OutcomeMeta")]
 pub struct Outcome<M: OutcomeMeta = ()> {
-    pub status:             StageStatus,
+    pub status:             StageOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_label:    Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -167,7 +272,7 @@ pub struct Outcome<M: OutcomeMeta = ()> {
 impl<M: OutcomeMeta> Default for Outcome<M> {
     fn default() -> Self {
         Self {
-            status:             StageStatus::Success,
+            status:             StageOutcome::Succeeded,
             preferred_label:    None,
             suggested_next_ids: Vec::new(),
             context_updates:    HashMap::new(),
@@ -188,7 +293,9 @@ impl<M: OutcomeMeta> Outcome<M> {
 
     pub fn fail(message: &str) -> Self {
         Self {
-            status: StageStatus::Fail,
+            status: StageOutcome::Failed {
+                retry_requested: false,
+            },
             failure: Some(FailureDetail {
                 message:   message.to_string(),
                 category:  FailureCategory::Deterministic,
@@ -200,10 +307,54 @@ impl<M: OutcomeMeta> Outcome<M> {
 
     pub fn skipped(reason: &str) -> Self {
         Self {
-            status: StageStatus::Skipped,
+            status: StageOutcome::Skipped,
             notes: Some(reason.to_string()),
             ..Self::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{StageOutcome, StageState};
+
+    #[test]
+    fn stage_outcome_failed_serde_is_lossy_for_retry_intent() {
+        assert_eq!(
+            serde_json::to_value(StageOutcome::Failed {
+                retry_requested: true,
+            })
+            .unwrap(),
+            json!("failed")
+        );
+        assert_eq!(
+            serde_json::from_value::<StageOutcome>(json!("failed")).unwrap(),
+            StageOutcome::Failed {
+                retry_requested: false,
+            }
+        );
+    }
+
+    #[test]
+    fn stage_state_projects_terminal_outcomes() {
+        assert_eq!(
+            StageState::from(StageOutcome::Succeeded),
+            StageState::Succeeded
+        );
+        assert_eq!(
+            StageState::from(StageOutcome::PartiallySucceeded),
+            StageState::PartiallySucceeded
+        );
+        assert_eq!(
+            StageState::from(StageOutcome::Failed {
+                retry_requested: true,
+            }),
+            StageState::Failed
+        );
+        assert!(StageState::Cancelled.is_terminal());
+        assert!(!StageState::Running.is_terminal());
     }
 }
 

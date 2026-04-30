@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::outcome::StageStatus;
+use crate::outcome::StageOutcome;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeStatusRecord {
-    pub status:         StageStatus,
+    pub status:         StageOutcome,
     #[serde(default)]
     pub notes:          Option<String>,
     #[serde(default)]
