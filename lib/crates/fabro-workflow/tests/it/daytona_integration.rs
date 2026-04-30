@@ -293,14 +293,13 @@ async fn daytona_exec_command_local_timeout() {
 
     let duration = start.elapsed();
 
-    // It should either fail with Daytona's timeout (duration < 2000ms) or our
-    // local timeout (duration ~2100ms). Both are valid success conditions for
-    // the system as a whole avoiding a stall.
     assert!(
         duration < std::time::Duration::from_secs(3),
         "Command stalled for longer than the local timeout mechanism"
     );
-    assert!(!result.is_success());
+    assert_eq!(result.exit_code, None);
+    assert!(result.is_timed_out());
+    assert_eq!(result.stderr, "Command timed out locally");
 
     env.cleanup().await.unwrap();
 }
