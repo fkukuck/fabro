@@ -606,7 +606,7 @@ function RunsLandingEmpty({
   const quickStartCommands = runsQuickStartCommands(hasGitHubAuth, serverUrl);
   return (
     <div className="mt-4 flex flex-col items-center">
-      <div className="w-full max-w-lg space-y-5">
+      <div className="w-full max-w-xl space-y-5">
         <p className="text-center text-sm text-fg-muted">
           Your runs will appear here.
         </p>
