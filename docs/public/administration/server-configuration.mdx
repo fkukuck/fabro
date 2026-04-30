@@ -10,15 +10,16 @@ description: "Server-owned settings.toml sections, CLI overrides, and environmen
 On a same-machine setup, the CLI and server share one `settings.toml`. On a remote deployment, the server machine has its own `settings.toml`, and the client machine keeps a separate local `settings.toml` for CLI-only values such as `[cli.target]`.
 
 <Note>
-Fabro only reads `settings.toml`. Older `server.toml`, `user.toml`, and `cli.toml` filenames are no longer part of the supported config surface.
+  Fabro only reads `settings.toml`. Older `server.toml`, `user.toml`, and
+  `cli.toml` filenames are no longer part of the supported config surface.
 </Note>
 
 ### Which sections are server-owned
 
-| Scope | Examples |
-|---|---|
-| Server-owned (runtime-only from local `settings.toml`) | `[server.listen]`, `[server.api]`, `[server.web]`, `[server.auth]`, `[server.storage]`, `[server.sandbox.azure.platform]`, `[server.artifacts]`, `[server.slatedb]`, `[server.scheduler]`, `[server.logging]`, `[server.integrations]`, `[features]` |
-| Shared run defaults (layered through `.fabro/project.toml`/`workflow.toml`) | `[run.model]`, `[run.prepare]`, `[run.sandbox]`, `[run.checkpoint]`, `[run.inputs]`, `[run.pull_request]`, `[run.git]`, `[run.hooks]`, `[run.agent]` |
+| Scope                                                                       | Examples                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server-owned (runtime-only from local `settings.toml`)                      | `[server.listen]`, `[server.api]`, `[server.web]`, `[server.auth]`, `[server.storage]`, `[server.sandbox.azure.platform]`, `[server.artifacts]`, `[server.slatedb]`, `[server.scheduler]`, `[server.logging]`, `[server.integrations]`, `[features]` |
+| Shared run defaults (layered through `.fabro/project.toml`/`workflow.toml`) | `[run.model]`, `[run.prepare]`, `[run.sandbox]`, `[run.checkpoint]`, `[run.inputs]`, `[run.pull_request]`, `[run.git]`, `[run.hooks]`, `[run.agent]`                                                                                                 |
 
 The CLI-only `[cli.*]` sections (including `[cli.target]`) belong in the client machine's `settings.toml`. They tell CLI commands how to reach a server. The server process does not read `[cli.*]` for its own binding or routing.
 
@@ -62,6 +63,7 @@ resource_group = "fabro-prod"
 location = "eastus"
 subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/fabro-prod/providers/Microsoft.Network/virtualNetworks/fabro/subnets/aci"
 acr_server = "fabro.azurecr.io"
+acr_identity_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/fabro-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-prod-sandbox-pull"
 sandboxd_port = 7777
 
 [server.artifacts]
@@ -123,17 +125,17 @@ session_sandboxes = true
 
 Several `settings.toml` settings can be overridden via `fabro server start` flags:
 
-| Flag | Default | Description |
-|---|---|---|
-| `--bind` | Resolved `[server.listen]`, falling back to `~/.fabro/fabro.sock` when `[server.listen]` is absent | Address to bind: `IP` or `IP:port` for TCP, or a path for Unix socket |
-| `--web` | enabled | Enable the embedded web UI, browser auth routes, and web-only helper endpoints |
-| `--no-web` | disabled | Disable the embedded web UI, browser auth routes, and web-only helper endpoints |
-| `--foreground` | — | Run in the foreground instead of daemonizing |
-| `--model` | — | Override default LLM model |
-| `--provider` | — | Override default LLM provider |
-| `--sandbox` | — | Override default sandbox provider |
-| `--max-concurrent-runs` | `5` | Maximum concurrent run executions |
-| `--config` | `~/.fabro/settings.toml` | Path to server config file |
+| Flag                    | Default                                                                                            | Description                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `--bind`                | Resolved `[server.listen]`, falling back to `~/.fabro/fabro.sock` when `[server.listen]` is absent | Address to bind: `IP` or `IP:port` for TCP, or a path for Unix socket           |
+| `--web`                 | enabled                                                                                            | Enable the embedded web UI, browser auth routes, and web-only helper endpoints  |
+| `--no-web`              | disabled                                                                                           | Disable the embedded web UI, browser auth routes, and web-only helper endpoints |
+| `--foreground`          | —                                                                                                  | Run in the foreground instead of daemonizing                                    |
+| `--model`               | —                                                                                                  | Override default LLM model                                                      |
+| `--provider`            | —                                                                                                  | Override default LLM provider                                                   |
+| `--sandbox`             | —                                                                                                  | Override default sandbox provider                                               |
+| `--max-concurrent-runs` | `5`                                                                                                | Maximum concurrent run executions                                               |
+| `--config`              | `~/.fabro/settings.toml`                                                                           | Path to server config file                                                      |
 
 CLI flags take precedence over `settings.toml` values. See [Run Configuration — Precedence](/execution/run-configuration#precedence) for the full resolution order.
 
@@ -141,10 +143,10 @@ CLI flags take precedence over `settings.toml` values. See [Run Configuration �
 
 Control the embedded SPA and browser-oriented routes.
 
-| Key | Description | Default |
-|---|---|---|
-| `enabled` | Serve the embedded SPA, `/auth/*`, and the web-only helper endpoints under `/api/v1` | `true` |
-| `url` | Required single canonical origin for the server. The browser UI and `/auth/*` routes use this origin, and it must be an absolute `http(s)` URL. | `http://localhost:3000` |
+| Key       | Description                                                                                                                                     | Default                 |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `enabled` | Serve the embedded SPA, `/auth/*`, and the web-only helper endpoints under `/api/v1`                                                            | `true`                  |
+| `url`     | Required single canonical origin for the server. The browser UI and `/auth/*` routes use this origin, and it must be an absolute `http(s)` URL. | `http://localhost:3000` |
 
 When `enabled = false`, the server still exposes the machine API and `/health`, but `/`, `/auth/*`, SPA client routes, `/api/v1/auth/me`, `/api/v1/setup/*`, and `/api/v1/demo/toggle` all return `404`.
 
@@ -154,8 +156,8 @@ When `enabled = false`, the server still exposes the machine API and `/health`, 
 
 Configure how users authenticate with the server.
 
-| Key | Description | Default |
-|---|---|---|
+| Key       | Description                                                      | Default         |
+| --------- | ---------------------------------------------------------------- | --------------- |
 | `methods` | Ordered list of enabled bootstrap methods: `dev-token`, `github` | `["dev-token"]` |
 
 When `"dev-token"` is enabled, the API accepts `Authorization: Bearer fabro_dev_...` and the login page can authenticate with the dev token directly.
@@ -166,8 +168,8 @@ When `"github"` is enabled, browser users can sign in with GitHub OAuth and rece
 
 GitHub-specific auth policy.
 
-| Key | Description |
-|---|---|
+| Key                 | Description                                      |
+| ------------------- | ------------------------------------------------ |
 | `allowed_usernames` | GitHub usernames allowed to complete OAuth login |
 
 The GitHub OAuth client ID still lives under `[server.integrations.github].client_id`.
@@ -176,12 +178,12 @@ The GitHub OAuth client ID still lives under `[server.integrations.github].clien
 
 Configure the embedded SlateDB key-value store used for run event storage.
 
-| Key | Description | Default |
-|---|---|---|
-| `provider` | Object store backend: `local`, `s3`, or `azure` | `"local"` |
-| `prefix` | Key prefix within the object store | `""` |
-| `flush_interval` | How often to flush the write-ahead log | `"1ms"` |
-| `disk_cache` | Enable a local disk cache for object store reads | `false` |
+| Key              | Description                                      | Default   |
+| ---------------- | ------------------------------------------------ | --------- |
+| `provider`       | Object store backend: `local`, `s3`, or `azure`  | `"local"` |
+| `prefix`         | Key prefix within the object store               | `""`      |
+| `flush_interval` | How often to flush the write-ahead log           | `"1ms"`   |
+| `disk_cache`     | Enable a local disk cache for object store reads | `false`   |
 
 When `disk_cache = true`, Fabro creates a cache directory at `<storage_root>/cache/slatedb` and
 configures SlateDB to cache object store bytes on local disk (16 GB max, 4 MB parts). This
@@ -255,21 +257,23 @@ container = "fabro-data"
 
 Configure the server-owned Azure platform settings used when `run.sandbox.provider = "azure"`.
 
-| Key | Description | Default |
-|---|---|---|
-| `subscription_id` | Azure subscription used for sandbox provisioning | — |
-| `resource_group` | Resource group that owns the ACI sandboxes | — |
-| `location` | Azure region for sandboxes | — |
-| `subnet_id` | Delegated subnet resource ID for Azure Container Instances | — |
-| `acr_server` | ACR login server used by sandbox images | — |
-| `sandboxd_port` | Port served by `fabro-sandboxd` inside the sandbox | `7777` |
+| Key                        | Description                                                                    | Default |
+| -------------------------- | ------------------------------------------------------------------------------ | ------- |
+| `subscription_id`          | Azure subscription used for sandbox provisioning                               | —       |
+| `resource_group`           | Resource group that owns the ACI sandboxes                                     | —       |
+| `location`                 | Azure region for sandboxes                                                     | —       |
+| `subnet_id`                | Delegated subnet resource ID for Azure Container Instances                     | —       |
+| `acr_server`               | ACR login server used by sandbox images                                        | —       |
+| `acr_identity_resource_id` | User-assigned managed identity resource ID attached to sandboxes for ACR pulls | —       |
+| `sandboxd_port`            | Port served by `fabro-sandboxd` inside the sandbox                             | `7777`  |
 
 Fabro persists these non-secret values in `settings.toml`. The browser install wizard's `Azure`
 step writes this section automatically.
 
-Optional `FABRO_AZURE_ACR_USERNAME` and `FABRO_AZURE_ACR_PASSWORD` do not live in
-`settings.toml`. When provided through `fabro install`, Fabro stores them in the vault and
-resolves them together for Azure sandbox image pulls.
+For the supported Azure path in this repo, set `acr_identity_resource_id` to the Terraform output
+`acr_identity_resource_id`. That value should be the dedicated low-privilege sandbox-pull identity,
+not the privileged `fabro-server` identity. Fabro then uses that sandbox-attached managed identity
+for private ACR pulls instead of separate registry credentials.
 
 For Azure sandboxes, configure this section instead of relying on worker-local
 `FABRO_AZURE_SUBSCRIPTION_ID`, `FABRO_AZURE_RESOURCE_GROUP`, `FABRO_AZURE_LOCATION`,
@@ -289,9 +293,9 @@ Merge rules follow the normative matrix: `[run.inputs]` replaces wholesale, `[ru
 
 Configure the server log level and destination.
 
-| Key | Description | Default |
-|---|---|---|
-| `level` | Log level: `error`, `warn`, `info`, `debug`, `trace` | `"info"` |
+| Key           | Description                                                                               | Default  |
+| ------------- | ----------------------------------------------------------------------------------------- | -------- |
+| `level`       | Log level: `error`, `warn`, `info`, `debug`, `trace`                                      | `"info"` |
 | `destination` | Where server logs are written: `file` (rotated daily under `<storage>/logs/`) or `stdout` | `"file"` |
 
 Level precedence: `FABRO_LOG` env var > `--debug` flag > `[server.logging].level` > `"info"`.
@@ -304,9 +308,9 @@ The CLI has its own `[cli.logging]` section.
 
 Customize the git author identity used for checkpoint commits. When not set, defaults to `fabro` / `fabro@local`.
 
-| Key | Description | Default |
-|---|---|---|
-| `name` | Git author name | `"fabro"` |
+| Key     | Description      | Default         |
+| ------- | ---------------- | --------------- |
+| `name`  | Git author name  | `"fabro"`       |
 | `email` | Git author email | `"fabro@local"` |
 
 ### `[server.integrations.github]` section
@@ -346,8 +350,8 @@ Incoming webhooks are authenticated only by GitHub's `X-Hub-Signature-256` HMAC 
 
 Configure checkpoint behavior for all runs.
 
-| Key | Description |
-|---|---|
+| Key             | Description                                                                                        |
+| --------------- | -------------------------------------------------------------------------------------------------- |
 | `exclude_globs` | Glob patterns for files to exclude from checkpoint commits (for example, `["**/node_modules/**"]`) |
 
 `exclude_globs` replaces across layers — the highest-precedence layer wins wholesale. See [Run Configuration — Checkpoint](/execution/run-configuration#runcheckpoint) for per-run configuration.
@@ -356,8 +360,8 @@ Configure checkpoint behavior for all runs.
 
 Toggle experimental or opt-in features. All features default to `false`.
 
-| Key | Description |
-|---|---|
+| Key                 | Description                            |
+| ------------------- | -------------------------------------- |
 | `session_sandboxes` | Enable session sandboxes in the web UI |
 
 The same `[features]` section can be set in `.fabro/project.toml` (project-level) to enable features per-project.
@@ -377,8 +381,8 @@ For the auth model above, the main server runtime secrets are:
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` when the install wizard or a manual config uses
   static S3 object-store credentials
 
-Azure ACR credentials saved by the install wizard are different: Fabro stores
-`FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` in the vault instead of `server.env`.
+For the supported Azure path in this repo, private sandbox image pulls use the configured
+`acr_identity_resource_id`, so no separate Azure ACR username/password secrets are required.
 
 Fabro no longer auto-loads `.env` files. Provider API keys are required for the models you want to use; everything else is optional.
 
@@ -386,39 +390,39 @@ Fabro no longer auto-loads `.env` files. Provider API keys are required for the 
 
 Fabro's built-in provider access resolves these from `process env -> vault`.
 
-| Variable | Provider |
-|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic (Claude) |
-| `OPENAI_API_KEY` | OpenAI (GPT) |
-| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Google (Gemini) |
-| `KIMI_API_KEY` | Kimi |
-| `ZAI_API_KEY` | Zai (GLM) |
-| `MINIMAX_API_KEY` | Minimax |
-| `INCEPTION_API_KEY` | Inception (Mercury) |
+| Variable                             | Provider            |
+| ------------------------------------ | ------------------- |
+| `ANTHROPIC_API_KEY`                  | Anthropic (Claude)  |
+| `OPENAI_API_KEY`                     | OpenAI (GPT)        |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Google (Gemini)     |
+| `KIMI_API_KEY`                       | Kimi                |
+| `ZAI_API_KEY`                        | Zai (GLM)           |
+| `MINIMAX_API_KEY`                    | Minimax             |
+| `INCEPTION_API_KEY`                  | Inception (Mercury) |
 
 ### Sandbox and tools
 
-| Variable | Description |
-|---|---|
-| `DAYTONA_API_KEY` | Daytona cloud sandbox API key |
+| Variable               | Description                                      |
+| ---------------------- | ------------------------------------------------ |
+| `DAYTONA_API_KEY`      | Daytona cloud sandbox API key                    |
 | `BRAVE_SEARCH_API_KEY` | Brave Search API key (for the `web_search` tool) |
 
 ### Server authentication
 
 Fabro resolves these from `process env -> server.env`.
 
-| Variable | Description |
-|---|---|
+| Variable         | Description                                         |
+| ---------------- | --------------------------------------------------- |
 | `SESSION_SECRET` | Session encryption secret (64-character hex string) |
 
 ### Object store runtime secrets (optional)
 
 Fabro resolves these from `process env -> server.env`.
 
-| Variable | Description |
-|---|---|
-| `AWS_ACCESS_KEY_ID` | Static AWS access key ID for S3-backed `[server.slatedb]` / `[server.artifacts]` |
-| `AWS_SECRET_ACCESS_KEY` | Matching static AWS secret access key |
+| Variable                | Description                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `AWS_ACCESS_KEY_ID`     | Static AWS access key ID for S3-backed `[server.slatedb]` / `[server.artifacts]` |
+| `AWS_SECRET_ACCESS_KEY` | Matching static AWS secret access key                                            |
 
 The browser install wizard can write these into `server.env` for the AWS S3 manual-credential
 path. It does not support manual STS/session-token input; use runtime credentials instead for ECS,
@@ -437,44 +441,32 @@ install or remove the managed object-store lines from `server.env` before abando
 Rotation is not required solely because finish failed after an atomic `0600` rewrite, but it
 remains the fallback if you no longer trust the host boundary.
 
-### Azure sandbox registry credentials (optional)
-
-Fabro resolves these from the vault for the server-owned Azure sandbox platform config.
-
-| Variable | Description |
-|---|---|
-| `FABRO_AZURE_ACR_USERNAME` | Optional ACR username used when pulling private sandbox images |
-| `FABRO_AZURE_ACR_PASSWORD` | Matching ACR password |
-
-The install wizard stores these only as a pair. If you configure them manually, keep both set or
-both unset.
-
 ### GitHub integration (optional)
 
-| Variable | Description |
-|---|---|
+| Variable       | Description                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `GITHUB_TOKEN` | GitHub personal access token, stored by `fabro install` when `strategy = "token"`. Also accepts `GH_TOKEN` as a fallback. |
 
 ### GitHub App extras (optional)
 
 Fabro resolves these from `process env -> server.env`.
 
-| Variable | Description |
-|---|---|
-| `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret |
-| `GITHUB_APP_WEBHOOK_SECRET` | GitHub App webhook secret |
-| `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (base64-encoded) |
+| Variable                    | Description                             |
+| --------------------------- | --------------------------------------- |
+| `GITHUB_APP_CLIENT_SECRET`  | GitHub App client secret                |
+| `GITHUB_APP_WEBHOOK_SECRET` | GitHub App webhook secret               |
+| `GITHUB_APP_PRIVATE_KEY`    | GitHub App private key (base64-encoded) |
 
 ### Slack integration (optional)
 
-| Variable | Description |
-|---|---|
+| Variable                | Description           |
+| ----------------------- | --------------------- |
 | `FABRO_SLACK_APP_TOKEN` | Slack App-level token |
-| `FABRO_SLACK_BOT_TOKEN` | Slack Bot token |
+| `FABRO_SLACK_BOT_TOKEN` | Slack Bot token       |
 
 ### Logging
 
-| Variable | Default | Description |
-|---|---|---|
-| `FABRO_LOG` | `info` | Log level: `error`, `warn`, `info`, `debug` |
-| `FABRO_LOG_DESTINATION` | `file` | Server log destination: `file` or `stdout` (containers default to `stdout`) |
+| Variable                | Default | Description                                                                 |
+| ----------------------- | ------- | --------------------------------------------------------------------------- |
+| `FABRO_LOG`             | `info`  | Log level: `error`, `warn`, `info`, `debug`                                 |
+| `FABRO_LOG_DESTINATION` | `file`  | Server log destination: `file` or `stdout` (containers default to `stdout`) |

@@ -14,11 +14,10 @@ use fabro_util::Home;
 use super::{ResolveError, default_interp, parse_socket_addr, require_interp};
 use crate::user::default_storage_dir;
 use crate::{
-    IntegrationWebhooksLayer, ObjectStoreAzureLayer, ObjectStoreLocalLayer,
-    ObjectStoreS3Layer, ServerApiLayer, ServerArtifactsLayer, ServerAuthLayer,
-    ServerAzurePlatformLayer, ServerIntegrationsLayer, ServerIpAllowlistLayer,
-    ServerIpAllowlistOverrideLayer, ServerLayer, ServerListenLayer, ServerSandboxLayer,
-    ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer,
+    IntegrationWebhooksLayer, ObjectStoreAzureLayer, ObjectStoreLocalLayer, ObjectStoreS3Layer,
+    ServerApiLayer, ServerArtifactsLayer, ServerAuthLayer, ServerAzurePlatformLayer,
+    ServerIntegrationsLayer, ServerIpAllowlistLayer, ServerIpAllowlistOverrideLayer, ServerLayer,
+    ServerListenLayer, ServerSandboxLayer, ServerSlateDbLayer, ServerStorageLayer, ServerWebLayer,
 };
 
 pub fn resolve_server(layer: &ServerLayer, errors: &mut Vec<ResolveError>) -> ServerNamespace {
@@ -90,12 +89,13 @@ fn resolve_sandbox(layer: Option<&ServerSandboxLayer>) -> ServerSandboxSettings 
 
 fn resolve_azure_platform(layer: &ServerAzurePlatformLayer) -> ServerAzurePlatformSettings {
     ServerAzurePlatformSettings {
-        subscription_id: layer.subscription_id.clone().unwrap_or_default(),
-        resource_group:  layer.resource_group.clone().unwrap_or_default(),
-        location:        layer.location.clone().unwrap_or_default(),
-        subnet_id:       layer.subnet_id.clone().unwrap_or_default(),
-        acr_server:      layer.acr_server.clone().unwrap_or_default(),
-        sandboxd_port:   layer.sandboxd_port.unwrap_or(7777),
+        subscription_id:          layer.subscription_id.clone().unwrap_or_default(),
+        resource_group:           layer.resource_group.clone().unwrap_or_default(),
+        location:                 layer.location.clone().unwrap_or_default(),
+        subnet_id:                layer.subnet_id.clone().unwrap_or_default(),
+        acr_server:               layer.acr_server.clone().unwrap_or_default(),
+        acr_identity_resource_id: layer.acr_identity_resource_id.clone().unwrap_or_default(),
+        sandboxd_port:            layer.sandboxd_port.unwrap_or(7777),
     }
 }
 
@@ -471,7 +471,7 @@ fn resolve_object_store(
             }
         }
         ObjectStoreProvider::Azure => ObjectStoreSettings::Azure {
-            account: require_interp(
+            account:   require_interp(
                 azure.and_then(|azure| azure.account.as_ref()),
                 &format!("{path_prefix}.azure.account"),
                 errors,

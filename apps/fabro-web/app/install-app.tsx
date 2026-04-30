@@ -114,10 +114,8 @@ type AzureForm = {
   location: string;
   subnetId: string;
   acrServer: string;
+  acrIdentityResourceId: string;
   sandboxdPort: string;
-  acrUsername: string;
-  acrPassword: string;
-  acrCredentialsSaved: boolean;
 };
 
 export default function InstallApp() {
@@ -157,6 +155,7 @@ export default function InstallApp() {
   const azureLocationInputRef = useRef<HTMLInputElement>(null);
   const azureSubnetIdInputRef = useRef<HTMLInputElement>(null);
   const azureAcrServerInputRef = useRef<HTMLInputElement>(null);
+  const azureAcrIdentityResourceIdInputRef = useRef<HTMLInputElement>(null);
   const azureSandboxdPortInputRef = useRef<HTMLInputElement>(null);
   const localRootInputRef = useRef<HTMLInputElement>(null);
   const bucketInputRef = useRef<HTMLInputElement>(null);
@@ -458,7 +457,7 @@ export default function InstallApp() {
       ) : location.pathname === "/install/azure" ? (
         <StepPanel
           title="Connect Azure"
-          description="Save the Azure platform settings Fabro needs for sandbox startup. ACR credentials are optional and stored separately from the config file."
+          description="Save the Azure platform settings Fabro needs for sandbox startup. Fabro uses the ACR identity resource ID you provide to pull sandbox images with managed identity."
           error={saveError}
           submitting={submitting}
           backHref="/install/server"
@@ -488,11 +487,9 @@ export default function InstallApp() {
               focusInput(azureAcrServerInputRef);
               return;
             }
-
-            const acrUsername = azureForm.acrUsername.trim();
-            const acrPassword = azureForm.acrPassword.trim();
-            if ((acrUsername && !acrPassword) || (!acrUsername && acrPassword)) {
-              setSaveError("Enter both ACR username and password, or leave both blank.");
+            if (!azureForm.acrIdentityResourceId.trim()) {
+              setSaveError("Enter the Azure ACR identity resource ID before continuing.");
+              focusInput(azureAcrIdentityResourceIdInputRef);
               return;
             }
 
@@ -504,11 +501,10 @@ export default function InstallApp() {
                   location: azureForm.location.trim(),
                   subnet_id: azureForm.subnetId.trim(),
                   acr_server: azureForm.acrServer.trim(),
+                  acr_identity_resource_id: azureForm.acrIdentityResourceId.trim(),
                   sandboxd_port: azureForm.sandboxdPort.trim()
                     ? Number(azureForm.sandboxdPort.trim())
                     : 7777,
-                  acr_username: acrUsername || undefined,
-                  acr_password: acrPassword || undefined,
                 }),
               fallback: "Failed to save Azure settings.",
               next:     "/install/object-store",
@@ -600,6 +596,23 @@ export default function InstallApp() {
                 autoCapitalize="off"
               />
             </Field>
+            <Field label="ACR identity resource ID">
+              <input
+                ref={azureAcrIdentityResourceIdInputRef}
+                name="azure_acr_identity_resource_id"
+                value={azureForm.acrIdentityResourceId}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    acrIdentityResourceId: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="/subscriptions/.../userAssignedIdentities/fabro-acr"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
             <Field label="Sandboxd port">
               <input
                 ref={azureSandboxdPortInputRef}
@@ -616,35 +629,6 @@ export default function InstallApp() {
                 placeholder="7777"
                 min={1}
                 max={65535}
-              />
-            </Field>
-            <Field label="ACR username" hint="Optional">
-              <input
-                name="azure_acr_username"
-                value={azureForm.acrUsername}
-                onChange={(event) =>
-                  setAzureForm((current) => ({
-                    ...current,
-                    acrUsername: event.target.value,
-                  }))
-                }
-                className={`${INPUT_CLASS} font-mono`}
-                placeholder="registry user"
-                spellCheck={false}
-                autoCapitalize="off"
-              />
-            </Field>
-            <Field label="ACR password" hint="Optional">
-              <PasswordInput
-                name="azure_acr_password"
-                value={azureForm.acrPassword}
-                onChange={(value) =>
-                  setAzureForm((current) => ({
-                    ...current,
-                    acrPassword: value,
-                  }))
-                }
-                placeholder="registry password"
               />
             </Field>
           </div>
@@ -2067,10 +2051,8 @@ function defaultAzureForm(): AzureForm {
     location: "",
     subnetId: "",
     acrServer: "",
+    acrIdentityResourceId: "",
     sandboxdPort: "7777",
-    acrUsername: "",
-    acrPassword: "",
-    acrCredentialsSaved: false,
   };
 }
 
@@ -2135,10 +2117,8 @@ function hydrateAzureForm(session: InstallSessionResponse): AzureForm {
     location: summary.location,
     subnetId: summary.subnet_id,
     acrServer: summary.acr_server,
+    acrIdentityResourceId: summary.acr_identity_resource_id,
     sandboxdPort: String(summary.sandboxd_port),
-    acrUsername: "",
-    acrPassword: "",
-    acrCredentialsSaved: Boolean(summary.acr_credentials_saved),
   };
 }
 
@@ -2268,11 +2248,12 @@ function renderAzureSummaryRows(
       <SummaryRow label="Location" value={azure.location} mono />
       <SummaryRow label="Subnet" value={azure.subnet_id} mono />
       <SummaryRow label="ACR server" value={azure.acr_server} mono />
-      <SummaryRow label="Sandboxd port" value={String(azure.sandboxd_port)} mono />
       <SummaryRow
-        label="ACR credentials"
-        value={azure.acr_credentials_saved ? "Saved in vault" : "Not provided"}
+        label="ACR identity"
+        value={azure.acr_identity_resource_id}
+        mono
       />
+      <SummaryRow label="Sandboxd port" value={String(azure.sandboxd_port)} mono />
     </>
   );
 }

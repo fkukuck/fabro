@@ -23,7 +23,7 @@ export interface InstallAzureSummary {
     'location': string;
     'subnet_id': string;
     'acr_server': string;
+    'acr_identity_resource_id': string;
     'sandboxd_port': number;
-    'acr_credentials_saved': boolean;
 }
 

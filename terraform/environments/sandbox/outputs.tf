@@ -31,7 +31,11 @@ output "acr_name" {
 }
 
 output "managed_identity_client_id" {
-  value = module.identity.client_id
+  value = module.server_identity.client_id
+}
+
+output "acr_identity_resource_id" {
+  value = module.sandbox_pull_identity.id
 }
 
 output "fabro_server_fqdn" {

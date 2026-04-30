@@ -138,17 +138,19 @@ pub struct ServerAzureSandboxLayer {
 #[serde(deny_unknown_fields)]
 pub struct ServerAzurePlatformLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subscription_id: Option<String>,
+    pub subscription_id:          Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resource_group:  Option<String>,
+    pub resource_group:           Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub location:        Option<String>,
+    pub location:                 Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subnet_id:       Option<String>,
+    pub subnet_id:                Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acr_server:      Option<String>,
+    pub acr_server:               Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sandboxd_port:   Option<u16>,
+    pub acr_identity_resource_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandboxd_port:            Option<u16>,
 }
 
 /// `[server.artifacts]` — object-store-backed artifact storage.
@@ -213,7 +215,7 @@ pub struct ObjectStoreS3Layer {
 #[serde(deny_unknown_fields)]
 pub struct ObjectStoreAzureLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account: Option<InterpString>,
+    pub account:   Option<InterpString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container: Option<InterpString>,
 }

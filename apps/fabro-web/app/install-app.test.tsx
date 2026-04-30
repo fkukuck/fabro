@@ -1133,9 +1133,197 @@ describe("InstallApp", () => {
                   location: "eastus",
                   subnet_id: "/subscriptions/sub-1/.../aci",
                   acr_server: "fabro.azurecr.io",
+                  acr_identity_resource_id:
+                    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
                   sandboxd_port: 7777,
-                  acr_credentials_saved: true,
                 },
+                object_store: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/azure");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/azure"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Connect Azure");
+        expect(renderTreeText(renderer!.toJSON())).toContain(
+          "Save the Azure platform settings Fabro needs for sandbox startup. Fabro uses the ACR identity resource ID you provide to pull sandbox images with managed identity.",
+        );
+      });
+
+      const root = renderer!.root;
+      expect(root.findAllByProps({ name: "azure_acr_username" })).toHaveLength(0);
+      expect(root.findAllByProps({ name: "azure_acr_password" })).toHaveLength(0);
+
+      const setInputValue = (name: string, value: string) => {
+        const input = root.findByProps({ name });
+        input.props.onChange({ target: { value } });
+      };
+
+      await act(async () => {
+        setInputValue("azure_subscription_id", "sub-1");
+        setInputValue("azure_resource_group", "rg-1");
+        setInputValue("azure_location", "eastus");
+        setInputValue("azure_subnet_id", "/subscriptions/sub-1/.../aci");
+        setInputValue("azure_acr_server", "fabro.azurecr.io");
+        setInputValue(
+          "azure_acr_identity_resource_id",
+          "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
+        );
+        setInputValue("azure_sandboxd_port", "7777");
+      });
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain(
+          "Choose the shared object store",
+        );
+      });
+
+      expect(fetchCalls.map((call) => String(call.input))).toEqual([
+        "/install/session",
+        "/install/azure",
+        "/install/session",
+      ]);
+      expect(fetchCalls[1]?.init?.body).toBe(
+        JSON.stringify({
+          subscription_id: "sub-1",
+          resource_group: "rg-1",
+          location: "eastus",
+          subnet_id: "/subscriptions/sub-1/.../aci",
+          acr_server: "fabro.azurecr.io",
+          acr_identity_resource_id:
+            "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
+          sandboxd_port: 7777,
+        }),
+      );
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("rehydrates the saved ACR identity resource ID on the Azure step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      globalThis.fetch = mock((input: RequestInfo | URL) => {
+        expect(String(input)).toBe("/install/session");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              completed_steps: ["server", "azure"],
+              llm: null,
+              server: { canonical_url: "https://fabro.example.com" },
+              azure: {
+                subscription_id: "sub-1",
+                resource_group: "rg-1",
+                location: "eastus",
+                subnet_id: "/subscriptions/sub-1/.../aci",
+                acr_server: "fabro.azurecr.io",
+                acr_identity_resource_id:
+                  "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
+                sandboxd_port: 7777,
+              },
+              object_store: null,
+              github: null,
+              prefill: INSTALL_PREFILL,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }) as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/azure");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/azure"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          renderer!.root.findByProps({ name: "azure_acr_identity_resource_id" }).props.value,
+        ).toBe(
+          "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
+        );
+      });
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("requires an ACR identity resource ID before saving Azure settings", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: null,
                 object_store: null,
                 github: null,
                 prefill: INSTALL_PREFILL,
@@ -1178,9 +1366,6 @@ describe("InstallApp", () => {
         setInputValue("azure_location", "eastus");
         setInputValue("azure_subnet_id", "/subscriptions/sub-1/.../aci");
         setInputValue("azure_acr_server", "fabro.azurecr.io");
-        setInputValue("azure_sandboxd_port", "7777");
-        setInputValue("azure_acr_username", "azure-user");
-        root.findByProps({ name: "azure_acr_password" }).props.onChange("azure-pass");
       });
 
       const form = renderer!.root.findByType("form");
@@ -1188,17 +1373,10 @@ describe("InstallApp", () => {
         form.props.onSubmit({ preventDefault() {} });
       });
 
-      await waitFor(() => {
-        expect(renderTreeText(renderer!.toJSON())).toContain(
-          "Choose the shared object store",
-        );
-      });
-
-      expect(fetchCalls.map((call) => String(call.input))).toEqual([
-        "/install/session",
-        "/install/azure",
-        "/install/session",
-      ]);
+      expect(renderTreeText(renderer!.toJSON())).toContain(
+        "Enter the Azure ACR identity resource ID before continuing.",
+      );
+      expect(fetchCalls.map((call) => String(call.input))).toEqual(["/install/session"]);
 
       await act(async () => {
         renderer?.unmount();

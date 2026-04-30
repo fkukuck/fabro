@@ -43,10 +43,19 @@ module "github_actions_access" {
   principal_id      = var.github_actions_principal_id
   resource_group_id = module.resource_group.id
   acr_id            = module.acr.id
-  identity_id       = module.identity.id
+  identity_id       = module.server_identity.id
 }
 
-module "identity" {
+module "sandbox_pull_identity" {
+  source              = "../../modules/identity"
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  name                = "${var.identity_name}-sandbox-pull"
+  acr_pull_scope      = module.acr.id
+  tags                = var.tags
+}
+
+module "server_identity" {
   source              = "../../modules/identity"
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
@@ -54,7 +63,8 @@ module "identity" {
   contributor_scope   = module.resource_group.id
   blob_data_scope     = module.storage.id
   acr_pull_scope      = module.acr.id
-  tags                = var.tags
+  identity_attach_scope = module.sandbox_pull_identity.id
+  tags                  = var.tags
 }
 
 module "container_apps_env" {
@@ -72,7 +82,7 @@ module "container_apps_env" {
 
 module "fabro_server" {
   source                       = "../../modules/fabro_server"
-  depends_on                   = [module.identity]
+  depends_on                   = [module.server_identity]
   enabled                      = var.fabro_server_enabled
   name                         = var.fabro_server_name
   resource_group_name          = module.resource_group.name
@@ -81,8 +91,8 @@ module "fabro_server" {
   registry_server              = module.acr.login_server
   cpu                          = var.fabro_server_cpu
   memory                       = var.fabro_server_memory
-  identity_id                  = module.identity.id
-  identity_client_id           = module.identity.client_id
+  identity_id                  = module.server_identity.id
+  identity_client_id           = module.server_identity.client_id
   storage_attachment_name      = module.container_apps_env.storage_attachment_name
   tags                         = var.tags
 }

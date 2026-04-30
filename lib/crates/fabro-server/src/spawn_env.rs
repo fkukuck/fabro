@@ -86,10 +86,7 @@ mod tests {
                 "FABRO_STORAGE_ROOT".to_string(),
                 "/tmp/fabro-storage".to_string(),
             ),
-            (
-                "AZURE_CLIENT_ID".to_string(),
-                "client-id-123".to_string(),
-            ),
+            ("AZURE_CLIENT_ID".to_string(), "client-id-123".to_string()),
             (
                 "IDENTITY_ENDPOINT".to_string(),
                 "http://127.0.0.1:42356/msi/token".to_string(),

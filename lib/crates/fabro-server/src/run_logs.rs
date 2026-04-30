@@ -5,10 +5,7 @@ use anyhow::Context as _;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 
-pub(crate) fn durable_run_log_path(
-    prefix: &str,
-    run_id: &fabro_types::RunId,
-) -> ObjectStorePath {
+pub(crate) fn durable_run_log_path(prefix: &str, run_id: &fabro_types::RunId) -> ObjectStorePath {
     ObjectStorePath::from(format!("{prefix}/{run_id}/server.log"))
 }
 
@@ -46,12 +43,12 @@ mod tests {
     use std::sync::Arc;
 
     use bytes::Bytes;
+    use fabro_types::RunId;
+    use object_store::ObjectStore;
     use object_store::memory::InMemory;
     use object_store::path::Path;
-    use object_store::ObjectStore;
 
     use super::{archive_terminal_run_log, durable_run_log_path, read_durable_run_log};
-    use fabro_types::RunId;
 
     #[tokio::test]
     async fn archive_terminal_run_log_writes_blob_object() {

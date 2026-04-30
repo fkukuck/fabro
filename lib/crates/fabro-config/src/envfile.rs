@@ -318,8 +318,7 @@ fn remove_optional_file(path: &Path) -> io::Result<()> {
 
 #[cfg(unix)]
 fn ignore_unsupported_metadata_error(err: io::Error) -> io::Result<()> {
-    if err.kind() == io::ErrorKind::Unsupported
-        || matches!(err.raw_os_error(), Some(95) | Some(45))
+    if err.kind() == io::ErrorKind::Unsupported || matches!(err.raw_os_error(), Some(95) | Some(45))
     {
         return Ok(());
     }
@@ -473,8 +472,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ignore_unsupported_metadata_error_accepts_unsupported_errors() {
-        assert!(ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::Unsupported))
-            .is_ok());
+        assert!(
+            ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::Unsupported)).is_ok()
+        );
         assert!(ignore_unsupported_metadata_error(io::Error::from_raw_os_error(95)).is_ok());
         assert!(ignore_unsupported_metadata_error(io::Error::from_raw_os_error(45)).is_ok());
     }
@@ -482,8 +482,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ignore_unsupported_metadata_error_preserves_other_failures() {
-        let err = ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::PermissionDenied))
-            .expect_err("non-unsupported metadata errors should still fail");
+        let err =
+            ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::PermissionDenied))
+                .expect_err("non-unsupported metadata errors should still fail");
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
     }
 }

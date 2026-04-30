@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Azure sandbox container groups pull private ACR images with managed identity only, using the existing Terraform-managed user-assigned identity.
+**Goal:** Make Azure sandbox container groups pull private ACR images with managed identity only, using a dedicated low-privilege Terraform-managed user-assigned identity.
 
-**Architecture:** Extend the Azure install/config path with one new non-secret field, `acr_identity_resource_id`, then carry that field through runtime resolution into the ACI create payload. The sandbox provider will attach the user-assigned identity to the container group and reference that same identity in `imageRegistryCredentials`, while Terraform exposes the identity resource ID and grants the server identity permission to attach it.
+**Architecture:** Extend the Azure install/config path with one new non-secret field, `acr_identity_resource_id`, then carry that field through runtime resolution into the ACI create payload. The sandbox provider will attach a dedicated low-privilege user-assigned identity to the container group and reference that same identity in `imageRegistryCredentials`, while Terraform creates that identity, grants it `AcrPull`, exposes its resource ID, and grants the server identity permission to attach it.
 
 **Tech Stack:** Rust, Axum, React 19, TypeScript, OpenAPI, Terraform (`azurerm`), Azure Container Instances, Azure Container Registry, Bun, Cargo.
 
@@ -37,11 +37,13 @@
 - `lib/crates/fabro-types/src/settings/server.rs`
   Canonical persisted Azure platform settings shape shared across server config.
 - `terraform/modules/identity/variables.tf`
-  Identity-module input surface for self-assignment RBAC if needed.
+  Identity-module input surface for optional attach-scope RBAC.
 - `terraform/modules/identity/main.tf`
-  Role assignment wiring so the running server identity can attach itself to created ACI groups.
+  Role assignment wiring so the running server identity can attach the dedicated sandbox-pull identity to created ACI groups.
+- `terraform/environments/sandbox/main.tf`
+  Environment wiring for the new sandbox-pull identity and server-to-sandbox identity attachment permission.
 - `terraform/environments/sandbox/outputs.tf`
-  Expose the managed identity resource ID for operators/install.
+  Expose the sandbox-pull identity resource ID for operators/install.
 - `docs/public/administration/deploy-azure.mdx`
   Operator docs for pulling the identity resource ID from Terraform outputs.
 - `docs/public/administration/server-configuration.mdx`
@@ -79,7 +81,7 @@ test("saves and rehydrates Azure ACR identity resource ID", async () => {
   // Mock /install/azure PUT and the follow-up /install/session response.
   // Submit acr_identity_resource_id along with the existing Azure fields.
   // Assert the request body includes:
-  // { acr_identity_resource_id: "/subscriptions/sub-1/.../userAssignedIdentities/fabro-server" }
+  // { acr_identity_resource_id: "/subscriptions/sub-1/.../userAssignedIdentities/fabro-sandbox-pull" }
   // Assert the next session summary rehydrates the same value into the form/review step.
 });
 ```
@@ -214,7 +216,7 @@ Add the input field and review summary row:
       }))
     }
     className={`${INPUT_CLASS} font-mono`}
-    placeholder="/subscriptions/.../userAssignedIdentities/fabro-server"
+    placeholder="/subscriptions/.../userAssignedIdentities/fabro-sandbox-pull"
     spellCheck={false}
     autoCapitalize="off"
   />
@@ -335,7 +337,7 @@ fn build_container_group_body_uses_user_assigned_identity_for_private_acr_pull()
         subnet_id: "/subscriptions/sub-1/.../aci".into(),
         acr_server: "fabro.azurecr.io".into(),
         acr_identity_resource_id:
-            "/subscriptions/sub-1/.../userAssignedIdentities/fabro-server".into(),
+            "/subscriptions/sub-1/.../userAssignedIdentities/fabro-sandbox-pull".into(),
         sandboxd_port: 7777,
     };
 
@@ -344,7 +346,7 @@ fn build_container_group_body_uses_user_assigned_identity_for_private_acr_pull()
     assert_eq!(body["identity"]["type"], "UserAssigned");
     assert_eq!(
         body["properties"]["imageRegistryCredentials"][0]["identity"],
-        "/subscriptions/sub-1/.../userAssignedIdentities/fabro-server"
+        "/subscriptions/sub-1/.../userAssignedIdentities/fabro-sandbox-pull"
     );
 }
 ```
@@ -407,11 +409,12 @@ Run: `ulimit -n 4096 && cargo nextest run -p fabro-sandbox azure_provider build_
 
 Expected: PASS.
 
-## Task 4: Expose The Identity Resource ID In Terraform And Update Docs
+## Task 4: Create The Sandbox-Pull Identity In Terraform And Update Docs
 
 **Files:**
 - Modify: `terraform/modules/identity/variables.tf`
 - Modify: `terraform/modules/identity/main.tf`
+- Modify: `terraform/environments/sandbox/main.tf`
 - Modify: `terraform/environments/sandbox/outputs.tf`
 - Modify: `docs/public/administration/deploy-azure.mdx`
 - Modify: `docs/public/administration/server-configuration.mdx`
@@ -431,19 +434,25 @@ rg -n "managed_identity_resource_id|acr_identity_resource_id|Managed Identity Op
 
 Expected: no matches for the new output/field/RBAC guidance yet.
 
-- [ ] **Step 2: Expose the identity resource ID and grant attach permission**
+- [ ] **Step 2: Create/expose the sandbox-pull identity and grant attach permission**
 
 Update `terraform/environments/sandbox/outputs.tf`:
 
 ```hcl
-output "managed_identity_resource_id" {
-  value = module.identity.id
+output "sandbox_pull_identity_resource_id" {
+  value = module.sandbox_pull_identity.id
 }
 ```
 
-If the current Terraform graph does not already give the running server identity permission to attach itself to created ACI groups, update `terraform/modules/identity/main.tf` to include the needed role assignment on the identity resource.
+Update `terraform/environments/sandbox/main.tf` to instantiate a second identity module for the sandbox pull identity with only ACR pull responsibility, and keep the existing server identity separate.
 
-The target result is a checked-in Terraform model that clearly owns this attach permission.
+Then grant the server identity permission to attach that separate identity to created ACI groups via `Managed Identity Operator` on the sandbox-pull identity resource.
+
+The target result is a checked-in Terraform model where:
+
+- `module.identity` remains the privileged server identity
+- `module.sandbox_pull_identity` is low-privilege and sandbox-attached
+- only the sandbox-pull identity is persisted as `acr_identity_resource_id`
 
 - [ ] **Step 3: Update operator docs for the new field**
 
@@ -454,10 +463,10 @@ Record these Terraform outputs for the install flow:
 
 - `storage_account_name`
 - `blob_data_container_name`
-- `managed_identity_resource_id`
+- `sandbox_pull_identity_resource_id`
 ```
 
-And explain during the Azure install step that the operator must enter the managed identity resource ID used for private ACR sandbox pulls.
+And explain during the Azure install step that the operator must enter the sandbox-pull identity resource ID used for private ACR sandbox pulls.
 
 Update `docs/public/administration/server-configuration.mdx`:
 
@@ -503,6 +512,7 @@ Use this checklist before marking the follow-up complete:
 - Persisted Azure sandbox platform config includes `acr_identity_resource_id`.
 - Azure sandbox runtime config no longer depends on ACR username/password.
 - ACI request bodies include both top-level `identity` and registry `identity`.
-- Terraform exposes the managed identity resource ID for operators.
+- Terraform exposes the sandbox-pull identity resource ID for operators.
+- Sandbox-attached identity is separate from the privileged server identity.
 - Docs describe managed-identity-only private ACR sandbox pulls.
 ```

@@ -3205,6 +3205,7 @@ components:
         - location
         - subnet_id
         - acr_server
+        - acr_identity_resource_id
       properties:
         subscription_id:
           type: string
@@ -3216,15 +3217,13 @@ components:
           type: string
         acr_server:
           type: string
+        acr_identity_resource_id:
+          type: string
         sandboxd_port:
           type: integer
           format: int32
           minimum: 1
           maximum: 65535
-        acr_username:
-          type: string
-        acr_password:
-          type: string
 
     InstallAzureSummary:
       description: Redacted summary of persisted Azure platform install choices.
@@ -3235,8 +3234,8 @@ components:
         - location
         - subnet_id
         - acr_server
+        - acr_identity_resource_id
         - sandboxd_port
-        - acr_credentials_saved
       properties:
         subscription_id:
           type: string
@@ -3248,11 +3247,11 @@ components:
           type: string
         acr_server:
           type: string
+        acr_identity_resource_id:
+          type: string
         sandboxd_port:
           type: integer
           format: int32
-        acr_credentials_saved:
-          type: boolean
 
     InstallObjectStoreValidationResponse:
       description: Successful response from install-time object-store validation.

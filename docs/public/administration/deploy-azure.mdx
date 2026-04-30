@@ -102,12 +102,13 @@ For the first apply, keep `fabro_server_enabled = false` so Terraform can create
 terraform -chdir=terraform/environments/sandbox apply
 ```
 
-That apply provisions the resource group, networking, storage, ACR, managed identity, Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
+That apply provisions the resource group, networking, storage, ACR, a privileged server identity for `fabro-server`, a separate low-privilege sandbox-pull identity for Azure sandbox image pulls, the role assignment that lets the server attach that sandbox-pull identity to ACI groups, the Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
 
 Record these Terraform outputs for the install flow:
 
 - `storage_account_name`
 - `blob_data_container_name`
+- `acr_identity_resource_id`
 
 The checked-in Terraform defaults currently assume `fabro-server` runs on Azure Container Apps with
 `2 CPU / 4Gi`. That is the validated shape for the Azure deploy path in this repo.
@@ -170,6 +171,8 @@ The important runtime model is:
 
 - the Container App mounts `/storage`
 - the install wizard writes runtime configuration there
+- the install wizard's `Azure` step should use the Terraform output `acr_identity_resource_id`
+- the sandbox-attached identity for ACR pulls is the dedicated low-privilege sandbox-pull identity, not the privileged `fabro-server` identity
 - Azure Blob is the durable data plane for artifacts, SlateDB, and archived raw run logs
 - later deploys reuse the same persisted config and Blob-backed runtime data
 

@@ -18,11 +18,10 @@ use fabro_config::bind::{Bind, BindRequest};
 use fabro_config::envfile::EnvFileUpdate;
 use fabro_install::{
     InstallAzurePlatformSelection, InstallListenConfig, InstallSandboxSelection,
-    OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV,
-    PendingSettingsWrite, VaultSecretWrite, merge_server_settings,
-    persist_install_outputs_direct, write_azure_platform_settings,
-    write_github_app_settings, write_object_store_settings, write_sandbox_settings,
-    write_token_settings,
+    OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite,
+    VaultSecretWrite, merge_server_settings, persist_install_outputs_direct,
+    write_azure_platform_settings, write_github_app_settings, write_object_store_settings,
+    write_sandbox_settings, write_token_settings,
 };
 use fabro_model::Provider;
 use fabro_sandbox::daytona;
@@ -246,40 +245,38 @@ struct ServerConfigInput {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct InstallAzureInput {
-    subscription_id: String,
-    resource_group:  String,
-    location:        String,
-    subnet_id:       String,
-    acr_server:      String,
-    sandboxd_port:   Option<u16>,
-    acr_username:    Option<String>,
-    acr_password:    Option<String>,
+    subscription_id:          String,
+    resource_group:           String,
+    location:                 String,
+    subnet_id:                String,
+    acr_server:               String,
+    acr_identity_resource_id: String,
+    sandboxd_port:            Option<u16>,
 }
 
 #[derive(Clone, Debug)]
 struct InstallAzureState {
-    subscription_id: String,
-    resource_group:  String,
-    location:        String,
-    subnet_id:       String,
-    acr_server:      String,
-    sandboxd_port:   u16,
-    acr_username:    Option<String>,
-    acr_password:    Option<String>,
+    subscription_id:          String,
+    resource_group:           String,
+    location:                 String,
+    subnet_id:                String,
+    acr_server:               String,
+    acr_identity_resource_id: String,
+    sandboxd_port:            u16,
 }
 
 impl InstallAzureState {
     fn from_input(input: InstallAzureInput) -> Self {
         Self {
-            subscription_id: input.subscription_id,
-            resource_group:  input.resource_group,
-            location:        input.location,
-            subnet_id:       input.subnet_id,
-            acr_server:      input.acr_server,
-            sandboxd_port:   input.sandboxd_port.unwrap_or(7777),
-            acr_username:    input.acr_username,
-            acr_password:    input.acr_password,
+            subscription_id:          input.subscription_id,
+            resource_group:           input.resource_group,
+            location:                 input.location,
+            subnet_id:                input.subnet_id,
+            acr_server:               input.acr_server,
+            acr_identity_resource_id: input.acr_identity_resource_id,
+            sandboxd_port:            input.sandboxd_port.unwrap_or(7777),
         }
     }
 
@@ -290,19 +287,20 @@ impl InstallAzureState {
             "location": self.location,
             "subnet_id": self.subnet_id,
             "acr_server": self.acr_server,
+            "acr_identity_resource_id": self.acr_identity_resource_id,
             "sandboxd_port": self.sandboxd_port,
-            "acr_credentials_saved": self.acr_username.is_some() && self.acr_password.is_some(),
         })
     }
 
     fn to_platform_selection(&self) -> InstallAzurePlatformSelection {
         InstallAzurePlatformSelection {
-            subscription_id: self.subscription_id.clone(),
-            resource_group:  self.resource_group.clone(),
-            location:        self.location.clone(),
-            subnet_id:       self.subnet_id.clone(),
-            acr_server:      self.acr_server.clone(),
-            sandboxd_port:   self.sandboxd_port,
+            subscription_id:          self.subscription_id.clone(),
+            resource_group:           self.resource_group.clone(),
+            location:                 self.location.clone(),
+            subnet_id:                self.subnet_id.clone(),
+            acr_server:               self.acr_server.clone(),
+            acr_identity_resource_id: self.acr_identity_resource_id.clone(),
+            sandboxd_port:            self.sandboxd_port,
         }
     }
 }
@@ -962,19 +960,14 @@ async fn put_install_azure(
         ("location", &mut input.location),
         ("subnet_id", &mut input.subnet_id),
         ("acr_server", &mut input.acr_server),
+        (
+            "acr_identity_resource_id",
+            &mut input.acr_identity_resource_id,
+        ),
     ] {
         if let Err(err) = require_field(label, value) {
             return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err);
         }
-    }
-
-    input.acr_username = trim_install_field(input.acr_username);
-    input.acr_password = trim_install_field(input.acr_password);
-    if input.acr_username.is_some() ^ input.acr_password.is_some() {
-        return install_error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "acr_username and acr_password must be provided together",
-        );
     }
 
     lock_unpoisoned(&state.pending_install, "install session").azure =
@@ -1333,7 +1326,11 @@ async fn validate_install_object_store_selection(
                 Ok(Ok(_)) => {}
             }
 
-            (Some(bucket.as_str()), Some(region.as_str()), manual_credentials.as_ref())
+            (
+                Some(bucket.as_str()),
+                Some(region.as_str()),
+                manual_credentials.as_ref(),
+            )
         }
         InstallObjectStoreState::Azure { .. } => (None, None, None),
     };
@@ -1383,9 +1380,9 @@ async fn validate_install_object_store_selection(
         Ok(Ok(())) => Ok(()),
         Err(_) => Err(VALIDATION_TIMEOUT_MSG.to_string()),
         Ok(Err((index, err))) => match (bucket, region) {
-            (Some(bucket), Some(region)) => {
-                Err(classify_object_store_validation_error(bucket, region, index, &err))
-            }
+            (Some(bucket), Some(region)) => Err(classify_object_store_validation_error(
+                bucket, region, index, &err,
+            )),
             _ => Err(err.to_string()),
         },
     }
@@ -1668,20 +1665,6 @@ async fn post_install_finish(
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
     let mut vault_secrets = Vec::new();
-    if let (Some(acr_username), Some(acr_password)) = (&azure.acr_username, &azure.acr_password) {
-        vault_secrets.push(VaultSecretWrite {
-            name:        EnvVars::FABRO_AZURE_ACR_USERNAME.to_string(),
-            value:       acr_username.clone(),
-            secret_type: VaultSecretType::Environment,
-            description: None,
-        });
-        vault_secrets.push(VaultSecretWrite {
-            name:        EnvVars::FABRO_AZURE_ACR_PASSWORD.to_string(),
-            value:       acr_password.clone(),
-            secret_type: VaultSecretType::Environment,
-            description: None,
-        });
-    }
     if let InstallSandboxState::Daytona { api_key } = &sandbox {
         vault_secrets.push(VaultSecretWrite {
             name:        EnvVars::DAYTONA_API_KEY.to_string(),
@@ -1690,6 +1673,10 @@ async fn post_install_finish(
             description: None,
         });
     }
+    let vault_secret_removals = vec![
+        EnvVars::FABRO_AZURE_ACR_USERNAME.to_string(),
+        EnvVars::FABRO_AZURE_ACR_PASSWORD.to_string(),
+    ];
     for provider in llm.providers {
         let credential = AuthCredential {
             provider: provider.provider,
@@ -1797,6 +1784,7 @@ async fn post_install_finish(
         &server_env_writes,
         &server_env_removals,
         &vault_secrets,
+        &vault_secret_removals,
         Some(&PendingSettingsWrite {
             path:              state.config_path.as_ref(),
             contents:          &settings_toml,
@@ -2434,8 +2422,7 @@ mod tests {
         InstallObjectStoreProvider, InstallObjectStoreState, PendingInstall, ServerSecrets,
         classify_object_store_validation_error, detect_canonical_url, install_object_store_lookup,
         lock_unpoisoned, object_store_validation_prefixes, resolve_install_object_store_state,
-        token_is_valid,
-        write_artifact_store_metadata,
+        token_is_valid, write_artifact_store_metadata,
     };
 
     #[test]
@@ -2729,7 +2716,11 @@ AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/fabro-web-identity-token\n",
 
     #[test]
     fn object_store_validation_prefixes_include_run_logs() {
-        assert_eq!(object_store_validation_prefixes(), ["artifacts", "slatedb", "run-logs"]);
+        assert_eq!(object_store_validation_prefixes(), [
+            "artifacts",
+            "slatedb",
+            "run-logs"
+        ]);
     }
 
     #[test]

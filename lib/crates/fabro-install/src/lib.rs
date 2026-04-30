@@ -66,12 +66,13 @@ pub enum InstallSandboxSelection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallAzurePlatformSelection {
-    pub subscription_id: String,
-    pub resource_group:  String,
-    pub location:        String,
-    pub subnet_id:       String,
-    pub acr_server:      String,
-    pub sandboxd_port:   u16,
+    pub subscription_id:          String,
+    pub resource_group:           String,
+    pub location:                 String,
+    pub subnet_id:                String,
+    pub acr_server:               String,
+    pub acr_identity_resource_id: String,
+    pub sandboxd_port:            u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,6 +299,10 @@ pub fn write_azure_platform_settings(
     platform.insert(
         "acr_server".into(),
         toml::Value::String(selection.acr_server.clone()),
+    );
+    platform.insert(
+        "acr_identity_resource_id".into(),
+        toml::Value::String(selection.acr_identity_resource_id.clone()),
     );
     platform.insert(
         "sandboxd_port".into(),
@@ -562,11 +567,29 @@ fn persist_vault_secrets_direct(storage_dir: &Path, secrets: &[VaultSecretWrite]
     Ok(())
 }
 
+fn apply_vault_secret_removals(storage_dir: &Path, secret_names: &[String]) -> Result<()> {
+    if secret_names.is_empty() {
+        return Ok(());
+    }
+
+    let vault_path = Storage::new(storage_dir).secrets_path();
+    let mut vault = Vault::load(vault_path).map_err(anyhow::Error::from)?;
+    for secret_name in secret_names {
+        match vault.remove(secret_name) {
+            Ok(()) => {}
+            Err(fabro_vault::Error::NotFound(_)) => {}
+            Err(err) => return Err(anyhow::Error::from(err)),
+        }
+    }
+    Ok(())
+}
+
 pub fn persist_install_outputs_direct(
     storage_dir: &Path,
     server_env_writes: &[envfile::EnvFileUpdate],
     server_env_removals: &[envfile::EnvFileRemoval],
     vault_secrets: &[VaultSecretWrite],
+    vault_secret_removals: &[String],
     settings_write: Option<&PendingSettingsWrite<'_>>,
 ) -> std::result::Result<(), PersistInstallOutputsError> {
     let server_env_report =
@@ -615,6 +638,31 @@ pub fn persist_install_outputs_direct(
         ));
     }
 
+    if let Err(err) = apply_vault_secret_removals(storage_dir, vault_secret_removals) {
+        let mut rollback_failures = Vec::new();
+        if let Some(write) = settings_write {
+            if let Err(restore_err) = restore_optional_file(write.path, write.previous_contents) {
+                rollback_failures.push(restore_err.to_string());
+            }
+        }
+        if let Err(restore_err) = restore_optional_file(&vault_path, previous_vault.as_deref()) {
+            rollback_failures.push(restore_err.to_string());
+        }
+        let error = if rollback_failures.is_empty() {
+            err.context("persisting install outputs directly")
+        } else {
+            err.context(format!(
+                "persisting install outputs directly; rollback failures: {}",
+                rollback_failures.join("; ")
+            ))
+        };
+        return Err(PersistInstallOutputsError::new(
+            error,
+            true,
+            removed_env_keys,
+        ));
+    }
+
     Ok(())
 }
 
@@ -624,11 +672,10 @@ mod tests {
     use fabro_vault::{SecretType as VaultSecretType, Vault};
 
     use super::{
-        InstallAzurePlatformSelection,
-        InstallListenConfig, InstallObjectStoreCredentialMode, InstallObjectStoreSelection,
-        InstallSandboxSelection, OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_MANAGED_COMMENT,
-        OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite, VaultSecretWrite,
-        default_web_url, merge_server_settings, persist_install_outputs_direct,
+        InstallAzurePlatformSelection, InstallListenConfig, InstallObjectStoreCredentialMode,
+        InstallObjectStoreSelection, InstallSandboxSelection, OBJECT_STORE_ACCESS_KEY_ID_ENV,
+        OBJECT_STORE_MANAGED_COMMENT, OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite,
+        VaultSecretWrite, default_web_url, merge_server_settings, persist_install_outputs_direct,
         write_azure_platform_settings, write_github_app_settings, write_object_store_settings,
         write_sandbox_settings,
     };
@@ -754,6 +801,9 @@ name = "custom"
                     "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
                         .into(),
                 acr_server: "fabro.azurecr.io".into(),
+                acr_identity_resource_id:
+                    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"
+                        .into(),
                 sandboxd_port: 7777,
             },
         )
@@ -763,6 +813,9 @@ name = "custom"
         assert!(rendered.contains("[server.sandbox.azure.platform]"));
         assert!(rendered.contains("subscription_id = \"sub-1\""));
         assert!(rendered.contains("acr_server = \"fabro.azurecr.io\""));
+        assert!(rendered.contains(
+            "acr_identity_resource_id = \"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr\""
+        ));
     }
 
     #[test]
@@ -796,6 +849,7 @@ name = "custom"
                 secret_type: VaultSecretType::Environment,
                 description: None,
             }],
+            &[],
             Some(&PendingSettingsWrite {
                 path:              &settings_path,
                 contents:          "_version = 1\n[server]\nfoo = \"bar\"\n",
@@ -1094,6 +1148,7 @@ name = "custom"
                 comment: Some(OBJECT_STORE_MANAGED_COMMENT.to_string()),
             }],
             &[],
+            &[],
             None,
         )
         .expect("env-only persistence should succeed");
@@ -1132,6 +1187,7 @@ name = "custom"
             }],
             &[],
             &[],
+            &[],
             None,
         )
         .expect("initial env write should succeed");
@@ -1145,6 +1201,7 @@ name = "custom"
                 value:   "second".to_string(),
                 comment: None,
             }],
+            &[],
             &[],
             &[],
             None,
