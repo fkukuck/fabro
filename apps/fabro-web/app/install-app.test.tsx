@@ -383,6 +383,219 @@ describe("InstallApp", () => {
     }
   });
 
+  test("saves Azure Blob object-store settings and advances to the sandbox step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session" && fetchCalls.length === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                object_store: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        if (
+          String(input) === "/install/object-store/test"
+          || String(input) === "/install/object-store"
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ ok: true }), {
+              status: String(input).endsWith("/test") ? 200 : 204,
+            }),
+          );
+        }
+        if (String(input) === "/install/session") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "object_store"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                object_store: {
+                  provider: "azure",
+                  account: "acct-two",
+                  container: "container-two",
+                },
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/object-store");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/object-store"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain(
+          "Choose the shared object store",
+        );
+      });
+
+      const azureButton = findOptionButton(renderer!, "Azure Blob");
+      await act(async () => {
+        azureButton.props.onClick();
+      });
+
+      const accountInput = renderer!.root.findByProps({ name: "object_store_account" });
+      const containerInput = renderer!.root.findByProps({ name: "object_store_container" });
+
+      await act(async () => {
+        accountInput.props.onChange({ target: { value: "acct-two" } });
+        containerInput.props.onChange({ target: { value: "container-two" } });
+      });
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Choose the sandbox runtime");
+      });
+
+      const calls = fetchCalls.map((call) => String(call.input));
+      const testIdx = calls.indexOf("/install/object-store/test");
+      const putIdx = calls.indexOf("/install/object-store");
+      expect(testIdx).toBeGreaterThanOrEqual(0);
+      expect(putIdx).toBeGreaterThan(testIdx);
+      expect(fetchCalls[testIdx]?.init?.body).toBe(
+        JSON.stringify({
+          provider: "azure",
+          account: "acct-two",
+          container: "container-two",
+        }),
+      );
+      expect(fetchCalls[putIdx]?.init?.body).toBe(
+        JSON.stringify({
+          provider: "azure",
+          account: "acct-two",
+          container: "container-two",
+        }),
+      );
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("rehydrates saved Azure Blob settings into the object-store form", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchMock = mock((input: RequestInfo | URL) => {
+        expect(String(input)).toBe("/install/session");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              completed_steps: ["server", "object_store"],
+              llm: null,
+              server: { canonical_url: "https://fabro.example.com" },
+              object_store: {
+                provider: "azure",
+                account: "acct-one",
+                container: "fabro-data",
+              },
+              github: null,
+              prefill: INSTALL_PREFILL,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/object-store");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/object-store"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Azure Blob");
+      });
+
+      expect(renderer!.root.findByProps({ name: "object_store_account" }).props.value).toBe(
+        "acct-one",
+      );
+      expect(renderer!.root.findByProps({ name: "object_store_container" }).props.value).toBe(
+        "fabro-data",
+      );
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   test("rehydrates saved manual S3 credentials without exposing the secrets", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const originalConsoleError = console.error;

@@ -132,20 +132,57 @@ jobs:
       - name: Resolve live server URL
         run: echo "FABRO_SERVER_URL=$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)" >> "$GITHUB_ENV"
 
+      - name: Wait for Container App rollout
+        run: |
+          for attempt in $(seq 1 30); do
+            READY_REVISION=$(az containerapp show \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$TF_VAR_fabro_server_name" \
+              --query 'properties.latestReadyRevisionName' \
+              -o tsv)
+
+            LATEST_REVISION=$(az containerapp show \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$TF_VAR_fabro_server_name" \
+              --query 'properties.latestRevisionName' \
+              -o tsv)
+
+            if [ -n "$READY_REVISION" ] && [ "$READY_REVISION" = "$LATEST_REVISION" ]; then
+              echo "READY_REVISION=$READY_REVISION" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          printf 'Timed out waiting for an active healthy Container App revision\n' >&2
+          exit 1
+
       - name: Health check
-        run: curl -fsSL "$FABRO_SERVER_URL/health"
+        run: |
+          curl --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            -fsSL "$FABRO_SERVER_URL/health"
 
       # v1 expects the install wizard's GitHub step to use token auth so the
       # operator receives a reusable dev token for CI smoke checks.
       - name: Authenticated API check
+        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
         env:
           FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
-          curl -fsSL \
+          curl --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            -fsSL \
             -H "Authorization: Bearer $FABRO_DEPLOY_DEV_TOKEN" \
             "$FABRO_SERVER_URL/api/v1/models"
 
       - name: Render smoke workflow with deployed sandbox image
+        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
         run: |
           sed \
             "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
@@ -153,9 +190,29 @@ jobs:
             > "$RUNNER_TEMP/azure-deploy-smoke.toml"
 
       - name: Run Azure smoke workflow
+        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
         env:
           FABRO_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
           cargo run -p fabro-cli -- \
             run "$RUNNER_TEMP/azure-deploy-smoke.toml" \
             --server "$FABRO_SERVER_URL/api/v1"
+
+      - name: Deployment summary
+        env:
+          HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
+        run: |
+          {
+            echo "## Azure deploy summary"
+            echo
+            echo "- Ref: \`${{ inputs.ref }}\`"
+            echo "- Deploy ID: \`$DEPLOY_ID\`"
+            echo "- Server image: \`$ACR_SERVER/fabro-server:$DEPLOY_ID\`"
+            echo "- Sandbox image: \`$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\`"
+            echo "- Ready revision: \`${READY_REVISION:-unknown}\`"
+            if [ "$HAS_FABRO_DEPLOY_DEV_TOKEN" = "true" ]; then
+              echo "- Post-deploy authenticated checks: ran"
+            else
+              echo "- Post-deploy authenticated checks: skipped until \`FABRO_DEPLOY_DEV_TOKEN\` is set"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

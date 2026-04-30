@@ -14,3 +14,6 @@
    - `TF_BACKEND_KEY` = `terraform output -raw backend_state_key`
 
 This root is intentionally bootstrap-only. The steady-state environment lives in `terraform/environments/sandbox`.
+
+If you need a fork or a second Azure environment, create a separate backend state key and GitHub environment for it.
+Do not reuse this bootstrap state for two independent deployments unless they are intentionally sharing the same Azure environment.

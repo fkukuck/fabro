@@ -33,3 +33,5 @@ Local Terraform state is no longer the supported production path for this enviro
 - Keep the Container App at one replica.
 - This root owns shared infrastructure and the live `fabro-server` image reference.
 - Workflow-specific Azure sandbox image refs remain owned by the workflow repositories that use them.
+- If you reuse an existing Azure resource group, keep this root's backend and GitHub environment variables pointed at that same environment.
+- For forked testing or a second deployment, create a separate backend state key and resource group instead of sharing this root across unrelated environments.

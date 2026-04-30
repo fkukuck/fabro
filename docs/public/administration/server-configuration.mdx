@@ -222,15 +222,16 @@ prefix = "slatedb"
 root = "/var/lib/fabro/objects"
 ```
 
-The wizard only covers AWS S3 bucket/region plus one of:
-
-- runtime credentials already supplied by the deployment environment
-- manually-entered `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+The wizard covers `Local disk` with one shared on-host directory, `AWS S3` bucket/region with
+either runtime credentials or manually-entered `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY`, and `Azure Blob` storage account + container using the server's runtime
+managed identity.
 
 Advanced S3-compatible settings such as custom `endpoint` or `path_style` remain a manual
 configuration path. If you need MinIO, R2, or another S3-compatible backend, configure
 `[server.slatedb]` and `[server.artifacts]` directly in `settings.toml`. The runtime still
-honors those hand-edited values even though the browser wizard does not manage them.
+honors those hand-edited values even though the browser wizard does not manage those advanced
+S3-compatible options.
 
 ```toml title="Azure Blob object store"
 [server.artifacts]

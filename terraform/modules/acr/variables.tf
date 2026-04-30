@@ -17,7 +17,7 @@ variable "sku" {
 
 variable "admin_enabled" {
   type    = bool
-  default = true
+  default = false
 }
 
 variable "tags" {
