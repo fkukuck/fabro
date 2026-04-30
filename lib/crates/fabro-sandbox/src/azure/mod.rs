@@ -657,8 +657,11 @@ impl Sandbox for AzureSandbox {
         }
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
-        setup_git_via_exec(self, run_id).await.map(Some)
+    async fn setup_git(
+        &self,
+        intent: &crate::GitSetupIntent,
+    ) -> crate::Result<Option<crate::GitRunInfo>> {
+        setup_git_via_exec(self, intent).await.map(Some)
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
@@ -667,8 +670,8 @@ impl Sandbox for AzureSandbox {
         )]
     }
 
-    async fn git_push_branch(&self, branch: &str) -> bool {
-        git_push_via_exec(self, branch).await
+    async fn git_push_ref(&self, refspec: &str) -> crate::Result<()> {
+        git_push_via_exec(self, refspec).await
     }
 
     fn parallel_worktree_path(
