@@ -12,7 +12,7 @@ Azure is a good fit for hosting Fabro when you want Azure-native infrastructure 
 
 This guide documents the supported production path for this repo:
 
-- one-time Terraform bootstrap for GitHub Actions OIDC and remote state
+- one-time Terraform bootstrap for a GitHub Actions user-assigned managed identity and remote state
 - one manual Terraform apply for the shared Azure environment, with no `-target` workaround
 - manual GitHub Actions deploys that build, push, apply immutable ACR images, and verify a no-op follow-up plan
 - runtime configuration completed through the web install wizard and persisted on `/storage`
@@ -37,9 +37,19 @@ This guide documents the supported production path for this repo:
 - Terraform `>= 1.8.0`
 - The latest [`az`](https://learn.microsoft.com/cli/azure/install-azure-cli) CLI
 - Docker with `buildx`
-- A GitHub repository environment named `production`
 
-## 1. Bootstrap GitHub Actions OIDC and remote state
+## Supported greenfield sequence
+
+- create a GitHub environment named `production`
+- copy bootstrap outputs into that environment
+- add the environment-specific Azure naming variables
+- run the first `terraform/environments/sandbox` apply with `fabro_server_enabled = false`
+- trigger `.github/workflows/deploy-azure.yml`
+- complete install using Azure Blob + Azure Container Instances
+- store `FABRO_DEPLOY_DEV_TOKEN`
+- rerun the deploy workflow to exercise authenticated checks and smoke
+
+## 1. Bootstrap GitHub Actions managed identity and remote state
 
 Sign in to Azure first:
 
@@ -63,6 +73,14 @@ Then apply the bootstrap root:
 terraform -chdir=terraform/bootstrap/github_actions init
 terraform -chdir=terraform/bootstrap/github_actions apply
 ```
+
+This root creates the backend resource group, storage account, storage container,
+the GitHub Actions user-assigned managed identity, the GitHub OIDC federated
+credential, and the backend storage access Terraform needs for CI.
+
+The bootstrap root grants the CI identity all backend storage permissions the current
+`azurerm` backend flow needs: `Storage Blob Data Contributor`, `Reader`, and
+`Storage Account Key Operator Service Role` on the backend storage account.
 
 Save these Terraform outputs into the GitHub `production` environment as variables:
 
@@ -96,11 +114,19 @@ terraform -chdir=terraform/environments/sandbox init \
   -backend-config="key=<TF_BACKEND_KEY>"
 ```
 
-For the first apply, keep `fabro_server_enabled = false` and set `github_actions_principal_id` to the bootstrap-created GitHub Actions principal ID so Terraform can grant CI access during greenfield bring-up. Run a normal apply with no `-target` flags:
+Create the GitHub `production` environment before continuing if it does not already
+exist. Then add the bootstrap outputs as environment variables, followed by the
+environment-specific Azure naming variables used by `.github/workflows/deploy-azure.yml`.
+
+For the first apply, keep `fabro_server_enabled = false` and set `github_actions_principal_id` to the bootstrap-created GitHub Actions managed identity principal ID so Terraform can grant CI access during greenfield bring-up. Run a normal apply with no `-target` flags:
 
 ```bash
 terraform -chdir=terraform/environments/sandbox apply
 ```
+
+The first `terraform/environments/sandbox apply` is a required operator step even in the
+managed-identity model. It creates the CI role assignments in the sandbox environment before
+GitHub Actions takes over the steady-state deploy path.
 
 That apply provisions the resource group, networking, storage, ACR, a privileged server identity for `fabro-server`, a separate low-privilege sandbox-pull identity for Azure sandbox image pulls, the role assignment that lets the server attach that sandbox-pull identity to ACI groups, the Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
 
@@ -185,6 +211,7 @@ After install succeeds:
 1. Save the dev token shown by the wizard.
 2. Store it in the GitHub `production` environment as `FABRO_DEPLOY_DEV_TOKEN`.
 3. Use the same workflow for every steady-state deploy.
+4. Rerun `.github/workflows/deploy-azure.yml` so the authenticated API check and Azure smoke workflow execute against the configured deployment.
 
 If the install wizard does not show a dev token, revisit the GitHub step and switch the deployment to the token-based path before relying on CI smoke checks.
 

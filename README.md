@@ -48,18 +48,18 @@ Then run `fabro server start` to finish setup in your browser. The server opens 
 
 ## Key Features
 
-|     | Feature                        | Description                                                                                           |
-| --- | ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| 🔀  | Deterministic workflow graphs  | Define pipelines in Graphviz DOT with branching, loops, parallelism, and human gates. Diffable, reviewable, version-controlled |
-| 🙋  | Human-in-the-loop              | Approval gates pause for human decisions. Steer running agents mid-turn. Interview steps collect structured input |
-| 🎨  | Multi-model routing            | CSS-like stylesheets route each node to the right model and provider, with automatic fallback chains  |
-| ☁️  | Cloud sandboxes                | Run agents in isolated Daytona cloud VMs with snapshot-based setup, network controls, and automatic cleanup |
-| 🔌  | SSH access and preview links   | Shell into running sandboxes with `fabro sandbox ssh` and expose ports with `fabro sandbox preview` for live debugging    |
-| 🌲  | Git checkpointing              | Every stage commits code changes and execution metadata to Git branches. Resume, revert, or trace any change |
-| 📊  | Automatic retros               | Each run generates a retrospective with cost, duration, files touched, and an LLM-written narrative   |
-| ⚡  | Comprehensive API              | REST API with SSE event streaming and a React web UI. Run workflows programmatically or as a service  |
-| 🦀  | Single binary, no runtime      | One compiled Rust executable with zero dependencies. No Python, no Node, no Docker required           |
-| ⚖️  | Open source (MIT)              | Full source code, no vendor lock-in. Self-host, fork, or extend to fit your workflow                  |
+|     | Feature                       | Description                                                                                                                    |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 🔀  | Deterministic workflow graphs | Define pipelines in Graphviz DOT with branching, loops, parallelism, and human gates. Diffable, reviewable, version-controlled |
+| 🙋  | Human-in-the-loop             | Approval gates pause for human decisions. Steer running agents mid-turn. Interview steps collect structured input              |
+| 🎨  | Multi-model routing           | CSS-like stylesheets route each node to the right model and provider, with automatic fallback chains                           |
+| ☁️  | Cloud sandboxes               | Run agents in isolated Daytona cloud VMs with snapshot-based setup, network controls, and automatic cleanup                    |
+| 🔌  | SSH access and preview links  | Shell into running sandboxes with `fabro sandbox ssh` and expose ports with `fabro sandbox preview` for live debugging         |
+| 🌲  | Git checkpointing             | Every stage commits code changes and execution metadata to Git branches. Resume, revert, or trace any change                   |
+| 📊  | Automatic retros              | Each run generates a retrospective with cost, duration, files touched, and an LLM-written narrative                            |
+| ⚡  | Comprehensive API             | REST API with SSE event streaming and a React web UI. Run workflows programmatically or as a service                           |
+| 🦀  | Single binary, no runtime     | One compiled Rust executable with zero dependencies. No Python, no Node, no Docker required                                    |
+| ⚖️  | Open source (MIT)             | Full source code, no vendor lock-in. Self-host, fork, or extend to fit your workflow                                           |
 
 ---
 
@@ -153,6 +153,18 @@ Running Fabro as an HTTP server with the web UI lets a team share one instance. 
 Click a button to provision a Fabro service from this repository. On Railway, attach a Volume at `/storage` so your runs and checkpoints survive redeploys; on Render, the `render.yaml` blueprint provisions a 1 GB disk at `/storage` automatically. The [Railway](https://docs.fabro.sh/administration/deploy-railway) and [Render](https://docs.fabro.sh/administration/deploy-render) deploy guides walk through env vars, accessing the dev token, and pointing the CLI at your deployment.
 
 Prefer to run Fabro elsewhere? See [Running the Fabro Server](https://docs.fabro.sh/administration/deploy-server) for generic Docker guidance and the companion guides for [Fly.io](https://docs.fabro.sh/administration/deploy-fly-io) and [DigitalOcean](https://docs.fabro.sh/administration/deploy-digital-ocean).
+
+---
+
+## Azure + GitHub Setup
+
+For the fully supported Azure deployment path when you have an Azure subscription and admin access to a GitHub repo:
+
+- Start with the canonical guide: [`docs/public/administration/deploy-azure.mdx`](docs/public/administration/deploy-azure.mdx)
+- See the bootstrap-root details: [`terraform/bootstrap/github_actions/README.md`](terraform/bootstrap/github_actions/README.md)
+- See the steady-state environment details: [`terraform/environments/sandbox/README.md`](terraform/environments/sandbox/README.md)
+
+These three documents together describe the greenfield setup path for Azure infrastructure, GitHub `production` environment configuration, first deploy, install, and steady-state redeploys.
 
 ---
 
