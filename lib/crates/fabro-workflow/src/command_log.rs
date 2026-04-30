@@ -100,6 +100,15 @@ impl CommandLogRecorder {
         })
     }
 
+    pub async fn discard(self: Arc<Self>) -> Result<()> {
+        self.flush_all().await?;
+        let stdout_path = self.stdout_path.clone();
+        let stderr_path = self.stderr_path.clone();
+        drop(self);
+        remove_if_exists(&stdout_path).await?;
+        remove_if_exists(&stderr_path).await
+    }
+
     pub fn stdout_bytes(&self) -> u64 {
         self.stdout_bytes.load(Ordering::Relaxed)
     }
@@ -184,6 +193,17 @@ async fn read_lossy_text(path: &Path) -> Result<String> {
         .await
         .map_err(|err| Error::Io(format!("reading command log {}: {err}", path.display())))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+async fn remove_if_exists(path: &Path) -> Result<()> {
+    match fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(Error::Io(format!(
+            "removing command log {}: {err}",
+            path.display()
+        ))),
+    }
 }
 
 async fn write_json_string_blob(run_store: &RunStoreHandle, text: &str) -> Result<String> {

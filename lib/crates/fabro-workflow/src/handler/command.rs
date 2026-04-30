@@ -139,8 +139,13 @@ impl Handler for CommandHandler {
         if let Some(token) = cancel_token {
             token.cancel();
         }
-        let streaming =
-            result.map_err(|e| Error::handler(format!("Failed to spawn script: {e}")))?;
+        let streaming = match result {
+            Ok(streaming) => streaming,
+            Err(err) => {
+                recorder.discard().await?;
+                return Err(Error::handler(format!("Failed to spawn script: {err}")));
+            }
+        };
         let result = streaming.result;
         let finalized = recorder.finalize(&services.run.run_store).await?;
 
@@ -161,9 +166,9 @@ impl Handler for CommandHandler {
         );
 
         if result.timed_out {
-            return Err(Error::handler(format!(
-                "Script timed out after {timeout_ms}ms: {script}",
-            )));
+            let mut reason = format!("Script timed out after {timeout_ms}ms: {script}");
+            append_output_tails(&mut reason, &finalized.stdout_text, &finalized.stderr_text);
+            return Err(Error::handler(reason));
         }
 
         if result.exit_code == 0 {
@@ -180,16 +185,7 @@ impl Handler for CommandHandler {
             Ok(outcome)
         } else {
             let mut reason = format!("Script failed with exit code: {}", result.exit_code);
-            let stdout_tail = tail_bytes(&finalized.stdout_text, 4096);
-            let stderr_tail = tail_bytes(&finalized.stderr_text, 4096);
-            if !stdout_tail.trim().is_empty() {
-                reason.push_str("\n\n## stdout\n");
-                reason.push_str(&stdout_tail);
-            }
-            if !stderr_tail.trim().is_empty() {
-                reason.push_str("\n\n## stderr\n");
-                reason.push_str(&stderr_tail);
-            }
+            append_output_tails(&mut reason, &finalized.stdout_text, &finalized.stderr_text);
             let mut outcome = Outcome::fail_classify(reason);
             outcome.context_updates.insert(
                 keys::COMMAND_OUTPUT.to_string(),
@@ -201,6 +197,19 @@ impl Handler for CommandHandler {
             );
             Ok(outcome)
         }
+    }
+}
+
+fn append_output_tails(reason: &mut String, stdout: &str, stderr: &str) {
+    let stdout_tail = tail_bytes(stdout, 4096);
+    let stderr_tail = tail_bytes(stderr, 4096);
+    if !stdout_tail.trim().is_empty() {
+        reason.push_str("\n\n## stdout\n");
+        reason.push_str(&stdout_tail);
+    }
+    if !stderr_tail.trim().is_empty() {
+        reason.push_str("\n\n## stderr\n");
+        reason.push_str(&stderr_tail);
     }
 }
 
@@ -224,11 +233,12 @@ mod tests {
     use bytes::Bytes;
     use fabro_graphviz::graph::AttrValue;
     use fabro_store::{Database, RunDatabase, StageId};
-    use fabro_types::fixtures;
+    use fabro_types::{CommandOutputStream, fixtures};
     use object_store::memory::InMemory;
     use tokio::sync::Mutex;
 
     use super::*;
+    use crate::command_log::command_log_path;
     use crate::outcome::StageOutcome;
     use crate::runtime_store::{RunStoreBackend, RunStoreHandle};
 
@@ -835,6 +845,7 @@ mod tests {
     /// spawning a host process.
     struct SpySandbox {
         exec_result:           fabro_agent::sandbox::ExecResult,
+        exec_error:            Option<String>,
         captured_command:      std::sync::Mutex<Option<String>>,
         captured_env_vars:     std::sync::Mutex<Option<std::collections::HashMap<String, String>>>,
         captured_cancel_token: std::sync::Mutex<Option<bool>>,
@@ -844,8 +855,25 @@ mod tests {
         fn new(exec_result: fabro_agent::sandbox::ExecResult) -> Self {
             Self {
                 exec_result,
+                exec_error: None,
                 captured_command: std::sync::Mutex::new(None),
                 captured_env_vars: std::sync::Mutex::new(None),
+                captured_cancel_token: std::sync::Mutex::new(None),
+            }
+        }
+
+        fn fail(message: impl Into<String>) -> Self {
+            Self {
+                exec_result:           fabro_agent::sandbox::ExecResult {
+                    stdout:      String::new(),
+                    stderr:      String::new(),
+                    exit_code:   -1,
+                    timed_out:   false,
+                    duration_ms: 0,
+                },
+                exec_error:            Some(message.into()),
+                captured_command:      std::sync::Mutex::new(None),
+                captured_env_vars:     std::sync::Mutex::new(None),
                 captured_cancel_token: std::sync::Mutex::new(None),
             }
         }
@@ -892,6 +920,9 @@ mod tests {
             *self.captured_command.lock().unwrap() = Some(command.to_string());
             *self.captured_env_vars.lock().unwrap() = env_vars.cloned();
             *self.captured_cancel_token.lock().unwrap() = Some(cancel_token.is_some());
+            if let Some(message) = self.exec_error.as_ref() {
+                return Err(fabro_sandbox::Error::message(message.clone()));
+            }
             Ok(self.exec_result.clone())
         }
         async fn grep(
@@ -1092,6 +1123,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn script_handler_timeout_error_includes_output_tails() {
+        let spy = std::sync::Arc::new(SpySandbox::new(fabro_agent::sandbox::ExecResult {
+            stdout:      "partial stdout\n".into(),
+            stderr:      "partial stderr\n".into(),
+            exit_code:   -1,
+            timed_out:   true,
+            duration_ms: 50,
+        }));
+
+        let handler = CommandHandler;
+        let mut node = Node::new("script_node");
+        node.attrs.insert(
+            "script".to_string(),
+            AttrValue::String("sleep 10".to_string()),
+        );
+        let context = Context::new();
+        let graph = Graph::new("test");
+        let run_dir = tempfile::tempdir().unwrap();
+
+        let err = handler
+            .execute(
+                &node,
+                &context,
+                &graph,
+                run_dir.path(),
+                &make_spy_services(spy),
+            )
+            .await
+            .unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("timed out"), "got: {message}");
+        assert!(
+            message.contains("partial stdout"),
+            "timeout error should include stdout tail, got: {message}"
+        );
+        assert!(
+            message.contains("partial stderr"),
+            "timeout error should include stderr tail, got: {message}"
+        );
+    }
+
+    #[tokio::test]
     async fn tool_output_context_key_not_emitted() {
         let handler = CommandHandler;
         let mut node = Node::new("script_node");
@@ -1152,17 +1226,32 @@ mod tests {
 
     #[tokio::test]
     async fn script_handler_spawn_failure() {
-        // Spawn failures (binary not found) return Err, not Ok(Fail).
-        // We trigger a real spawn failure by using language="python" and
-        // pointing to a nonexistent interpreter via a wrapper that replaces
-        // the command. Since CommandHandler hardcodes "python3", we instead
-        // create a minimal reproduction: a directory where "python3" is not
-        // executable, won't work without PATH manipulation.
-        //
-        // Pragmatic approach: verify the error construction matches what the
-        // handler produces. The timeout test covers the other Err path.
-        let err = Error::handler(format!("Failed to spawn script: {}", "No such file"));
+        let handler = CommandHandler;
+        let mut node = Node::new("script_node");
+        node.attrs.insert(
+            "script".to_string(),
+            AttrValue::String("echo hello".to_string()),
+        );
+        let context = Context::new();
+        let graph = Graph::new("test");
+        let run_dir = tempfile::tempdir().unwrap();
+        let services = make_spy_services(std::sync::Arc::new(SpySandbox::fail("No such file")));
+
+        let err = handler
+            .execute(&node, &context, &graph, run_dir.path(), &services)
+            .await
+            .unwrap_err();
+
         assert!(err.to_string().contains("Failed to spawn script"));
+        let stage_id = StageId::new("script_node", 1);
+        assert!(
+            !command_log_path(run_dir.path(), &stage_id, CommandOutputStream::Stdout).exists(),
+            "spawn failure should remove pre-created stdout scratch log"
+        );
+        assert!(
+            !command_log_path(run_dir.path(), &stage_id, CommandOutputStream::Stderr).exists(),
+            "spawn failure should remove pre-created stderr scratch log"
+        );
     }
 
     #[tokio::test]
