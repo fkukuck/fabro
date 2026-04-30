@@ -295,13 +295,13 @@ impl SandboxEvent {
                 error!(provider, error, causes = ?causes, duration_ms, "Sandbox init failed");
             }
             Self::CleanupStarted { provider } => {
-                debug!(provider, "Sandbox cleanup started");
+                info!(provider, "Sandbox cleanup started");
             }
             Self::CleanupCompleted {
                 provider,
                 duration_ms,
             } => {
-                debug!(provider, duration_ms, "Sandbox cleanup completed");
+                info!(provider, duration_ms, "Sandbox cleanup completed");
             }
             Self::CleanupFailed {
                 provider,

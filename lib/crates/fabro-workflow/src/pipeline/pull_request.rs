@@ -349,7 +349,7 @@ async fn build_pr_body_with_client_and_state(
     client: Arc<Client>,
     run_state: Option<&fabro_store::RunProjection>,
 ) -> Result<String, String> {
-    debug!("Building PR body");
+    info!("Building PR body");
 
     let loaded_run_state = if run_state.is_none() {
         run_store

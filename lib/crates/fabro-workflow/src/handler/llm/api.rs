@@ -460,7 +460,7 @@ impl CodergenBackend for AgentApiBackend {
             )
         };
 
-        tracing::debug!(
+        tracing::info!(
             node = %node.id,
             fidelity = %fidelity,
             reused = is_reused,

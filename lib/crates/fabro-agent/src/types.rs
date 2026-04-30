@@ -268,7 +268,7 @@ impl AgentEvent {
                 tool_call_id,
                 ..
             } => {
-                debug!(
+                info!(
                     session_id,
                     tool = tool_name.as_str(),
                     tool_call_id,
@@ -281,7 +281,7 @@ impl AgentEvent {
                 is_error,
                 ..
             } => {
-                debug!(
+                info!(
                     session_id,
                     tool = tool_name.as_str(),
                     tool_call_id,

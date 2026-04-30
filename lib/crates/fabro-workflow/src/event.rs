@@ -715,7 +715,7 @@ impl Event {
                 duration_ms,
                 ..
             } => {
-                debug!(%phase, branch, duration_ms, "Metadata snapshot completed");
+                info!(%phase, branch, duration_ms, "Metadata snapshot completed");
             }
             Self::MetadataSnapshotFailed {
                 phase,
@@ -743,7 +743,7 @@ impl Event {
                 max_attempts,
                 ..
             } => {
-                debug!(
+                info!(
                     node_id,
                     stage = name.as_str(),
                     index,
@@ -763,7 +763,7 @@ impl Event {
                 max_attempts,
                 ..
             } => {
-                debug!(
+                info!(
                     node_id,
                     stage = name.as_str(),
                     index,
@@ -888,7 +888,7 @@ impl Event {
                 completed_nodes,
                 ..
             } => {
-                debug!(
+                info!(
                     node_id,
                     status,
                     completed_count = completed_nodes.len(),
@@ -937,7 +937,7 @@ impl Event {
                 reason,
                 ..
             } => {
-                debug!(
+                info!(
                     from_node,
                     to_node,
                     label = label.as_deref().unwrap_or(""),

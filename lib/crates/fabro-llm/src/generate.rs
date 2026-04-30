@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::client::Client;
 use crate::error::Error;
@@ -492,7 +492,7 @@ impl StreamAccumulator {
                 self.finish_reason = Some(finish_reason.clone());
                 self.usage = Some(usage.clone());
                 self.response = Some(*response.clone());
-                debug!(
+                info!(
                     model = %response.model,
                     input_tokens = response.usage.input_tokens,
                     output_tokens = response.usage.output_tokens,

@@ -612,7 +612,7 @@ pub async fn create_pull_request_with_client(
         )
         .await?;
 
-    tracing::debug!(title = %title, head = %head, base = %base, draft, "Creating pull request");
+    tracing::info!(title = %title, head = %head, base = %base, draft, "Creating pull request");
 
     let pr_body = serde_json::json!({
         "title": title,

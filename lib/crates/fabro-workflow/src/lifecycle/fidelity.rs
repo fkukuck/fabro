@@ -209,7 +209,7 @@ fn resolve_fidelity(
         (keys::Fidelity::default(), "default")
     };
 
-    tracing::debug!(
+    tracing::info!(
         node = %node.id,
         fidelity = %resolved,
         source = source,
