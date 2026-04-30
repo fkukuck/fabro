@@ -100,6 +100,11 @@ jobs:
             echo "TF_VAR_github_actions_principal_id=${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
           } >> "$GITHUB_ENV"
 
+      - name: Validate Terraform configuration
+        run: |
+          terraform -chdir=terraform/environments/sandbox init -backend=false -reconfigure
+          terraform -chdir=terraform/environments/sandbox validate
+
       - name: Init Terraform backend
         run: |
           terraform -chdir=terraform/environments/sandbox init \
@@ -107,9 +112,6 @@ jobs:
             -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
             -backend-config="key=${{ vars.TF_BACKEND_KEY }}"
-
-      - name: Validate Terraform configuration
-        run: terraform -chdir=terraform/environments/sandbox validate
 
       - name: Compute deploy metadata
         run: |
