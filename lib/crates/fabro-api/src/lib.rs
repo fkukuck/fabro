@@ -28,9 +28,9 @@ pub mod types {
         BlockedReason, FailureReason, RunControlAction, RunStatus, SuccessReason, TerminalStatus,
     };
     pub use fabro_types::{
-        ActorKind, ActorRef, DiffStats, DirtyStatus, GitContext, InterviewOption,
+        ActorKind, ActorRef, DiffStats, DirtyStatus, EventEnvelope, GitContext, InterviewOption,
         InterviewQuestionRecord, NodeState, NodeStatusRecord, PendingInterviewRecord,
-        PreRunPushOutcome, QuestionType, RepositoryReference, RunProjection, RunSummary,
+        PreRunPushOutcome, QuestionType, RepositoryReference, RunEvent, RunProjection, RunSummary,
         SecretMetadata, SecretType, ServerSettings, StageStatus as InternalStageStatus,
         WorkflowSettings,
     };

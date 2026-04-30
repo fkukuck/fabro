@@ -328,6 +328,8 @@ fn main() {
             &[],
         ),
         ("RunProjection", "fabro_types::RunProjection", &[]),
+        ("RunEvent", "fabro_types::RunEvent", &[]),
+        ("EventEnvelope", "fabro_types::EventEnvelope", &[]),
         ("PullRequestRecord", "fabro_types::PullRequestRecord", &[]),
         ("PullRequestDetail", "fabro_types::PullRequestDetail", &[]),
         ("PullRequestUser", "fabro_types::PullRequestUser", &[]),

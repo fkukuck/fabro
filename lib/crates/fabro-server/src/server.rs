@@ -28,16 +28,15 @@ pub use fabro_api::types::{
     BillingStageRef, CloseRunPullRequestResponse, CompletionContentPart, CompletionMessage,
     CompletionMessageRole, CompletionResponse, CompletionToolChoiceMode, CompletionUsage,
     CreateCompletionRequest, CreateRunPullRequestRequest, CreateSecretRequest, DeleteSecretRequest,
-    DiskUsageResponse, DiskUsageRunRow, DiskUsageSummaryRow, EventEnvelope as ApiEventEnvelope,
-    ForkRequest, ForkResponse, MergeRunPullRequestRequest, MergeRunPullRequestResponse,
-    ModelReference, PaginatedEventList, PaginatedRunList, PaginationMeta, PreflightResponse,
-    PreviewUrlRequest, PreviewUrlResponse, PruneRunEntry, PruneRunsRequest, PruneRunsResponse,
-    RenderWorkflowGraphDirection, RenderWorkflowGraphRequest, RewindRequest, RewindResponse,
-    RunArtifactEntry, RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals,
-    RunError, RunManifest, RunStage, RunStatusResponse, SandboxFileEntry, SandboxFileListResponse,
-    SshAccessRequest, SshAccessResponse, StageStatus as ApiStageStatus, StartRunRequest,
-    SubmitAnswerRequest, SystemFeatures, SystemInfoResponse, SystemRunCounts,
-    TimelineEntryResponse, WriteBlobResponse,
+    DiskUsageResponse, DiskUsageRunRow, DiskUsageSummaryRow, ForkRequest, ForkResponse,
+    MergeRunPullRequestRequest, MergeRunPullRequestResponse, ModelReference, PaginatedEventList,
+    PaginatedRunList, PaginationMeta, PreflightResponse, PreviewUrlRequest, PreviewUrlResponse,
+    PruneRunEntry, PruneRunsRequest, PruneRunsResponse, RenderWorkflowGraphDirection,
+    RenderWorkflowGraphRequest, RewindRequest, RewindResponse, RunArtifactEntry,
+    RunArtifactListResponse, RunBilling, RunBillingStage, RunBillingTotals, RunError, RunManifest,
+    RunStage, RunStatusResponse, SandboxFileEntry, SandboxFileListResponse, SshAccessRequest,
+    SshAccessResponse, StageStatus as ApiStageStatus, StartRunRequest, SubmitAnswerRequest,
+    SystemFeatures, SystemInfoResponse, SystemRunCounts, TimelineEntryResponse, WriteBlobResponse,
 };
 use fabro_auth::{
     CredentialSource, VaultCredentialSource, auth_issue_message, parse_credential_secret,
@@ -3380,30 +3379,6 @@ fn octet_stream_response(bytes: Bytes) -> Response {
         .into_response()
 }
 
-#[allow(
-    clippy::result_large_err,
-    reason = "Stored event conversion surfaces HTTP errors directly."
-)]
-fn api_event_envelope_from_store(event: &EventEnvelope) -> Result<ApiEventEnvelope, Response> {
-    let mut obj = event.event.to_value().map_err(|err| {
-        ApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to serialize stored event: {err}"),
-        )
-        .into_response()
-    })?;
-    if let serde_json::Value::Object(ref mut map) = obj {
-        map.insert("seq".into(), serde_json::Value::from(event.seq));
-    }
-    serde_json::from_value(obj).map_err(|err| {
-        ApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to deserialize stored event: {err}"),
-        )
-        .into_response()
-    })
-}
-
 fn clear_live_run_state(run: &mut ManagedRun) {
     run.answer_transport = None;
     run.accepted_questions.clear();
@@ -5778,16 +5753,8 @@ async fn list_run_events(
             Ok(mut events) => {
                 let has_more = events.len() > limit;
                 events.truncate(limit);
-                let mut data = Vec::with_capacity(events.len());
-                for event in events {
-                    let event = match api_event_envelope_from_store(&event) {
-                        Ok(event) => event,
-                        Err(response) => return response,
-                    };
-                    data.push(event);
-                }
                 Json(PaginatedEventList {
-                    data,
+                    data: events,
                     meta: PaginationMeta { has_more },
                 })
                 .into_response()
