@@ -34,9 +34,9 @@ pub use fabro_api::types::{
     PruneRunsRequest, PruneRunsResponse, RenderWorkflowGraphDirection, RenderWorkflowGraphRequest,
     RewindRequest, RewindResponse, RunArtifactEntry, RunArtifactListResponse, RunBilling,
     RunBillingStage, RunBillingTotals, RunError, RunManifest, RunStage, RunStatusResponse,
-    SandboxFileEntry, SandboxFileListResponse, SshAccessRequest, SshAccessResponse,
-    StageStatus as ApiStageStatus, StartRunRequest, SubmitAnswerRequest, SystemFeatures,
-    SystemInfoResponse, SystemRunCounts, TimelineEntryResponse, WriteBlobResponse,
+    SandboxFileEntry, SandboxFileListResponse, SshAccessRequest, SshAccessResponse, StageState,
+    StartRunRequest, SubmitAnswerRequest, SystemFeatures, SystemInfoResponse, SystemRunCounts,
+    TimelineEntryResponse, WriteBlobResponse,
 };
 use fabro_auth::{
     CredentialSource, VaultCredentialSource, auth_issue_message, parse_credential_secret,
@@ -2149,6 +2149,27 @@ async fn openapi_spec() -> Response {
     Json(value).into_response()
 }
 
+fn active_stage_state_from_events(events: &[EventEnvelope], node_id: &str) -> StageState {
+    let latest_stage_event = events.iter().rev().find_map(|envelope| {
+        let event = &envelope.event;
+        if event.node_id.as_deref() == Some(node_id) {
+            match event.event_name() {
+                "stage.retrying" | "stage.started" | "stage.completed" | "stage.failed" => {
+                    Some(event.event_name())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+
+    match latest_stage_event {
+        Some("stage.retrying") => StageState::Retrying,
+        _ => StageState::Running,
+    }
+}
+
 async fn get_aggregate_billing(
     _auth: AuthenticatedService,
     State(state): State<Arc<AppState>>,
@@ -2249,29 +2270,19 @@ async fn list_run_stages(
             .into_response();
     };
 
-    // Get durations from events.
-    let stage_durations = match state.store.open_run_reader(&id).await {
-        Ok(run_store) => match run_store.list_events().await {
-            Ok(events) => fabro_workflow::extract_stage_durations_from_events(&events),
-            Err(_) => HashMap::new(),
-        },
-        Err(_) => HashMap::new(),
+    // Get durations and active retrying state from events.
+    let events = match state.store.open_run_reader(&id).await {
+        Ok(run_store) => run_store.list_events().await.unwrap_or_default(),
+        Err(_) => Vec::new(),
     };
+    let stage_durations = fabro_workflow::extract_stage_durations_from_events(&events);
 
     let mut stages = Vec::new();
     for node_id in &checkpoint.completed_nodes {
         let duration_ms = stage_durations.get(node_id).copied().unwrap_or(0);
         let status = match checkpoint.node_outcomes.get(node_id) {
-            Some(outcome) => {
-                use fabro_types::outcome::StageStatus;
-                match outcome.status {
-                    StageStatus::Success | StageStatus::PartialSuccess => ApiStageStatus::Completed,
-                    StageStatus::Fail => ApiStageStatus::Failed,
-                    StageStatus::Skipped => ApiStageStatus::Cancelled,
-                    StageStatus::Retry => ApiStageStatus::Pending,
-                }
-            }
-            None => ApiStageStatus::Completed,
+            Some(outcome) => StageState::from(outcome.status),
+            None => StageState::Succeeded,
         };
         stages.push(RunStage {
             id: node_id.clone(),
@@ -2290,7 +2301,7 @@ async fn list_run_stages(
             stages.push(RunStage {
                 id:            next_id.clone(),
                 name:          next_id.clone(),
-                status:        ApiStageStatus::Running,
+                status:        active_stage_state_from_events(&events, next_id),
                 duration_secs: None,
                 dot_id:        Some(next_id.clone()),
             });
@@ -5469,16 +5480,11 @@ impl<'a> RunPrInputs<'a> {
                 "run_not_finished",
             )
         })?;
-        if !force
-            && !matches!(
-                conclusion.status,
-                fabro_types::StageStatus::Success | fabro_types::StageStatus::PartialSuccess
-            )
-        {
+        if !force && !conclusion.status.is_successful() {
             return Err(ApiError::with_code(
                 StatusCode::BAD_REQUEST,
                 format!(
-                    "Run status is '{}', expected success or partial_success",
+                    "Run status is '{}', expected succeeded or partially_succeeded",
                     conclusion.status
                 ),
                 "run_not_successful",
@@ -8041,8 +8047,8 @@ mod tests {
     use fabro_model::Provider;
     use fabro_types::settings::ServerAuthMethod;
     use fabro_types::{
-        AttrValue, Graph, InterviewQuestionRecord, QuestionType, RunAuthMethod, RunBlobId, RunId,
-        RunSpec, fixtures,
+        AttrValue, FailureCategory, FailureDetail, Graph, InterviewQuestionRecord, Outcome,
+        QuestionType, RunAuthMethod, RunBlobId, RunId, RunSpec, StageOutcome, fixtures,
     };
     use httpmock::Method::POST;
     use httpmock::MockServer;
@@ -9650,6 +9656,162 @@ allowed_usernames = ["octocat"]
         }
     }
 
+    fn stage_status<'a>(body: &'a serde_json::Value, id: &str) -> &'a str {
+        body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|stage| stage["id"] == id)
+            .and_then(|stage| stage["status"].as_str())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn list_run_stages_projects_retrying_until_completion() {
+        let state = create_app_state_with_isolated_storage();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = RunId::new();
+
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+            workflow_event::Event::StageStarted {
+                node_id:      "work".to_string(),
+                name:         "Work".to_string(),
+                index:        1,
+                handler_type: "command".to_string(),
+                attempt:      1,
+                max_attempts: 3,
+            },
+            workflow_event::Event::StageFailed {
+                node_id:     "work".to_string(),
+                name:        "Work".to_string(),
+                index:       1,
+                failure:     FailureDetail::new("try again", FailureCategory::TransientInfra),
+                will_retry:  true,
+                duration_ms: 10,
+            },
+            workflow_event::Event::StageRetrying {
+                node_id:      "work".to_string(),
+                name:         "Work".to_string(),
+                index:        1,
+                attempt:      2,
+                max_attempts: 3,
+                delay_ms:     100,
+            },
+        ])
+        .await;
+
+        let mut node_outcomes = HashMap::new();
+        node_outcomes.insert("setup".to_string(), Outcome::success());
+        let mut checkpoint = Checkpoint {
+            timestamp: Utc::now(),
+            current_node: "setup".to_string(),
+            completed_nodes: vec!["setup".to_string()],
+            node_retries: HashMap::new(),
+            context_values: HashMap::new(),
+            node_outcomes,
+            next_node_id: Some("work".to_string()),
+            git_commit_sha: None,
+            loop_failure_signatures: HashMap::new(),
+            restart_failure_signatures: HashMap::new(),
+            node_visits: HashMap::new(),
+        };
+
+        let run_dir = std::env::temp_dir().join(format!("fabro-server-test-{run_id}"));
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let mut managed = managed_run(
+            MINIMAL_DOT.to_string(),
+            RunStatus::Running,
+            Utc::now(),
+            run_dir,
+            RunExecutionMode::Start,
+        );
+        managed.checkpoint = Some(checkpoint.clone());
+        state
+            .runs
+            .lock()
+            .expect("runs lock poisoned")
+            .insert(run_id, managed);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(api(&format!("/runs/{run_id}/stages")))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response_json!(response, StatusCode::OK).await;
+        assert_eq!(stage_status(&body, "setup"), "succeeded");
+        assert_eq!(stage_status(&body, "work"), "retrying");
+
+        let mut work_outcome = Outcome::success();
+        work_outcome.status = StageOutcome::PartiallySucceeded;
+        checkpoint.completed_nodes.push("work".to_string());
+        checkpoint
+            .node_outcomes
+            .insert("work".to_string(), work_outcome);
+        checkpoint.current_node = "work".to_string();
+        checkpoint.next_node_id = Some("exit".to_string());
+        state
+            .runs
+            .lock()
+            .expect("runs lock poisoned")
+            .get_mut(&run_id)
+            .unwrap()
+            .checkpoint = Some(checkpoint);
+
+        let run_store = state.store.open_run(&run_id).await.unwrap();
+        workflow_event::append_event(
+            &run_store,
+            &run_id,
+            &workflow_event::Event::StageCompleted {
+                node_id: "work".to_string(),
+                name: "Work".to_string(),
+                index: 1,
+                duration_ms: 25,
+                status: "partially_succeeded".to_string(),
+                preferred_label: None,
+                suggested_next_ids: Vec::new(),
+                billing: None,
+                failure: None,
+                notes: None,
+                files_touched: Vec::new(),
+                context_updates: None,
+                jump_to_node: None,
+                context_values: None,
+                node_visits: None,
+                loop_failure_signatures: None,
+                restart_failure_signatures: None,
+                response: None,
+                attempt: 2,
+                max_attempts: 3,
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(api(&format!("/runs/{run_id}/stages")))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response_json!(response, StatusCode::OK).await;
+        assert_eq!(stage_status(&body, "work"), "partially_succeeded");
+    }
+
     async fn append_raw_run_event(
         state: &Arc<AppState>,
         run_id: RunId,
@@ -9873,7 +10035,7 @@ strategy = "token"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          1,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,
@@ -12519,7 +12681,7 @@ slug = "fabro"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          1000,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,
@@ -13807,7 +13969,7 @@ provider = "local"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          1000,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,
@@ -13888,7 +14050,7 @@ provider = "local"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          1000,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,

@@ -69,7 +69,7 @@ async fn append_completed_run_with_final_patch(
         &workflow_event::Event::WorkflowRunCompleted {
             duration_ms:          1,
             artifact_count:       0,
-            status:               "success".to_string(),
+            status:               "succeeded".to_string(),
             reason:               SuccessReason::Completed,
             total_usd_micros:     None,
             final_git_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
