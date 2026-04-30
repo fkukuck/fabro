@@ -46,6 +46,11 @@ pub struct Model {
     pub aliases:              Vec<String>,
     #[serde(default)]
     pub default:              bool,
+    /// Whether the server has any credential configured for this model's
+    /// provider at the time of the response. Always `false` in static catalog
+    /// data; populated by `GET /models` per request.
+    #[serde(default)]
+    pub configured:           bool,
 }
 
 impl Model {

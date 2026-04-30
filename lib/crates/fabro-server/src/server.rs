@@ -7418,7 +7418,7 @@ async fn synchronous_transition(
 
 async fn list_models(
     _auth: AuthenticatedService,
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ModelListParams>,
 ) -> Response {
     let provider = match params.provider.as_deref() {
@@ -7438,6 +7438,12 @@ async fn list_models(
     let query = params.query.as_ref().map(|value| value.to_lowercase());
     let limit = params.limit.clamp(1, 100) as usize;
     let offset = params.offset.min(MAX_PAGE_OFFSET) as usize;
+    let configured: HashSet<Provider> = state
+        .llm_source
+        .configured_providers()
+        .await
+        .into_iter()
+        .collect();
 
     let mut models = fabro_model::Catalog::builtin()
         .list(provider)
@@ -7454,6 +7460,10 @@ async fn list_models(
             None => true,
         })
         .cloned()
+        .map(|mut model| {
+            model.configured = configured.contains(&model.provider);
+            model
+        })
         .collect::<Vec<_>>();
 
     let has_more = models.len() > offset.saturating_add(limit);
@@ -10165,6 +10175,70 @@ strategy = "token"
             "gpt-5.3-codex".to_string(),
             "gpt-5.3-codex-spark".to_string()
         ]);
+    }
+
+    #[tokio::test]
+    async fn list_models_marks_configured_true_when_provider_has_credential_material() {
+        let state = create_app_state_with_env_lookup(
+            default_test_server_settings(),
+            RunLayer::default(),
+            5,
+            |name| (name == EnvVars::ANTHROPIC_API_KEY).then(|| "test-key".to_string()),
+        );
+        let app = build_router(state, AuthMode::Disabled);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api("/models"))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        let body = response_json!(response, StatusCode::OK).await;
+        let models = body["data"].as_array().unwrap();
+
+        assert!(models.iter().any(|model| model["provider"] != "anthropic"));
+        assert!(models.iter().any(|model| model["provider"] == "anthropic"));
+        assert!(
+            models
+                .iter()
+                .filter(|model| model["provider"] == "anthropic")
+                .all(|model| model["configured"].as_bool() == Some(true))
+        );
+        assert!(
+            models
+                .iter()
+                .filter(|model| model["provider"] != "anthropic")
+                .all(|model| model["configured"].as_bool() == Some(false))
+        );
+    }
+
+    #[tokio::test]
+    async fn list_models_marks_configured_false_when_no_credential_material() {
+        let state = create_app_state_with_env_lookup(
+            default_test_server_settings(),
+            RunLayer::default(),
+            5,
+            |_| None,
+        );
+        let app = build_router(state, AuthMode::Disabled);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api("/models"))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        let body = response_json!(response, StatusCode::OK).await;
+        let models = body["data"].as_array().unwrap();
+
+        assert!(!models.is_empty());
+        assert!(
+            models
+                .iter()
+                .all(|model| model["configured"].as_bool() == Some(false))
+        );
     }
 
     #[tokio::test]

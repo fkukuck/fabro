@@ -1,5 +1,6 @@
 use assert_cmd::Command;
-use fabro_test::{fabro_snapshot, test_context};
+use fabro_test::{TestContext, fabro_snapshot, test_context};
+use httpmock::MockServer;
 
 fn remove_provider_env(cmd: &mut Command) -> &mut Command {
     cmd.env_remove("ANTHROPIC_API_KEY")
@@ -10,6 +11,61 @@ fn remove_provider_env(cmd: &mut Command) -> &mut Command {
         .env_remove("ZAI_API_KEY")
         .env_remove("MINIMAX_API_KEY")
         .env_remove("INCEPTION_API_KEY")
+}
+
+fn configure_server_target(context: &TestContext, server: &MockServer) {
+    context.write_home(
+        ".fabro/settings.toml",
+        format!(
+            "_version = 1\n\n[cli.target]\ntype = \"http\"\nurl = \"{}/api/v1\"\n",
+            server.base_url()
+        ),
+    );
+}
+
+fn model_json(id: &str, provider: &str, configured: bool) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "display_name": id,
+        "provider": provider,
+        "family": "test",
+        "aliases": [],
+        "limits": {
+            "context_window": 131_072,
+            "max_output": 4096
+        },
+        "training": null,
+        "knowledge_cutoff": null,
+        "features": {
+            "tools": true,
+            "vision": false,
+            "reasoning": false,
+            "effort": false
+        },
+        "costs": {
+            "input_cost_per_mtok": 1.0,
+            "output_cost_per_mtok": 2.0,
+            "cache_input_cost_per_mtok": null
+        },
+        "estimated_output_tps": 42.0,
+        "default": false,
+        "configured": configured
+    })
+}
+
+fn mock_model_list(
+    server: &MockServer,
+    models: impl IntoIterator<Item = serde_json::Value>,
+) -> httpmock::Mock<'_> {
+    server.mock(|when, then| {
+        when.method("GET").path("/api/v1/models");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "data": models.into_iter().collect::<Vec<_>>(),
+                "meta": { "has_more": false }
+            }));
+    })
 }
 
 #[test]
@@ -122,4 +178,172 @@ fn json_output_includes_skipped_models() {
     assert_eq!(json["failures"], 1);
     assert_eq!(json["skipped"], 1);
     assert_eq!(json["results"][0]["result"], "skip");
+}
+
+#[test]
+fn model_test_does_not_announce_unconfigured() {
+    let context = test_context!();
+    let server = MockServer::start();
+    configure_server_target(&context, &server);
+    let list = mock_model_list(&server, [
+        model_json("claude-opus-4-7", "anthropic", true),
+        model_json("gpt-5.2", "openai", false),
+    ]);
+    let configured_test = server.mock(|when, then| {
+        when.method("POST")
+            .path("/api/v1/models/claude-opus-4-7/test");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "model_id": "claude-opus-4-7",
+                "status": "ok"
+            }));
+    });
+    let unconfigured_test = server.mock(|when, then| {
+        when.method("POST").path("/api/v1/models/gpt-5.2/test");
+        then.status(500)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "errors": [{
+                    "status": "500",
+                    "title": "should not be called"
+                }]
+            }));
+    });
+
+    let mut cmd = context.command();
+    cmd.args(["model", "test"]);
+    let output = cmd.output().expect("command should execute");
+
+    assert!(
+        output.status.success(),
+        "model test should succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Testing claude-opus-4-7..."));
+    assert!(!stderr.contains("Testing gpt-5.2..."));
+    list.assert();
+    configured_test.assert();
+    unconfigured_test.assert_calls(0);
+}
+
+#[test]
+fn model_test_skipped_footer_sources_from_listing() {
+    let context = test_context!();
+    let server = MockServer::start();
+    configure_server_target(&context, &server);
+    mock_model_list(&server, [
+        model_json("claude-opus-4-7", "anthropic", true),
+        model_json("gpt-5.2", "openai", false),
+    ]);
+    server.mock(|when, then| {
+        when.method("POST")
+            .path("/api/v1/models/claude-opus-4-7/test");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "model_id": "claude-opus-4-7",
+                "status": "ok"
+            }));
+    });
+
+    let mut cmd = context.command();
+    cmd.args(["model", "test"]);
+    let output = cmd.output().expect("command should execute");
+
+    assert!(
+        output.status.success(),
+        "model test should succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Skipped 1 model(s) (no credentials: OpenAI)"));
+}
+
+#[test]
+fn model_test_post_list_race_is_a_failure() {
+    let context = test_context!();
+    let server = MockServer::start();
+    configure_server_target(&context, &server);
+    mock_model_list(&server, [model_json("claude-opus-4-7", "anthropic", true)]);
+    server.mock(|when, then| {
+        when.method("POST")
+            .path("/api/v1/models/claude-opus-4-7/test");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "model_id": "claude-opus-4-7",
+                "status": "skip"
+            }));
+    });
+
+    let mut cmd = context.command();
+    cmd.args(["model", "test"]);
+    let output = cmd.output().expect("command should execute");
+
+    assert!(
+        !output.status.success(),
+        "post-list skip should fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("provider became unconfigured after listing"));
+    assert!(stderr.contains("1 model(s) failed"));
+    assert!(!stderr.contains("Skipped"));
+}
+
+#[test]
+fn model_test_json_partitions_skip_and_fail() {
+    let context = test_context!();
+    let server = MockServer::start();
+    configure_server_target(&context, &server);
+    mock_model_list(&server, [
+        model_json("gpt-5.2", "openai", false),
+        model_json("claude-opus-4-7", "anthropic", true),
+    ]);
+    let unconfigured_test = server.mock(|when, then| {
+        when.method("POST").path("/api/v1/models/gpt-5.2/test");
+        then.status(500);
+    });
+    server.mock(|when, then| {
+        when.method("POST")
+            .path("/api/v1/models/claude-opus-4-7/test");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "model_id": "claude-opus-4-7",
+                "status": "skip"
+            }));
+    });
+
+    let mut cmd = context.command();
+    cmd.args(["model", "test", "--json"]);
+    let output = cmd.output().expect("command should execute");
+
+    assert!(
+        !output.status.success(),
+        "race failure should make json command fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    unconfigured_test.assert_calls(0);
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("invalid JSON output");
+    assert_eq!(json["total"], 2);
+    assert_eq!(json["skipped"], 1);
+    assert_eq!(json["failures"], 1);
+    assert_eq!(json["results"][0]["model"], "gpt-5.2");
+    assert_eq!(json["results"][0]["result"], "skip");
+    assert_eq!(json["results"][0]["detail"], "not configured");
+    assert_eq!(json["results"][1]["model"], "claude-opus-4-7");
+    assert_eq!(json["results"][1]["result"], "fail");
+    assert_eq!(
+        json["results"][1]["error"],
+        "provider became unconfigured after listing"
+    );
 }

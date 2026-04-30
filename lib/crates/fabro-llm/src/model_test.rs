@@ -185,6 +185,7 @@ mod tests {
             estimated_output_tps: None,
             aliases: vec![],
             default: false,
+            configured: false,
         }
     }
 

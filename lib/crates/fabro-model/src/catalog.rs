@@ -374,6 +374,7 @@ mod tests {
             estimated_output_tps: None,
             aliases:              vec!["test".to_string()],
             default:              true,
+            configured:           false,
         }];
 
         let catalog = Catalog::from_models(models);
@@ -487,6 +488,7 @@ mod tests {
             ),
             aliases: [],
             default: false,
+            configured: false,
         }
         "#);
     }
@@ -556,6 +558,7 @@ mod tests {
                 "gemini-flash-lite",
             ],
             default: false,
+            configured: false,
         }
         "#);
     }
@@ -611,6 +614,7 @@ mod tests {
                 "kimi",
             ],
             default: true,
+            configured: false,
         }
         "#);
     }
@@ -671,6 +675,7 @@ mod tests {
                 "mercury",
             ],
             default: true,
+            configured: false,
         }
         "#);
     }
@@ -726,6 +731,7 @@ mod tests {
                 "gpt-54",
             ],
             default: true,
+            configured: false,
         }
         "#);
     }
@@ -776,6 +782,7 @@ mod tests {
                 "gpt-54-pro",
             ],
             default: false,
+            configured: false,
         }
         "#);
     }
@@ -845,6 +852,7 @@ mod tests {
                 "codex-spark",
             ],
             default: false,
+            configured: false,
         }
         "#);
     }

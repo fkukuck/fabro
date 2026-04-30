@@ -270,7 +270,26 @@ async fn test_models_via_server(
             bail!("No models found");
         }
 
-        for info in &models_to_test {
+        let (configured, unconfigured): (Vec<_>, Vec<_>) = models_to_test
+            .into_iter()
+            .partition(|model| model.configured);
+
+        for info in &unconfigured {
+            skipped += 1;
+            let provider_name = info.provider.display_name().to_string();
+            if !skipped_providers.contains(&provider_name) {
+                skipped_providers.push(provider_name);
+            }
+            if json_output {
+                json_rows.push(model_test_row_from_status(
+                    info,
+                    "not configured",
+                    Color::Yellow,
+                ));
+            }
+        }
+
+        for info in &configured {
             if !json_output {
                 eprint!("Testing {}...", info.id);
             }
@@ -284,19 +303,11 @@ async fn test_models_via_server(
                     (Color::Green, "ok".to_string())
                 }
                 Ok(resp) if resp.status == api_types::ModelTestResultStatus::Skip => {
-                    skipped += 1;
-                    let provider_name = info.provider.display_name().to_string();
-                    if !skipped_providers.contains(&provider_name) {
-                        skipped_providers.push(provider_name);
-                    }
-                    if json_output {
-                        json_rows.push(model_test_row_from_status(
-                            info,
-                            "not configured",
-                            Color::Yellow,
-                        ));
-                    }
-                    continue;
+                    failures += 1;
+                    (
+                        Color::Red,
+                        "error: provider became unconfigured after listing".to_string(),
+                    )
                 }
                 Ok(resp) => {
                     failures += 1;
@@ -452,6 +463,7 @@ mod tests {
             estimated_output_tps: Some(100.0),
             aliases: vec!["tm".to_string()],
             default: false,
+            configured: false,
         })
         .unwrap()
     }

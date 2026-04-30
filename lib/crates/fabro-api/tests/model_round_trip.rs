@@ -35,6 +35,7 @@ fn model_json_matches_openapi_shape() {
         estimated_output_tps: Some(25.0),
         aliases:              vec!["opus".to_string()],
         default:              false,
+        configured:           true,
     };
 
     let json = serde_json::to_value(&model).unwrap();
@@ -43,6 +44,7 @@ fn model_json_matches_openapi_shape() {
     assert_eq!(json["knowledge_cutoff"], "May 2025");
     assert_eq!(json["features"]["effort"], true);
     assert_eq!(json["estimated_output_tps"], 25.0);
+    assert_eq!(json["configured"], true);
 
     let round_trip: ApiModel = serde_json::from_value(json).unwrap();
     assert_eq!(round_trip, model);

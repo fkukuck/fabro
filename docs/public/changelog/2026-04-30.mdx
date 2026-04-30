@@ -36,6 +36,7 @@ The OpenAPI schema also reuses canonical billing, model, provider, settings, and
 <Accordion title="API">
 - Replaced the generated `StageStatus` model with `StageState` and `StageOutcome` shapes
 - Tightened shared model, billing, provider, and settings schemas in the OpenAPI contract
+- Added `configured` to `GET /models` responses so clients can tell whether credential material is present before testing a model
 - Regenerated the TypeScript API client with precise run, workflow, sandbox, hook, MCP, and settings models
 </Accordion>
 

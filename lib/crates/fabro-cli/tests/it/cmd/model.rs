@@ -219,7 +219,8 @@ fn list_uses_configured_server_target_without_server_flag() {
                             "cache_input_cost_per_mtok": null
                         },
                         "estimated_output_tps": 42.0,
-                        "default": false
+                        "default": false,
+                        "configured": false
                     }],
                     "meta": { "has_more": false }
                 })
@@ -279,7 +280,8 @@ fn list_uses_fabro_config_for_machine_settings() {
                             "cache_input_cost_per_mtok": null
                         },
                         "estimated_output_tps": 42.0,
-                        "default": false
+                        "default": false,
+                        "configured": false
                     }],
                     "meta": { "has_more": false }
                 })
