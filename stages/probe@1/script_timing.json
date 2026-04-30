@@ -1,0 +1,7 @@
+{
+  "stdout": "Linux SandboxHost-639131527654762976 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+  "stderr": "",
+  "exit_code": 0,
+  "duration_ms": 7,
+  "timed_out": false
+}

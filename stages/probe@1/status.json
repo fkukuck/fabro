@@ -1,0 +1,6 @@
+{
+  "status": "success",
+  "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+  "failure_reason": null,
+  "timestamp": "2026-04-30T13:33:24.474785848Z"
+}
