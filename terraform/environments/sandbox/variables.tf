@@ -96,6 +96,6 @@ variable "fabro_server_memory" {
 
 variable "github_actions_principal_id" {
   type        = string
-  description = "Object ID of the bootstrap-created GitHub Actions service principal."
+  description = "Principal ID of the bootstrap-created GitHub Actions managed identity."
   default     = null
 }
