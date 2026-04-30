@@ -314,7 +314,7 @@ paths:
       operationId: testInstallSandbox
       tags: [Install]
       summary: Validate install sandbox configuration
-      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker and Azure, returns ok without further checks, but Azure requires the Azure platform step to be completed first. Requires the one-time install token.
       security: []
       requestBody:
         required: true
@@ -3361,14 +3361,14 @@ components:
           example: true
 
     InstallSandboxInput:
-      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker.
+      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker and Azure.
       type: object
       required:
         - provider
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, azure]
         api_key:
           type: string
 
@@ -3380,7 +3380,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, azure]
         api_key_saved:
           type: boolean
 

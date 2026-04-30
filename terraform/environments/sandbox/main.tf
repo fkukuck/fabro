@@ -52,19 +52,24 @@ module "sandbox_pull_identity" {
   location            = module.resource_group.location
   name                = "${var.identity_name}-sandbox-pull"
   acr_pull_scope      = module.acr.id
+  acr_pull_enabled    = true
   tags                = var.tags
 }
 
 module "server_identity" {
-  source              = "../../modules/identity"
-  resource_group_name = module.resource_group.name
-  location            = module.resource_group.location
-  name                = var.identity_name
-  contributor_scope   = module.resource_group.id
-  blob_data_scope     = module.storage.id
-  acr_pull_scope      = module.acr.id
-  identity_attach_scope = module.sandbox_pull_identity.id
-  tags                  = var.tags
+  source                  = "../../modules/identity"
+  resource_group_name     = module.resource_group.name
+  location                = module.resource_group.location
+  name                    = var.identity_name
+  contributor_scope       = module.resource_group.id
+  contributor_enabled     = true
+  blob_data_scope         = module.storage.id
+  blob_data_enabled       = true
+  acr_pull_scope          = module.acr.id
+  acr_pull_enabled        = true
+  identity_attach_scope   = module.sandbox_pull_identity.id
+  identity_attach_enabled = true
+  tags                    = var.tags
 }
 
 module "container_apps_env" {

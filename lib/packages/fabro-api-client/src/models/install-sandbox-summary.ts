@@ -24,7 +24,8 @@ export interface InstallSandboxSummary {
 
 export const InstallSandboxSummaryProviderEnum = {
     DOCKER: 'docker',
-    DAYTONA: 'daytona'
+    DAYTONA: 'daytona',
+    AZURE: 'azure'
 } as const;
 
 export type InstallSandboxSummaryProviderEnum = typeof InstallSandboxSummaryProviderEnum[keyof typeof InstallSandboxSummaryProviderEnum];

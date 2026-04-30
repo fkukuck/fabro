@@ -15,9 +15,19 @@ variable "contributor_scope" {
   default = null
 }
 
+variable "contributor_enabled" {
+  type    = bool
+  default = false
+}
+
 variable "blob_data_scope" {
   type    = string
   default = null
+}
+
+variable "blob_data_enabled" {
+  type    = bool
+  default = false
 }
 
 variable "acr_pull_scope" {
@@ -25,9 +35,19 @@ variable "acr_pull_scope" {
   default = null
 }
 
+variable "acr_pull_enabled" {
+  type    = bool
+  default = false
+}
+
 variable "identity_attach_scope" {
   type    = string
   default = null
+}
+
+variable "identity_attach_enabled" {
+  type    = bool
+  default = false
 }
 
 variable "identity_attach_principal_id" {
