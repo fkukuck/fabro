@@ -107,6 +107,8 @@ models/install-server-config-input.ts
 models/install-session-response.ts
 models/integration-webhooks-settings.ts
 models/internal-stage-status.ts
+models/interview-option.ts
+models/interview-question-record.ts
 models/ip-allow-entry.ts
 models/literal-ip-allow-entry.ts
 models/log-destination.ts

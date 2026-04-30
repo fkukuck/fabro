@@ -86,6 +86,8 @@ export * from './install-server-config-input';
 export * from './install-session-response';
 export * from './integration-webhooks-settings';
 export * from './internal-stage-status';
+export * from './interview-option';
+export * from './interview-question-record';
 export * from './ip-allow-entry';
 export * from './literal-ip-allow-entry';
 export * from './log-destination';

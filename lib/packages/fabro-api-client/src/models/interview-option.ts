@@ -13,15 +13,12 @@
  */
 
 
-// May contain unused imports in some cases
-// @ts-ignore
-import type { InterviewQuestionRecord } from './interview-question-record';
 
 /**
- * Pending interview question plus the time it entered the unresolved set.
+ * Option stored with an interview question in the event log.
  */
-export interface PendingInterviewRecord {
-    'question': InterviewQuestionRecord;
-    'started_at'?: string | null;
+export interface InterviewOption {
+    'key': string;
+    'label': string;
 }
 

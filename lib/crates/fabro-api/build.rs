@@ -316,6 +316,18 @@ fn main() {
         ("InternalStageStatus", "fabro_types::StageStatus", &[]),
         ("NodeState", "fabro_types::NodeState", &[]),
         ("SecretMetadata", "fabro_types::SecretMetadata", &[]),
+        ("InterviewOption", "fabro_types::InterviewOption", &[]),
+        (
+            "InterviewQuestionRecord",
+            "fabro_types::InterviewQuestionRecord",
+            &[],
+        ),
+        (
+            "PendingInterviewRecord",
+            "fabro_types::PendingInterviewRecord",
+            &[],
+        ),
+        ("RunProjection", "fabro_types::RunProjection", &[]),
         ("PullRequestRecord", "fabro_types::PullRequestRecord", &[]),
         ("PullRequestDetail", "fabro_types::PullRequestDetail", &[]),
         ("PullRequestUser", "fabro_types::PullRequestUser", &[]),

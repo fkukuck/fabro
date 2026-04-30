@@ -4946,12 +4946,56 @@ components:
         stderr:
           type: ["string", "null"]
 
+    InterviewOption:
+      description: Option stored with an interview question in the event log.
+      type: object
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+
+    InterviewQuestionRecord:
+      description: Storage shape of an interview question recorded in the event log.
+      type: object
+      required:
+        - id
+        - text
+        - stage
+        - question_type
+        - allow_freeform
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        stage:
+          type: string
+        question_type:
+          $ref: "#/components/schemas/QuestionType"
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterviewOption"
+        allow_freeform:
+          type: boolean
+        timeout_seconds:
+          type: ["number", "null"]
+          format: double
+        context_display:
+          type: ["string", "null"]
+
     PendingInterviewRecord:
       description: Pending interview question plus the time it entered the unresolved set.
       type: object
+      required:
+        - question
       properties:
         question:
-          $ref: "#/components/schemas/ApiQuestion"
+          $ref: "#/components/schemas/InterviewQuestionRecord"
         started_at:
           type: ["string", "null"]
           format: date-time
@@ -5040,6 +5084,10 @@ components:
           oneOf:
             - type: string
               format: date-time
+            - type: "null"
+        pending_control:
+          oneOf:
+            - $ref: "#/components/schemas/RunControlAction"
             - type: "null"
         checkpoint:
           oneOf:
