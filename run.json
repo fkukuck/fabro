@@ -1,0 +1,230 @@
+{
+  "spec": {
+    "run_id": "01KQFHSXQY7J7QXN6V6JT4QKX7",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "directory": ".",
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "Verify that the deployed Azure server can launch an Azure sandbox"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {},
+        "model": {
+          "provider": "gemini",
+          "name": "gemini-3.1-pro-preview",
+          "fallbacks": []
+        },
+        "git": {
+          "author": null
+        },
+        "prepare": {
+          "commands": [],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt",
+          "retros": true
+        },
+        "checkpoint": {
+          "exclude_globs": []
+        },
+        "sandbox": {
+          "provider": "azure",
+          "preserve": false,
+          "devcontainer": false,
+          "env": {},
+          "local": {
+            "worktree_mode": "always"
+          },
+          "docker": {
+            "image": "buildpack-deps:noble",
+            "network_mode": null,
+            "memory_limit": 4000000000,
+            "cpu_quota": 200000,
+            "env_vars": {},
+            "skip_clone": false
+          },
+          "daytona": {
+            "auto_stop_interval": 30,
+            "labels": {
+              "repo": "fabro-sh/fabro"
+            },
+            "snapshot": {
+              "name": "fabro-v7",
+              "cpu": 8,
+              "memory_gb": 16,
+              "disk_gb": 20,
+              "dockerfile": {
+                "type": "inline",
+                "value": "FROM ubuntu:24.04\n\nRUN apt-get update && apt-get install -y --no-install-recommends curl git ca-certificates build-essential pkg-config libssl-dev unzip python3 && rm -rf /var/lib/apt/lists/*\n\n# GitHub CLI\nRUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/*\n\n# Rust\nRUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y\nENV PATH=\"/root/.cargo/bin:${PATH}\"\nRUN cargo install cargo-nextest --locked\nENV CARGO_INCREMENTAL=0\n\n# Bun\nRUN curl -fsSL https://bun.sh/install | bash\nENV PATH=\"/root/.bun/bin:${PATH}\"\n\nWORKDIR /root\n"
+              }
+            },
+            "network": null,
+            "skip_clone": false
+          },
+          "azure": {
+            "image": "fkukuckfabroacrgf0430152528.azurecr.io/fabro-azure-sandbox-base:20260430T153206Z-4130f65c2",
+            "cpu": 1.0,
+            "memory_gb": 2.0
+          }
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null,
+          "discord": null,
+          "teams": null
+        },
+        "agent": {
+          "permissions": null,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": false,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": []
+        }
+      }
+    },
+    "graph": {
+      "name": "AzureDeploySmoke",
+      "nodes": {
+        "start": {
+          "id": "start",
+          "attrs": {
+            "shape": {
+              "String": "Mdiamond"
+            },
+            "label": {
+              "String": "Start"
+            }
+          }
+        },
+        "probe": {
+          "id": "probe",
+          "attrs": {
+            "script": {
+              "String": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace"
+            },
+            "label": {
+              "String": "Probe"
+            },
+            "shape": {
+              "String": "parallelogram"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "shape": {
+              "String": "Msquare"
+            },
+            "label": {
+              "String": "Exit"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "probe",
+          "attrs": {}
+        },
+        {
+          "from": "probe",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "rankdir": {
+          "String": "LR"
+        },
+        "goal": {
+          "String": "Verify that the deployed Azure server can launch an Azure sandbox"
+        }
+      }
+    },
+    "workflow_slug": "azure-deploy-smoke",
+    "source_directory": "/Users/ipt/repos/fabro-fkukuck",
+    "provenance": {
+      "server": {
+        "version": "0.219.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.219.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.219.0-nightly.0"
+      },
+      "subject": {
+        "login": "dev",
+        "auth_method": "dev_token"
+      }
+    },
+    "manifest_blob": "751e7a4423b8cb7301f0d6f0d765868b58f8469f79cb316f81a8b058ba9ac6c7",
+    "definition_blob": "0333f710d3d6e4c2391dbe4d2eb2954e269bdcc6e32f46af36a2e203c2e83be4",
+    "git": {
+      "origin_url": "https://github.com/fkukuck/fabro",
+      "branch": "azure-sandbox-curated-2026-04-30",
+      "sha": "4130f65c292a9f5675ba69b841772af17ed6d913",
+      "dirty": "dirty",
+      "push_outcome": {
+        "type": "failed",
+        "remote": "origin",
+        "branch": "azure-sandbox-curated-2026-04-30",
+        "message": "Engine error: git push failed: git@github.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
+      }
+    },
+    "in_place": false
+  },
+  "graph_source": "digraph AzureDeploySmoke {\n    graph [goal=\"Verify that the deployed Azure server can launch an Azure sandbox\"]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    probe [\n        shape=parallelogram,\n        label=\"Probe\",\n        script=\"test \\\"$(pwd)\\\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace\"\n    ]\n\n    start -> probe -> exit\n}\n",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-04-30T15:58:30.851261233Z",
+  "pending_control": null,
+  "checkpoint": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "retro": null,
+  "retro_prompt": null,
+  "retro_response": null,
+  "sandbox": {
+    "provider": "azure",
+    "working_directory": "/workspace",
+    "identifier": "/subscriptions/97200cb2-456d-4471-876a-55f0a2bd8d54/resourceGroups/fkukuck-fabro-greenfield-20260430152528/providers/Microsoft.ContainerInstance/containerGroups/fabro-01kqfhsxqy7j7qxn6v6jt4qkx7"
+  },
+  "final_patch": null,
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "nodes": {}
+}
