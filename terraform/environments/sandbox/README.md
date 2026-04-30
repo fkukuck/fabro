@@ -4,7 +4,7 @@ This Terraform root is the steady-state Azure environment for Fabro production d
 
 ## Supported production flow
 
-1. Run `terraform/bootstrap/github_actions` once to create the remote backend and the GitHub Actions OIDC identity.
+1. Run `terraform/bootstrap/github_actions` once to create the remote backend and the GitHub Actions managed identity.
 2. Copy every bootstrap output into the GitHub `production` environment before continuing.
 3. Initialize this root with the Azure Blob backend created by bootstrap.
 4. Run one normal `terraform apply` with `fabro_server_enabled = false`. Do not use `-target`.
@@ -17,7 +17,8 @@ Local Terraform state is no longer the supported production path for this enviro
 ## Inputs
 
 - Set the Azure naming and network variables in `terraform.tfvars`.
-- Set `github_actions_principal_id` to the bootstrap-created GitHub Actions principal object ID before the first manual apply. This is required for the supported CI-driven deployment path.
+- Set `github_actions_principal_id` to the bootstrap-created GitHub Actions managed identity principal ID before the first manual apply.
+- The first manual apply must happen before GitHub Actions takes over so Terraform can create the `github_actions_access` role assignments with the higher-privilege operator identity.
 - Keep `fabro_server_enabled = false` until the first CI deploy is ready to publish a real immutable server image.
 - The validated `fabro-server` shape for this Azure environment is `fabro_server_cpu = 2` and `fabro_server_memory = "4Gi"`.
 
