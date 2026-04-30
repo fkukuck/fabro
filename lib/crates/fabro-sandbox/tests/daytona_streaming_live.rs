@@ -6,6 +6,7 @@ mod daytona_streaming_live {
     use anyhow::{Context, Result, ensure};
     use fabro_sandbox::daytona::{DaytonaConfig, DaytonaSandbox};
     use fabro_sandbox::{CommandOutputCallback, ExecStreamingResult, Sandbox};
+    use fabro_static::EnvVars;
     use fabro_types::{CommandOutputStream, CommandTermination};
     use tokio::sync::Mutex;
     use tokio::time::{Instant, sleep};
@@ -21,7 +22,7 @@ mod daytona_streaming_live {
     #[ignore = "requires live Daytona credentials and provisions a sandbox"]
     async fn daytona_streaming_live_smoke() -> Result<()> {
         ensure!(
-            std::env::var_os("DAYTONA_API_KEY").is_some(),
+            daytona_api_key_present(),
             "DAYTONA_API_KEY must be set to run this live smoke test"
         );
 
@@ -99,8 +100,8 @@ mod daytona_streaming_live {
             "expected Daytona command logs to separate stdout and stderr"
         );
         ensure_eq(
-            live_result.result.termination,
-            CommandTermination::Cancelled,
+            &live_result.result.termination,
+            &CommandTermination::Cancelled,
             "cancelled command should preserve cancellation termination",
         )?;
         ensure_contains(
@@ -122,13 +123,13 @@ mod daytona_streaming_live {
         )
         .await?;
         ensure_eq(
-            nonzero.result.exit_code,
-            Some(7),
+            &nonzero.result.exit_code,
+            &Some(7),
             "nonzero command should preserve the Daytona exit code",
         )?;
         ensure_eq(
-            nonzero.result.termination,
-            CommandTermination::Exited,
+            &nonzero.result.termination,
+            &CommandTermination::Exited,
             "nonzero command should be represented as a completed process",
         )?;
         ensure_contains(
@@ -158,8 +159,8 @@ mod daytona_streaming_live {
         )
         .await?;
         ensure_eq(
-            timed_out.result.termination,
-            CommandTermination::TimedOut,
+            &timed_out.result.termination,
+            &CommandTermination::TimedOut,
             "timed-out command should preserve timeout termination",
         )?;
         ensure_contains(
@@ -205,6 +206,14 @@ mod daytona_streaming_live {
         })
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "live smoke tests need a direct process-env preflight before provisioning Daytona"
+    )]
+    fn daytona_api_key_present() -> bool {
+        std::env::var_os(EnvVars::DAYTONA_API_KEY).is_some()
+    }
+
     async fn wait_for_chunks(
         chunks: &Arc<Mutex<Vec<CapturedChunk>>>,
         timeout_after: Duration,
@@ -238,7 +247,7 @@ mod daytona_streaming_live {
         Ok(())
     }
 
-    fn ensure_eq<T>(actual: T, expected: T, message: &str) -> Result<()>
+    fn ensure_eq<T>(actual: &T, expected: &T, message: &str) -> Result<()>
     where
         T: std::fmt::Debug + PartialEq,
     {

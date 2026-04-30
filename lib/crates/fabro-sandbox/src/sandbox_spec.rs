@@ -36,7 +36,7 @@ pub enum SandboxSpec {
     },
     #[cfg(feature = "daytona")]
     Daytona {
-        config:           DaytonaConfig,
+        config:           Box<DaytonaConfig>,
         github_app:       Option<GitHubCredentials>,
         run_id:           Option<RunId>,
         clone_origin_url: Option<String>,
@@ -169,7 +169,7 @@ impl SandboxSpec {
                 api_key,
             } => {
                 let mut sandbox = DaytonaSandbox::new(
-                    config.clone(),
+                    config.as_ref().clone(),
                     github_app.clone(),
                     *run_id,
                     clone_origin_url.clone(),

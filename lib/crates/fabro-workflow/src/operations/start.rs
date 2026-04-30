@@ -373,7 +373,7 @@ impl RunSession {
                     None => None,
                 };
                 SandboxSpec::Daytona {
-                    config: resolve_daytona_config(resolved).unwrap_or_default(),
+                    config: Box::new(resolve_daytona_config(resolved).unwrap_or_default()),
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
                     clone_origin_url: record.repo_origin_url().map(str::to_string),

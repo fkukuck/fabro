@@ -813,7 +813,7 @@ fn preflight_sandbox_spec(
             let mut config = resolve_daytona_config(resolved_run).unwrap_or_default();
             config.skip_clone = true;
             SandboxSpec::Daytona {
-                config,
+                config: Box::new(config),
                 github_app,
                 run_id: None,
                 clone_origin_url,
