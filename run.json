@@ -217,7 +217,7 @@
   "status_updated_at": "2026-04-30T15:59:11.842753027Z",
   "pending_control": null,
   "checkpoint": {
-    "timestamp": "2026-04-30T15:59:13.057075163Z",
+    "timestamp": "2026-04-30T15:59:15.866634432Z",
     "current_node": "probe",
     "completed_nodes": [
       "start",
@@ -225,28 +225,24 @@
     ],
     "node_retries": {},
     "context_values": {
-      "internal.retry_count.probe": 0,
-      "internal.thread_id": "start",
-      "thread.start.current_node": "probe",
-      "command.output": "Linux SandboxHost-639131615164532393 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
-      "internal.fidelity": "compact",
-      "current_node": "probe",
-      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
-      "internal.work_dir": "/workspace",
-      "outcome": "success",
-      "graph.rankdir": "LR",
-      "failure_class": "",
-      "internal.run_id": "01KQFHSXQY7J7QXN6V6JT4QKX7",
       "command.stderr": "",
       "internal.node_visit_count": 1,
+      "failure_class": "",
+      "outcome": "success",
+      "internal.fidelity": "compact",
+      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+      "current_node": "probe",
+      "thread.start.current_node": "probe",
+      "internal.run_id": "01KQFHSXQY7J7QXN6V6JT4QKX7",
+      "command.output": "Linux SandboxHost-639131615164532393 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+      "internal.thread_id": "start",
+      "graph.rankdir": "LR",
+      "failure_signature": "",
       "internal.retry_count.start": 0,
-      "failure_signature": ""
+      "internal.work_dir": "/workspace",
+      "internal.retry_count.probe": 0
     },
     "node_outcomes": {
-      "start": {
-        "status": "success",
-        "usage": null
-      },
       "probe": {
         "status": "success",
         "context_updates": {
@@ -255,16 +251,128 @@
         },
         "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
         "usage": null
+      },
+      "start": {
+        "status": "success",
+        "usage": null
       }
     },
     "next_node_id": "exit",
+    "git_commit_sha": "214934861177cffc097f11fa5877bb981299d994",
     "node_visits": {
-      "start": 1,
-      "probe": 1
+      "probe": 1,
+      "start": 1
     }
   },
-  "checkpoints": [],
-  "conclusion": null,
+  "checkpoints": [
+    [
+      18,
+      {
+        "timestamp": "2026-04-30T15:59:13.050188709Z",
+        "current_node": "start",
+        "completed_nodes": [
+          "start"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.fidelity": "compact",
+          "internal.thread_id": null,
+          "current_node": "start",
+          "internal.work_dir": "/workspace",
+          "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+          "internal.node_visit_count": 1,
+          "outcome": "success",
+          "failure_class": "",
+          "graph.rankdir": "LR",
+          "internal.retry_count.start": 0,
+          "failure_signature": "",
+          "internal.run_id": "01KQFHSXQY7J7QXN6V6JT4QKX7"
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "success",
+            "usage": null
+          }
+        },
+        "next_node_id": "probe",
+        "node_visits": {
+          "start": 1
+        }
+      }
+    ],
+    [
+      26,
+      {
+        "timestamp": "2026-04-30T15:59:15.866634432Z",
+        "current_node": "probe",
+        "completed_nodes": [
+          "start",
+          "probe"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "command.stderr": "",
+          "internal.node_visit_count": 1,
+          "failure_class": "",
+          "outcome": "success",
+          "internal.fidelity": "compact",
+          "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+          "current_node": "probe",
+          "thread.start.current_node": "probe",
+          "internal.run_id": "01KQFHSXQY7J7QXN6V6JT4QKX7",
+          "command.output": "Linux SandboxHost-639131615164532393 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+          "internal.thread_id": "start",
+          "graph.rankdir": "LR",
+          "failure_signature": "",
+          "internal.retry_count.start": 0,
+          "internal.work_dir": "/workspace",
+          "internal.retry_count.probe": 0
+        },
+        "node_outcomes": {
+          "probe": {
+            "status": "success",
+            "context_updates": {
+              "command.output": "Linux SandboxHost-639131615164532393 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+              "command.stderr": ""
+            },
+            "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+            "usage": null
+          },
+          "start": {
+            "status": "success",
+            "usage": null
+          }
+        },
+        "next_node_id": "exit",
+        "git_commit_sha": "214934861177cffc097f11fa5877bb981299d994",
+        "node_visits": {
+          "probe": 1,
+          "start": 1
+        }
+      }
+    ]
+  ],
+  "conclusion": {
+    "timestamp": "2026-04-30T15:59:15.926721956Z",
+    "status": "success",
+    "duration_ms": 4024,
+    "final_git_commit_sha": "214934861177cffc097f11fa5877bb981299d994",
+    "stages": [
+      {
+        "stage_id": "start",
+        "stage_label": "start",
+        "duration_ms": 0,
+        "retries": 0
+      },
+      {
+        "stage_id": "probe",
+        "stage_label": "probe",
+        "duration_ms": 6,
+        "retries": 0
+      }
+    ],
+    "total_retries": 0
+  },
   "retro": null,
   "retro_prompt": null,
   "retro_response": null,
@@ -277,5 +385,67 @@
   "pull_request": null,
   "superseded_by": null,
   "pending_interviews": {},
-  "nodes": {}
+  "nodes": {
+    "probe@1": {
+      "prompt": null,
+      "response": null,
+      "status": {
+        "status": "success",
+        "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "failure_reason": null,
+        "timestamp": "2026-04-30T15:59:13.057027562Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": {
+        "script": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "command": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "language": "shell"
+      },
+      "script_timing": {
+        "stdout": "Linux SandboxHost-639131615164532393 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+        "stderr": "",
+        "exit_code": 0,
+        "duration_ms": 3,
+        "timed_out": false
+      },
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
+    },
+    "exit@1": {
+      "prompt": null,
+      "response": null,
+      "status": {
+        "status": "success",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-04-30T15:59:15.866735636Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
+    },
+    "start@1": {
+      "prompt": null,
+      "response": null,
+      "status": {
+        "status": "success",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-04-30T15:59:13.049763193Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
+    }
+  }
 }
