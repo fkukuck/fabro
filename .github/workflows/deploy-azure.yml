@@ -40,6 +40,38 @@ jobs:
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
+      - name: Validate Azure deploy inputs
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          AZURE_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+          AZURE_VNET_NAME: ${{ vars.AZURE_VNET_NAME }}
+          AZURE_VNET_CIDR: ${{ vars.AZURE_VNET_CIDR }}
+          AZURE_ACA_SUBNET_NAME: ${{ vars.AZURE_ACA_SUBNET_NAME }}
+          AZURE_ACA_SUBNET_CIDR: ${{ vars.AZURE_ACA_SUBNET_CIDR }}
+          AZURE_ACI_SUBNET_NAME: ${{ vars.AZURE_ACI_SUBNET_NAME }}
+          AZURE_ACI_SUBNET_CIDR: ${{ vars.AZURE_ACI_SUBNET_CIDR }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_SERVER_STORAGE_SHARE_NAME: ${{ vars.AZURE_SERVER_STORAGE_SHARE_NAME }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_IDENTITY_NAME: ${{ vars.AZURE_IDENTITY_NAME }}
+          AZURE_CONTAINER_APPS_ENVIRONMENT_NAME: ${{ vars.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME }}
+          AZURE_FABRO_SERVER_NAME: ${{ vars.AZURE_FABRO_SERVER_NAME }}
+          AZURE_GITHUB_ACTIONS_PRINCIPAL_ID: ${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}
+          TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          TF_BACKEND_CONTAINER: ${{ vars.TF_BACKEND_CONTAINER }}
+          TF_BACKEND_KEY: ${{ vars.TF_BACKEND_KEY }}
+        run: |
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_LOCATION AZURE_RESOURCE_GROUP_NAME AZURE_VNET_NAME AZURE_VNET_CIDR AZURE_ACA_SUBNET_NAME AZURE_ACA_SUBNET_CIDR AZURE_ACI_SUBNET_NAME AZURE_ACI_SUBNET_CIDR AZURE_STORAGE_ACCOUNT_NAME AZURE_SERVER_STORAGE_SHARE_NAME AZURE_ACR_NAME AZURE_IDENTITY_NAME AZURE_CONTAINER_APPS_ENVIRONMENT_NAME AZURE_FABRO_SERVER_NAME AZURE_GITHUB_ACTIONS_PRINCIPAL_ID TF_BACKEND_RESOURCE_GROUP TF_BACKEND_STORAGE_ACCOUNT TF_BACKEND_CONTAINER TF_BACKEND_KEY; do
+            if [ -z "${!name}" ]; then
+              printf 'Missing required GitHub environment variable: %s\n' "$name" >&2
+              exit 1
+            fi
+          done
+
       - uses: azure/login@4c8e52c0fb44e13c6e6c1f4bc8d32707fd6f0ca7 # v2.3.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -75,6 +107,9 @@ jobs:
             -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
             -backend-config="key=${{ vars.TF_BACKEND_KEY }}"
+
+      - name: Validate Terraform configuration
+        run: terraform -chdir=terraform/environments/sandbox validate
 
       - name: Compute deploy metadata
         run: |
@@ -129,6 +164,11 @@ jobs:
       - name: Apply Terraform
         run: |
           terraform -chdir=terraform/environments/sandbox apply -auto-approve \
+            -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
+
+      - name: Verify Terraform steady state
+        run: |
+          terraform -chdir=terraform/environments/sandbox plan -detailed-exitcode \
             -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
 
       - name: Resolve live server URL

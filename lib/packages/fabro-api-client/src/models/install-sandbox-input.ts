@@ -15,7 +15,7 @@
 
 
 /**
- * Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker.
+ * Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker and Azure.
  */
 export interface InstallSandboxInput {
     'provider': InstallSandboxInputProviderEnum;
@@ -24,7 +24,8 @@ export interface InstallSandboxInput {
 
 export const InstallSandboxInputProviderEnum = {
     DOCKER: 'docker',
-    DAYTONA: 'daytona'
+    DAYTONA: 'daytona',
+    AZURE: 'azure'
 } as const;
 
 export type InstallSandboxInputProviderEnum = typeof InstallSandboxInputProviderEnum[keyof typeof InstallSandboxInputProviderEnum];

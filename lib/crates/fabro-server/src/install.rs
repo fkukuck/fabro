@@ -484,6 +484,7 @@ impl InstallObjectStoreState {
 enum InstallSandboxProvider {
     Docker,
     Daytona,
+    Azure,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -496,6 +497,7 @@ struct InstallSandboxInput {
 enum InstallSandboxState {
     Docker,
     Daytona { api_key: InstallSecret },
+    Azure,
 }
 
 impl InstallSandboxState {
@@ -506,6 +508,7 @@ impl InstallSandboxState {
                 "provider": "daytona",
                 "api_key_saved": true,
             }),
+            Self::Azure => serde_json::json!({ "provider": "azure" }),
         }
     }
 
@@ -513,6 +516,7 @@ impl InstallSandboxState {
         match self {
             Self::Docker => InstallSandboxSelection::Docker,
             Self::Daytona { .. } => InstallSandboxSelection::Daytona,
+            Self::Azure => InstallSandboxSelection::Azure,
         }
     }
 }
@@ -1047,11 +1051,18 @@ async fn post_install_sandbox_test(
 
     let api_key = {
         let pending_install = lock_unpoisoned(&state.pending_install, "install session");
-        match resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input) {
+        match resolve_install_sandbox_state(
+            pending_install.sandbox.as_ref(),
+            pending_install.azure.as_ref(),
+            input,
+        ) {
             Ok(InstallSandboxState::Docker) => {
                 return Json(serde_json::json!({ "ok": true })).into_response();
             }
             Ok(InstallSandboxState::Daytona { api_key }) => api_key.expose_secret().to_string(),
+            Ok(InstallSandboxState::Azure) => {
+                return Json(serde_json::json!({ "ok": true })).into_response();
+            }
             Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
         }
     };
@@ -1080,7 +1091,11 @@ async fn put_install_sandbox(
     observe_operator(&state, &headers);
 
     let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
-    let selection = match resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input) {
+    let selection = match resolve_install_sandbox_state(
+        pending_install.sandbox.as_ref(),
+        pending_install.azure.as_ref(),
+        input,
+    ) {
         Ok(selection) => selection,
         Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
     };
@@ -1107,6 +1122,7 @@ fn default_local_object_store_root(state: &InstallAppState) -> String {
 
 fn resolve_install_sandbox_state(
     current: Option<&InstallSandboxState>,
+    azure: Option<&InstallAzureState>,
     input: InstallSandboxInput,
 ) -> Result<InstallSandboxState, String> {
     match input.provider {
@@ -1122,6 +1138,15 @@ fn resolve_install_sandbox_state(
                 },
             };
             Ok(InstallSandboxState::Daytona { api_key })
+        }
+        InstallSandboxProvider::Azure => {
+            if azure.is_none() {
+                return Err(
+                    "Complete the Azure platform step before selecting the Azure sandbox runtime."
+                        .to_string(),
+                );
+            }
+            Ok(InstallSandboxState::Azure)
         }
     }
 }

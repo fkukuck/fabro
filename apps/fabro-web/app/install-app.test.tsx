@@ -743,7 +743,7 @@ describe("InstallApp", () => {
     }
   });
 
-  test("shows the sandbox provider on the review step", async () => {
+  test("shows the daytona sandbox provider on the review step", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const originalConsoleError = console.error;
     console.error = ((...args: unknown[]) => {
@@ -796,6 +796,77 @@ describe("InstallApp", () => {
         const text = renderTreeText(renderer!.toJSON());
         expect(text).toContain("Daytona");
         expect(text).toContain("Saved");
+      });
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("shows the Azure sandbox provider on the review step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchMock = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              completed_steps: ["server", "azure", "object_store", "sandbox", "llm", "github"],
+              llm: { providers: [{ provider: "anthropic" }] },
+              server: { canonical_url: "https://fabro.example.com" },
+              azure: {
+                subscription_id: "sub-1",
+                resource_group: "rg-1",
+                location: "eastus",
+                subnet_id: "/subscriptions/sub-1/.../aci",
+                acr_server: "fabro.azurecr.io",
+                acr_identity_resource_id: "/subscriptions/sub-1/.../fabro-acr",
+                sandboxd_port: 7777,
+              },
+              object_store: { provider: "local" },
+              sandbox: { provider: "azure" },
+              github: { strategy: "token", username: "octocat" },
+              prefill: INSTALL_PREFILL,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      );
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/review");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/review"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        const text = renderTreeText(renderer!.toJSON());
+        expect(text).toContain("Azure Container Instances");
       });
 
       await act(async () => {
@@ -920,6 +991,266 @@ describe("InstallApp", () => {
       expect(sandboxTestCall?.init?.body).toBe(
         JSON.stringify({ provider: "daytona", api_key: "dtn_secret" }),
       );
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("defaults to Docker and saves without sandbox validation when the session has no saved sandbox", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session" && fetchCalls.length === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "azure", "object_store"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: {
+                  subscription_id: "sub-1",
+                  resource_group: "rg-1",
+                  location: "eastus",
+                  subnet_id: "/subscriptions/sub-1/.../aci",
+                  acr_server: "fabro.azurecr.io",
+                  acr_identity_resource_id: "/subscriptions/sub-1/.../fabro-acr",
+                  sandboxd_port: 7777,
+                },
+                object_store: { provider: "local" },
+                sandbox: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        if (String(input) === "/install/sandbox") {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (String(input) === "/install/session") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "azure", "object_store", "sandbox"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: {
+                  subscription_id: "sub-1",
+                  resource_group: "rg-1",
+                  location: "eastus",
+                  subnet_id: "/subscriptions/sub-1/.../aci",
+                  acr_server: "fabro.azurecr.io",
+                  acr_identity_resource_id: "/subscriptions/sub-1/.../fabro-acr",
+                  sandboxd_port: 7777,
+                },
+                object_store: { provider: "local" },
+                sandbox: { provider: "docker" },
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/sandbox");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/sandbox"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Choose the sandbox runtime");
+      });
+
+      const dockerButton = findOptionButton(renderer!, "Docker");
+      expect(dockerButton.props["aria-pressed"]).toBe(true);
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Add your LLM credentials");
+      });
+      expect(fetchCalls.map((call) => String(call.input))).not.toContain(
+        "/install/sandbox/test",
+      );
+      const sandboxCall = fetchCalls.find((call) => String(call.input) === "/install/sandbox");
+      expect(sandboxCall?.init?.body).toBe(JSON.stringify({ provider: "docker" }));
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("validates Azure sandbox settings, saves them, and advances to the LLM step", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session" && fetchCalls.length === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "azure", "object_store"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: {
+                  subscription_id: "sub-1",
+                  resource_group: "rg-1",
+                  location: "eastus",
+                  subnet_id: "/subscriptions/sub-1/.../aci",
+                  acr_server: "fabro.azurecr.io",
+                  acr_identity_resource_id: "/subscriptions/sub-1/.../fabro-acr",
+                  sandboxd_port: 7777,
+                },
+                object_store: { provider: "local", root: "/tmp/objects" },
+                sandbox: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        if (
+          String(input) === "/install/sandbox/test"
+          || String(input) === "/install/sandbox"
+        ) {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (String(input) === "/install/session") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "azure", "object_store", "sandbox"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                azure: {
+                  subscription_id: "sub-1",
+                  resource_group: "rg-1",
+                  location: "eastus",
+                  subnet_id: "/subscriptions/sub-1/.../aci",
+                  acr_server: "fabro.azurecr.io",
+                  acr_identity_resource_id: "/subscriptions/sub-1/.../fabro-acr",
+                  sandboxd_port: 7777,
+                },
+                object_store: { provider: "local", root: "/tmp/objects" },
+                sandbox: { provider: "azure" },
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/sandbox");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/sandbox"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Choose the sandbox runtime");
+      });
+
+      const azureButton = findOptionButton(renderer!, "Azure Container Instances");
+      await act(async () => {
+        azureButton.props.onClick();
+      });
+
+      expect(renderTreeText(renderer!.toJSON())).toContain(
+        "Fabro will use the Azure Container Instances settings from the Azure step.",
+      );
+      expect(renderTreeText(renderer!.toJSON())).not.toContain("/var/run/docker.sock");
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Add your LLM credentials");
+      });
+      const calls = fetchCalls.map((call) => String(call.input));
+      const testIdx = calls.indexOf("/install/sandbox/test");
+      const putIdx = calls.indexOf("/install/sandbox");
+      expect(testIdx).toBeGreaterThanOrEqual(0);
+      expect(putIdx).toBeGreaterThan(testIdx);
+      const sandboxTestCall = fetchCalls[testIdx];
+      expect(sandboxTestCall?.init?.body).toBe(JSON.stringify({ provider: "azure" }));
+      const sandboxCall = fetchCalls[putIdx];
+      expect(sandboxCall?.init?.body).toBe(JSON.stringify({ provider: "azure" }));
 
       await act(async () => {
         renderer?.unmount();
