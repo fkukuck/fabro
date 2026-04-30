@@ -760,11 +760,7 @@ pub(crate) async fn fetch_source_run_ref(
         let fetch = sandbox
             .exec_command(&fetch_cmd, 30_000, None, None, None)
             .await?;
-        if !fetch.is_success() {
-            last_error = fetch
-                .into_exec_error("git fetch source run ref")
-                .to_string();
-        } else {
+        if fetch.is_success() {
             let check = sandbox
                 .exec_command(&check_cmd, 10_000, None, None, None)
                 .await?;
@@ -775,6 +771,10 @@ pub(crate) async fn fetch_source_run_ref(
                 .into_exec_error(format!(
                     "checkpoint {checkpoint_sha} is not reachable from {remote_ref}"
                 ))
+                .to_string();
+        } else {
+            last_error = fetch
+                .into_exec_error("git fetch source run ref")
                 .to_string();
         }
         time::sleep(Duration::from_millis(500)).await;

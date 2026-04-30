@@ -1,14 +1,17 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use daytona_sdk::api_types::SignedPortPreviewUrl;
+use daytona_sdk::{DaytonaError, SessionCommandLogsResult};
 use fabro_github::GitHubCredentials;
 use fabro_types::{CommandOutputStream, CommandTermination, RunId};
 use rand::Rng;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell};
 use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
@@ -1158,27 +1161,232 @@ impl Sandbox for DaytonaSandbox {
         cancel_token: Option<CancellationToken>,
         output_callback: CommandOutputCallback,
     ) -> crate::Result<ExecStreamingResult> {
-        let result = self
-            .exec_command(command, timeout_ms, working_dir, env_vars, cancel_token)
-            .await?;
-        if !result.stdout.is_empty() {
-            output_callback(
+        let sandbox = self.sandbox()?;
+        let start = Instant::now();
+        let cwd =
+            working_dir.map_or_else(|| WORKING_DIRECTORY.to_string(), |d| self.resolve_path(d));
+
+        let process_svc = sandbox
+            .process()
+            .await
+            .map_err(|e| crate::Error::context("Failed to get process service", e))?;
+
+        let session_id = format!("fabro-{:016x}", rand::rng().random::<u64>());
+        process_svc
+            .create_session(&session_id)
+            .await
+            .map_err(|e| crate::Error::context("Failed to create Daytona session", e))?;
+
+        let session_command = build_session_command(command, &cwd, env_vars);
+        let session_exec = match process_svc
+            .execute_session_command(&session_id, &session_command, true, true)
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
+                    tracing::warn!(
+                        error = %delete_err,
+                        session_id,
+                        "failed to delete Daytona session after command start failure"
+                    );
+                }
+                return Err(crate::Error::context(
+                    "Failed to execute Daytona session command",
+                    err,
+                ));
+            }
+        };
+        let command_id = session_exec.cmd_id;
+
+        let stream_process_svc = match sandbox.process().await {
+            Ok(process_svc) => process_svc,
+            Err(err) => {
+                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
+                    tracing::warn!(
+                        error = %delete_err,
+                        session_id,
+                        "failed to delete Daytona session after stream setup failure"
+                    );
+                }
+                return Err(crate::Error::context("Failed to get process service", err));
+            }
+        };
+        let stdout_seen = Arc::new(Mutex::new(Vec::new()));
+        let stderr_seen = Arc::new(Mutex::new(Vec::new()));
+        let saw_live_chunk = Arc::new(AtomicBool::new(false));
+
+        let stream_session_id = session_id.clone();
+        let stream_command_id = command_id.clone();
+        let stdout_callback = output_callback.clone();
+        let stderr_callback = output_callback.clone();
+        let stdout_seen_for_stream = Arc::clone(&stdout_seen);
+        let stderr_seen_for_stream = Arc::clone(&stderr_seen);
+        let stdout_live = Arc::clone(&saw_live_chunk);
+        let stderr_live = Arc::clone(&saw_live_chunk);
+        let mut stream_task = tokio::spawn(async move {
+            stream_process_svc
+                .get_session_command_logs_stream(
+                    &stream_session_id,
+                    &stream_command_id,
+                    move |chunk| {
+                        let callback = stdout_callback.clone();
+                        let stdout_seen = Arc::clone(&stdout_seen_for_stream);
+                        let saw_live_chunk = Arc::clone(&stdout_live);
+                        async move {
+                            let bytes = chunk.into_bytes();
+                            if !bytes.is_empty() {
+                                saw_live_chunk.store(true, Ordering::Relaxed);
+                                stdout_seen.lock().await.extend_from_slice(&bytes);
+                                callback(CommandOutputStream::Stdout, bytes)
+                                    .await
+                                    .map_err(daytona_callback_error)?;
+                            }
+                            Ok(())
+                        }
+                    },
+                    move |chunk| {
+                        let callback = stderr_callback.clone();
+                        let stderr_seen = Arc::clone(&stderr_seen_for_stream);
+                        let saw_live_chunk = Arc::clone(&stderr_live);
+                        async move {
+                            let bytes = chunk.into_bytes();
+                            if !bytes.is_empty() {
+                                saw_live_chunk.store(true, Ordering::Relaxed);
+                                stderr_seen.lock().await.extend_from_slice(&bytes);
+                                callback(CommandOutputStream::Stderr, bytes)
+                                    .await
+                                    .map_err(daytona_callback_error)?;
+                            }
+                            Ok(())
+                        }
+                    },
+                )
+                .await
+        });
+
+        let timeout_duration = Duration::from_millis(timeout_ms);
+        let token = cancel_token.unwrap_or_default();
+        let mut exit_code = session_exec.exit_code;
+        let mut termination = CommandTermination::Exited;
+        let mut final_logs = None;
+
+        if exit_code.is_none() {
+            let timeout_sleep = time::sleep(timeout_duration);
+            tokio::pin!(timeout_sleep);
+            loop {
+                tokio::select! {
+                    () = time::sleep(Duration::from_millis(250)) => {
+                        let status = match process_svc
+                            .get_session_command(&session_id, &command_id)
+                            .await
+                        {
+                            Ok(status) => status,
+                            Err(err) => {
+                                stream_task.abort();
+                                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
+                                    tracing::warn!(
+                                        error = %delete_err,
+                                        session_id,
+                                        "failed to delete Daytona session after status poll failure"
+                                    );
+                                }
+                                return Err(crate::Error::context("Failed to get Daytona session command status", err));
+                            }
+                        };
+                        if let Some(code) = status.exit_code {
+                            exit_code = Some(code);
+                            break;
+                        }
+                    }
+                    () = &mut timeout_sleep => {
+                        termination = CommandTermination::TimedOut;
+                        final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
+                        break;
+                    }
+                    () = token.cancelled() => {
+                        termination = CommandTermination::Cancelled;
+                        final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if termination != CommandTermination::Exited {
+            if let Err(err) = process_svc.delete_session(&session_id).await {
+                tracing::warn!(
+                    error = %err,
+                    session_id,
+                    "failed to delete Daytona session after terminal command state"
+                );
+            }
+        }
+
+        let stream_succeeded = match finish_daytona_log_stream(&mut stream_task).await {
+            Ok(stream_succeeded) => stream_succeeded,
+            Err(err) => {
+                if termination == CommandTermination::Exited {
+                    if let Err(delete_err) = process_svc.delete_session(&session_id).await {
+                        tracing::warn!(
+                            error = %delete_err,
+                            session_id,
+                            "failed to delete Daytona session after log stream failure"
+                        );
+                    }
+                }
+                return Err(err);
+            }
+        };
+
+        if final_logs.is_none() {
+            final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
+        }
+
+        if termination == CommandTermination::Exited {
+            if let Err(err) = process_svc.delete_session(&session_id).await {
+                tracing::warn!(
+                    error = %err,
+                    session_id,
+                    "failed to delete Daytona session after command completion"
+                );
+            }
+        }
+
+        let mut streams_separated = stream_succeeded;
+        if let Some(logs) = final_logs.as_ref() {
+            streams_separated |= logs.streams_separated;
+            append_missing_log_suffix(
                 CommandOutputStream::Stdout,
-                result.stdout.as_bytes().to_vec(),
+                logs.stdout.as_bytes(),
+                &stdout_seen,
+                &output_callback,
             )
             .await?;
-        }
-        if !result.stderr.is_empty() {
-            output_callback(
+            append_missing_log_suffix(
                 CommandOutputStream::Stderr,
-                result.stderr.as_bytes().to_vec(),
+                logs.stderr.as_bytes(),
+                &stderr_seen,
+                &output_callback,
             )
             .await?;
         }
+
+        let stdout = String::from_utf8_lossy(&stdout_seen.lock().await).into_owned();
+        let stderr = String::from_utf8_lossy(&stderr_seen.lock().await).into_owned();
+
         Ok(ExecStreamingResult {
-            result,
-            streams_separated: false,
-            live_streaming: false,
+            result: ExecResult {
+                stdout,
+                stderr,
+                exit_code: (termination == CommandTermination::Exited)
+                    .then_some(exit_code)
+                    .flatten(),
+                termination,
+                duration_ms: elapsed_ms(&start),
+            },
+            streams_separated,
+            live_streaming: saw_live_chunk.load(Ordering::Relaxed),
         })
     }
 
@@ -1284,6 +1492,122 @@ impl Sandbox for DaytonaSandbox {
     }
 }
 
+fn daytona_callback_error(err: crate::Error) -> DaytonaError {
+    DaytonaError::general(format!("output callback failed: {err}"))
+}
+
+async fn finish_daytona_log_stream(
+    stream_task: &mut tokio::task::JoinHandle<Result<(), DaytonaError>>,
+) -> crate::Result<bool> {
+    match time::timeout(Duration::from_secs(2), stream_task).await {
+        Ok(Ok(Ok(()))) => Ok(true),
+        Ok(Ok(Err(err))) => {
+            let message = err.to_string();
+            if message.contains("output callback failed") {
+                return Err(crate::Error::context(
+                    "Daytona log stream callback failed",
+                    err,
+                ));
+            }
+            tracing::warn!(error = %message, "Daytona log stream ended with an error");
+            Ok(false)
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(error = %err, "Daytona log stream task failed");
+            Ok(false)
+        }
+        Err(_) => {
+            stream_task.abort();
+            tracing::warn!("Daytona log stream did not close after command completion");
+            Ok(false)
+        }
+    }
+}
+
+async fn fetch_daytona_session_logs(
+    process_svc: &daytona_sdk::ProcessService,
+    session_id: &str,
+    command_id: &str,
+) -> Option<SessionCommandLogsResult> {
+    match process_svc
+        .get_session_command_logs(session_id, command_id)
+        .await
+    {
+        Ok(logs) => Some(logs),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                session_id,
+                command_id,
+                "failed to fetch Daytona session command logs"
+            );
+            None
+        }
+    }
+}
+
+async fn append_missing_log_suffix(
+    stream: CommandOutputStream,
+    final_bytes: &[u8],
+    seen: &Arc<Mutex<Vec<u8>>>,
+    output_callback: &CommandOutputCallback,
+) -> crate::Result<()> {
+    if final_bytes.is_empty() {
+        return Ok(());
+    }
+
+    let mut seen = seen.lock().await;
+    let offset = missing_log_suffix_offset(&seen, final_bytes);
+    if offset >= final_bytes.len() {
+        return Ok(());
+    }
+
+    let missing = final_bytes[offset..].to_vec();
+    seen.extend_from_slice(&missing);
+    drop(seen);
+    output_callback(stream, missing).await
+}
+
+fn missing_log_suffix_offset(seen: &[u8], final_bytes: &[u8]) -> usize {
+    if final_bytes.starts_with(seen) {
+        return seen.len();
+    }
+    if seen.starts_with(final_bytes) {
+        return final_bytes.len();
+    }
+
+    let max_overlap = seen.len().min(final_bytes.len());
+    for overlap in (1..=max_overlap).rev() {
+        if seen[seen.len() - overlap..] == final_bytes[..overlap] {
+            return overlap;
+        }
+    }
+    0
+}
+
+fn build_session_command(
+    command: &str,
+    cwd: &str,
+    env_vars: Option<&HashMap<String, String>>,
+) -> String {
+    let mut lines = vec![format!("cd {} || exit $?", shell_quote(cwd))];
+
+    if let Some(vars) = env_vars {
+        let mut entries: Vec<_> = vars.iter().collect();
+        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (key, value) in entries {
+            lines.push(format!(
+                "export {}={}",
+                shell_quote(key),
+                shell_quote(value)
+            ));
+        }
+    }
+
+    lines.push(command.to_string());
+    lines.join("\n")
+}
+
 /// Wrap a command string with `bash -c '...'`, escaping single quotes.
 ///
 /// The Daytona API uses direct exec (not a shell), so pipes, env vars,
@@ -1373,6 +1697,33 @@ mod tests {
             wrapped.ends_with("' | base64 -d | sh\""),
             "should end with base64 -d | sh"
         );
+    }
+
+    #[test]
+    fn build_session_command_adds_cwd_and_sorted_exports() {
+        let env = HashMap::from([
+            ("BETA".to_string(), "two words".to_string()),
+            ("ALPHA".to_string(), "one".to_string()),
+        ]);
+
+        let command = build_session_command("echo $ALPHA $BETA", "/tmp/with space", Some(&env));
+
+        assert_eq!(
+            command,
+            "cd '/tmp/with space' || exit $?\n\
+             export ALPHA=one\n\
+             export BETA='two words'\n\
+             echo $ALPHA $BETA"
+        );
+    }
+
+    #[test]
+    fn missing_log_suffix_offset_handles_prefix_overlap() {
+        assert_eq!(missing_log_suffix_offset(b"hello", b"hello world"), 5);
+        assert_eq!(missing_log_suffix_offset(b"hello wor", b"hello world"), 9);
+        assert_eq!(missing_log_suffix_offset(b"abcxyz", b"xyz123"), 3);
+        assert_eq!(missing_log_suffix_offset(b"hello world", b"hello"), 5);
+        assert_eq!(missing_log_suffix_offset(b"abc", b"def"), 0);
     }
 
     #[test]
