@@ -48,7 +48,7 @@ pub(super) async fn list_command(_args: &SecretListArgs, ctx: &CommandContext) -
         .map(|secret| {
             vec![
                 secret.name.clone().cell().bold(use_color),
-                secret.type_.to_string().cell(),
+                secret.secret_type.to_string().cell(),
                 format_age(secret.updated_at, now).cell(),
             ]
         })

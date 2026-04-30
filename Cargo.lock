@@ -1605,6 +1605,7 @@ dependencies = [
  "fabro-oauth",
  "fabro-redact",
  "fabro-static",
+ "fabro-types",
  "fabro-vault",
  "httpmock",
  "serde",

@@ -28,9 +28,9 @@ pub mod types {
         BlockedReason, FailureReason, RunControlAction, RunStatus, SuccessReason, TerminalStatus,
     };
     pub use fabro_types::{
-        ActorKind, ActorRef, DiffStats, DirtyStatus, GitContext, NodeStatusRecord,
-        PreRunPushOutcome, QuestionType, RepositoryReference, RunSummary, SecretType,
-        ServerSettings, StageStatus as InternalStageStatus, WorkflowSettings,
+        ActorKind, ActorRef, DiffStats, DirtyStatus, GitContext, NodeState, NodeStatusRecord,
+        PreRunPushOutcome, QuestionType, RepositoryReference, RunSummary, SecretMetadata,
+        SecretType, ServerSettings, StageStatus as InternalStageStatus, WorkflowSettings,
     };
 
     pub use crate::generated::types::*;

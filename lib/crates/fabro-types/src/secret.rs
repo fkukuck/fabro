@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
@@ -9,4 +10,15 @@ pub enum SecretType {
     Environment,
     File,
     Credential,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretMetadata {
+    pub name:        String,
+    #[serde(rename = "type")]
+    pub secret_type: SecretType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub created_at:  DateTime<Utc>,
+    pub updated_at:  DateTime<Utc>,
 }

@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::{fmt, io};
 
+use chrono::{DateTime, Utc};
+use fabro_types::SecretMetadata;
 pub use fabro_types::SecretType;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -16,19 +18,8 @@ pub struct SecretEntry {
     pub secret_type: SecretType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub created_at:  String,
-    pub updated_at:  String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SecretMetadata {
-    pub name:        String,
-    #[serde(rename = "type")]
-    pub secret_type: SecretType,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub created_at:  String,
-    pub updated_at:  String,
+    pub created_at:  DateTime<Utc>,
+    pub updated_at:  DateTime<Utc>,
 }
 
 #[derive(Debug)]
@@ -90,12 +81,12 @@ impl Vault {
     ) -> Result<SecretMetadata, Error> {
         Self::validate_name(name, secret_type)?;
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = Utc::now();
         let (created_at, description) = self.entries.get(name).map_or_else(
-            || (now.clone(), description.map(str::to_string)),
+            || (now, description.map(str::to_string)),
             |entry| {
                 (
-                    entry.created_at.clone(),
+                    entry.created_at,
                     description
                         .map(str::to_string)
                         .or_else(|| entry.description.clone()),
@@ -106,8 +97,8 @@ impl Vault {
             value: value.to_string(),
             secret_type,
             description: description.clone(),
-            created_at: created_at.clone(),
-            updated_at: now.clone(),
+            created_at,
+            updated_at: now,
         };
         self.entries.insert(name.to_string(), entry);
         self.write_atomic()?;
@@ -137,8 +128,8 @@ impl Vault {
                 name:        name.clone(),
                 secret_type: entry.secret_type,
                 description: entry.description.clone(),
-                created_at:  entry.created_at.clone(),
-                updated_at:  entry.updated_at.clone(),
+                created_at:  entry.created_at,
+                updated_at:  entry.updated_at,
             })
             .collect::<Vec<_>>();
         data.sort_by(|a, b| a.name.cmp(&b.name));

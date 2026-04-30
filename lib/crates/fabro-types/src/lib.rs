@@ -69,7 +69,7 @@ pub use run_id::{RunId, fixtures};
 pub use run_projection::{NodeState, PendingInterviewRecord, RunProjection};
 pub use run_summary::RunSummary;
 pub use sandbox_record::SandboxRecord;
-pub use secret::SecretType;
+pub use secret::{SecretMetadata, SecretType};
 pub use stage_id::{ParallelBranchId, StageId};
 pub use start::StartRecord;
 pub use status::{

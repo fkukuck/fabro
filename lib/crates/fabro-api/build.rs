@@ -314,6 +314,8 @@ fn main() {
         ("QuestionType", "fabro_types::QuestionType", &[]),
         ("NodeStatusRecord", "fabro_types::NodeStatusRecord", &[]),
         ("InternalStageStatus", "fabro_types::StageStatus", &[]),
+        ("NodeState", "fabro_types::NodeState", &[]),
+        ("SecretMetadata", "fabro_types::SecretMetadata", &[]),
         ("PullRequestRecord", "fabro_types::PullRequestRecord", &[]),
         ("PullRequestDetail", "fabro_types::PullRequestDetail", &[]),
         ("PullRequestUser", "fabro_types::PullRequestUser", &[]),

@@ -1,5 +1,6 @@
 use fabro_model::Provider;
-use fabro_vault::{SecretMetadata, SecretType, Vault};
+use fabro_types::SecretMetadata;
+use fabro_vault::{SecretType, Vault};
 
 use crate::credential::AuthCredential;
 
