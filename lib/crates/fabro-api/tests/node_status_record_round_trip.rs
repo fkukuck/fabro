@@ -12,7 +12,7 @@ fn node_status_record_reuses_canonical_type() {
 #[test]
 fn node_status_record_round_trips_representative_json() {
     let value = json!({
-        "status": "partial_success",
+        "status": "partially_succeeded",
         "notes": "continued with warnings",
         "failure_reason": null,
         "timestamp": "2026-04-29T12:34:56Z"

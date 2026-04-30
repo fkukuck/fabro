@@ -32,8 +32,8 @@ pub mod types {
         ActorKind, ActorRef, BilledTokenCounts, DiffStats, DirtyStatus, EventEnvelope, GitContext,
         InterviewOption, InterviewQuestionRecord, NodeState, NodeStatusRecord,
         PendingInterviewRecord, PreRunPushOutcome, QuestionType, RepositoryReference, RunEvent,
-        RunProjection, RunSummary, SecretMetadata, SecretType, ServerSettings,
-        StageStatus as InternalStageStatus, WorkflowSettings,
+        RunProjection, RunSummary, SecretMetadata, SecretType, ServerSettings, StageOutcome,
+        StageState, WorkflowSettings,
     };
 
     pub use crate::generated::types::*;

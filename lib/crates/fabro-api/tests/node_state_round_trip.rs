@@ -15,7 +15,7 @@ fn node_state_round_trips_representative_json() {
         "prompt": "build it",
         "response": "done",
         "status": {
-            "status": "success",
+            "status": "succeeded",
             "notes": null,
             "failure_reason": null,
             "timestamp": "2026-04-29T12:34:56Z"
@@ -24,7 +24,7 @@ fn node_state_round_trips_representative_json() {
         "diff": "diff --git a/file b/file",
         "script_invocation": { "command": "cargo test" },
         "script_timing": { "duration_ms": 42 },
-        "parallel_results": [{ "branch": 0, "status": "success" }],
+        "parallel_results": [{ "branch": 0, "status": "succeeded" }],
         "stdout": "ok",
         "stderr": ""
     });

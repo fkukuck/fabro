@@ -4923,15 +4923,14 @@ components:
         - pause
         - unpause
 
-    InternalStageStatus:
-      description: Internal stage status from outcomes and node status records.
+    StageOutcome:
+      description: Terminal execution outcome of a workflow stage.
       type: string
       enum:
-        - success
-        - fail
+        - succeeded
+        - partially_succeeded
+        - failed
         - skipped
-        - partial_success
-        - retry
 
     NodeStatusRecord:
       description: Internal node status record.
@@ -4941,7 +4940,7 @@ components:
         - timestamp
       properties:
         status:
-          $ref: "#/components/schemas/InternalStageStatus"
+          $ref: "#/components/schemas/StageOutcome"
         notes:
           type: ["string", "null"]
         failure_reason:
@@ -5942,14 +5941,17 @@ components:
 
     # ── Stage / Turn Schemas ─────────────────────────────────────────────
 
-    StageStatus:
-      description: Execution status of a workflow stage.
+    StageState:
+      description: Lifecycle projection state of a workflow stage.
       type: string
       enum:
-        - completed
-        - running
         - pending
+        - running
+        - retrying
+        - succeeded
+        - partially_succeeded
         - failed
+        - skipped
         - cancelled
 
     RunStage:
@@ -5969,7 +5971,7 @@ components:
           description: Human-readable stage name.
           example: Propose Changes
         status:
-          $ref: "#/components/schemas/StageStatus"
+          $ref: "#/components/schemas/StageState"
         duration_secs:
           type: number
           description: Time spent in this stage, in seconds.
@@ -6916,7 +6918,606 @@ components:
         The persisted dense `WorkflowSettings` snapshot used for a specific run.
         This matches the resolved run settings recorded at launch time.
       type: object
-      additionalProperties: true
+      required:
+        - project
+        - workflow
+        - run
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectNamespace"
+        workflow:
+          $ref: "#/components/schemas/WorkflowNamespace"
+        run:
+          $ref: "#/components/schemas/RunNamespace"
+
+    InterpString:
+      description: Resolved config string that may contain env interpolation tokens.
+      type: string
+
+    StringMap:
+      type: object
+      additionalProperties:
+        type: string
+
+    TomlValue:
+      description: Arbitrary TOML-compatible value.
+
+    ProjectNamespace:
+      type: object
+      required: [name, description, directory, metadata]
+      properties:
+        name:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        directory:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/StringMap"
+
+    WorkflowNamespace:
+      type: object
+      required: [name, description, graph, metadata]
+      properties:
+        name:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        graph:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/StringMap"
+
+    RunNamespace:
+      type: object
+      required:
+        - goal
+        - working_dir
+        - metadata
+        - inputs
+        - model
+        - git
+        - prepare
+        - execution
+        - checkpoint
+        - sandbox
+        - notifications
+        - interviews
+        - agent
+        - hooks
+        - scm
+        - pull_request
+        - artifacts
+      properties:
+        goal:
+          oneOf:
+            - $ref: "#/components/schemas/RunGoal"
+            - type: "null"
+        working_dir:
+          oneOf:
+            - $ref: "#/components/schemas/InterpString"
+            - type: "null"
+        metadata:
+          $ref: "#/components/schemas/StringMap"
+        inputs:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TomlValue"
+        model:
+          $ref: "#/components/schemas/RunModelSettings"
+        git:
+          $ref: "#/components/schemas/RunGitSettings"
+        prepare:
+          $ref: "#/components/schemas/RunPrepareSettings"
+        execution:
+          $ref: "#/components/schemas/RunExecutionSettings"
+        checkpoint:
+          $ref: "#/components/schemas/RunCheckpointSettings"
+        sandbox:
+          $ref: "#/components/schemas/RunSandboxSettings"
+        notifications:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/NotificationRouteSettings"
+        interviews:
+          $ref: "#/components/schemas/RunInterviewsSettings"
+        agent:
+          $ref: "#/components/schemas/RunAgentSettings"
+        hooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HookDefinition"
+        scm:
+          $ref: "#/components/schemas/RunScmSettings"
+        pull_request:
+          oneOf:
+            - $ref: "#/components/schemas/PullRequestSettings"
+            - type: "null"
+        artifacts:
+          $ref: "#/components/schemas/ArtifactsSettings"
+
+    RunGoal:
+      oneOf:
+        - $ref: "#/components/schemas/RunGoalInline"
+        - $ref: "#/components/schemas/RunGoalFile"
+
+    RunGoalInline:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          enum: [inline]
+        value:
+          $ref: "#/components/schemas/InterpString"
+
+    RunGoalFile:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          enum: [file]
+        value:
+          $ref: "#/components/schemas/InterpString"
+
+    ModelRef:
+      type: string
+
+    RunModelSettings:
+      type: object
+      required: [provider, name, fallbacks]
+      properties:
+        provider:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        fallbacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelRef"
+
+    RunGitSettings:
+      type: object
+      required: [author]
+      properties:
+        author:
+          oneOf:
+            - $ref: "#/components/schemas/GitAuthorSettings"
+            - type: "null"
+
+    GitAuthorSettings:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+
+    RunPrepareSettings:
+      type: object
+      required: [commands, timeout_ms]
+      properties:
+        commands:
+          type: array
+          items:
+            type: string
+        timeout_ms:
+          type: integer
+          format: int64
+
+    RunExecutionSettings:
+      type: object
+      required: [mode, approval, retros]
+      properties:
+        mode:
+          $ref: "#/components/schemas/RunMode"
+        approval:
+          $ref: "#/components/schemas/ApprovalMode"
+        retros:
+          type: boolean
+
+    RunMode:
+      type: string
+      enum: [normal, dry_run]
+
+    ApprovalMode:
+      type: string
+      enum: [prompt, auto]
+
+    RunCheckpointSettings:
+      type: object
+      required: [exclude_globs]
+      properties:
+        exclude_globs:
+          type: array
+          items:
+            type: string
+
+    RunSandboxSettings:
+      type: object
+      required: [provider, preserve, devcontainer, env, local, docker, daytona]
+      properties:
+        provider:
+          type: string
+        preserve:
+          type: boolean
+        devcontainer:
+          type: boolean
+        env:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InterpString"
+        local:
+          $ref: "#/components/schemas/LocalSandboxSettings"
+        docker:
+          oneOf:
+            - $ref: "#/components/schemas/DockerSettings"
+            - type: "null"
+        daytona:
+          oneOf:
+            - $ref: "#/components/schemas/DaytonaSettings"
+            - type: "null"
+
+    LocalSandboxSettings:
+      type: object
+      required: [worktree_mode]
+      properties:
+        worktree_mode:
+          $ref: "#/components/schemas/WorktreeMode"
+
+    WorktreeMode:
+      type: string
+      enum: [always, clean, dirty, never]
+
+    DockerSettings:
+      type: object
+      required: [image, network_mode, memory_limit, cpu_quota, env_vars, skip_clone]
+      properties:
+        image:
+          type: string
+        network_mode:
+          type: ["string", "null"]
+        memory_limit:
+          type: ["integer", "null"]
+          format: int64
+        cpu_quota:
+          type: ["integer", "null"]
+          format: int64
+        env_vars:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InterpString"
+        skip_clone:
+          type: boolean
+
+    DaytonaSettings:
+      type: object
+      required: [auto_stop_interval, labels, snapshot, network, skip_clone]
+      properties:
+        auto_stop_interval:
+          type: ["integer", "null"]
+          format: int32
+        labels:
+          $ref: "#/components/schemas/StringMap"
+        snapshot:
+          oneOf:
+            - $ref: "#/components/schemas/DaytonaSnapshotSettings"
+            - type: "null"
+        network:
+          oneOf:
+            - $ref: "#/components/schemas/DaytonaNetworkLayer"
+            - type: "null"
+        skip_clone:
+          type: boolean
+
+    DaytonaSnapshotSettings:
+      type: object
+      required: [name, cpu, memory_gb, disk_gb, dockerfile]
+      properties:
+        name:
+          type: string
+        cpu:
+          type: ["integer", "null"]
+          format: int32
+        memory_gb:
+          type: ["integer", "null"]
+          format: int32
+        disk_gb:
+          type: ["integer", "null"]
+          format: int32
+        dockerfile:
+          oneOf:
+            - $ref: "#/components/schemas/DockerfileSource"
+            - type: "null"
+
+    DockerfileSource:
+      oneOf:
+        - $ref: "#/components/schemas/DockerfileSourceInline"
+        - $ref: "#/components/schemas/DockerfileSourcePath"
+
+    DockerfileSourceInline:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          enum: [inline]
+        value:
+          type: string
+
+    DockerfileSourcePath:
+      type: object
+      required: [type, path]
+      properties:
+        type:
+          type: string
+          enum: [path]
+        path:
+          type: string
+
+    DaytonaNetworkLayer:
+      description: Daytona network access policy.
+      oneOf:
+        - type: string
+          enum: [block, allow_all]
+        - type: object
+          required: [allow_list]
+          properties:
+            allow_list:
+              type: object
+              required: [allow_list]
+              properties:
+                allow_list:
+                  type: array
+                  items:
+                    type: string
+
+    NotificationRouteSettings:
+      type: object
+      required: [enabled, provider, events, slack, discord, teams]
+      properties:
+        enabled:
+          type: boolean
+        provider:
+          type: ["string", "null"]
+        events:
+          type: array
+          items:
+            type: string
+        slack:
+          oneOf:
+            - $ref: "#/components/schemas/NotificationProviderSettings"
+            - type: "null"
+        discord:
+          oneOf:
+            - $ref: "#/components/schemas/NotificationProviderSettings"
+            - type: "null"
+        teams:
+          oneOf:
+            - $ref: "#/components/schemas/NotificationProviderSettings"
+            - type: "null"
+
+    NotificationProviderSettings:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: ["string", "null"]
+
+    RunInterviewsSettings:
+      type: object
+      required: [provider, slack, discord, teams]
+      properties:
+        provider:
+          type: ["string", "null"]
+        slack:
+          oneOf:
+            - $ref: "#/components/schemas/InterviewProviderSettings"
+            - type: "null"
+        discord:
+          oneOf:
+            - $ref: "#/components/schemas/InterviewProviderSettings"
+            - type: "null"
+        teams:
+          oneOf:
+            - $ref: "#/components/schemas/InterviewProviderSettings"
+            - type: "null"
+
+    InterviewProviderSettings:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: ["string", "null"]
+
+    RunAgentSettings:
+      type: object
+      required: [permissions, mcps]
+      properties:
+        permissions:
+          oneOf:
+            - $ref: "#/components/schemas/AgentPermissions"
+            - type: "null"
+        mcps:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/McpServerSettings"
+
+    AgentPermissions:
+      type: string
+      enum: [read-only, read-write, full]
+
+    McpServerSettings:
+      type: object
+      required: [name, transport, startup_timeout_secs, tool_timeout_secs]
+      properties:
+        name:
+          type: string
+        transport:
+          $ref: "#/components/schemas/McpTransport"
+        startup_timeout_secs:
+          type: integer
+          format: int64
+        tool_timeout_secs:
+          type: integer
+          format: int64
+
+    McpTransport:
+      oneOf:
+        - $ref: "#/components/schemas/McpTransportStdio"
+        - $ref: "#/components/schemas/McpTransportHttp"
+        - $ref: "#/components/schemas/McpTransportSandbox"
+
+    McpTransportStdio:
+      type: object
+      required: [type, command, env]
+      properties:
+        type:
+          type: string
+          enum: [stdio]
+        command:
+          type: array
+          items:
+            type: string
+        env:
+          $ref: "#/components/schemas/StringMap"
+
+    McpTransportHttp:
+      type: object
+      required: [type, url, headers]
+      properties:
+        type:
+          type: string
+          enum: [http]
+        url:
+          type: string
+        headers:
+          $ref: "#/components/schemas/StringMap"
+
+    McpTransportSandbox:
+      type: object
+      required: [type, command, port, env]
+      properties:
+        type:
+          type: string
+          enum: [sandbox]
+        command:
+          type: array
+          items:
+            type: string
+        port:
+          type: integer
+          format: int32
+        env:
+          $ref: "#/components/schemas/StringMap"
+
+    HookDefinition:
+      type: object
+      required: [name, event, command, matcher, blocking, timeout_ms, sandbox]
+      properties:
+        name:
+          type: ["string", "null"]
+        event:
+          $ref: "#/components/schemas/HookEvent"
+        command:
+          type: ["string", "null"]
+        type:
+          type: ["string", "null"]
+          enum: [command, http, prompt, agent, null]
+        url:
+          type: ["string", "null"]
+        headers:
+          oneOf:
+            - $ref: "#/components/schemas/StringMap"
+            - type: "null"
+        allowed_env_vars:
+          type: array
+          items:
+            type: string
+        tls:
+          $ref: "#/components/schemas/TlsMode"
+        prompt:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        max_tool_rounds:
+          type: ["integer", "null"]
+          format: int32
+        matcher:
+          type: ["string", "null"]
+        blocking:
+          type: ["boolean", "null"]
+        timeout_ms:
+          type: ["integer", "null"]
+          format: int64
+        sandbox:
+          type: ["boolean", "null"]
+
+    HookEvent:
+      type: string
+      enum:
+        - run_start
+        - run_complete
+        - run_failed
+        - stage_start
+        - stage_complete
+        - stage_failed
+        - stage_retrying
+        - edge_selected
+        - parallel_start
+        - parallel_complete
+        - sandbox_ready
+        - sandbox_cleanup
+        - checkpoint_saved
+        - pre_tool_use
+        - post_tool_use
+        - post_tool_use_failure
+
+    TlsMode:
+      type: string
+      enum: [verify, no_verify, off]
+
+    RunScmSettings:
+      type: object
+      required: [provider, owner, repository, github]
+      properties:
+        provider:
+          type: ["string", "null"]
+        owner:
+          type: ["string", "null"]
+        repository:
+          type: ["string", "null"]
+        github:
+          oneOf:
+            - $ref: "#/components/schemas/ScmGitHubSettings"
+            - type: "null"
+
+    ScmGitHubSettings:
+      type: object
+
+    PullRequestSettings:
+      type: object
+      required: [enabled, draft, auto_merge, merge_strategy]
+      properties:
+        enabled:
+          type: boolean
+        draft:
+          type: boolean
+        auto_merge:
+          type: boolean
+        merge_strategy:
+          $ref: "#/components/schemas/MergeMethod"
+
+    ArtifactsSettings:
+      type: object
+      required: [include]
+      properties:
+        include:
+          type: array
+          items:
+            type: string
 
     SystemInfoResponse:
       description: Runtime information for the active Fabro server process.
