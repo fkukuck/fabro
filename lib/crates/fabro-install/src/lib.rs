@@ -62,6 +62,7 @@ pub enum InstallObjectStoreSelection {
 pub enum InstallSandboxSelection {
     Docker,
     Daytona,
+    Azure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -493,6 +494,7 @@ pub fn write_sandbox_settings(
     let provider = match selection {
         InstallSandboxSelection::Docker => "docker",
         InstallSandboxSelection::Daytona => "daytona",
+        InstallSandboxSelection::Azure => "azure",
     };
     let root = root_table_mut(doc)?;
     let run = ensure_table(root, "run")?;
@@ -1123,6 +1125,23 @@ name = "custom"
                 .and_then(|sandbox| sandbox.get("provider"))
                 .and_then(toml::Value::as_str),
             Some("daytona")
+        );
+    }
+
+    #[test]
+    fn write_sandbox_settings_records_azure_provider() {
+        let mut doc = toml::Value::Table(toml::Table::default());
+        write_sandbox_settings(&mut doc, InstallSandboxSelection::Azure)
+            .expect("azure sandbox selection should succeed");
+
+        assert_eq!(
+            doc.get("run")
+                .and_then(toml::Value::as_table)
+                .and_then(|run| run.get("sandbox"))
+                .and_then(toml::Value::as_table)
+                .and_then(|sandbox| sandbox.get("provider"))
+                .and_then(toml::Value::as_str),
+            Some("azure")
         );
     }
 

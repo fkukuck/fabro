@@ -2365,6 +2365,112 @@ async fn sandbox_docker_save_records_explicit_provider_in_session() {
 }
 
 #[tokio::test]
+async fn sandbox_azure_without_azure_step_is_rejected() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/sandbox")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"provider":"azure"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = response_json(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "PUT /install/sandbox azure",
+    )
+    .await;
+    assert_eq!(
+        body["errors"][0]["detail"],
+        "Complete the Azure platform step before selecting the Azure sandbox runtime."
+    );
+}
+
+#[tokio::test]
+async fn sandbox_azure_test_endpoint_without_azure_step_is_rejected() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/sandbox/test")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"provider":"azure"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = response_json(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "POST /install/sandbox/test azure",
+    )
+    .await;
+    assert_eq!(
+        body["errors"][0]["detail"],
+        "Complete the Azure platform step before selecting the Azure sandbox runtime."
+    );
+}
+
+#[tokio::test]
+async fn sandbox_azure_test_endpoint_returns_ok_after_azure_step() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    put_install_azure_default(&app, "test-install-token").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/sandbox/test")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"provider":"azure"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = response_json(
+        response,
+        StatusCode::OK,
+        "POST /install/sandbox/test azure after azure step",
+    )
+    .await;
+    assert_eq!(body["ok"], true);
+}
+
+#[tokio::test]
+async fn sandbox_azure_save_records_explicit_provider_in_session() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    put_install_azure_default(&app, "test-install-token").await;
+    put_install_sandbox(&app, "test-install-token", r#"{"provider":"azure"}"#).await;
+
+    let session_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let session_body =
+        response_json(session_response, StatusCode::OK, "GET /install/session").await;
+    assert_eq!(session_body["sandbox"]["provider"], "azure");
+}
+
+#[tokio::test]
 async fn sandbox_daytona_without_api_key_is_rejected() {
     let app = build_install_router(InstallAppState::for_test("test-install-token"));
 
@@ -2649,6 +2755,40 @@ async fn daytona_install_finish_writes_settings_and_vault_secret() {
 
     let vault = Vault::load(Storage::new(temp_dir.path()).secrets_path()).unwrap();
     assert_eq!(vault.get("DAYTONA_API_KEY"), Some(api_key));
+}
+
+#[tokio::test]
+async fn azure_install_finish_writes_azure_sandbox_provider() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let app = build_install_router(InstallAppState::for_test_with_paths(
+        "test-install-token",
+        temp_dir.path(),
+        &config_path,
+    ));
+
+    put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
+    put_install_object_store_local(&app, "test-install-token").await;
+    put_install_sandbox(&app, "test-install-token", r#"{"provider":"azure"}"#).await;
+    put_install_llm(&app, "test-install-token").await;
+    put_install_github_token(&app, "test-install-token", "brynary").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response_status(response, StatusCode::ACCEPTED, "POST /install/finish").await;
+
+    let settings = std::fs::read_to_string(config_path).unwrap();
+    assert!(settings.contains("provider = \"azure\""));
 }
 
 #[fabro_macros::e2e_test(live("DAYTONA_API_KEY"))]

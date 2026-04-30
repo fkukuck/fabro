@@ -56,7 +56,6 @@ import { LoadingState } from "./components/state";
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
   { id: "server", label: "Server", href: "/install/server" },
-  { id: "object_store", label: "Storage", href: "/install/object-store" },
   { id: "azure", label: "Azure", href: "/install/azure" },
   { id: "object_store", label: "Storage", href: "/install/object-store" },
   { id: "sandbox", label: "Sandbox", href: "/install/sandbox" },
@@ -889,11 +888,11 @@ export default function InstallApp() {
       ) : location.pathname === "/install/sandbox" ? (
         <StepPanel
           title="Choose the sandbox runtime"
-          description="Workflows run inside this sandbox. Docker uses the host daemon; Daytona runs each sandbox in its cloud."
+          description="Workflows run inside this sandbox. Azure uses the platform settings from the Azure step, Docker uses the host daemon, and Daytona runs each sandbox in its cloud."
           error={saveError}
           submitting={submitting}
           submittingLabel={
-            sandboxForm.provider === "daytona" ? "Checking access..." : "Saving..."
+            sandboxForm.provider === "docker" ? "Saving..." : "Checking access..."
           }
           backHref="/install/object-store"
           onSubmit={async () => {
@@ -910,7 +909,7 @@ export default function InstallApp() {
             const payload = buildSandboxPayload(sandboxForm);
             await runStepSubmit({
               action: async () => {
-                if (sandboxForm.provider === "daytona") {
+                if (sandboxForm.provider !== "docker") {
                   await testInstallSandbox(installToken, payload);
                 }
                 await putInstallSandbox(installToken, payload);
@@ -961,6 +960,12 @@ export default function InstallApp() {
                 />
               </Field>
             </div>
+          ) : sandboxForm.provider === "azure" ? (
+            <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+              Fabro will use the Azure Container Instances settings from the Azure
+              step. Make sure the Azure subnet, registry, and identity settings are
+              saved before continuing.
+            </p>
           ) : (
             <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
               Fabro will use the host Docker daemon. Make sure the server has
@@ -1390,7 +1395,10 @@ function WelcomeScreen() {
             "Object store",
             "Choose local disk or AWS S3 for SlateDB and artifacts.",
           ],
-          ["Sandbox", "Choose Docker or Daytona for workflow execution."],
+          [
+            "Sandbox",
+            "Choose Azure Container Instances, Docker, or Daytona for workflow execution.",
+          ],
           ["LLMs", "Validate API keys for Anthropic, OpenAI, or Gemini."],
           ["GitHub", "Choose a personal access token or a GitHub App."],
           ["Review", "Double-check the plan, then write the files."],
@@ -1733,9 +1741,14 @@ const OBJECT_STORE_CREDENTIAL_MODE_OPTIONS: ReadonlyArray<
 
 const SANDBOX_PROVIDER_OPTIONS: ReadonlyArray<CardOption<SandboxProvider>> = [
   {
+    id:    "azure",
+    title: "Azure Container Instances",
+    body:  "Use the Azure subnet, registry, and sandbox platform settings saved on the Azure step.",
+  },
+  {
     id:    "docker",
     title: "Docker",
-    body:  "Default. Uses the host Docker daemon to run sandbox containers.",
+    body:  "Uses the host Docker daemon to run sandbox containers.",
   },
   {
     id:    "daytona",
@@ -2170,13 +2183,16 @@ function hydrateSandboxForm(
     return { ...current, apiKeySaved: Boolean(summary.api_key_saved) };
   }
   return {
-    provider:    summary.provider === "daytona" ? "daytona" : "docker",
+    provider:    summary.provider,
     apiKey:      "",
     apiKeySaved: Boolean(summary.api_key_saved),
   };
 }
 
 function buildSandboxPayload(form: SandboxForm): InstallSandboxInput {
+  if (form.provider === "azure") {
+    return { provider: "azure" };
+  }
   if (form.provider === "docker") {
     return { provider: "docker" };
   }
@@ -2321,6 +2337,9 @@ function renderSandboxSummaryRows(
         />
       </>
     );
+  }
+  if (sandbox.provider === "azure") {
+    return <SummaryRow label="Sandbox" value="Azure Container Instances" />;
   }
   return <SummaryRow label="Sandbox" value="Docker" />;
 }
