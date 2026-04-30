@@ -22,6 +22,8 @@ jobs:
     name: Deploy production Azure environment
     runs-on: ubuntu-24.04-x86-32-cores
     environment: production
+    env:
+      HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -169,7 +171,7 @@ jobs:
       # v1 expects the install wizard's GitHub step to use token auth so the
       # operator receives a reusable dev token for CI smoke checks.
       - name: Authenticated API check
-        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         env:
           FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
@@ -182,7 +184,7 @@ jobs:
             "$FABRO_SERVER_URL/api/v1/models"
 
       - name: Render smoke workflow with deployed sandbox image
-        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         run: |
           sed \
             "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
@@ -190,7 +192,7 @@ jobs:
             > "$RUNNER_TEMP/azure-deploy-smoke.toml"
 
       - name: Run Azure smoke workflow
-        if: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         env:
           FABRO_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
@@ -199,8 +201,6 @@ jobs:
             --server "$FABRO_SERVER_URL/api/v1"
 
       - name: Deployment summary
-        env:
-          HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
         run: |
           {
             echo "## Azure deploy summary"
