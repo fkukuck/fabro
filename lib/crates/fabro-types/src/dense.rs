@@ -119,14 +119,15 @@ mod tests {
         else {
             panic!("artifacts store should stay local");
         };
-        let ObjectStoreSettings::Local {
-            root: slatedb_root,
-        } = &updated.server.slatedb.store
+        let ObjectStoreSettings::Local { root: slatedb_root } = &updated.server.slatedb.store
         else {
             panic!("slatedb store should stay local");
         };
 
-        assert_eq!(updated.server.storage.root.as_source(), "/srv/fabro-storage");
+        assert_eq!(
+            updated.server.storage.root.as_source(),
+            "/srv/fabro-storage"
+        );
         assert_eq!(artifacts_root.as_source(), "/tmp/fabro-objects");
         assert_eq!(slatedb_root.as_source(), "/tmp/fabro-objects");
     }
@@ -149,14 +150,18 @@ mod tests {
         else {
             panic!("artifacts store should stay local");
         };
-        let ObjectStoreSettings::Local {
-            root: slatedb_root,
-        } = &updated.server.slatedb.store
+        let ObjectStoreSettings::Local { root: slatedb_root } = &updated.server.slatedb.store
         else {
             panic!("slatedb store should stay local");
         };
 
-        assert_eq!(artifacts_root.as_source(), "/srv/fabro-storage/objects/artifacts");
-        assert_eq!(slatedb_root.as_source(), "/srv/fabro-storage/objects/slatedb");
+        assert_eq!(
+            artifacts_root.as_source(),
+            "/srv/fabro-storage/objects/artifacts"
+        );
+        assert_eq!(
+            slatedb_root.as_source(),
+            "/srv/fabro-storage/objects/slatedb"
+        );
     }
 }

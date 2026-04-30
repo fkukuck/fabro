@@ -90,8 +90,8 @@ use fabro_workflow::run_lookup::{
 };
 use fabro_workflow::run_status::{FailureReason, RunStatus, SuccessReason};
 use fabro_workflow::{Error as WorkflowError, operations, pull_request};
-use object_store::memory::InMemory as MemoryObjectStore;
 use object_store::ObjectStore;
+use object_store::memory::InMemory as MemoryObjectStore;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use tokio::fs;
@@ -121,7 +121,6 @@ use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
 use crate::jwt_auth::{self, AuthMode, AuthenticatedService, AuthenticatedSubject};
 use crate::request_id::{self, RequestId};
 use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
-use crate::run_logs;
 use crate::run_selector::{ResolveRunError, resolve_run_by_selector};
 use crate::server_secrets::{LlmClientResult, ServerSecrets};
 use crate::spawn_env::{apply_render_graph_env, apply_worker_env};
@@ -130,7 +129,8 @@ use crate::worker_token::{
     WorkerTokenKeys, issue_worker_token,
 };
 use crate::{
-    canonical_host, demo, diagnostics, run_manifest, security_headers, static_files, web_auth,
+    canonical_host, demo, diagnostics, run_logs, run_manifest, security_headers, static_files,
+    web_auth,
 };
 
 pub(crate) type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -5593,7 +5593,8 @@ async fn surface_durable_run_log_archive_failure(
                 code:    "durable_run_log_archive_failed".to_string(),
                 message: message.clone(),
             };
-            if let Err(notice_err) = workflow_event::append_event(&run_store, run_id, &event).await {
+            if let Err(notice_err) = workflow_event::append_event(&run_store, run_id, &event).await
+            {
                 warn!(
                     run_id = %run_id,
                     error = %notice_err,
@@ -8379,8 +8380,8 @@ mod tests {
     use object_store::memory::InMemory;
     use object_store::path::Path as ObjectStorePath;
     use object_store::{
-        GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMultipartOptions,
-        PutOptions, PutPayload, PutResult,
+        GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
+        PutMultipartOptions, PutOptions, PutPayload, PutResult,
     };
     use serde_json::json;
     use tokio_stream::StreamExt as _;
@@ -8583,7 +8584,9 @@ methods = ["dev-token"]
             server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
             env_lookup: default_env_lookup(),
             github_api_base_url: None,
-            http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
+            http_client: Some(
+                fabro_http::test_http_client().expect("test HTTP client should build"),
+            ),
         })
         .expect("test app state should build")
     }
@@ -9865,10 +9868,12 @@ acr_server = "fabro.azurecr.io"
             )]),
         );
 
-        assert!(Storage::new(storage_dir.path())
-            .runtime_directory()
-            .azure_platform_config_path()
-            .exists());
+        assert!(
+            Storage::new(storage_dir.path())
+                .runtime_directory()
+                .azure_platform_config_path()
+                .exists()
+        );
     }
 
     fn worker_command_test_state(
@@ -11295,27 +11300,23 @@ slug = "fabro"
             .root()
             .to_path_buf();
 
-        create_durable_run_with_events(
-            &state,
-            run_id,
-            &[
-                workflow_event::Event::RunSubmitted {
-                    definition_blob: None,
-                },
-                workflow_event::Event::RunStarting,
-                workflow_event::Event::RunRunning,
-                workflow_event::Event::WorkflowRunCompleted {
-                    duration_ms:          0,
-                    artifact_count:       0,
-                    status:               "success".to_string(),
-                    reason:               SuccessReason::Completed,
-                    total_usd_micros:     None,
-                    final_git_commit_sha: None,
-                    final_patch:          None,
-                    billing:              None,
-                },
-            ],
-        )
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+            workflow_event::Event::WorkflowRunCompleted {
+                duration_ms:          0,
+                artifact_count:       0,
+                status:               "success".to_string(),
+                reason:               SuccessReason::Completed,
+                total_usd_micros:     None,
+                final_git_commit_sha: None,
+                final_patch:          None,
+                billing:              None,
+            },
+        ])
         .await;
 
         {
@@ -11330,10 +11331,7 @@ slug = "fabro"
                 RunExecutionMode::Start,
             );
             run.error = Some("real workflow failure".to_string());
-            runs.insert(
-                run_id,
-                run,
-            );
+            runs.insert(run_id, run);
         }
 
         let log_path = Storage::new(state.server_storage_dir())
@@ -11343,33 +11341,31 @@ slug = "fabro"
         tokio::fs::create_dir_all(log_path.parent().unwrap())
             .await
             .unwrap();
-        tokio::fs::write(&log_path, b"worker log line\n").await.unwrap();
+        tokio::fs::write(&log_path, b"worker log line\n")
+            .await
+            .unwrap();
 
         archive_terminal_run_log_if_present(&state, &run_id).await;
 
         let runs = state.runs.lock().expect("runs lock poisoned");
         let managed_run = runs.get(&run_id).expect("managed run should exist");
-        assert_eq!(
-            managed_run.status,
-            RunStatus::Succeeded {
-                reason: SuccessReason::Completed,
-            }
-        );
+        assert_eq!(managed_run.status, RunStatus::Succeeded {
+            reason: SuccessReason::Completed,
+        });
         assert!(
-            managed_run
-                .error
-                .as_deref()
-                .is_some_and(|error| {
-                    error.contains("real workflow failure")
-                        && error.contains("Durable run log archive failed:")
-                }),
+            managed_run.error.as_deref().is_some_and(|error| {
+                error.contains("real workflow failure")
+                    && error.contains("Durable run log archive failed:")
+            }),
             "expected archive failure in managed run error, got {:?}",
             managed_run.error
         );
 
         let run_store = state.store.open_run_reader(&run_id).await.unwrap();
         let events = run_store.list_events().await.unwrap();
-        let notice = events.last().expect("archive failure notice should be appended");
+        let notice = events
+            .last()
+            .expect("archive failure notice should be appended");
         assert!(matches!(
             &notice.event.body,
             EventBody::RunNotice(props)
@@ -11394,27 +11390,23 @@ slug = "fabro"
             .root()
             .to_path_buf();
 
-        create_durable_run_with_events(
-            &state,
-            run_id,
-            &[
-                workflow_event::Event::RunSubmitted {
-                    definition_blob: None,
-                },
-                workflow_event::Event::RunStarting,
-                workflow_event::Event::RunRunning,
-                workflow_event::Event::WorkflowRunCompleted {
-                    duration_ms:          0,
-                    artifact_count:       0,
-                    status:               "success".to_string(),
-                    reason:               SuccessReason::Completed,
-                    total_usd_micros:     None,
-                    final_git_commit_sha: None,
-                    final_patch:          None,
-                    billing:              None,
-                },
-            ],
-        )
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+            workflow_event::Event::WorkflowRunCompleted {
+                duration_ms:          0,
+                artifact_count:       0,
+                status:               "success".to_string(),
+                reason:               SuccessReason::Completed,
+                total_usd_micros:     None,
+                final_git_commit_sha: None,
+                final_patch:          None,
+                billing:              None,
+            },
+        ])
         .await;
 
         {
@@ -11439,18 +11431,17 @@ slug = "fabro"
         tokio::fs::create_dir_all(runtime_path.parent().unwrap())
             .await
             .unwrap();
-        tokio::fs::write(&runtime_path, b"not a directory").await.unwrap();
+        tokio::fs::write(&runtime_path, b"not a directory")
+            .await
+            .unwrap();
 
         archive_terminal_run_log_if_present(&state, &run_id).await;
 
         let runs = state.runs.lock().expect("runs lock poisoned");
         let managed_run = runs.get(&run_id).expect("managed run should exist");
-        assert_eq!(
-            managed_run.status,
-            RunStatus::Succeeded {
-                reason: SuccessReason::Completed,
-            }
-        );
+        assert_eq!(managed_run.status, RunStatus::Succeeded {
+            reason: SuccessReason::Completed,
+        });
         assert!(
             managed_run
                 .error
@@ -11462,7 +11453,9 @@ slug = "fabro"
 
         let run_store = state.store.open_run_reader(&run_id).await.unwrap();
         let events = run_store.list_events().await.unwrap();
-        let notice = events.last().expect("archive failure notice should be appended");
+        let notice = events
+            .last()
+            .expect("archive failure notice should be appended");
         assert!(matches!(
             &notice.event.body,
             EventBody::RunNotice(props)

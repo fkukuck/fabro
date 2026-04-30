@@ -154,9 +154,9 @@ describe("install azure requests", () => {
       location: "eastus",
       subnet_id: "/subscriptions/sub-1/.../aci",
       acr_server: "fabro.azurecr.io",
+      acr_identity_resource_id:
+        "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr",
       sandboxd_port: 7777,
-      acr_username: "azure-user",
-      acr_password: "azure-pass",
     });
 
     expect(String(calls[0]!.input)).toBe("/install/azure");

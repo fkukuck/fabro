@@ -25,7 +25,7 @@ Under a managed-identity-only Azure deployment, a fresh environment with no stor
 ## Goals
 
 - Make Azure sandbox image pulls work from private ACR without stored registry username/password.
-- Reuse the existing Terraform-managed user-assigned identity instead of introducing a second identity.
+- Use a dedicated low-privilege user-assigned identity for sandbox image pulls.
 - Keep the Azure deployment fully managed-identity-based for both server and sandbox image pulls.
 - Persist only non-secret identity metadata in Fabro configuration.
 - Fail closed when the Azure sandbox identity configuration is missing or invalid.
@@ -41,7 +41,7 @@ Under a managed-identity-only Azure deployment, a fresh environment with no stor
 ## Decisions
 
 1. Azure sandbox pulls will use managed identity only.
-2. Fabro will reuse the existing Terraform-managed user-assigned identity already attached to `fabro-server`.
+2. Fabro will use a dedicated Terraform-managed user-assigned identity for sandbox image pulls instead of reusing the privileged server identity.
 3. Fabro will persist the identity resource ID, not a secret, in the Azure platform config.
 4. ACI create requests will attach the user-assigned identity at the container-group level and reference the same identity in the registry credential entry.
 5. The install flow will require `acr_identity_resource_id` for Azure sandbox configuration.
@@ -50,11 +50,11 @@ Under a managed-identity-only Azure deployment, a fresh environment with no stor
 
 ## Architecture
 
-The Azure sandbox image-pull path will use one identity end-to-end:
+The Azure sandbox image-pull path will use a dedicated low-privilege identity end-to-end:
 
-1. Terraform creates and owns the user-assigned managed identity.
+1. Terraform creates and owns a dedicated sandbox-pull user-assigned managed identity.
 2. Terraform grants that identity `AcrPull` on the target ACR.
-3. Terraform exposes the identity resource ID as an environment output for operators.
+3. Terraform exposes that identity resource ID as an environment output for operators.
 4. The install flow persists that identity resource ID in `settings.toml` under the Azure sandbox platform config.
 5. At runtime, Fabro resolves the Azure platform config into `AzurePlatformConfig` with the identity resource ID.
 6. When Fabro creates an ACI sandbox, it sends:
@@ -62,7 +62,7 @@ The Azure sandbox image-pull path will use one identity end-to-end:
    - an `imageRegistryCredentials` entry containing `server` plus `identity`
 7. ACI uses that identity to pull the private image from ACR.
 
-This keeps the server image-pull path and the sandbox image-pull path aligned on the same trust model.
+This keeps the server image-pull path and the sandbox image-pull path aligned on managed identity without exposing the server's broader Azure permissions to untrusted sandbox workloads.
 
 ## Configuration model
 
@@ -75,7 +75,7 @@ resource_group = "rg-1"
 location = "eastus"
 subnet_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
 acr_server = "fabro.azurecr.io"
-acr_identity_resource_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-server"
+acr_identity_resource_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-sandbox-pull"
 sandboxd_port = 7777
 ```
 
@@ -100,7 +100,7 @@ Requested shape:
   "location": "eastus",
   "subnet_id": "/subscriptions/sub-1/.../aci",
   "acr_server": "fabro.azurecr.io",
-  "acr_identity_resource_id": "/subscriptions/sub-1/.../userAssignedIdentities/fabro-server",
+  "acr_identity_resource_id": "/subscriptions/sub-1/.../userAssignedIdentities/fabro-sandbox-pull",
   "sandboxd_port": 7777
 }
 ```
@@ -136,7 +136,7 @@ Fabro's ACI create request body will add two identity-specific pieces.
 "identity": {
   "type": "UserAssigned",
   "userAssignedIdentities": {
-    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-server": {}
+    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-sandbox-pull": {}
   }
 }
 ```
@@ -147,7 +147,7 @@ Fabro's ACI create request body will add two identity-specific pieces.
 "imageRegistryCredentials": [
   {
     "server": "fabro.azurecr.io",
-    "identity": "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-server"
+    "identity": "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-sandbox-pull"
   }
 ]
 ```
@@ -156,20 +156,24 @@ Fabro will no longer generate the Azure sandbox registry credential payload from
 
 ## Terraform and RBAC model
 
-Terraform already owns the user-assigned identity and grants it `AcrPull` on the ACR.
+Terraform will own two identities with different responsibilities:
 
-This follow-up must also ensure the running server can assign that identity to created ACI container groups.
+1. the existing server identity used by `fabro-server`
+2. a new sandbox-pull identity used only for private ACR image pulls by ACI sandboxes
+
+This follow-up must also ensure the running server can assign the dedicated sandbox-pull identity to created ACI container groups.
 
 Required Terraform support:
 
-1. Expose the identity resource ID from the Azure environment outputs.
-2. Ensure the server identity can attach that identity to new container groups.
+1. Create and expose the sandbox-pull identity resource ID from the Azure environment outputs.
+2. Grant the sandbox-pull identity `AcrPull` on ACR.
+3. Ensure the server identity can attach the sandbox-pull identity to new container groups.
 
 The expected RBAC addition is:
 
-- `Managed Identity Operator` on the identity resource for the same principal that runs `fabro-server`
+- `Managed Identity Operator` on the sandbox-pull identity resource for the same principal that runs `fabro-server`
 
-This keeps the identity reusable without introducing another identity lifecycle.
+This keeps the sandbox-attached identity low-privilege while allowing the server to manage container-group assignment.
 
 ## Documentation model
 
@@ -177,7 +181,7 @@ The Azure docs will shift from optional ACR credentials to required managed iden
 
 Operator guidance will describe:
 
-- retrieving the identity resource ID from Terraform outputs
+- retrieving the sandbox-pull identity resource ID from Terraform outputs
 - entering that value in the install wizard
 - understanding that private Azure sandbox images now require managed identity, not static credentials
 
@@ -224,14 +228,14 @@ Validation should cover four layers.
 
 ### Benefits
 
-- Azure sandbox pulls match the same managed-identity trust model as the server image pull path.
+- Azure sandbox pulls match the same managed-identity trust model as the server image pull path without reusing the server's privileged identity.
 - The smoke workflow can validate a private ACR-hosted sandbox image without stored registry credentials.
 - Operators no longer need to manage ACR pull secrets for Azure sandboxes in the supported Azure path.
 
 ### Trade-offs
 
 - The install flow and docs gain one more required Azure field.
-- The Azure deployment becomes dependent on correct identity-attach RBAC for ACI creation.
+- The Azure deployment becomes dependent on a second identity and correct identity-attach RBAC for ACI creation.
 - Older static-credential assumptions for Azure sandbox pulls are intentionally removed from the supported path.
 
 ## Implementation outline
@@ -241,6 +245,6 @@ Validation should cover four layers.
 3. Extend `AzurePlatformConfig` and runtime resolution to require the field.
 4. Update ACI request generation to attach the identity and use registry auth by identity.
 5. Remove the Azure sandbox registry-secret path from the managed-identity Azure deployment flow.
-6. Expose the identity resource ID from Terraform outputs and add any missing RBAC for identity attachment.
+6. Create the dedicated sandbox-pull identity, expose its resource ID from Terraform outputs, and add any missing RBAC for identity attachment.
 7. Update Azure deployment and server configuration docs.
 8. Verify the full path with tests and Terraform validation.

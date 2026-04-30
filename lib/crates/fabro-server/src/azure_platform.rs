@@ -1,12 +1,11 @@
 use anyhow::Context as _;
 use fabro_config::RuntimeDirectory;
 use fabro_sandbox::azure::config::AzurePlatformConfig;
-use fabro_static::EnvVars;
 use fabro_types::settings::server::ServerNamespace;
 
 pub(crate) fn resolve_azure_platform_config(
     settings: &ServerNamespace,
-    vault_lookup: &dyn Fn(&str) -> Option<String>,
+    _vault_lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Option<AzurePlatformConfig>, String> {
     let Some(platform) = settings
         .sandbox
@@ -17,28 +16,14 @@ pub(crate) fn resolve_azure_platform_config(
         return Ok(None);
     };
 
-    let acr_username = vault_lookup(EnvVars::FABRO_AZURE_ACR_USERNAME)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let acr_password = vault_lookup(EnvVars::FABRO_AZURE_ACR_PASSWORD)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    if acr_username.is_some() ^ acr_password.is_some() {
-        return Err(
-            "Azure ACR credentials must be configured together. Run fabro install to update the Azure step."
-                .to_string(),
-        );
-    }
-
     Ok(Some(AzurePlatformConfig {
-        subscription_id: platform.subscription_id.clone(),
-        resource_group: platform.resource_group.clone(),
-        location: platform.location.clone(),
-        subnet_id: platform.subnet_id.clone(),
-        acr_server: platform.acr_server.clone(),
-        sandboxd_port: platform.sandboxd_port,
-        acr_username,
-        acr_password,
+        subscription_id:          platform.subscription_id.clone(),
+        resource_group:           platform.resource_group.clone(),
+        location:                 platform.location.clone(),
+        subnet_id:                platform.subnet_id.clone(),
+        acr_server:               platform.acr_server.clone(),
+        acr_identity_resource_id: platform.acr_identity_resource_id.clone(),
+        sandboxd_port:            platform.sandboxd_port,
     }))
 }
 
@@ -59,9 +44,8 @@ pub(crate) fn write_azure_platform_snapshot(
                 "location": config.location,
                 "subnet_id": config.subnet_id,
                 "acr_server": config.acr_server,
+                "acr_identity_resource_id": config.acr_identity_resource_id,
                 "sandboxd_port": config.sandboxd_port,
-                "acr_username": config.acr_username,
-                "acr_password": config.acr_password,
             }))?;
             std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         }
@@ -80,12 +64,12 @@ pub(crate) fn write_azure_platform_snapshot(
 #[cfg(test)]
 mod tests {
     use fabro_config::ServerSettingsBuilder;
-    use fabro_static::EnvVars;
+    use fabro_sandbox::azure::config::AzurePlatformConfig;
 
     use super::resolve_azure_platform_config;
 
     #[test]
-    fn resolve_azure_platform_config_reads_settings_and_vault_secrets() {
+    fn resolve_azure_platform_config_reads_settings_only() {
         let settings = ServerSettingsBuilder::from_toml(
             r#"
 _version = 1
@@ -99,20 +83,27 @@ resource_group = "rg-1"
 location = "eastus"
 subnet_id = "/subscriptions/sub-1/.../aci"
 acr_server = "fabro.azurecr.io"
+acr_identity_resource_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"
 "#,
         )
         .unwrap()
         .server;
 
-        let resolved = resolve_azure_platform_config(&settings, &|name| match name {
-            EnvVars::FABRO_AZURE_ACR_USERNAME => Some("azure-user".to_string()),
-            EnvVars::FABRO_AZURE_ACR_PASSWORD => Some("azure-pass".to_string()),
-            _ => None,
-        })
-        .unwrap()
-        .expect("azure config should resolve");
+        let resolved = resolve_azure_platform_config(&settings, &|_| None)
+            .unwrap()
+            .expect("azure config should resolve");
 
-        assert_eq!(resolved.subscription_id, "sub-1");
-        assert_eq!(resolved.acr_username.as_deref(), Some("azure-user"));
+        assert_eq!(
+            resolved,
+            AzurePlatformConfig {
+                subscription_id: "sub-1".into(),
+                resource_group: "rg-1".into(),
+                location: "eastus".into(),
+                subnet_id: "/subscriptions/sub-1/.../aci".into(),
+                acr_server: "fabro.azurecr.io".into(),
+                acr_identity_resource_id: "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr".into(),
+                sandboxd_port: 7777,
+            }
+        );
     }
 }

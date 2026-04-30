@@ -185,7 +185,7 @@ async fn put_install_azure_default(app: &axum::Router, token: &str) {
     put_install_azure(
         app,
         token,
-        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777}"#,
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","acr_identity_resource_id":"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr","sandboxd_port":7777}"#,
     )
     .await;
 }
@@ -363,7 +363,7 @@ async fn install_endpoints_reject_missing_and_wrong_tokens() {
             "PUT",
             "/install/azure",
             Some(
-                r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io"}"#,
+                r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","acr_identity_resource_id":"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"}"#,
             ),
         ),
         (
@@ -585,7 +585,7 @@ async fn install_finish_requires_object_store_step() {
 }
 
 #[tokio::test]
-async fn install_session_redacts_saved_azure_acr_credentials() {
+async fn install_session_includes_azure_acr_identity_resource_id() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("settings.toml");
     let app = build_install_router(InstallAppState::for_test_with_paths(
@@ -597,7 +597,7 @@ async fn install_session_redacts_saved_azure_acr_credentials() {
     put_install_azure(
         &app,
         "test-install-token",
-        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777,"acr_username":"azure-user","acr_password":"azure-pass"}"#,
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","acr_identity_resource_id":"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr","sandboxd_port":7777}"#,
     )
     .await;
 
@@ -615,12 +615,37 @@ async fn install_session_redacts_saved_azure_acr_credentials() {
 
     let body = response_json(response, StatusCode::OK, "GET /install/session").await;
     assert_eq!(body["azure"]["subscription_id"], "sub-1");
-    assert_eq!(body["azure"]["acr_credentials_saved"], true);
-    assert!(!body.to_string().contains("azure-pass"));
+    assert_eq!(
+        body["azure"]["acr_identity_resource_id"],
+        "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"
+    );
 }
 
 #[tokio::test]
-async fn token_install_finish_persists_azure_platform_settings_and_acr_vault_secrets() {
+async fn install_azure_rejects_legacy_acr_credentials() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/azure")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","acr_identity_resource_id":"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr","sandboxd_port":7777,"acr_username":"legacy-user","acr_password":"legacy-pass"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response_text(response, StatusCode::UNPROCESSABLE_ENTITY, "PUT /install/azure").await;
+    assert!(body.contains("acr_username"));
+}
+
+#[tokio::test]
+async fn token_install_finish_persists_and_rehydrates_azure_acr_identity_resource_id() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("settings.toml");
     let app = build_install_router(InstallAppState::for_test_with_paths(
@@ -633,7 +658,7 @@ async fn token_install_finish_persists_azure_platform_settings_and_acr_vault_sec
     put_install_azure(
         &app,
         "test-install-token",
-        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","sandboxd_port":7777,"acr_username":"azure-user","acr_password":"azure-pass"}"#,
+        r#"{"subscription_id":"sub-1","resource_group":"rg-1","location":"eastus","subnet_id":"/subscriptions/sub-1/.../aci","acr_server":"fabro.azurecr.io","acr_identity_resource_id":"/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr","sandboxd_port":7777}"#,
     )
     .await;
     put_install_object_store(
@@ -659,11 +684,73 @@ async fn token_install_finish_persists_azure_platform_settings_and_acr_vault_sec
         .unwrap();
     response_status(response, StatusCode::ACCEPTED, "POST /install/finish").await;
 
-    let settings = std::fs::read_to_string(&config_path).unwrap();
-    assert!(settings.contains("[server.sandbox.azure.platform]"));
+    let settings_toml = std::fs::read_to_string(&config_path).unwrap();
+    assert!(settings_toml.contains("[server.sandbox.azure.platform]"));
+    let settings = ServerSettingsBuilder::from_toml(&settings_toml).unwrap();
+    assert_eq!(
+        settings
+            .server
+            .sandbox
+            .azure
+            .as_ref()
+            .and_then(|azure| azure.platform.as_ref())
+            .map(|platform| platform.acr_identity_resource_id.as_str()),
+        Some(
+            "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"
+        )
+    );
     let vault = Vault::load(Storage::new(temp_dir.path()).secrets_path()).unwrap();
-    assert_eq!(vault.get("FABRO_AZURE_ACR_USERNAME"), Some("azure-user"));
-    assert_eq!(vault.get("FABRO_AZURE_ACR_PASSWORD"), Some("azure-pass"));
+    assert_eq!(vault.get("FABRO_AZURE_ACR_USERNAME"), None);
+    assert_eq!(vault.get("FABRO_AZURE_ACR_PASSWORD"), None);
+}
+
+#[tokio::test]
+async fn token_install_finish_removes_legacy_azure_acr_vault_secrets() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let storage = Storage::new(temp_dir.path());
+    let mut vault = Vault::load(storage.secrets_path()).unwrap();
+    vault
+        .set(
+            "FABRO_AZURE_ACR_USERNAME",
+            "legacy-user",
+            fabro_vault::SecretType::Environment,
+            None,
+        )
+        .unwrap();
+    vault
+        .set(
+            "FABRO_AZURE_ACR_PASSWORD",
+            "legacy-pass",
+            fabro_vault::SecretType::Environment,
+            None,
+        )
+        .unwrap();
+
+    let app = build_install_router(InstallAppState::for_test_with_paths(
+        "test-install-token",
+        temp_dir.path(),
+        &config_path,
+    ));
+
+    configure_token_install(&app, "test-install-token").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response_status(response, StatusCode::ACCEPTED, "POST /install/finish").await;
+
+    let vault = Vault::load(storage.secrets_path()).unwrap();
+    assert_eq!(vault.get("FABRO_AZURE_ACR_USERNAME"), None);
+    assert_eq!(vault.get("FABRO_AZURE_ACR_PASSWORD"), None);
 }
 
 #[tokio::test]

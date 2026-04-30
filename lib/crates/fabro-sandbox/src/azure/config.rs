@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct AzurePlatformConfig {
-    pub subscription_id: String,
-    pub resource_group:  String,
-    pub location:        String,
-    pub subnet_id:       String,
-    pub acr_server:      String,
-    pub sandboxd_port:   u16,
-    pub acr_username:    Option<String>,
-    pub acr_password:    Option<String>,
+    pub subscription_id:          String,
+    pub resource_group:           String,
+    pub location:                 String,
+    pub subnet_id:                String,
+    pub acr_server:               String,
+    #[serde(default)]
+    pub acr_identity_resource_id: String,
+    pub sandboxd_port:            u16,
 }
 
 impl AzurePlatformConfig {
@@ -29,6 +29,7 @@ impl AzurePlatformConfig {
             "FABRO_AZURE_LOCATION",
             "FABRO_AZURE_SANDBOX_SUBNET_ID",
             "FABRO_AZURE_ACR_SERVER",
+            "FABRO_AZURE_ACR_IDENTITY_RESOURCE_ID",
         ];
 
         let missing: Vec<&str> = required
@@ -66,9 +67,9 @@ impl AzurePlatformConfig {
             location: std::env::var("FABRO_AZURE_LOCATION").unwrap_or_default(),
             subnet_id: std::env::var("FABRO_AZURE_SANDBOX_SUBNET_ID").unwrap_or_default(),
             acr_server: std::env::var("FABRO_AZURE_ACR_SERVER").unwrap_or_default(),
+            acr_identity_resource_id: std::env::var("FABRO_AZURE_ACR_IDENTITY_RESOURCE_ID")
+                .unwrap_or_default(),
             sandboxd_port,
-            acr_username: std::env::var("FABRO_AZURE_ACR_USERNAME").ok(),
-            acr_password: std::env::var("FABRO_AZURE_ACR_PASSWORD").ok(),
         })
     }
 }
@@ -96,11 +97,21 @@ mod tests {
                 ("FABRO_AZURE_STORAGE_SHARE", None::<&str>),
                 ("FABRO_AZURE_STORAGE_KEY", None::<&str>),
                 ("FABRO_AZURE_ACR_SERVER", Some("fabro.azurecr.io")),
+                (
+                    "FABRO_AZURE_ACR_IDENTITY_RESOURCE_ID",
+                    Some(
+                        "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull",
+                    ),
+                ),
             ],
             || {
                 let config = AzurePlatformConfig::from_env().unwrap();
                 assert_eq!(config.subscription_id, "sub-1");
                 assert_eq!(config.acr_server, "fabro.azurecr.io");
+                assert_eq!(
+                    config.acr_identity_resource_id,
+                    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull"
+                );
                 assert_eq!(config.sandboxd_port, 7777);
             },
         );
@@ -119,9 +130,8 @@ mod tests {
                 "location": "eastus",
                 "subnet_id": "/subscriptions/sub-1/.../aci",
                 "acr_server": "fabro.azurecr.io",
+                "acr_identity_resource_id": "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull",
                 "sandboxd_port": 7777,
-                "acr_username": "azure-user",
-                "acr_password": "azure-pass",
             }))
             .unwrap(),
         )
@@ -129,6 +139,9 @@ mod tests {
 
         let loaded = AzurePlatformConfig::load_from_path(&path).unwrap();
         assert_eq!(loaded.subscription_id, "sub-1");
-        assert_eq!(loaded.acr_username.as_deref(), Some("azure-user"));
+        assert_eq!(
+            loaded.acr_identity_resource_id,
+            "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull"
+        );
     }
 }

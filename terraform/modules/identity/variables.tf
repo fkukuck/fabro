@@ -11,15 +11,28 @@ variable "name" {
 }
 
 variable "contributor_scope" {
-  type = string
+  type    = string
+  default = null
 }
 
 variable "blob_data_scope" {
-  type = string
+  type    = string
+  default = null
 }
 
 variable "acr_pull_scope" {
-  type = string
+  type    = string
+  default = null
+}
+
+variable "identity_attach_scope" {
+  type    = string
+  default = null
+}
+
+variable "identity_attach_principal_id" {
+  type    = string
+  default = null
 }
 
 variable "tags" {

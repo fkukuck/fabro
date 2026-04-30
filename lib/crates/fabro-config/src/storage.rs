@@ -269,36 +269,40 @@ mod tests {
     fn runtime_directory_can_move_transient_server_files_off_storage_root() {
         let runtime = RuntimeDirectory::new("/srv/fabro");
 
-        with_var("FABRO_SERVER_RUNTIME_DIR", Some("/tmp/fabro-runtime"), || {
-            assert_eq!(
-                runtime.logs_dir(),
-                std::path::Path::new("/tmp/fabro-runtime/logs")
-            );
-            assert_eq!(
-                runtime.record_path(),
-                std::path::Path::new("/tmp/fabro-runtime/server.json")
-            );
-            assert_eq!(
-                runtime.lock_path(),
-                std::path::Path::new("/tmp/fabro-runtime/server.lock")
-            );
-            assert_eq!(
-                runtime.log_path(),
-                std::path::Path::new("/tmp/fabro-runtime/logs/server.log")
-            );
-            assert_eq!(
-                runtime.env_path(),
-                std::path::Path::new("/srv/fabro/server.env")
-            );
-            assert_eq!(
-                runtime.azure_platform_config_path(),
-                std::path::Path::new("/srv/fabro/azure-platform.json")
-            );
-            assert_eq!(
-                runtime.dev_token_path(),
-                std::path::Path::new("/srv/fabro/server.dev-token")
-            );
-        });
+        with_var(
+            "FABRO_SERVER_RUNTIME_DIR",
+            Some("/tmp/fabro-runtime"),
+            || {
+                assert_eq!(
+                    runtime.logs_dir(),
+                    std::path::Path::new("/tmp/fabro-runtime/logs")
+                );
+                assert_eq!(
+                    runtime.record_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/server.json")
+                );
+                assert_eq!(
+                    runtime.lock_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/server.lock")
+                );
+                assert_eq!(
+                    runtime.log_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/logs/server.log")
+                );
+                assert_eq!(
+                    runtime.env_path(),
+                    std::path::Path::new("/srv/fabro/server.env")
+                );
+                assert_eq!(
+                    runtime.azure_platform_config_path(),
+                    std::path::Path::new("/srv/fabro/azure-platform.json")
+                );
+                assert_eq!(
+                    runtime.dev_token_path(),
+                    std::path::Path::new("/srv/fabro/server.dev-token")
+                );
+            },
+        );
     }
 
     #[test]

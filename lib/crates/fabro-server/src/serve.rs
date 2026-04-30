@@ -20,8 +20,8 @@ use fabro_types::settings::{
     ServerNamespace,
 };
 use fabro_util::terminal::Styles;
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::client::{HttpClient, HttpConnector};
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
@@ -450,7 +450,10 @@ where
     F: Fn(&str) -> Option<String>,
 {
     if std::env::var_os(EnvVars::IDENTITY_HEADER).is_none() {
-        bail!("{} is required for Azure managed identity", EnvVars::IDENTITY_HEADER);
+        bail!(
+            "{} is required for Azure managed identity",
+            EnvVars::IDENTITY_HEADER
+        );
     }
     if let Some(value) = env_lookup(EnvVars::AZURE_CLIENT_ID) {
         builder = builder.with_config(AzureConfigKey::ClientId, value);
@@ -458,7 +461,10 @@ where
     if let Some(value) = env_lookup(EnvVars::IDENTITY_ENDPOINT) {
         builder = builder.with_config(AzureConfigKey::MsiEndpoint, value);
     }
-    if builder.get_config_value(&AzureConfigKey::MsiEndpoint).is_none() {
+    if builder
+        .get_config_value(&AzureConfigKey::MsiEndpoint)
+        .is_none()
+    {
         bail!("msi endpoint is required for Azure managed identity");
     }
 
@@ -1554,9 +1560,7 @@ disk_cache = true
             &settings,
             &|name| match name {
                 EnvVars::AZURE_CLIENT_ID => Some("client-id-123".to_string()),
-                EnvVars::IDENTITY_ENDPOINT => {
-                    Some("http://127.0.0.1:42356/msi/token".to_string())
-                }
+                EnvVars::IDENTITY_ENDPOINT => Some("http://127.0.0.1:42356/msi/token".to_string()),
                 _ => None,
             },
             None,

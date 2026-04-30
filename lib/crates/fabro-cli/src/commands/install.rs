@@ -1227,6 +1227,7 @@ fn persist_github_install_changes(
             &server_env_writes,
             &server_env_removals,
             &[],
+            &[],
             Some(&writes.settings_write),
         )?;
 
@@ -1284,6 +1285,7 @@ async fn persist_install_outputs_with_settings(
     persist_install_outputs_direct(
         storage_dir,
         &server_env_updates(server_env_secrets),
+        &[],
         &[],
         &[],
         settings_write_ref,

@@ -1,12 +1,12 @@
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
     ArtifactsSettings, AzureSettings, DaytonaSettings, DaytonaSnapshotSettings, DockerSettings,
-    DockerfileSource, GitAuthorSettings, HookDefinition, HookType,
-    InterviewProviderSettings, LocalSandboxSettings, McpServerSettings, McpTransport,
-    MergeStrategy, NotificationProviderSettings, NotificationRouteSettings,
-    PullRequestSettings, RunAgentSettings, RunCheckpointSettings, RunExecutionSettings,
-    RunGitSettings, RunGoal, RunInterviewsSettings, RunModelSettings, RunNamespace,
-    RunPrepareSettings, RunSandboxSettings, RunScmSettings, ScmGitHubSettings, TlsMode,
+    DockerfileSource, GitAuthorSettings, HookDefinition, HookType, InterviewProviderSettings,
+    LocalSandboxSettings, McpServerSettings, McpTransport, MergeStrategy,
+    NotificationProviderSettings, NotificationRouteSettings, PullRequestSettings, RunAgentSettings,
+    RunCheckpointSettings, RunExecutionSettings, RunGitSettings, RunGoal, RunInterviewsSettings,
+    RunModelSettings, RunNamespace, RunPrepareSettings, RunSandboxSettings, RunScmSettings,
+    ScmGitHubSettings, TlsMode,
 };
 
 use super::ResolveError;
