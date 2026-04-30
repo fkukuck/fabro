@@ -327,7 +327,7 @@ gate -> slow_path
 Instead of inlining long prompts, reference an external file:
 
 ```dot
-simplify [label="Simplify", prompt="@files-internal/prompts/simplify.md"]
+simplify [label="Simplify", prompt="@prompts/simplify.md"]
 ```
 
 The `@` prefix tells Fabro to load the prompt from a file path relative to the workflow file. Paths support `~` (home directory) and `..` (parent directory):

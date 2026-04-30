@@ -255,28 +255,30 @@ This is more reliable than a single "implement everything" node because:
 Pair the workflow with a run config for repeatable execution:
 
 ```toml title="run.toml"
-version = 1
-goal = "Build a terminal-based solitaire (Klondike) game in Python"
+_version = 1
+
+[workflow]
 graph = "build-solitaire.fabro"
 
-[llm]
-model = "claude-sonnet-4-5"
+[run]
+goal = "Build a terminal-based solitaire (Klondike) game in Python"
+
+[run.model]
+name = "claude-sonnet-4-5"
 provider = "anthropic"
+fallbacks = ["openai", "gemini"]
 
-[llm.fallbacks]
-anthropic = ["openai", "gemini"]
+[[run.prepare.steps]]
+script = "python3 -m venv .venv && . .venv/bin/activate && pip install pytest curses"
 
-[setup]
-commands = ["python3 -m venv .venv && . .venv/bin/activate && pip install pytest curses"]
-
-[sandbox]
+[run.sandbox]
 provider = "daytona"
 
-[sandbox.daytona.snapshot]
+[run.sandbox.daytona.snapshot]
 name = "python-dev"
 cpu = 4
-memory = 8
-disk = 20
+memory = "8GB"
+disk = "20GB"
 dockerfile = "FROM python:3.12-slim\nRUN apt-get update && apt-get install -y git libncurses-dev"
 ```
 

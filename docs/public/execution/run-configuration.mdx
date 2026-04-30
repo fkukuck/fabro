@@ -165,9 +165,34 @@ preserve = true
 
 | Field | Description |
 |---|---|
-| `provider` | Sandbox mode: `local` (default), `docker`, or `daytona`. |
+| `provider` | Sandbox mode: `docker` (default), `local`, or `daytona`. |
 | `preserve` | When `true`, keep the sandbox alive after the run finishes. Useful for debugging. |
 | `devcontainer` | When `true`, use the repo's `devcontainer.json` to configure the sandbox. See [Devcontainers](/execution/devcontainers). |
+
+#### `[run.sandbox.docker]`
+
+Additional settings when using the Docker sandbox:
+
+```toml title="run.toml"
+[run.sandbox]
+provider = "docker"
+
+[run.sandbox.docker]
+image = "buildpack-deps:noble"
+network_mode = "bridge"
+memory_limit = "4GB"
+cpu_quota = 200000
+skip_clone = false
+```
+
+| Field | Description |
+|---|---|
+| `image` | Docker image used for the run container. Defaults to `buildpack-deps:noble`. |
+| `network_mode` | Docker network mode. Defaults to `bridge`. |
+| `memory_limit` | Memory limit using human-readable units such as `"4GB"` or `"512MiB"`. |
+| `cpu_quota` | Docker CPU quota in microseconds per 100ms period. Defaults to `200000`. |
+| `env_vars` | Provider-level environment variables passed to the Docker container. For workflow tool execution, prefer `[run.sandbox.env]`. |
+| `skip_clone` | When `true`, start with an empty container workspace instead of cloning the run's GitHub origin. |
 
 #### `[run.sandbox.daytona]`
 
@@ -201,6 +226,7 @@ dockerfile = "FROM rust:1.85-slim-bookworm\nRUN apt-get update"
 | `snapshot.disk` | Disk size using the same units as `memory`. |
 | `snapshot.dockerfile` | Dockerfile content (inline string) or path (`{ path = "..." }`) for building the snapshot image. Paths are resolved relative to the TOML file's directory. |
 | `network` | Network access mode: `"allow_all"` (default), `"block"`, or `{ allow_list = ["..."] }`. See [Sandboxing](/administration/sandboxing#network-access-control). |
+| `skip_clone` | When `true`, start with an empty Daytona workspace instead of cloning the run's GitHub origin. |
 
 #### `[run.sandbox.local]`
 

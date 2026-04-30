@@ -30,7 +30,7 @@ Fabro looks for `.devcontainer/devcontainer.json` in the repository root. If fou
 | `onCreateCommand` | Runs inside the sandbox after it's created |
 | `postCreateCommand` | Runs after `onCreateCommand` completes |
 | `postStartCommand` | Runs after the sandbox starts |
-| `containerEnv` | Merged into sandbox environment variables (TOML `[sandbox.env]` values take precedence on key collisions) |
+| `containerEnv` | Merged into sandbox environment variables (TOML `[run.sandbox.env]` values take precedence on key collisions) |
 
 Lifecycle commands (`onCreateCommand`, `postCreateCommand`, `postStartCommand`) execute sequentially inside the sandbox. If any command fails, the run aborts before the workflow starts.
 
@@ -40,6 +40,6 @@ Fabro detects and reports unsupported `COPY` and `ADD` instructions in devcontai
 
 ## Interaction with other sandbox settings
 
-When `devcontainer = true`, the devcontainer Dockerfile overrides any `snapshot.dockerfile` setting in `[sandbox.daytona]`. Other Daytona settings (`cpu`, `memory`, `disk`, `auto_stop_interval`, `labels`) still apply.
+When `devcontainer = true`, the devcontainer Dockerfile overrides any `snapshot.dockerfile` setting in `[run.sandbox.daytona]`. Other Daytona settings (`cpu`, `memory`, `disk`, `auto_stop_interval`, `labels`) still apply.
 
-Environment variables from `containerEnv` in the devcontainer config are merged with `[sandbox.env]` from the TOML config. On key collisions, the TOML config wins.
+Environment variables from `containerEnv` in the devcontainer config are merged with `[run.sandbox.env]` from the TOML config. On key collisions, the TOML config wins.

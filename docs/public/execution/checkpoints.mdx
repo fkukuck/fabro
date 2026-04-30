@@ -18,10 +18,10 @@ The run branch is a regular Git branch that grows one commit per completed node.
 
 ### Run branch commits
 
-After each node finishes, Fabro stages file changes and creates a commit on the run branch. Files matching `[checkpoint] exclude_globs` patterns (configured in [run.toml](/execution/run-configuration#checkpoint) or [settings.toml](/administration/server-configuration#checkpoint-section)) are excluded from staging:
+After each node finishes, Fabro stages file changes and creates a commit on the run branch. Files matching `[run.checkpoint] exclude_globs` patterns (configured in [run.toml](/execution/run-configuration#runcheckpoint) or [settings.toml](/administration/server-configuration#runcheckpoint-section)) are excluded from staging:
 
 ```
-fabro(01JKXYZ...): plan (success)
+fabro(01JKXYZ...): plan (succeeded)
 
 Fabro-Run: 01JKXYZ...
 Fabro-Completed: 2

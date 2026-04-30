@@ -42,6 +42,7 @@ preserve = false
 
 [run.sandbox.daytona]
 auto_stop_interval = 60
+skip_clone = false
 
 [run.sandbox.daytona.labels]
 project = "fabro"
@@ -83,7 +84,7 @@ Use `"block"` or a CIDR allow list when running untrusted or generated code to p
 Snapshots let you pre-build an environment image so each run starts with dependencies already installed rather than installing them in setup commands every time.
 
 ```toml title="run.toml"
-[sandbox.daytona.snapshot]
+[run.sandbox.daytona.snapshot]
 name = "my-snapshot"
 cpu = 4
 memory = 8
@@ -99,7 +100,17 @@ If a snapshot is configured by name but doesn't exist and no `dockerfile` is pro
 
 ## Private repositories
 
-Fabro automatically clones the current repository into the sandbox at `/home/daytona/workspace`. Public repositories work without extra configuration. Private repositories require GitHub access. In `token` mode, Fabro uses the stored token directly. In `app` mode, Fabro uses short-lived Installation Access Tokens scoped to the specific repository.
+Fabro automatically clones the run's GitHub origin into the sandbox at `/home/daytona/workspace`. Public repositories work without extra configuration. Private repositories require GitHub access. In `token` mode, Fabro uses the stored token directly. In `app` mode, Fabro uses short-lived Installation Access Tokens scoped to the specific repository.
+
+Set `skip_clone = true` in `[run.sandbox.daytona]` when a workflow should start with an empty Daytona workspace instead of cloning the run origin:
+
+```toml title="run.toml"
+[run.sandbox]
+provider = "daytona"
+
+[run.sandbox.daytona]
+skip_clone = true
+```
 
 If the clone fails without GitHub access configured, Fabro suggests running the setup flow:
 
@@ -167,7 +178,7 @@ The `DAYTONA_API_KEY` environment variable is missing or invalid. Store it with 
 
 ### "Snapshot does not exist and no dockerfile provided"
 
-The run config references a snapshot name that doesn't exist on Daytona, and no `dockerfile` is provided to create it. Either create the snapshot manually in the Daytona dashboard or add a `dockerfile` field to `[sandbox.daytona.snapshot]`.
+The run config references a snapshot name that doesn't exist on Daytona, and no `dockerfile` is provided to create it. Either create the snapshot manually in the Daytona dashboard or add a `dockerfile` field to `[run.sandbox.daytona.snapshot]`.
 
 ### "Timed out waiting for snapshot to become active"
 
