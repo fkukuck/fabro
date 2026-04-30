@@ -87,13 +87,15 @@ type AppForm = {
 };
 
 type ProviderSelection = Record<string, { apiKey: string }>;
-type ObjectStoreProvider = "local" | "s3";
+type ObjectStoreProvider = "local" | "s3" | "azure";
 type ObjectStoreCredentialMode = "runtime" | "access_key";
 type ObjectStoreForm = {
   provider: ObjectStoreProvider;
   localRoot: string;
   bucket: string;
   region: string;
+  account: string;
+  container: string;
   credentialMode: ObjectStoreCredentialMode;
   accessKeyId: string;
   secretAccessKey: string;
@@ -159,6 +161,8 @@ export default function InstallApp() {
   const localRootInputRef = useRef<HTMLInputElement>(null);
   const bucketInputRef = useRef<HTMLInputElement>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
+  const accountInputRef = useRef<HTMLInputElement>(null);
+  const containerInputRef = useRef<HTMLInputElement>(null);
   const accessKeyIdInputRef = useRef<HTMLInputElement>(null);
   const secretAccessKeyInputRef = useRef<HTMLInputElement>(null);
   const sandboxApiKeyInputRef = useRef<HTMLInputElement>(null);
@@ -652,7 +656,7 @@ export default function InstallApp() {
           error={saveError}
           submitting={submitting}
           submittingLabel={
-            objectStoreForm.provider === "s3" ? "Checking access..." : "Saving..."
+            objectStoreForm.provider === "local" ? "Saving..." : "Checking access..."
           }
           backHref="/install/azure"
           onSubmit={async () => {
@@ -662,7 +666,7 @@ export default function InstallApp() {
                 focusInput(localRootInputRef);
                 return;
               }
-            } else {
+            } else if (objectStoreForm.provider === "s3") {
               if (!objectStoreForm.bucket.trim()) {
                 setSaveError("Enter the S3 bucket before continuing.");
                 focusInput(bucketInputRef);
@@ -691,12 +695,23 @@ export default function InstallApp() {
                   return;
                 }
               }
+            } else {
+              if (!objectStoreForm.account.trim()) {
+                setSaveError("Enter the Azure storage account before continuing.");
+                focusInput(accountInputRef);
+                return;
+              }
+              if (!objectStoreForm.container.trim()) {
+                setSaveError("Enter the Azure Blob container before continuing.");
+                focusInput(containerInputRef);
+                return;
+              }
             }
 
             const payload = buildObjectStorePayload(objectStoreForm);
             await runStepSubmit({
               action: async () => {
-                if (objectStoreForm.provider === "s3") {
+                if (objectStoreForm.provider !== "local") {
                   await testInstallObjectStore(installToken, payload);
                 }
                 await putInstallObjectStore(installToken, payload);
@@ -714,6 +729,8 @@ export default function InstallApp() {
               setObjectStoreForm((current) => ({ ...current, provider }));
               if (provider === "s3") {
                 focusInput(bucketInputRef);
+              } else if (provider === "azure") {
+                focusInput(accountInputRef);
               } else {
                 focusInput(localRootInputRef);
               }
@@ -815,6 +832,47 @@ export default function InstallApp() {
                   such as EC2, ECS, or IRSA-based auth.
                 </p>
               )}
+            </div>
+          ) : objectStoreForm.provider === "azure" ? (
+            <div className="space-y-5">
+              <Field label="Storage account">
+                <input
+                  ref={accountInputRef}
+                  name="object_store_account"
+                  value={objectStoreForm.account}
+                  onChange={(event) =>
+                    setObjectStoreForm((current) => ({
+                      ...current,
+                      account: event.target.value,
+                    }))
+                  }
+                  className={`${INPUT_CLASS} font-mono`}
+                  placeholder="fkukuckfabrosbx01"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </Field>
+              <Field label="Blob container">
+                <input
+                  ref={containerInputRef}
+                  name="object_store_container"
+                  value={objectStoreForm.container}
+                  onChange={(event) =>
+                    setObjectStoreForm((current) => ({
+                      ...current,
+                      container: event.target.value,
+                    }))
+                  }
+                  className={`${INPUT_CLASS} font-mono`}
+                  placeholder="fabro-data"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </Field>
+              <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+                Fabro will validate access using the Azure runtime identity already
+                configured for the server.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1667,6 +1725,11 @@ const OBJECT_STORE_PROVIDER_OPTIONS: ReadonlyArray<CardOption<ObjectStoreProvide
     title: "AWS S3",
     body:  "Uses one S3 bucket with fixed slatedb/ and artifacts/ prefixes.",
   },
+  {
+    id:    "azure",
+    title: "Azure Blob",
+    body:  "Uses one Blob container with fixed slatedb/ and artifacts/ prefixes.",
+  },
 ];
 
 const OBJECT_STORE_CREDENTIAL_MODE_OPTIONS: ReadonlyArray<
@@ -1988,6 +2051,8 @@ function defaultObjectStoreForm(localRoot = ""): ObjectStoreForm {
     localRoot,
     bucket: "",
     region: "",
+    account: "",
+    container: "",
     credentialMode: "runtime",
     accessKeyId: "",
     secretAccessKey: "",
@@ -2030,15 +2095,32 @@ function hydrateObjectStoreForm(session: InstallSessionResponse): ObjectStoreFor
       summary?.root ?? session.prefill.object_store_local_root,
     );
   }
+  if (summary.provider === "s3") {
+    return {
+      provider: "s3",
+      localRoot: session.prefill.object_store_local_root,
+      bucket: summary.bucket ?? "",
+      region: summary.region ?? "",
+      account: "",
+      container: "",
+      credentialMode:
+        summary.credential_mode === "access_key" ? "access_key" : "runtime",
+      accessKeyId: "",
+      secretAccessKey: "",
+      manualCredentialsSaved: Boolean(summary.manual_credentials_saved),
+    };
+  }
   return {
-    provider: "s3",
+    provider: "azure",
     localRoot: session.prefill.object_store_local_root,
-    bucket: summary.bucket ?? "",
-    region: summary.region ?? "",
-    credentialMode: summary.credential_mode === "access_key" ? "access_key" : "runtime",
+    bucket: "",
+    region: "",
+    account: summary.account ?? "",
+    container: summary.container ?? "",
+    credentialMode: "runtime",
     accessKeyId: "",
     secretAccessKey: "",
-    manualCredentialsSaved: Boolean(summary.manual_credentials_saved),
+    manualCredentialsSaved: false,
   };
 }
 
@@ -2063,6 +2145,14 @@ function hydrateAzureForm(session: InstallSessionResponse): AzureForm {
 function buildObjectStorePayload(form: ObjectStoreForm): InstallObjectStoreInput {
   if (form.provider === "local") {
     return { provider: "local", root: form.localRoot.trim() };
+  }
+
+  if (form.provider === "azure") {
+    return {
+      provider: "azure",
+      account: form.account.trim(),
+      container: form.container.trim(),
+    };
   }
 
   const payload: InstallObjectStoreInput = {
@@ -2202,6 +2292,17 @@ function renderObjectStoreSummaryRows(
       <>
         <SummaryRow label="Object store" value="Local disk" />
         <SummaryRow label="Directory" value={objectStore.root ?? "Not set"} mono />
+      </>
+    );
+  }
+  if (objectStore.provider === "azure") {
+    return (
+      <>
+        <SummaryRow label="Object store" value="Azure Blob" />
+        <SummaryRow label="Storage account" value={objectStore.account ?? "Not set"} mono />
+        <SummaryRow label="Container" value={objectStore.container ?? "Not set"} mono />
+        <SummaryRow label="Credentials" value="Runtime identity" />
+        <SummaryRow label="Prefixes" value="slatedb/, artifacts/" mono />
       </>
     );
   }

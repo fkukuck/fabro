@@ -53,6 +53,7 @@ module "identity" {
   name                = var.identity_name
   contributor_scope   = module.resource_group.id
   blob_data_scope     = module.storage.id
+  acr_pull_scope      = module.acr.id
   tags                = var.tags
 }
 
@@ -71,14 +72,13 @@ module "container_apps_env" {
 
 module "fabro_server" {
   source                       = "../../modules/fabro_server"
+  depends_on                   = [module.identity]
   enabled                      = var.fabro_server_enabled
   name                         = var.fabro_server_name
   resource_group_name          = module.resource_group.name
   container_app_environment_id = module.container_apps_env.id
   image                        = var.fabro_server_image
   registry_server              = module.acr.login_server
-  registry_username            = module.acr.admin_username
-  registry_password            = module.acr.admin_passwords
   cpu                          = var.fabro_server_cpu
   memory                       = var.fabro_server_memory
   identity_id                  = module.identity.id

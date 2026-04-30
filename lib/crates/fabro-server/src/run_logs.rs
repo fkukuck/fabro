@@ -50,7 +50,7 @@ mod tests {
     use object_store::path::Path;
     use object_store::ObjectStore;
 
-    use super::{archive_terminal_run_log, durable_run_log_path};
+    use super::{archive_terminal_run_log, durable_run_log_path, read_durable_run_log};
     use fabro_types::RunId;
 
     #[tokio::test]
@@ -80,6 +80,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(bytes, Bytes::from_static(b"worker log line\n"));
+    }
+
+    #[tokio::test]
+    async fn read_durable_run_log_returns_none_when_object_is_missing() {
+        let run_id = RunId::new();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let bytes = read_durable_run_log(store, "run-logs", &run_id)
+            .await
+            .unwrap();
+
+        assert_eq!(bytes, None);
     }
 
     #[test]

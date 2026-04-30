@@ -3266,15 +3266,39 @@ components:
 
     InstallObjectStoreInput:
       description: Object-store mode selected during browser install.
+      discriminator:
+        propertyName: provider
+        mapping:
+          local: "#/components/schemas/InstallObjectStoreLocalInput"
+          s3: "#/components/schemas/InstallObjectStoreS3Input"
+          azure: "#/components/schemas/InstallObjectStoreAzureInput"
+      oneOf:
+        - $ref: "#/components/schemas/InstallObjectStoreLocalInput"
+        - $ref: "#/components/schemas/InstallObjectStoreS3Input"
+        - $ref: "#/components/schemas/InstallObjectStoreAzureInput"
+
+    InstallObjectStoreLocalInput:
       type: object
       required:
         - provider
+        - root
       properties:
         provider:
           type: string
-          enum: [local, s3]
+          enum: [local]
         root:
           type: string
+
+    InstallObjectStoreS3Input:
+      type: object
+      required:
+        - provider
+        - bucket
+        - region
+      properties:
+        provider:
+          type: string
+          enum: [s3]
         bucket:
           type: string
         region:
@@ -3287,6 +3311,21 @@ components:
         secret_access_key:
           type: string
 
+    InstallObjectStoreAzureInput:
+      type: object
+      required:
+        - provider
+        - account
+        - container
+      properties:
+        provider:
+          type: string
+          enum: [azure]
+        account:
+          type: string
+        container:
+          type: string
+
     InstallObjectStoreSummary:
       description: Redacted summary of the object-store mode selected during browser install.
       type: object
@@ -3295,12 +3334,16 @@ components:
       properties:
         provider:
           type: string
-          enum: [local, s3]
+          enum: [local, s3, azure]
         root:
           type: string
         bucket:
           type: string
         region:
+          type: string
+        account:
+          type: string
+        container:
           type: string
         credential_mode:
           type: string

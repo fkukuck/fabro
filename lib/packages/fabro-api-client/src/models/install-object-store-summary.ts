@@ -22,13 +22,16 @@ export interface InstallObjectStoreSummary {
     'root'?: string;
     'bucket'?: string;
     'region'?: string;
+    'account'?: string;
+    'container'?: string;
     'credential_mode'?: InstallObjectStoreSummaryCredentialModeEnum;
     'manual_credentials_saved'?: boolean;
 }
 
 export const InstallObjectStoreSummaryProviderEnum = {
     LOCAL: 'local',
-    S3: 's3'
+    S3: 's3',
+    AZURE: 'azure'
 } as const;
 
 export type InstallObjectStoreSummaryProviderEnum = typeof InstallObjectStoreSummaryProviderEnum[keyof typeof InstallObjectStoreSummaryProviderEnum];
