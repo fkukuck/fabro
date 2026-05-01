@@ -3057,7 +3057,7 @@ struct CommandLogQuery {
 
 #[derive(Debug, serde::Serialize)]
 struct CommandLogResponseBody {
-    stream:         &'static str,
+    stream:         CommandOutputStream,
     offset:         u64,
     next_offset:    u64,
     total_bytes:    u64,
@@ -5377,18 +5377,15 @@ async fn get_run_stage_command_log(
 
     match read_log_slice(&scratch_path, query.offset, limit).await {
         Ok((bytes, total_bytes)) => {
-            let offset = query.offset.min(total_bytes);
-            return Json(CommandLogResponseBody {
-                stream: stream.as_str(),
-                offset,
-                next_offset: offset + u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-                total_bytes,
-                bytes_base64: BASE64_STANDARD.encode(bytes),
-                eof: cas_ref.is_some(),
+            return build_command_log_response(
+                stream,
+                query.offset,
+                limit,
+                LogSource::Sliced { bytes, total_bytes },
+                cas_ref.is_some(),
                 cas_ref,
                 live_streaming,
-            })
-            .into_response();
+            );
         }
         Err(err) if err.kind() == ErrorKind::NotFound => {}
         Err(err) => {
@@ -5406,11 +5403,11 @@ async fn get_run_stage_command_log(
                     .into_response();
             }
         };
-        return command_log_text_response(
+        return build_command_log_response(
             stream,
             query.offset,
             limit,
-            text.as_bytes(),
+            LogSource::Full(text.as_bytes()),
             true,
             Some(cas_ref),
             live_streaming,
@@ -5418,53 +5415,66 @@ async fn get_run_stage_command_log(
     }
 
     if let Some(inline_text) = stream_value {
-        return command_log_text_response(
+        return build_command_log_response(
             stream,
             query.offset,
             limit,
-            inline_text.as_bytes(),
+            LogSource::Full(inline_text.as_bytes()),
             true,
             None,
             live_streaming,
         );
     }
 
-    let eof = node.status.is_some();
-    Json(CommandLogResponseBody {
-        stream: stream.as_str(),
-        offset: 0,
-        next_offset: 0,
-        total_bytes: 0,
-        bytes_base64: String::new(),
-        eof,
-        cas_ref: None,
+    build_command_log_response(
+        stream,
+        query.offset,
+        limit,
+        LogSource::Full(&[]),
+        node.status.is_some(),
+        None,
         live_streaming,
-    })
-    .into_response()
+    )
 }
 
-fn command_log_text_response(
+enum LogSource<'a> {
+    Sliced {
+        bytes:       Vec<u8>,
+        total_bytes: u64,
+    },
+    Full(&'a [u8]),
+}
+
+fn build_command_log_response(
     stream: CommandOutputStream,
     requested_offset: u64,
     limit: u64,
-    bytes: &[u8],
+    source: LogSource<'_>,
     eof: bool,
     cas_ref: Option<String>,
     live_streaming: bool,
 ) -> Response {
-    let total_bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let offset = requested_offset.min(total_bytes);
-    let start = usize::try_from(offset).unwrap_or(bytes.len());
-    let end = start
-        .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
-        .min(bytes.len());
-    let body = &bytes[start..end];
+    let (body_bytes, total_bytes, offset) = match source {
+        LogSource::Sliced { bytes, total_bytes } => {
+            let offset = requested_offset.min(total_bytes);
+            (bytes, total_bytes, offset)
+        }
+        LogSource::Full(bytes) => {
+            let total_bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            let offset = requested_offset.min(total_bytes);
+            let start = usize::try_from(offset).unwrap_or(bytes.len());
+            let end = start
+                .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+                .min(bytes.len());
+            (bytes[start..end].to_vec(), total_bytes, offset)
+        }
+    };
     Json(CommandLogResponseBody {
-        stream: stream.as_str(),
+        stream,
         offset,
-        next_offset: offset + u64::try_from(body.len()).unwrap_or(u64::MAX),
+        next_offset: offset + u64::try_from(body_bytes.len()).unwrap_or(u64::MAX),
         total_bytes,
-        bytes_base64: BASE64_STANDARD.encode(body),
+        bytes_base64: BASE64_STANDARD.encode(body_bytes),
         eof,
         cas_ref,
         live_streaming,
