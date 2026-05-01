@@ -2997,7 +2997,7 @@ components:
       description: Content-addressed blob identifier.
       schema:
         type: string
-        pattern: '^[0-9a-f]{64}$'
+        pattern: "^[0-9a-f]{64}$"
       example: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
 
     ArtifactFilename:
@@ -8061,6 +8061,11 @@ components:
           type: string
           description: Health status indicator.
           example: ok
+        mode:
+          type: string
+          description: Optional server mode indicator when extra operator action is required.
+          enum:
+            - install
 
     SecretType:
       description: The way a secret is consumed by the sandbox.
