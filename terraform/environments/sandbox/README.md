@@ -24,6 +24,7 @@ Local Terraform state is no longer the supported production path for this enviro
 - Set `github_actions_principal_id` to the same bootstrap-created GitHub Actions managed identity principal ID that you copied into the GitHub `production` environment as `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` before the first manual apply.
 - The first manual apply must happen before GitHub Actions takes over so Terraform can create the `github_actions_access` role assignments with the higher-privilege operator identity.
 - Keep `fabro_server_enabled = false` until the first CI deploy is ready to publish a real immutable server image.
+- The validated `fabro-server` shape for this Azure environment is `fabro_server_cpu = 2` and `fabro_server_memory = "4Gi"`.
 
 ## Runtime model
 

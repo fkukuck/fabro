@@ -86,12 +86,12 @@ variable "fabro_server_image" {
 
 variable "fabro_server_cpu" {
   type    = number
-  default = 1
+  default = 2
 }
 
 variable "fabro_server_memory" {
   type    = string
-  default = "2Gi"
+  default = "4Gi"
 }
 
 variable "github_actions_principal_id" {
