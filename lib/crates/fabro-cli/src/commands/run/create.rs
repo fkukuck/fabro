@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context as _, bail};
 use fabro_config::RunLayer;
 use fabro_config::user::active_settings_path;
 use fabro_server::manifest_validation;
@@ -36,7 +36,7 @@ pub(crate) async fn create_run(
         .as_deref()
         .map(str::parse::<RunId>)
         .transpose()
-        .map_err(|err| anyhow::anyhow!("invalid run ID: {err}"))?;
+        .context("invalid run ID")?;
 
     let built = build_run_manifest(ManifestBuildInput {
         workflow: workflow_path.clone(),

@@ -133,7 +133,7 @@ impl RunEventStream {
             }
 
             if let Some(chunk) = self.stream.next().await {
-                let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+                let chunk = chunk.map_err(anyhow::Error::new)?;
                 self.pending_bytes.extend_from_slice(&chunk);
                 self.buffer_sse_events(false)?;
             } else {
@@ -314,7 +314,7 @@ impl Client {
                 progenitor_client::Error<E>,
             >,
         >,
-        E: serde::Serialize + std::fmt::Debug,
+        E: serde::Serialize + std::fmt::Debug + Send + Sync + 'static,
     {
         let state = self.current_state();
         match request.clone()(state.client.clone()).await {
@@ -733,7 +733,7 @@ impl Client {
         let mut stream = response.into_inner();
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+            let chunk = chunk.map_err(anyhow::Error::new)?;
             bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)
@@ -908,7 +908,7 @@ impl Client {
                 let mut stream = response.into_inner();
                 let mut bytes = Vec::new();
                 while let Some(chunk) = stream.next().await {
-                    let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+                    let chunk = chunk.map_err(anyhow::Error::new)?;
                     bytes.extend_from_slice(&chunk);
                 }
                 Ok(Some(bytes))
@@ -1147,7 +1147,7 @@ impl Client {
                 let mut stream = response.into_inner();
                 let mut bytes = Vec::new();
                 while let Some(chunk) = stream.next().await {
-                    let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+                    let chunk = chunk.map_err(anyhow::Error::new)?;
                     bytes.extend_from_slice(&chunk);
                 }
                 Ok(Some(Bytes::from(bytes)))
@@ -1216,7 +1216,7 @@ impl Client {
         let mut stream = response.into_inner();
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+            let chunk = chunk.map_err(anyhow::Error::new)?;
             bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)
@@ -1428,7 +1428,7 @@ impl Client {
         let mut stream = response.into_inner();
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|err| anyhow!("{err}"))?;
+            let chunk = chunk.map_err(anyhow::Error::new)?;
             bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)

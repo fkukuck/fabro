@@ -65,7 +65,8 @@ impl GitHubTracker {
     async fn fresh_token(&self) -> Result<String, String> {
         match &self.creds {
             GitHubCredentials::App(creds) => {
-                let jwt = sign_app_jwt(&creds.app_id, &creds.private_key_pem)?;
+                let jwt = sign_app_jwt(&creds.app_id, &creds.private_key_pem)
+                    .map_err(|err| format!("{err:#}"))?;
                 create_installation_access_token_for_projects(
                     &self.client,
                     &jwt,
@@ -74,6 +75,7 @@ impl GitHubTracker {
                     &self.base_url,
                 )
                 .await
+                .map_err(|err| format!("{err:#}"))
             }
             GitHubCredentials::Token(token) => Ok(token.clone()),
         }

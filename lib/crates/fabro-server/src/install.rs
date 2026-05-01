@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use anyhow::{Context as _, anyhow, bail};
 use axum::extract::{OriginalUri, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -767,8 +768,8 @@ async fn post_install_llm_test(
     match validate_llm_provider(&state, &input).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(err) => {
-            warn!(provider = %input.provider, error = %err, "install LLM validation failed");
-            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err)
+            warn!(provider = %input.provider, error = ?err, "install LLM validation failed");
+            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err.to_string())
         }
     }
 }
@@ -873,8 +874,8 @@ async fn post_install_object_store_test(
     match validate_install_object_store_selection(&state, &selection).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(err) => {
-            warn!(error = %err, "install object store validation failed");
-            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err)
+            warn!(error = ?err, "install object store validation failed");
+            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err.to_string())
         }
     }
 }
@@ -1124,7 +1125,7 @@ fn install_object_store_lookup<'a>(
 async fn validate_install_object_store_selection(
     state: &InstallAppState,
     selection: &InstallObjectStoreState,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let Some(settings) = object_store_validation_settings(selection) else {
         return Ok(());
     };
@@ -1153,18 +1154,18 @@ async fn validate_install_object_store_selection(
     .await
     {
         Ok(Ok(actual_region)) if actual_region != region => {
-            return Err(format!(
+            bail!(
                 "Bucket {bucket} is in region {actual_region}, not {region}. Use the bucket's AWS region and try again."
-            ));
+            );
         }
         Ok(Err(err)) => {
             let rendered = err.to_string();
             if rendered.contains("not found") {
-                return Err(format!("Bucket {bucket} was not found."));
+                bail!("Bucket {bucket} was not found.");
             }
         }
         Err(_) => {
-            return Err(VALIDATION_TIMEOUT_MSG.to_string());
+            bail!(VALIDATION_TIMEOUT_MSG);
         }
         Ok(Ok(_)) => {}
     }
@@ -1172,8 +1173,8 @@ async fn validate_install_object_store_selection(
     let server_env_path = Storage::new(state.storage_dir.as_ref())
         .runtime_directory()
         .env_path();
-    let server_secrets = ServerSecrets::load(server_env_path, process_env_snapshot())
-        .map_err(|err| err.to_string())?;
+    let server_secrets =
+        ServerSecrets::load(server_env_path, process_env_snapshot()).map_err(anyhow::Error::new)?;
     let build_options = serve::ObjectStoreBuildOptions {
         client_options,
         retry_config: RetryConfig {
@@ -1187,8 +1188,7 @@ async fn validate_install_object_store_selection(
         &settings,
         &env_lookup,
         Some(&build_options),
-    )
-    .map_err(|err| err.to_string())?;
+    )?;
 
     let probe_prefix = |index: usize, prefix: &'static str| {
         let object_store = &object_store;
@@ -1207,10 +1207,11 @@ async fn validate_install_object_store_selection(
 
     match timeout(VALIDATION_TIMEOUT, probe).await {
         Ok(Ok(())) => Ok(()),
-        Err(_) => Err(VALIDATION_TIMEOUT_MSG.to_string()),
-        Ok(Err((index, err))) => Err(classify_object_store_validation_error(
-            bucket, region, index, &err,
-        )),
+        Err(_) => bail!(VALIDATION_TIMEOUT_MSG),
+        Ok(Err((index, err))) => bail!(
+            "{}",
+            classify_object_store_validation_error(bucket, region, index, &err)
+        ),
     }
 }
 
@@ -1272,8 +1273,8 @@ async fn post_install_github_token_test(
     match validate_github_token(&state, input.token.trim()).await {
         Ok(username) => Json(serde_json::json!({ "username": username })).into_response(),
         Err(err) => {
-            warn!(error = %err, "install GitHub token validation failed");
-            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err)
+            warn!(error = ?err, "install GitHub token validation failed");
+            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err.to_string())
         }
     }
 }
@@ -1424,7 +1425,7 @@ async fn get_install_github_app_redirect(
                 .into_response()
         }
         Err(err) => {
-            error!(error = %err, "install GitHub app exchange failed");
+            error!(error = ?err, "install GitHub app exchange failed");
             install_github_redirect_error(&state, "github-app-manifest-conversion-failed")
         }
     }
@@ -1941,7 +1942,7 @@ fn build_github_app_manifest(
     clippy::disallowed_types,
     reason = "Install HTTP client selection parses a public upstream base URL only to decide localhost proxy behavior."
 )]
-fn install_http_client_for_url(base_url: &str) -> Result<fabro_http::HttpClient, String> {
+fn install_http_client_for_url(base_url: &str) -> anyhow::Result<fabro_http::HttpClient> {
     let mut builder = fabro_http::HttpClientBuilder::new();
     if fabro_http::Url::parse(base_url)
         .ok()
@@ -1950,7 +1951,7 @@ fn install_http_client_for_url(base_url: &str) -> Result<fabro_http::HttpClient,
     {
         builder = builder.no_proxy();
     }
-    builder.build().map_err(|err| err.to_string())
+    builder.build().map_err(anyhow::Error::new)
 }
 
 /// Parse and validate an install-time upstream URL.
@@ -1968,18 +1969,16 @@ fn install_http_client_for_url(base_url: &str) -> Result<fabro_http::HttpClient,
     clippy::disallowed_types,
     reason = "Install upstream endpoints are raw HTTP request URLs; logging uses separate redacted boundaries."
 )]
-fn parse_install_upstream_url(raw: &str) -> Result<fabro_http::Url, String> {
-    let url = fabro_http::Url::parse(raw).map_err(|err| err.to_string())?;
+fn parse_install_upstream_url(raw: &str) -> anyhow::Result<fabro_http::Url> {
+    let url = fabro_http::Url::parse(raw).map_err(anyhow::Error::new)?;
     match url.scheme() {
         "http" | "https" => {}
         other => {
-            return Err(format!(
-                "install upstream URL must use http or https, got {other}"
-            ));
+            bail!("install upstream URL must use http or https, got {other}");
         }
     }
     if url.host_str().is_none() {
-        return Err("install upstream URL must include a host".to_string());
+        bail!("install upstream URL must include a host");
     }
     Ok(url)
 }
@@ -1993,12 +1992,12 @@ fn parse_install_upstream_url(raw: &str) -> Result<fabro_http::Url, String> {
     clippy::disallowed_types,
     reason = "Install upstream endpoints are raw HTTP request URLs; logging uses separate redacted boundaries."
 )]
-fn install_upstream_endpoint(base_url: &str, segments: &[&str]) -> Result<fabro_http::Url, String> {
+fn install_upstream_endpoint(base_url: &str, segments: &[&str]) -> anyhow::Result<fabro_http::Url> {
     let mut url = parse_install_upstream_url(base_url)?;
     {
         let mut path = url
             .path_segments_mut()
-            .map_err(|()| "install upstream URL cannot be a base".to_string())?;
+            .map_err(|()| anyhow!("install upstream URL cannot be a base"))?;
         for segment in segments {
             path.push(segment);
         }
@@ -2009,7 +2008,7 @@ fn install_upstream_endpoint(base_url: &str, segments: &[&str]) -> Result<fabro_
 async fn validate_llm_provider(
     state: &InstallAppState,
     input: &InstallLlmTestInput,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let (auth_header, auth_value) = match input.provider {
         Provider::Anthropic => ("x-api-key", input.api_key.clone()),
         Provider::OpenAi => ("Authorization", format!("Bearer {}", input.api_key)),
@@ -2019,10 +2018,7 @@ async fn validate_llm_provider(
         | Provider::Minimax
         | Provider::Inception
         | Provider::OpenAiCompatible => {
-            return Err(format!(
-                "{} is not supported by install validation",
-                input.provider
-            ));
+            bail!("{} is not supported by install validation", input.provider);
         }
     };
 
@@ -2041,15 +2037,15 @@ async fn validate_llm_provider(
         .timeout(Duration::from_secs(10))
         .send()
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(anyhow::Error::new)?;
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(format!(
+        bail!(
             "{} model lookup failed ({})",
             input.provider,
             response.status()
-        ))
+        )
     }
 }
 
@@ -2082,7 +2078,7 @@ fn provider_base_url(state: &InstallAppState, provider: Provider) -> String {
         })
 }
 
-async fn validate_github_token(state: &InstallAppState, token: &str) -> Result<String, String> {
+async fn validate_github_token(state: &InstallAppState, token: &str) -> anyhow::Result<String> {
     let base_url = state
         .upstreams
         .github_api_base_url
@@ -2097,20 +2093,23 @@ async fn validate_github_token(state: &InstallAppState, token: &str) -> Result<S
         .header("User-Agent", "fabro-server")
         .send()
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(anyhow::Error::new)?;
     if !response.status().is_success() {
-        return Err(format!("GitHub returned {}", response.status()));
+        bail!("GitHub returned {}", response.status());
     }
-    let body: GithubUserResponse = response.json().await.map_err(|err| err.to_string())?;
+    let body: GithubUserResponse = response
+        .json()
+        .await
+        .context("Failed to parse GitHub user response")?;
     Ok(body.login)
 }
 
 async fn exchange_github_app_manifest_code(
     state: &InstallAppState,
     code: &str,
-) -> Result<GitHubAppManifestConversion, String> {
+) -> anyhow::Result<GitHubAppManifestConversion> {
     if !is_valid_github_manifest_code(code) {
-        return Err("install GitHub manifest code is not in the expected format".to_string());
+        bail!("install GitHub manifest code is not in the expected format");
     }
     let base_url = state
         .upstreams
@@ -2125,13 +2124,16 @@ async fn exchange_github_app_manifest_code(
         .header("User-Agent", "fabro-server")
         .send()
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(anyhow::Error::new)?;
     if !response.status().is_success() {
         let status = response.status();
         let _ = response.text().await;
-        return Err(format!("GitHub manifest conversion failed ({status})"));
+        bail!("GitHub manifest conversion failed ({status})");
     }
-    response.json().await.map_err(|err| err.to_string())
+    response
+        .json()
+        .await
+        .context("Failed to parse GitHub manifest conversion response")
 }
 
 /// GitHub's manifest-conversion `code` is short, unpadded-base64url by

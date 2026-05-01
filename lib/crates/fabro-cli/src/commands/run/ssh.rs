@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use tracing::info;
 
 use crate::args::SshArgs;
@@ -53,7 +53,7 @@ fn exec_ssh(ssh_cmd: &str) -> Result<()> {
     let err = std::process::Command::new(parts[0])
         .args(&parts[1..])
         .exec();
-    Err(anyhow::anyhow!("Failed to exec SSH: {err}"))
+    Err(err).context("Failed to exec SSH")
 }
 
 #[cfg(not(unix))]

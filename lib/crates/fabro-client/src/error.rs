@@ -104,7 +104,7 @@ fn build_structured_error(
 
 pub async fn classify_api_error<E>(err: progenitor_client::Error<E>) -> StructuredApiError
 where
-    E: serde::Serialize + std::fmt::Debug,
+    E: serde::Serialize + std::fmt::Debug + Send + Sync + 'static,
 {
     match err {
         progenitor_client::Error::UnexpectedResponse(response) => {
@@ -131,7 +131,7 @@ where
 
 fn map_api_error_structured<E>(err: progenitor_client::Error<E>) -> StructuredApiError
 where
-    E: serde::Serialize + std::fmt::Debug,
+    E: serde::Serialize + std::fmt::Debug + Send + Sync + 'static,
 {
     match err {
         progenitor_client::Error::ErrorResponse(response) => {
@@ -151,7 +151,7 @@ where
             build_structured_error(anyhow!("request failed with status {status}"), status, None)
         }
         other => StructuredApiError {
-            error:   anyhow!("{other}"),
+            error:   anyhow::Error::new(other),
             failure: None,
         },
     }
@@ -159,7 +159,7 @@ where
 
 pub fn map_api_error<E>(err: progenitor_client::Error<E>) -> anyhow::Error
 where
-    E: serde::Serialize + std::fmt::Debug,
+    E: serde::Serialize + std::fmt::Debug + Send + Sync + 'static,
 {
     map_api_error_structured(err).error
 }
@@ -232,6 +232,7 @@ where
 mod tests {
     use fabro_util::exit;
     use serde_json::json;
+    use tokio::net::TcpListener;
 
     use super::{ApiError, ApiFailure, map_api_error, raw_response_failure_error};
 
@@ -309,5 +310,38 @@ mod tests {
             "forbidden",
         ));
         assert_eq!(exit::exit_code_for(&err), 1);
+    }
+
+    #[tokio::test]
+    async fn map_api_error_preserves_communication_error_source_chain() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/api/v1/runs", listener.local_addr().unwrap());
+        drop(listener);
+
+        let client = fabro_http::test_http_client().unwrap();
+        let reqwest_error = client
+            .get(url)
+            .send()
+            .await
+            .expect_err("closed local port should refuse connection");
+
+        let err = map_api_error(
+            progenitor_client::Error::<serde_json::Value>::CommunicationError(reqwest_error),
+        );
+        let chain = err
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<String>>();
+
+        assert!(
+            chain.len() >= 2,
+            "expected communication error source chain, got {chain:#?}"
+        );
+        assert!(
+            chain
+                .iter()
+                .any(|cause| cause.contains("error sending request")),
+            "expected reqwest error in chain, got {chain:#?}"
+        );
     }
 }

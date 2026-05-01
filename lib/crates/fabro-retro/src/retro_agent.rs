@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::Context as _;
 use fabro_agent::tool_registry::RegisteredTool;
 use fabro_agent::{
     AgentProfile, AnthropicProfile, GeminiProfile, OpenAiProfile, Sandbox, Session, SessionEvent,
@@ -210,7 +211,7 @@ pub async fn run_retro_agent(
     let process_result = session
         .process_input(&prompt)
         .await
-        .map_err(|e| anyhow::anyhow!("Retro agent session failed: {e}"));
+        .context("Retro agent session failed");
 
     // Extract response from session history
     let response_text = session

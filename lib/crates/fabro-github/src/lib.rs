@@ -1,3 +1,4 @@
+use anyhow::{Context as _, anyhow, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use fabro_redact::DisplaySafeUrl;
@@ -50,7 +51,7 @@ impl<'a> GitHubContext<'a> {
         }
     }
 
-    fn http_client(&self) -> Result<fabro_http::HttpClient, String> {
+    fn http_client(&self) -> anyhow::Result<fabro_http::HttpClient> {
         self.http_client.clone().map_or_else(http_client, Ok)
     }
 }
@@ -65,18 +66,18 @@ pub enum PullRequestApiError {
         repo:   String,
         number: u64,
     },
-    #[error("{0}")]
-    Other(String),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 impl From<String> for PullRequestApiError {
     fn from(value: String) -> Self {
-        Self::Other(value)
+        Self::Other(anyhow!(value))
     }
 }
 
-fn http_client() -> Result<fabro_http::HttpClient, String> {
-    fabro_http::http_client().map_err(|err| err.to_string())
+fn http_client() -> anyhow::Result<fabro_http::HttpClient> {
+    fabro_http::http_client().map_err(Into::into)
 }
 
 /// Owner information for a GitHub App.
@@ -168,7 +169,7 @@ impl GitHubCredentials {
         repo: &str,
         base_url: &str,
         permissions: serde_json::Value,
-    ) -> Result<String, String> {
+    ) -> anyhow::Result<String> {
         match self {
             Self::App(creds) => {
                 let jwt = sign_app_jwt(&creds.app_id, &creds.private_key_pem)?;
@@ -189,12 +190,12 @@ impl GitHubCredentials {
     }
 }
 
-pub async fn gh_auth_token() -> Result<String, String> {
+pub async fn gh_auth_token() -> anyhow::Result<String> {
     let output = Command::new("gh")
         .args(["auth", "token"])
         .output()
         .await
-        .map_err(|err| format!("Failed to run `gh auth token`: {err}"))?;
+        .context("Failed to run `gh auth token`")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let message = if stderr.is_empty() {
@@ -202,14 +203,14 @@ pub async fn gh_auth_token() -> Result<String, String> {
         } else {
             stderr
         };
-        return Err(format!("Failed to get GitHub CLI token: {message}"));
+        bail!("Failed to get GitHub CLI token: {message}");
     }
 
-    let token = String::from_utf8(output.stdout)
-        .map_err(|err| format!("`gh auth token` returned invalid UTF-8: {err}"))?;
+    let token =
+        String::from_utf8(output.stdout).context("`gh auth token` returned invalid UTF-8")?;
     let token = token.trim().to_string();
     if token.is_empty() {
-        return Err("`gh auth token` returned an empty token".to_string());
+        bail!("`gh auth token` returned an empty token");
     }
     Ok(token)
 }
@@ -245,8 +246,8 @@ impl HttpResponse {
         Self { status, body }
     }
 
-    pub fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T, String> {
-        serde_json::from_str(&self.body).map_err(|e| format!("Failed to parse response: {e}"))
+    pub fn json<T: for<'de> Deserialize<'de>>(&self) -> anyhow::Result<T> {
+        serde_json::from_str(&self.body).context("Failed to parse response")
     }
 
     pub fn text(&self) -> &str {
@@ -265,7 +266,7 @@ pub trait HttpClient: Send + Sync {
         url: &str,
         headers: &[(&str, &str)],
         body: Option<&serde_json::Value>,
-    ) -> impl std::future::Future<Output = Result<HttpResponse, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<HttpResponse>> + Send;
 }
 
 impl HttpClient for fabro_http::HttpClient {
@@ -275,7 +276,7 @@ impl HttpClient for fabro_http::HttpClient {
         url: &str,
         headers: &[(&str, &str)],
         body: Option<&serde_json::Value>,
-    ) -> Result<HttpResponse, String> {
+    ) -> anyhow::Result<HttpResponse> {
         let mut builder = match method {
             HttpMethod::Get => self.get(url),
             HttpMethod::Post => self.post(url),
@@ -288,9 +289,9 @@ impl HttpClient for fabro_http::HttpClient {
         if let Some(json_body) = body {
             builder = builder.json(json_body);
         }
-        let resp = builder.send().await.map_err(|e| e.to_string())?;
+        let resp = builder.send().await.map_err(anyhow::Error::new)?;
         let status = resp.status().as_u16();
-        let text = resp.text().await.map_err(|e| e.to_string())?;
+        let text = resp.text().await.map_err(anyhow::Error::new)?;
         Ok(HttpResponse::new(status, text))
     }
 }
@@ -302,7 +303,7 @@ impl HttpClient for fabro_http::HttpClient {
 /// - `https://github.com/owner/repo`
 /// - `https://github.com/owner/repo/`
 /// - `https://x-access-token:TOKEN@github.com/owner/repo.git`
-pub fn parse_github_owner_repo(url: &str) -> Result<(String, String), String> {
+pub fn parse_github_owner_repo(url: &str) -> anyhow::Result<(String, String)> {
     // Strip credentials from URLs like https://x-access-token:TOKEN@github.com/...
     let stripped = url.strip_prefix("https://").and_then(|rest| {
         rest.split_once('@')
@@ -312,7 +313,7 @@ pub fn parse_github_owner_repo(url: &str) -> Result<(String, String), String> {
     let display_url = redacted_url_for_error(url);
     let path = url
         .strip_prefix("https://github.com/")
-        .ok_or_else(|| format!("Not a GitHub HTTPS URL: {display_url}"))?;
+        .ok_or_else(|| anyhow!("Not a GitHub HTTPS URL: {display_url}"))?;
 
     let path = path.trim_end_matches('/');
     let path = path.strip_suffix(".git").unwrap_or(path);
@@ -321,11 +322,11 @@ pub fn parse_github_owner_repo(url: &str) -> Result<(String, String), String> {
     let owner = parts
         .next()
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("Missing owner in GitHub URL: {display_url}"))?;
+        .ok_or_else(|| anyhow!("Missing owner in GitHub URL: {display_url}"))?;
     let repo = parts
         .next()
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("Missing repo in GitHub URL: {display_url}"))?;
+        .ok_or_else(|| anyhow!("Missing repo in GitHub URL: {display_url}"))?;
 
     Ok((owner.to_string(), repo.to_string()))
 }
@@ -338,7 +339,7 @@ fn redacted_url_for_error(url: &str) -> String {
 /// Create a signed JWT for GitHub App authentication (RS256).
 ///
 /// The JWT is valid for 10 minutes with a 60-second clock skew allowance.
-pub fn sign_app_jwt(app_id: &str, private_key_pem: &str) -> Result<String, String> {
+pub fn sign_app_jwt(app_id: &str, private_key_pem: &str) -> anyhow::Result<String> {
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::Serialize;
 
@@ -356,11 +357,11 @@ pub fn sign_app_jwt(app_id: &str, private_key_pem: &str) -> Result<String, Strin
         exp: now + 600,
     };
 
-    let key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
-        .map_err(|e| format!("Invalid RSA private key: {e}"))?;
+    let key =
+        EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).context("Invalid RSA private key")?;
 
-    let jwt = encode(&Header::new(Algorithm::RS256), &claims, &key)
-        .map_err(|e| format!("Failed to sign JWT: {e}"))?;
+    let jwt =
+        encode(&Header::new(Algorithm::RS256), &claims, &key).context("Failed to sign JWT")?;
     Ok(jwt)
 }
 
@@ -384,7 +385,7 @@ pub async fn create_installation_access_token_with_permissions(
     repo: &str,
     base_url: &str,
     permissions: serde_json::Value,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     create_installation_access_token_with_permissions_and_install_url(
         client,
         jwt,
@@ -405,7 +406,7 @@ pub async fn create_installation_access_token_with_permissions_and_install_url(
     base_url: &str,
     permissions: serde_json::Value,
     install_url: Option<&str>,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     #[derive(Deserialize)]
     struct Installation {
         id: u64,
@@ -427,7 +428,7 @@ pub async fn create_installation_access_token_with_permissions_and_install_url(
             None,
         )
         .await
-        .map_err(|e| format!("Failed to look up GitHub App installation: {e}"))?;
+        .context("Failed to look up GitHub App installation")?;
 
     match resp.status {
         200 => {}
@@ -436,32 +437,34 @@ pub async fn create_installation_access_token_with_permissions_and_install_url(
                 || format!("https://github.com/organizations/{owner}/settings/installations"),
                 str::to_string,
             );
-            return Err(format!(
+            bail!(
                 "GitHub App is not installed for {owner}. \
                  Install it at {install_url}"
-            ));
+            );
         }
         403 => {
-            return Err("GitHub App installation is suspended. \
+            bail!(
+                "GitHub App installation is suspended. \
                  Re-enable it in your organization's GitHub App settings."
-                .to_string());
+            );
         }
         401 => {
-            return Err("GitHub App authentication failed. \
+            bail!(
+                "GitHub App authentication failed. \
                  Check that app_id and GITHUB_APP_PRIVATE_KEY are correct."
-                .to_string());
+            );
         }
         _ => {
-            return Err(format!(
+            bail!(
                 "Unexpected status {} looking up GitHub App installation",
                 resp.status
-            ));
+            );
         }
     }
 
     let installation: Installation = resp
         .json()
-        .map_err(|e| format!("Failed to parse installation response: {e}"))?;
+        .context("Failed to parse installation response")?;
 
     // Step 2: Create a scoped access token
     let token_url = format!(
@@ -481,32 +484,33 @@ pub async fn create_installation_access_token_with_permissions_and_install_url(
             Some(&body),
         )
         .await
-        .map_err(|e| format!("Failed to create installation access token: {e}"))?;
+        .context("Failed to create installation access token")?;
 
     match token_resp.status {
         201 => {}
         422 => {
-            return Err(format!(
+            bail!(
                 "GitHub App does not have access to repository {repo}. \
                  Update the installation's repository permissions to include it."
-            ));
+            );
         }
         401 => {
-            return Err("GitHub App authentication failed. \
+            bail!(
+                "GitHub App authentication failed. \
                  Check that app_id and GITHUB_APP_PRIVATE_KEY are correct."
-                .to_string());
+            );
         }
         _ => {
-            return Err(format!(
+            bail!(
                 "Unexpected status {} creating installation access token",
                 token_resp.status
-            ));
+            );
         }
     }
 
     let access_token: AccessToken = token_resp
         .json()
-        .map_err(|e| format!("Failed to parse access token response: {e}"))?;
+        .context("Failed to parse access token response")?;
 
     Ok(access_token.token)
 }
@@ -518,7 +522,7 @@ pub async fn create_installation_access_token(
     owner: &str,
     repo: &str,
     base_url: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     create_installation_access_token_with_permissions(
         client,
         jwt,
@@ -538,7 +542,7 @@ pub async fn create_installation_access_token_for_pr(
     owner: &str,
     repo: &str,
     base_url: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     create_installation_access_token_with_permissions(
         client,
         jwt,
@@ -574,7 +578,7 @@ pub async fn create_pull_request(
     title: &str,
     body: &str,
     draft: bool,
-) -> Result<CreatedPullRequest, String> {
+) -> anyhow::Result<CreatedPullRequest> {
     let client = ctx.http_client()?;
     create_pull_request_with_client(&client, ctx, owner, repo, base, head, title, body, draft).await
 }
@@ -593,7 +597,7 @@ pub async fn create_pull_request_with_client(
     title: &str,
     body: &str,
     draft: bool,
-) -> Result<CreatedPullRequest, String> {
+) -> anyhow::Result<CreatedPullRequest> {
     #[derive(Deserialize)]
     struct PullRequestResponse {
         html_url: String,
@@ -632,34 +636,31 @@ pub async fn create_pull_request_with_client(
         Some(&pr_body),
     )
     .await
-    .map_err(|e| format!("Failed to create pull request: {e}"))?;
+    .context("Failed to create pull request")?;
 
     match resp.status {
         201 => {}
         422 => {
-            return Err(format!(
-                "Pull request could not be created (422): {}",
-                resp.text()
-            ));
+            bail!("Pull request could not be created (422): {}", resp.text());
         }
         401 | 403 => {
-            return Err(format!(
+            bail!(
                 "Authentication failed creating pull request ({})",
                 resp.status
-            ));
+            );
         }
         _ => {
-            return Err(format!(
+            bail!(
                 "Unexpected status {} creating pull request: {}",
                 resp.status,
                 resp.text()
-            ));
+            );
         }
     }
 
     let pr: PullRequestResponse = resp
         .json()
-        .map_err(|e| format!("Failed to parse pull request response: {e}"))?;
+        .context("Failed to parse pull request response")?;
 
     Ok(CreatedPullRequest {
         html_url: pr.html_url,
@@ -686,7 +687,7 @@ pub async fn enable_auto_merge(
     repo: &str,
     pr_node_id: &str,
     merge_method: MergeStrategy,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let client = ctx.http_client()?;
     enable_auto_merge_with_client(&client, ctx, owner, repo, pr_node_id, merge_method).await
 }
@@ -698,7 +699,7 @@ pub async fn enable_auto_merge_with_client(
     repo: &str,
     pr_node_id: &str,
     merge_method: MergeStrategy,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let token = ctx
         .creds
         .resolve_bearer_token(
@@ -741,19 +742,17 @@ pub async fn enable_auto_merge_with_client(
         Some(&graphql_body),
     )
     .await
-    .map_err(|e| format!("Failed to enable auto-merge: {e}"))?;
+    .context("Failed to enable auto-merge")?;
 
     let status = resp.status;
-    let body: serde_json::Value = resp
-        .json()
-        .map_err(|e| format!("Failed to parse auto-merge response: {e}"))?;
+    let body: serde_json::Value = resp.json().context("Failed to parse auto-merge response")?;
 
     if !(200..300).contains(&status) {
-        return Err(format!("Auto-merge request failed ({status}): {body}"));
+        bail!("Auto-merge request failed ({status}): {body}");
     }
 
     if let Some(errors) = body.get("errors") {
-        return Err(format!("Auto-merge GraphQL error: {errors}"));
+        bail!("Auto-merge GraphQL error: {errors}");
     }
 
     tracing::info!(pr_node_id, "Auto-merge enabled");
@@ -823,7 +822,7 @@ pub async fn branch_exists(
     owner: &str,
     repo: &str,
     branch: &str,
-) -> Result<bool, String> {
+) -> anyhow::Result<bool> {
     let client = ctx.http_client()?;
     branch_exists_with_client(&client, ctx, owner, repo, branch).await
 }
@@ -834,7 +833,7 @@ async fn branch_exists_with_client(
     owner: &str,
     repo: &str,
     branch: &str,
-) -> Result<bool, String> {
+) -> anyhow::Result<bool> {
     let token = ctx
         .creds
         .resolve_bearer_token(
@@ -851,14 +850,12 @@ async fn branch_exists_with_client(
     let resp = client
         .request(HttpMethod::Get, &url, &github_headers(&auth), None)
         .await
-        .map_err(|e| format!("Failed to check branch existence: {e}"))?;
+        .context("Failed to check branch existence")?;
 
     match resp.status {
         200 => Ok(true),
         404 => Ok(false),
-        status => Err(format!(
-            "Unexpected status {status} checking branch '{branch}'"
-        )),
+        status => bail!("Unexpected status {status} checking branch '{branch}'"),
     }
 }
 
@@ -872,26 +869,26 @@ pub async fn check_app_installed(
     owner: &str,
     repo: &str,
     base_url: &str,
-) -> Result<bool, String> {
+) -> anyhow::Result<bool> {
     let url = format!("{base_url}/repos/{owner}/{repo}/installation");
     let auth = format!("Bearer {jwt}");
     let resp = client
         .request(HttpMethod::Get, &url, &github_headers(&auth), None)
         .await
-        .map_err(|e| format!("Failed to check GitHub App installation: {e}"))?;
+        .context("Failed to check GitHub App installation")?;
 
     match resp.status {
         200 => Ok(true),
         404 => Ok(false),
-        401 => Err("GitHub App authentication failed. \
+        401 => bail!(
+            "GitHub App authentication failed. \
              Check that app_id and GITHUB_APP_PRIVATE_KEY are correct."
-            .to_string()),
-        403 => Err("GitHub App installation is suspended. \
+        ),
+        403 => bail!(
+            "GitHub App installation is suspended. \
              Re-enable it in your organization's GitHub App settings."
-            .to_string()),
-        status => Err(format!(
-            "Unexpected status {status} checking GitHub App installation"
-        )),
+        ),
+        status => bail!("Unexpected status {status} checking GitHub App installation"),
     }
 }
 
@@ -902,30 +899,29 @@ pub async fn get_authenticated_app(
     client: &impl HttpClient,
     jwt: &str,
     base_url: &str,
-) -> Result<AppInfo, String> {
+) -> anyhow::Result<AppInfo> {
     let url = format!("{base_url}/app");
     let auth = format!("Bearer {jwt}");
     let resp = client
         .request(HttpMethod::Get, &url, &github_headers(&auth), None)
         .await
-        .map_err(|e| format!("Failed to fetch GitHub App info: {e}"))?;
+        .context("Failed to fetch GitHub App info")?;
 
     match resp.status {
         200 => {}
         401 => {
-            return Err("GitHub App authentication failed. \
+            bail!(
+                "GitHub App authentication failed. \
                  Check that app_id and GITHUB_APP_PRIVATE_KEY are correct."
-                .to_string());
+            );
         }
         status => {
-            return Err(format!(
-                "Unexpected status {status} fetching GitHub App info"
-            ));
+            bail!("Unexpected status {status} fetching GitHub App info");
         }
     }
 
     resp.json::<AppInfo>()
-        .map_err(|e| format!("Failed to parse GitHub App info: {e}"))
+        .context("Failed to parse GitHub App info")
 }
 
 /// Update a GitHub App's webhook URL via `PATCH /app/hook/config`.
@@ -935,7 +931,7 @@ pub async fn update_app_webhook_config(
     app_id: &str,
     private_key_pem: &str,
     webhook_url: &str,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let jwt = sign_app_jwt(app_id, private_key_pem)?;
     let client = http_client()?;
     let url = format!("{}/app/hook/config", github_api_base_url());
@@ -953,14 +949,10 @@ pub async fn update_app_webhook_config(
         Some(&body),
     )
     .await
-    .map_err(|e| format!("Failed to update GitHub App webhook: {e}"))?;
+    .context("Failed to update GitHub App webhook")?;
 
     if !(200..300).contains(&resp.status) {
-        return Err(format!(
-            "GitHub API returned {}: {}",
-            resp.status,
-            resp.text()
-        ));
+        bail!("GitHub API returned {}: {}", resp.status, resp.text());
     }
 
     Ok(())
@@ -975,7 +967,7 @@ pub async fn resolve_clone_credentials(
     ctx: &GitHubContext<'_>,
     owner: &str,
     repo: &str,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> anyhow::Result<(Option<String>, Option<String>)> {
     let token = match ctx.creds {
         GitHubCredentials::Token(token) => token.clone(),
         GitHubCredentials::App(_) => {
@@ -998,19 +990,15 @@ pub async fn resolve_clone_credentials(
 ///
 /// Converts `https://github.com/owner/repo` to
 /// `https://x-access-token:<token>@github.com/owner/repo`.
-pub fn embed_token_in_url(url: &str, token: &str) -> Result<DisplaySafeUrl, String> {
-    let mut url =
-        DisplaySafeUrl::parse(url).map_err(|e| format!("Failed to parse GitHub HTTPS URL: {e}"))?;
+pub fn embed_token_in_url(url: &str, token: &str) -> anyhow::Result<DisplaySafeUrl> {
+    let mut url = DisplaySafeUrl::parse(url).context("Failed to parse GitHub HTTPS URL")?;
     if url.scheme() != "https" {
-        return Err(format!(
-            "GitHub clone URL must use HTTPS: {}",
-            url.redacted_string()
-        ));
+        bail!("GitHub clone URL must use HTTPS: {}", url.redacted_string());
     }
     url.set_username("x-access-token")
-        .map_err(|()| "Failed to set GitHub token username".to_string())?;
+        .map_err(|()| anyhow!("Failed to set GitHub token username"))?;
     url.set_password(Some(token))
-        .map_err(|()| "Failed to set GitHub token password".to_string())?;
+        .map_err(|()| anyhow!("Failed to set GitHub token password"))?;
     Ok(url)
 }
 
@@ -1021,14 +1009,12 @@ pub fn embed_token_in_url(url: &str, token: &str) -> Result<DisplaySafeUrl, Stri
 pub async fn resolve_authenticated_url(
     ctx: &GitHubContext<'_>,
     url: &str,
-) -> Result<DisplaySafeUrl, String> {
+) -> anyhow::Result<DisplaySafeUrl> {
     let (owner, repo) = parse_github_owner_repo(url)?;
     let (_username, password) = resolve_clone_credentials(ctx, &owner, &repo).await?;
     match password {
         Some(token) => embed_token_in_url(url, &token),
-        None => {
-            DisplaySafeUrl::parse(url).map_err(|e| format!("Failed to parse GitHub HTTPS URL: {e}"))
-        }
+        None => DisplaySafeUrl::parse(url).context("Failed to parse GitHub HTTPS URL"),
     }
 }
 
@@ -1068,7 +1054,7 @@ pub async fn get_pull_request_with_client(
     let resp = client
         .request(HttpMethod::Get, &url, &github_headers(&auth), None)
         .await
-        .map_err(|e| format!("Failed to fetch pull request: {e}"))?;
+        .context("Failed to fetch pull request")?;
 
     match resp.status {
         200 => {}
@@ -1096,7 +1082,8 @@ pub async fn get_pull_request_with_client(
     }
 
     resp.json::<PullRequestGithubDetail>()
-        .map_err(|e| format!("Failed to parse pull request response: {e}").into())
+        .context("Failed to parse pull request response")
+        .map_err(Into::into)
 }
 
 /// Merge a pull request.
@@ -1139,7 +1126,7 @@ pub async fn merge_pull_request_with_client(
     let resp = client
         .request(HttpMethod::Put, &url, &github_headers(&auth), Some(&body))
         .await
-        .map_err(|e| format!("Failed to merge pull request: {e}"))?;
+        .context("Failed to merge pull request")?;
 
     match resp.status {
         200 => Ok(()),
@@ -1203,7 +1190,7 @@ pub async fn close_pull_request_with_client(
     let resp = client
         .request(HttpMethod::Patch, &url, &github_headers(&auth), Some(&body))
         .await
-        .map_err(|e| format!("Failed to close pull request: {e}"))?;
+        .context("Failed to close pull request")?;
 
     match resp.status {
         200 => Ok(()),
@@ -1233,7 +1220,7 @@ pub async fn create_installation_access_token_for_projects(
     owner: &str,
     repo: &str,
     base_url: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     create_installation_access_token_with_permissions(
         client,
         jwt,
@@ -1258,10 +1245,43 @@ mod tests {
 
     use super::*;
 
+    trait DisplayContains {
+        fn contains(&self, needle: &str) -> bool;
+    }
+
+    impl<T: std::fmt::Display> DisplayContains for T {
+        fn contains(&self, needle: &str) -> bool {
+            self.to_string().as_str().contains(needle)
+        }
+    }
+
     #[test]
     fn decode_pem_env_accepts_raw_pem() {
         let pem = "-----BEGIN TEST KEY-----\nabc\n-----END TEST KEY-----";
         assert_eq!(decode_pem_env("GITHUB_APP_PRIVATE_KEY", pem).unwrap(), pem);
+    }
+
+    #[test]
+    fn pull_request_api_error_preserves_other_source_chain() {
+        let original = anyhow::Error::new(std::io::Error::other("leaf failure"))
+            .context("middle context")
+            .context("outer context");
+        let original_chain = original
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+
+        let err = PullRequestApiError::from(original);
+        let wrapped = anyhow::Error::new(err);
+        let wrapped_chain = wrapped.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert_eq!(wrapped_chain.len(), original_chain.len());
+        for original_cause in original_chain {
+            assert!(
+                wrapped_chain.iter().any(|cause| cause == &original_cause),
+                "missing original cause {original_cause:?} in {wrapped_chain:#?}"
+            );
+        }
     }
 
     #[test]
@@ -1582,7 +1602,7 @@ mod tests {
             url: &str,
             headers: &[(&str, &str)],
             body: Option<&serde_json::Value>,
-        ) -> Result<HttpResponse, String> {
+        ) -> anyhow::Result<HttpResponse> {
             for route in &self.routes {
                 if method == route.method && url.ends_with(&route.path) {
                     if let Some((name, MockHeaderCheck::Equals(expected))) = &route.assert_header {

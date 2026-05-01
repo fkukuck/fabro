@@ -16,7 +16,7 @@ pub(super) async fn events_command(
 
     let json = ctx.json_output();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|err| anyhow::anyhow!("{err}"))?;
+        let chunk = chunk.map_err(anyhow::Error::new)?;
         pending.extend_from_slice(&chunk);
         for payload in sse::drain_sse_payloads(&mut pending, false) {
             render_sse_payload(&payload, json)?;

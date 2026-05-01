@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use fabro_api::types;
 use fabro_config::RunLayer;
 
@@ -10,6 +10,6 @@ pub fn validate_manifest(
 ) -> Result<types::ValidateResponse> {
     let prepared = run_manifest::prepare_manifest(manifest_run_defaults, manifest)?;
     let validated =
-        run_manifest::validate_prepared_manifest(&prepared).map_err(|err| anyhow!("{err}"))?;
+        run_manifest::validate_prepared_manifest(&prepared).map_err(anyhow::Error::new)?;
     Ok(run_manifest::validate_response(&prepared, &validated))
 }

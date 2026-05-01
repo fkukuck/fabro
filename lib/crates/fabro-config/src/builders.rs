@@ -3,6 +3,7 @@ use std::path::Path;
 
 use fabro_types::settings::{ProjectNamespace, RunNamespace, WorkflowNamespace};
 use fabro_types::{ServerSettings, UserSettings, WorkflowSettings};
+use fabro_util::error::SharedError;
 
 use crate::defaults::DEFAULTS_LAYER;
 use crate::load::load_settings_path;
@@ -202,7 +203,7 @@ impl RunSettingsBuilder {
 pub struct ServerRuntimeSettings {
     pub server_settings:       ServerSettings,
     pub manifest_run_defaults: RunLayer,
-    pub manifest_run_settings: std::result::Result<RunNamespace, String>,
+    pub manifest_run_settings: std::result::Result<RunNamespace, SharedError>,
 }
 
 pub fn load_server_runtime_settings(
@@ -253,7 +254,7 @@ fn resolve_server_runtime_settings(
     Ok(ServerRuntimeSettings {
         server_settings: ServerSettingsBuilder::from_layer(&layer)?,
         manifest_run_settings: RunSettingsBuilder::from_run_layer(&manifest_run_defaults)
-            .map_err(|err| err.to_string()),
+            .map_err(|err| SharedError::new(anyhow::Error::new(err))),
         manifest_run_defaults,
     })
 }

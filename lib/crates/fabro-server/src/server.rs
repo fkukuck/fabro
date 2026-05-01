@@ -77,7 +77,7 @@ use fabro_types::{
     QuestionType, RunBlobId, RunClientProvenance, RunControlAction, RunEvent, RunId, RunProvenance,
     RunServerProvenance, RunSubjectProvenance, ServerSettings, parse_blob_ref,
 };
-use fabro_util::error::{collect_causes, render_with_causes};
+use fabro_util::error::{SharedError, collect_causes, render_with_causes};
 use fabro_util::version::FABRO_VERSION;
 use fabro_vault::{Error as VaultError, SecretType, Vault};
 use fabro_workflow::artifact_upload::ArtifactSink;
@@ -561,7 +561,7 @@ pub struct AppState {
     pub(super) server_secrets:      ServerSecrets,
     pub(crate) llm_source:          Arc<dyn CredentialSource>,
     manifest_run_defaults:          RwLock<Arc<RunLayer>>,
-    manifest_run_settings:          RwLock<std::result::Result<RunNamespace, String>>,
+    manifest_run_settings:          RwLock<std::result::Result<RunNamespace, SharedError>>,
     pub(crate) server_settings:     RwLock<Arc<ServerSettings>>,
     pub(crate) env_lookup:          EnvLookup,
     pub(crate) github_api_base_url: String,
@@ -635,7 +635,7 @@ pub(crate) struct AppStateConfig {
 pub(crate) struct ResolvedAppStateSettings {
     pub(crate) server_settings:       ServerSettings,
     pub(crate) manifest_run_defaults: RunLayer,
-    pub(crate) manifest_run_settings: std::result::Result<RunNamespace, String>,
+    pub(crate) manifest_run_settings: std::result::Result<RunNamespace, SharedError>,
 }
 
 fn accumulate_model_billing(entry: &mut ModelBillingTotals, usage: &BilledModelUsage) {
@@ -671,7 +671,7 @@ impl AppState {
         )
     }
 
-    pub(crate) fn manifest_run_settings(&self) -> std::result::Result<RunNamespace, String> {
+    pub(crate) fn manifest_run_settings(&self) -> std::result::Result<RunNamespace, SharedError> {
         self.manifest_run_settings
             .read()
             .expect("manifest run settings lock poisoned")
@@ -1406,7 +1406,7 @@ async fn get_system_info(
 
 fn system_features(
     server_settings: &ServerSettings,
-    manifest_run_settings: &std::result::Result<RunNamespace, String>,
+    manifest_run_settings: &std::result::Result<RunNamespace, SharedError>,
 ) -> SystemFeatures {
     let session_sandboxes = server_settings.features.session_sandboxes;
     let retros = manifest_run_settings
@@ -1705,8 +1705,9 @@ fn build_prune_plan(
 
 fn resolve_manifest_run_settings(
     manifest_run_defaults: &RunLayer,
-) -> std::result::Result<RunNamespace, String> {
-    RunSettingsBuilder::from_run_layer(manifest_run_defaults).map_err(|err| err.to_string())
+) -> std::result::Result<RunNamespace, SharedError> {
+    RunSettingsBuilder::from_run_layer(manifest_run_defaults)
+        .map_err(|err| SharedError::new(anyhow::Error::new(err)))
 }
 
 fn default_test_server_settings() -> ServerSettings {
@@ -1722,7 +1723,7 @@ methods = ["dev-token"]
 }
 
 fn system_sandbox_provider(
-    manifest_run_settings: &std::result::Result<RunNamespace, String>,
+    manifest_run_settings: &std::result::Result<RunNamespace, SharedError>,
 ) -> String {
     manifest_run_settings.as_ref().map_or_else(
         |_| SandboxProvider::default().to_string(),
@@ -1974,7 +1975,9 @@ async fn get_github_repo(
             let jwt = match fabro_github::sign_app_jwt(&creds.app_id, &creds.private_key_pem) {
                 Ok(jwt) => jwt,
                 Err(err) => {
-                    return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err).into_response();
+                    tracing::error!(error = ?err, "failed to sign GitHub App JWT");
+                    return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.to_string())
+                        .into_response();
                 }
             };
             let install_url = match github_settings.slug.as_ref() {
@@ -2004,7 +2007,9 @@ async fn get_github_repo(
                 {
                     Ok(installed) => installed,
                     Err(err) => {
-                        return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response();
+                        tracing::error!(error = ?err, "failed to check GitHub App installation");
+                        return ApiError::new(StatusCode::BAD_GATEWAY, err.to_string())
+                            .into_response();
                     }
                 };
 
@@ -2036,7 +2041,13 @@ async fn get_github_repo(
             .await
             {
                 Ok(token) => token,
-                Err(err) => return ApiError::new(StatusCode::BAD_GATEWAY, err).into_response(),
+                Err(err) => {
+                    tracing::error!(
+                        error = ?err,
+                        "failed to create GitHub App installation token"
+                    );
+                    return ApiError::new(StatusCode::BAD_GATEWAY, err.to_string()).into_response();
+                }
             }
         }
         GithubIntegrationStrategy::Token => match state.github_credentials(github_settings) {
@@ -4893,7 +4904,7 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
     .await;
 
     let mut child = match build_cmd_result
-        .map_err(|err| anyhow::anyhow!("worker_command task failed: {err}"))
+        .context("worker_command task failed")
         .and_then(|inner| inner)
         .and_then(|mut cmd| cmd.spawn().context("spawning run worker process"))
     {
@@ -5505,7 +5516,7 @@ fn parse_github_owner_repo_from_url(url: &str, kind: &str) -> Result<(String, St
         }
     }
 
-    fabro_github::parse_github_owner_repo(url).map_err(ApiError::bad_request)
+    fabro_github::parse_github_owner_repo(url).map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
 fn load_server_github_credentials(

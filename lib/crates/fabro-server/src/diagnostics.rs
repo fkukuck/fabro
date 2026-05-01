@@ -117,7 +117,7 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
             Ok(Ok(())) => details.push(CheckDetail::new(format!("{provider}: OK"))),
             Ok(Err(err)) => {
                 failed.push(provider.to_string());
-                details.push(CheckDetail::new(format!("{provider}: {err}")));
+                details.push(CheckDetail::new(format!("{provider}: {err:#}")));
             }
             Err(_) => {
                 failed.push(provider.to_string());
@@ -151,7 +151,7 @@ fn probe_model(provider: Provider) -> String {
         .map_or_else(|| format!("unknown-{provider}"), |m| m.id.clone())
 }
 
-async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> Result<(), String> {
+async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> anyhow::Result<()> {
     let request = Request {
         model:            probe_model(provider),
         messages:         vec![Message::user("hi")],
@@ -172,7 +172,7 @@ async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> Result<()
         .complete(&request)
         .await
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 async fn check_github_app(state: &AppState) -> CheckResult {
@@ -341,8 +341,8 @@ async fn check_github_app(state: &AppState) -> CheckResult {
                 name:        "GitHub App".to_string(),
                 status:      CheckStatus::Error,
                 summary:     "JWT signing failed".to_string(),
-                details:     vec![CheckDetail::new(err.clone())],
-                remediation: Some(err),
+                details:     vec![CheckDetail::new(format!("{err:#}"))],
+                remediation: Some(err.to_string()),
             };
         }
     };
@@ -368,8 +368,8 @@ async fn check_github_app(state: &AppState) -> CheckResult {
             name:        "GitHub App".to_string(),
             status:      CheckStatus::Error,
             summary:     "connectivity error".to_string(),
-            details:     vec![CheckDetail::new(err.clone())],
-            remediation: Some(err),
+            details:     vec![CheckDetail::new(format!("{err:#}"))],
+            remediation: Some("Check GitHub App credentials and network connectivity".to_string()),
         },
         Err(_) => CheckResult {
             name:        "GitHub App".to_string(),
@@ -466,7 +466,7 @@ async fn check_brave_search(state: &AppState) -> CheckResult {
             .header("X-Subscription-Token", api_key)
             .send()
             .await
-            .map_err(|e| e.to_string())
+            .map_err(anyhow::Error::new)
     })
     .await;
 
@@ -489,8 +489,8 @@ async fn check_brave_search(state: &AppState) -> CheckResult {
             name:        "Web Search (Brave)".to_string(),
             status:      CheckStatus::Warning,
             summary:     "connectivity error".to_string(),
-            details:     vec![CheckDetail::new(err.clone())],
-            remediation: Some(err),
+            details:     vec![CheckDetail::new(format!("{err:#}"))],
+            remediation: Some("Check BRAVE_SEARCH_API_KEY and network connectivity".to_string()),
         },
         Err(_) => CheckResult {
             name:        "Web Search (Brave)".to_string(),

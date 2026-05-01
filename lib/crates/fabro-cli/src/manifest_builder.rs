@@ -91,7 +91,7 @@ pub fn build_run_manifest(input: ManifestBuildInput) -> Result<BuiltManifest> {
     }
     let workflow_settings = workflow_settings_builder
         .build()
-        .map_err(|errors| anyhow!("failed to resolve manifest settings: {errors}"))?;
+        .context("failed to resolve manifest settings")?;
     let target_path = root_resolution.dot_path.clone();
     let target_manifest_path = manifest_path_from_absolute(&target_path, &input.cwd)?;
     let target_key = target_manifest_path.to_string();
@@ -361,12 +361,12 @@ fn collect_workflow_config_files(
     let mut document: toml::Table = config
         .source
         .parse()
-        .map_err(|err| anyhow!("Failed to parse run config TOML: {err}"))?;
+        .context("Failed to parse run config TOML")?;
     let run = document
         .remove("run")
         .map(toml::Value::try_into::<RunLayer>)
         .transpose()
-        .map_err(|err| anyhow!("Failed to parse run config TOML: {err}"))?
+        .context("Failed to parse run config TOML")?
         .unwrap_or_default();
     let dockerfile = run
         .sandbox
@@ -460,7 +460,7 @@ fn resolve_manifest_goal(
     // Precedence 3: graph-level `goal` attribute in the DOT, with `@file`
     // sugar for workflow-colocated goal files.
     let graph = parser::parse(root_source)
-        .map_err(|err| anyhow!("Failed to parse {}: {err}", root_dot_path.display()))?;
+        .with_context(|| format!("Failed to parse {}", root_dot_path.display()))?;
     let Some(goal) = graph.attrs.get("goal").and_then(AttrValue::as_str) else {
         return Ok(None);
     };

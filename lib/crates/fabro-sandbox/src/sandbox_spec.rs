@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(any(feature = "docker", feature = "daytona"))]
-use anyhow::anyhow;
+use anyhow::Context as _;
 #[cfg(any(feature = "docker", feature = "daytona"))]
 use fabro_github::GitHubCredentials;
 #[allow(
@@ -153,7 +153,7 @@ impl SandboxSpec {
                     clone_origin_url.clone(),
                     clone_branch.clone(),
                 )
-                .map_err(|e| anyhow!("Failed to create Docker sandbox: {e}"))?;
+                .context("Failed to create Docker sandbox")?;
                 if let Some(callback) = event_callback {
                     sandbox.set_event_callback(callback);
                 }
@@ -177,7 +177,7 @@ impl SandboxSpec {
                     api_key.clone(),
                 )
                 .await
-                .map_err(|e| anyhow!(e))?;
+                .map_err(anyhow::Error::new)?;
                 if let Some(callback) = event_callback {
                     sandbox.set_event_callback(callback);
                 }

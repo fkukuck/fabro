@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use anyhow::{Context as _, anyhow, bail};
 use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::response::Html;
@@ -320,7 +321,7 @@ pub async fn exchange_code(
     code: &str,
     redirect_uri: Option<&str>,
     verifier: Option<&str>,
-) -> Result<TokenResponse, String> {
+) -> anyhow::Result<TokenResponse> {
     let token_url = redacted_url_for_log(endpoint.token_url);
     tracing::debug!(
         token_url = %token_url,
@@ -340,26 +341,26 @@ pub async fn exchange_code(
     }
 
     let body = encode_form(&params);
-    let client = fabro_http::http_client().map_err(|e| e.to_string())?;
+    let client = fabro_http::http_client().map_err(anyhow::Error::new)?;
     let resp = client
         .post(endpoint.token_url)
         .header("content-type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
         .await
-        .map_err(|e| format!("Token exchange request failed: {e}"))?;
+        .context("Token exchange request failed")?;
 
     let status = resp.status();
     if !status.is_success() {
         let body_text = resp.text().await.unwrap_or_default();
         tracing::error!(%status, "Token exchange failed");
-        return Err(format!("Token exchange failed ({status}): {body_text}"));
+        bail!("Token exchange failed ({status}): {body_text}");
     }
 
     let tokens: TokenResponse = resp
         .json()
         .await
-        .map_err(|e| format!("Failed to parse token response: {e}"))?;
+        .context("Failed to parse token response")?;
 
     tracing::info!(expires_in = ?tokens.expires_in, "Token exchange completed");
     Ok(tokens)
@@ -372,7 +373,7 @@ pub async fn exchange_code(
 pub async fn refresh_token(
     endpoint: OAuthEndpoint<'_>,
     refresh_token: &str,
-) -> Result<TokenResponse, String> {
+) -> anyhow::Result<TokenResponse> {
     let token_url = redacted_url_for_log(endpoint.token_url);
     tracing::debug!(token_url = %token_url, "Refreshing access token");
 
@@ -382,26 +383,26 @@ pub async fn refresh_token(
         ("refresh_token", refresh_token),
     ]);
 
-    let client = fabro_http::http_client().map_err(|e| e.to_string())?;
+    let client = fabro_http::http_client().map_err(anyhow::Error::new)?;
     let resp = client
         .post(endpoint.token_url)
         .header("content-type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
         .await
-        .map_err(|e| format!("Token refresh request failed: {e}"))?;
+        .context("Token refresh request failed")?;
 
     let status = resp.status();
     if !status.is_success() {
         let body_text = resp.text().await.unwrap_or_default();
         tracing::warn!(%status, "Token refresh failed");
-        return Err(format!("Token refresh failed ({status}): {body_text}"));
+        bail!("Token refresh failed ({status}): {body_text}");
     }
 
     let tokens: TokenResponse = resp
         .json()
         .await
-        .map_err(|e| format!("Failed to parse refresh token response: {e}"))?;
+        .context("Failed to parse refresh token response")?;
 
     tracing::info!(expires_in = ?tokens.expires_in, "Token refreshed");
     Ok(tokens)
@@ -419,21 +420,19 @@ struct CallbackParams {
     error_description: Option<String>,
 }
 
-fn validate_callback_path(path: &str) -> Result<(), String> {
+fn validate_callback_path(path: &str) -> anyhow::Result<()> {
     if path.is_empty() {
-        return Err("Callback path must not be empty".to_string());
+        bail!("Callback path must not be empty");
     }
     if !path.starts_with('/') {
-        return Err(format!("Callback path must start with '/': {path}"));
+        bail!("Callback path must start with '/': {path}");
     }
     if path
         .split('/')
         .skip(1)
         .any(|segment| segment.starts_with(':') || segment.starts_with('*'))
     {
-        return Err(format!(
-            "Callback path must not contain route parameters: {path}"
-        ));
+        bail!("Callback path must not contain route parameters: {path}");
     }
     Ok(())
 }
@@ -451,15 +450,15 @@ pub async fn start_callback_server(
     port: u16,
     path: &str,
     expected_state: String,
-) -> Result<(u16, oneshot::Receiver<Result<String, String>>), String> {
+) -> anyhow::Result<(u16, oneshot::Receiver<Result<String, String>>)> {
     validate_callback_path(path)?;
 
     let listener = TcpListener::bind(("127.0.0.1", port))
         .await
-        .map_err(|e| format!("Failed to bind callback server: {e}"))?;
+        .context("Failed to bind callback server")?;
     let actual_port = listener
         .local_addr()
-        .map_err(|e| format!("Failed to get local address: {e}"))?
+        .context("Failed to get local address")?
         .port();
 
     let (code_tx, code_rx) = oneshot::channel::<Result<String, String>>();
@@ -541,15 +540,15 @@ pub async fn start_callback_server_with_errors(
     expected_state: String,
     port: u16,
     path: &str,
-) -> Result<(CallbackHandle, oneshot::Receiver<CallbackResult>), String> {
+) -> anyhow::Result<(CallbackHandle, oneshot::Receiver<CallbackResult>)> {
     validate_callback_path(path)?;
 
     let listener = TcpListener::bind(("127.0.0.1", port))
         .await
-        .map_err(|e| format!("Failed to bind callback server: {e}"))?;
+        .context("Failed to bind callback server")?;
     let actual_port = listener
         .local_addr()
-        .map_err(|e| format!("Failed to get local address: {e}"))?
+        .context("Failed to get local address")?
         .port();
 
     let (callback_tx, callback_rx) = oneshot::channel::<CallbackResult>();
@@ -648,7 +647,7 @@ pub async fn run_browser_flow(
     scope: &str,
     port: u16,
     callback_path: &str,
-) -> Result<TokenResponse, String> {
+) -> anyhow::Result<TokenResponse> {
     let pkce = generate_pkce();
     let state = generate_state();
 
@@ -668,8 +667,8 @@ pub async fn run_browser_flow(
 
     let code = code_rx
         .await
-        .map_err(|_| "Did not receive authorization code".to_string())?
-        .map_err(|e| format!("Authorization failed: {e}"))?;
+        .map_err(|_| anyhow!("Did not receive authorization code"))?
+        .map_err(|e| anyhow!("Authorization failed: {e}"))?;
 
     let token_url = format!("{issuer}/oauth/token");
     exchange_code(
@@ -693,6 +692,21 @@ mod tests {
     use fabro_test::assert_reqwest_status;
 
     use super::*;
+
+    trait DisplayStringExt {
+        fn contains(&self, needle: &str) -> bool;
+        fn is_empty(&self) -> bool;
+    }
+
+    impl<T: std::fmt::Display> DisplayStringExt for T {
+        fn contains(&self, needle: &str) -> bool {
+            self.to_string().as_str().contains(needle)
+        }
+
+        fn is_empty(&self) -> bool {
+            self.to_string().is_empty()
+        }
+    }
 
     fn test_http_client() -> fabro_http::HttpClient {
         fabro_http::test_http_client().unwrap()

@@ -111,7 +111,7 @@ async fn write_run_dump(
     let output_dir = output_dir.to_path_buf();
     spawn_blocking(move || dump.write_to_dir(&output_dir))
         .await
-        .map_err(|err| anyhow::anyhow!("run dump write task failed: {err}"))?
+        .context("run dump write task failed")?
 }
 
 fn finalize_export(

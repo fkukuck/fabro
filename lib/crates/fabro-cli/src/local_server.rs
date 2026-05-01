@@ -2,13 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use fabro_config::bind::BindRequest;
 use fabro_config::user::default_storage_dir;
 use fabro_server::serve::resolve_bind_request_from_server_settings;
 use fabro_types::ServerSettings;
 use fabro_types::settings::server::LogDestination;
 use fabro_types::settings::{InterpString, ServerAuthMethod};
+use fabro_util::error::SharedError;
 
 use crate::user_config;
 
@@ -17,7 +18,7 @@ pub(crate) struct LocalServerConfig {
     auth_methods:           Vec<ServerAuthMethod>,
     config_log_level:       Option<fabro_config::LogFilter>,
     config_log_destination: Option<LogDestination>,
-    server_settings:        std::result::Result<ServerSettings, String>,
+    server_settings:        std::result::Result<ServerSettings, SharedError>,
 }
 
 impl LocalServerConfig {
@@ -68,7 +69,7 @@ impl LocalServerConfig {
         let settings = self
             .server_settings
             .as_ref()
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
+            .map_err(|err| anyhow::Error::new(err.clone()))?;
         resolve_bind_request_from_server_settings(settings, cli_override)
     }
 }
@@ -89,15 +90,14 @@ fn storage_dir_from_toml_with_lookup(
     source: &str,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<PathBuf> {
-    let document: toml::Value = toml::from_str(source)
-        .map_err(|err| anyhow::anyhow!("failed to parse settings file: {err}"))?;
+    let document: toml::Value = toml::from_str(source).context("failed to parse settings file")?;
     let storage_root = string_at_path(&document, &["server", "storage", "root"]).map_or_else(
         || InterpString::parse(&default_storage_dir().to_string_lossy()),
         |root| InterpString::parse(&root),
     );
     let resolved_root = storage_root
         .resolve(lookup)
-        .map_err(|err| anyhow::anyhow!("failed to resolve {}: {err}", storage_root.as_source()))?;
+        .with_context(|| format!("failed to resolve {}", storage_root.as_source()))?;
     Ok(PathBuf::from(resolved_root.value))
 }
 

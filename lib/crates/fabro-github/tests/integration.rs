@@ -222,7 +222,7 @@ async fn resolve_authenticated_url_errors_on_non_github_url() {
     .await
     .unwrap_err();
 
-    assert!(error.contains("Not a GitHub HTTPS URL"));
+    assert!(error.to_string().contains("Not a GitHub HTTPS URL"));
 
     twin.shutdown().await;
 }

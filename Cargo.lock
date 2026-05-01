@@ -1856,6 +1856,7 @@ dependencies = [
 name = "fabro-github"
 version = "0.220.0-nightly.2"
 dependencies = [
+ "anyhow",
  "base64",
  "chrono",
  "fabro-http",
@@ -2025,6 +2026,7 @@ dependencies = [
 name = "fabro-oauth"
 version = "0.220.0-nightly.2"
 dependencies = [
+ "anyhow",
  "axum",
  "base64",
  "fabro-http",

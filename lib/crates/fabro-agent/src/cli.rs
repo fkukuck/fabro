@@ -7,6 +7,7 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use anyhow::Context as _;
 use clap::{Args, Parser};
 use fabro_auth::{CredentialSource, EnvCredentialSource, VaultCredentialSource};
 use fabro_config::Storage;
@@ -450,7 +451,7 @@ pub async fn run_with_args_and_source(
     let provider = parse_provider(&args)?;
     let client = Client::from_source(llm_source.as_ref())
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to create LLM client: {e}"))?;
+        .context("Failed to create LLM client")?;
     ensure_provider_registered(&client, provider)?;
     run_with_args_and_client(args, client, mcp_servers).await
 }

@@ -86,7 +86,7 @@ impl GitHubMetaResolver {
             Err(error) => {
                 return self.cached_hooks_or_error(
                     cached.as_ref(),
-                    anyhow!("fetching GitHub /meta: {error}"),
+                    anyhow::Error::new(error).context("fetching GitHub /meta"),
                 );
             }
         };
@@ -114,7 +114,7 @@ impl GitHubMetaResolver {
             Err(error) => {
                 return self.cached_hooks_or_error(
                     cached.as_ref(),
-                    anyhow!("parsing GitHub /meta response: {error}"),
+                    anyhow::Error::new(error).context("parsing GitHub /meta response"),
                 );
             }
         };

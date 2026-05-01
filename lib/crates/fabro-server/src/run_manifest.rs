@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use fabro_api::types;
 use fabro_auth::auth_issue_message;
 use fabro_config::{
@@ -120,7 +120,7 @@ pub(crate) fn prepare_manifest(
     }
     let mut settings = workflow_settings_builder
         .build()
-        .map_err(|errors| anyhow!("failed to resolve manifest settings: {errors}"))?;
+        .context("failed to resolve manifest settings")?;
     if let Some(goal) = manifest.goal.as_ref() {
         settings.run.goal = Some(RunGoal::Inline(InterpString::parse(&goal.text)));
     }
@@ -137,7 +137,7 @@ pub(crate) fn prepare_manifest(
             .as_deref()
             .map(str::parse::<RunId>)
             .transpose()
-            .map_err(|err| anyhow!("invalid run ID: {err}"))?,
+            .context("invalid run ID")?,
         settings: settings.clone(),
         target_path,
         workflow_bundle,
@@ -291,12 +291,12 @@ fn root_workflow_run_layer(workflow: &BundledWorkflow) -> Result<RunLayer> {
     let mut document: toml::Table = config
         .source
         .parse()
-        .map_err(|err| anyhow!("Failed to parse run config TOML: {err}"))?;
+        .context("Failed to parse run config TOML")?;
     let mut run = document
         .remove("run")
         .map(toml::Value::try_into::<RunLayer>)
         .transpose()
-        .map_err(|err| anyhow!("Failed to parse run config TOML: {err}"))?
+        .context("Failed to parse run config TOML")?
         .unwrap_or_default();
     resolve_manifest_dockerfile(&mut run, &config.path, &workflow.files)?;
     Ok(run)
@@ -600,7 +600,7 @@ fn resolve_sandbox_provider(settings: &RunNamespace) -> Result<SandboxProvider> 
         settings.sandbox.provider.as_str(),
     ))
     .transpose()
-    .map_err(|err| anyhow!("Invalid sandbox provider: {err}"))?
+    .context("Invalid sandbox provider")?
     .unwrap_or_default())
 }
 
@@ -1170,13 +1170,11 @@ async fn mint_github_token(
     }
 
     let https_url = fabro_github::ssh_url_to_https(origin_url);
-    let (owner, repo) =
-        fabro_github::parse_github_owner_repo(&https_url).map_err(|err| anyhow!("{err}"))?;
+    let (owner, repo) = fabro_github::parse_github_owner_repo(&https_url)?;
     let fabro_github::GitHubCredentials::App(creds) = creds else {
         unreachable!("token credentials return early");
     };
-    let jwt = fabro_github::sign_app_jwt(&creds.app_id, &creds.private_key_pem)
-        .map_err(|err| anyhow!("{err}"))?;
+    let jwt = fabro_github::sign_app_jwt(&creds.app_id, &creds.private_key_pem)?;
     let client = fabro_http::http_client()?;
     let perms_json = serde_json::to_value(permissions)?;
     let install_url = creds.installation_url(&owner);
@@ -1190,7 +1188,6 @@ async fn mint_github_token(
         install_url.as_deref(),
     )
     .await
-    .map_err(|err| anyhow!("{err}"))
 }
 
 fn preflight_response(

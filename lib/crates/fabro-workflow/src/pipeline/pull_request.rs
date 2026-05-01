@@ -462,7 +462,8 @@ pub async fn maybe_open_pull_request(
     }
 
     let https_url = ssh_url_to_https(req.origin_url);
-    let (owner, repo) = github_app::parse_github_owner_repo(&https_url)?;
+    let (owner, repo) =
+        github_app::parse_github_owner_repo(&https_url).map_err(|err| format!("{err:#}"))?;
 
     let body = build_pr_body_with_source_and_state(
         req.diff,
@@ -473,7 +474,8 @@ pub async fn maybe_open_pull_request(
         req.conclusion,
         req.run_state,
     )
-    .await?;
+    .await
+    .map_err(|err| format!("{err:#}"))?;
     let body = truncate_pr_body(&body);
 
     let title = pr_title_from_goal(req.goal);
@@ -488,7 +490,8 @@ pub async fn maybe_open_pull_request(
         &body,
         req.draft,
     )
-    .await?;
+    .await
+    .map_err(|err| format!("{err:#}"))?;
 
     info!(pr_url = %created.html_url, created.number, "Pull request created");
 

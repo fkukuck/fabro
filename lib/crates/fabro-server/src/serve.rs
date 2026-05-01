@@ -1136,7 +1136,7 @@ mod tests {
         let manifest_run_defaults = manifest_run_defaults(source);
         ResolvedAppStateSettings {
             manifest_run_settings: RunSettingsBuilder::from_run_layer(&manifest_run_defaults)
-                .map_err(|err| err.to_string()),
+                .map_err(|err| fabro_util::error::SharedError::new(anyhow::Error::new(err))),
             manifest_run_defaults,
             server_settings: server_settings(source),
         }

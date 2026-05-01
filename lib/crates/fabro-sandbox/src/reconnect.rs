@@ -47,7 +47,7 @@ pub async fn reconnect(
                 record.clone_branch.clone(),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to reconnect Docker sandbox: {e}"))?;
+            .context("Failed to reconnect Docker sandbox")?;
             Ok(Box::new(sandbox))
         }
         #[cfg(feature = "daytona")]
@@ -68,7 +68,7 @@ pub async fn reconnect(
                 record.clone_branch.clone(),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .map_err(anyhow::Error::new)?;
             Ok(Box::new(sandbox))
         }
         other => bail!("Unknown sandbox provider: {other}"),

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{Context as _, Result, anyhow};
 use async_trait::async_trait;
 use fabro_core::error::{Error as CoreError, Result as CoreResult};
 use fabro_core::graph::NodeSpec;
@@ -200,9 +201,9 @@ impl ArtifactLifecycle {
         stage_id: &StageId,
         artifact_capture_dir: &std::path::Path,
         artifacts: &[ArtifactUpload],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let Some(sink) = self.artifact_sink.as_ref() else {
-            return Err("artifact sink is not configured".to_string());
+            return Err(anyhow!("artifact sink is not configured"));
         };
 
         let mut last_error = None;
@@ -220,7 +221,7 @@ impl ArtifactLifecycle {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| "artifact upload failed".to_string()))
+        Err(last_error.unwrap_or_else(|| anyhow!("artifact upload failed")))
     }
 
     async fn persist_artifacts_once(
@@ -229,16 +230,17 @@ impl ArtifactLifecycle {
         stage_id: &StageId,
         artifact_capture_dir: &std::path::Path,
         artifacts: &[ArtifactUpload],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         match sink {
             ArtifactSink::Store(store) => {
                 self.store_artifacts(store, stage_id, artifact_capture_dir, artifacts)
                     .await
             }
-            ArtifactSink::Uploader(uploader) => uploader
-                .upload_stage_artifacts(stage_id, artifact_capture_dir, artifacts)
-                .await
-                .map_err(|err| err.to_string()),
+            ArtifactSink::Uploader(uploader) => {
+                uploader
+                    .upload_stage_artifacts(stage_id, artifact_capture_dir, artifacts)
+                    .await
+            }
         }
     }
 
@@ -248,16 +250,16 @@ impl ArtifactLifecycle {
         stage_id: &StageId,
         artifact_capture_dir: &std::path::Path,
         artifacts: &[ArtifactUpload],
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         for artifact in artifacts {
             let local_path = artifact_capture_dir.join(&artifact.path);
-            let bytes = fs::read(&local_path).await.map_err(|err| {
-                format!("failed to read artifact {}: {err}", local_path.display())
-            })?;
+            let bytes = fs::read(&local_path)
+                .await
+                .with_context(|| format!("failed to read artifact {}", local_path.display()))?;
             store
                 .put(&self.run_id, stage_id, &artifact.path, &bytes)
                 .await
-                .map_err(|err| err.to_string())?;
+                .map_err(anyhow::Error::new)?;
         }
         Ok(())
     }

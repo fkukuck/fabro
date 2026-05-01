@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use axum::extract::Query;
 use axum::response::Html;
@@ -457,9 +457,9 @@ impl InstallInputSource for InteractiveInstallInputSource {
         match strategy {
             0 => {
                 let token = if gh_available {
-                    fabro_github::gh_auth_token().await.map_err(|err| {
-                        anyhow!("{err}. Run `gh auth login` and rerun `fabro install`.")
-                    })?
+                    fabro_github::gh_auth_token()
+                        .await
+                        .context("Run `gh auth login` and rerun `fabro install`.")?
                 } else {
                     spawn_blocking(|| prompt_password("GitHub Personal Access Token")).await??
                 };
@@ -617,9 +617,9 @@ impl InstallInputSource for NonInteractiveInstallInputSource {
     ) -> Result<GitHubInstallSelection> {
         match self.args.github_strategy {
             Some(InstallGitHubStrategyArg::Token) => {
-                let token = fabro_github::gh_auth_token().await.map_err(|err| {
-                    anyhow!("{err}. Run `gh auth login` and rerun `fabro install`.")
-                })?;
+                let token = fabro_github::gh_auth_token()
+                    .await
+                    .context("Run `gh auth login` and rerun `fabro install`.")?;
                 Ok(GitHubInstallSelection::Token { token })
             }
             Some(InstallGitHubStrategyArg::App) => Ok(GitHubInstallSelection::App {
@@ -702,9 +702,9 @@ async fn choose_install_github_selection(
 
     match github_args.strategy {
         Some(InstallGitHubStrategyArg::Token) => {
-            let token = fabro_github::gh_auth_token().await.map_err(|err| {
-                anyhow!("{err}. Run `gh auth login` and rerun `fabro install github`.")
-            })?;
+            let token = fabro_github::gh_auth_token()
+                .await
+                .context("Run `gh auth login` and rerun `fabro install github`.")?;
             Ok(GitHubInstallSelection::Token { token })
         }
         Some(InstallGitHubStrategyArg::App) => Ok(GitHubInstallSelection::App {
@@ -2645,7 +2645,7 @@ client_id = "client-id"
                     let start_called = Arc::clone(&start_called);
                     Box::pin(async move {
                         start_called.store(true, Ordering::SeqCst);
-                        Err(anyhow!("boom"))
+                        Err(anyhow::anyhow!("boom"))
                     })
                 }
             },
@@ -2755,7 +2755,7 @@ client_id = "client-id"
                 previous_contents: None,
             }),
             false,
-            |_| Box::pin(async move { Err(anyhow!("boom")) }),
+            |_| Box::pin(async move { Err(anyhow::anyhow!("boom")) }),
             {
                 let stop_called = Arc::clone(&stop_called);
                 move |_, _| {
@@ -2803,7 +2803,7 @@ client_id = "client-id"
                 previous_contents: Some("_version = 1\n[server]\n"),
             }),
             false,
-            |_| Box::pin(async move { Err(anyhow!("boom")) }),
+            |_| Box::pin(async move { Err(anyhow::anyhow!("boom")) }),
             |_, _| Box::pin(async move { true }),
         )
         .await;

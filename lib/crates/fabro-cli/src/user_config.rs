@@ -13,6 +13,7 @@ use fabro_types::settings::cli::CliTargetSettings;
 use fabro_types::settings::server::LogDestination;
 use fabro_types::settings::{CliNamespace, InterpString, RunNamespace};
 use fabro_types::{ServerSettings, UserSettings};
+use fabro_util::error::SharedError;
 use fabro_util::version::FABRO_VERSION;
 use toml_edit::{DocumentMut, Item, Table, value};
 use tracing::debug;
@@ -23,8 +24,8 @@ pub(crate) struct LoadedSettings {
     pub(crate) storage_dir:            PathBuf,
     pub(crate) config_log_level:       Option<LogFilter>,
     pub(crate) config_log_destination: Option<LogDestination>,
-    pub(crate) run_settings:           std::result::Result<RunNamespace, String>,
-    pub(crate) server_settings:        std::result::Result<ServerSettings, String>,
+    pub(crate) run_settings:           std::result::Result<RunNamespace, SharedError>,
+    pub(crate) server_settings:        std::result::Result<ServerSettings, SharedError>,
     pub(crate) user_settings:          UserSettings,
 }
 
@@ -37,13 +38,13 @@ pub(crate) fn load_resolved_settings(
     let storage_override = storage_dir.map(Path::to_path_buf);
     let storage_dir = storage_dir_from_document(&document, storage_dir)?;
     let pre_tracing_config = pre_tracing_config_from_document(&document)?;
-    let run_settings = load_run_settings(config_path).map_err(|err| err.to_string());
+    let run_settings = load_run_settings(config_path).map_err(SharedError::new);
     let server_settings = load_server_settings(config_path)
         .map(|settings| match storage_override.as_deref() {
             Some(dir) => settings.with_storage_override(dir),
             None => settings,
         })
-        .map_err(|err| err.to_string());
+        .map_err(SharedError::new);
     let user_settings = load_user_settings(config_path, cli_layer)?;
 
     Ok(LoadedSettings {
@@ -355,18 +356,18 @@ pub(crate) fn load_resolved_settings_from_toml(
     storage_dir: Option<&Path>,
     cli_layer: Option<&CliLayer>,
 ) -> anyhow::Result<LoadedSettings> {
-    let document: toml::Value = toml::from_str(source)
-        .map_err(|err| anyhow::anyhow!("failed to parse settings file: {err}"))?;
+    let document: toml::Value = toml::from_str(source).context("failed to parse settings file")?;
     let storage_override = storage_dir.map(Path::to_path_buf);
     let storage_dir = storage_dir_from_document(&document, storage_dir)?;
     let pre_tracing_config = pre_tracing_config_from_document(&document)?;
-    let run_settings = RunSettingsBuilder::from_toml(source).map_err(|err| err.to_string());
+    let run_settings = RunSettingsBuilder::from_toml(source)
+        .map_err(|err| SharedError::new(anyhow::Error::new(err)));
     let server_settings = ServerSettingsBuilder::from_toml(source)
         .map(|settings| match storage_override.as_deref() {
             Some(dir) => settings.with_storage_override(dir),
             None => settings,
         })
-        .map_err(|err| err.to_string());
+        .map_err(|err| SharedError::new(anyhow::Error::new(err)));
     let user_settings = match cli_layer {
         Some(cli_layer) => UserSettingsBuilder::from_toml_with_cli_overrides(source, cli_layer)?,
         None => UserSettingsBuilder::from_toml(source)?,

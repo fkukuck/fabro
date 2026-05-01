@@ -7,6 +7,7 @@ use fabro_config::{CliLayer, Storage};
 use fabro_types::UserSettings;
 use fabro_types::settings::RunNamespace;
 use fabro_types::settings::cli::{OutputFormat, OutputVerbosity};
+use fabro_util::error::SharedError;
 use fabro_util::printer::Printer;
 use fabro_vault::Vault;
 use tokio::sync::{OnceCell, RwLock as AsyncRwLock};
@@ -37,7 +38,7 @@ pub(crate) struct CommandContext {
     base_config_path:   PathBuf,
     cli_layer:          CliLayer,
     storage_dir:        PathBuf,
-    run_settings:       std::result::Result<RunNamespace, String>,
+    run_settings:       std::result::Result<RunNamespace, SharedError>,
     user_settings:      UserSettings,
     server_mode:        ServerMode,
     server:             OnceCell<Arc<Client>>,
@@ -46,7 +47,7 @@ pub(crate) struct CommandContext {
 
 struct ResolvedCommandSettings {
     storage_dir:   PathBuf,
-    run_settings:  std::result::Result<RunNamespace, String>,
+    run_settings:  std::result::Result<RunNamespace, SharedError>,
     user_settings: UserSettings,
 }
 
@@ -104,7 +105,7 @@ impl CommandContext {
     pub(crate) fn run_settings(&self) -> Result<&RunNamespace> {
         self.run_settings
             .as_ref()
-            .map_err(|err| anyhow::anyhow!("{err}"))
+            .map_err(|err| anyhow::Error::new(err.clone()))
     }
 
     pub(crate) fn user_settings(&self) -> &UserSettings {

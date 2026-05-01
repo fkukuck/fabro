@@ -248,7 +248,8 @@ pub(crate) async fn mint_token(
     permissions: &HashMap<String, String>,
 ) -> Result<String, String> {
     let normalized_url = fabro_github::normalize_repo_origin_url(origin_url);
-    let (owner, repo) = fabro_github::parse_github_owner_repo(&normalized_url)?;
+    let (owner, repo) =
+        fabro_github::parse_github_owner_repo(&normalized_url).map_err(|err| format!("{err:#}"))?;
     let client = fabro_http::http_client().map_err(|err| err.to_string())?;
     let permissions = serde_json::to_value(permissions).map_err(|err| err.to_string())?;
     creds
@@ -260,6 +261,7 @@ pub(crate) async fn mint_token(
             permissions,
         )
         .await
+        .map_err(|err| format!("{err:#}"))
 }
 
 pub(crate) struct RunMetadataWriter {

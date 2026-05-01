@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result as AnyResult;
+use anyhow::{Context as _, Result as AnyResult};
 use fabro_agent::cli::{OutputFormat, run_with_args_and_client, run_with_args_and_source};
 use fabro_llm::client::Client;
 use fabro_llm::error::{
@@ -329,7 +329,7 @@ pub(crate) async fn execute(mut args: ExecArgs, ctx: &CommandContext) -> AnyResu
         client
             .register_provider(adapter)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to register fabro server adapter: {e}"))?;
+            .context("Failed to register fabro server adapter")?;
         run_with_args_and_client(args.agent, client, mcp_servers)
             .await
             .map_err(classify_server_agent_auth)?;

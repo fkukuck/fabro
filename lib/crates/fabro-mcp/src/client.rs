@@ -2,7 +2,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use fabro_http::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::service::{RoleClient, RunningService, serve_client};
@@ -59,7 +59,7 @@ impl McpClient {
                 cmd.process_group(0);
 
                 let transport = TokioChildProcess::new(cmd)
-                    .map_err(|e| anyhow!("failed to spawn MCP server '{}': {}", config.name, e))?;
+                    .with_context(|| format!("failed to spawn MCP server '{}'", config.name))?;
 
                 PendingTransport::Stdio(transport)
             }
@@ -71,9 +71,9 @@ impl McpClient {
                     let mut header_map = HeaderMap::new();
                     for (key, value) in headers {
                         let name = HeaderName::from_bytes(key.as_bytes())
-                            .map_err(|e| anyhow!("invalid header name '{key}': {e}"))?;
+                            .with_context(|| format!("invalid header name '{key}'"))?;
                         let val = HeaderValue::from_str(value)
-                            .map_err(|e| anyhow!("invalid header value for '{key}': {e}"))?;
+                            .with_context(|| format!("invalid header value for '{key}'"))?;
                         header_map.insert(name, val);
                     }
                     builder = builder.default_headers(header_map);

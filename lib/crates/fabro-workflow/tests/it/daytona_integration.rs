@@ -1546,6 +1546,7 @@ async fn daytona_iat_not_installed_gives_clear_error() {
         "should fail for repo the app isn't installed on"
     );
     let err = result.unwrap_err();
+    let err = format!("{err:#}");
     assert!(
         err.contains("not installed"),
         "error should mention 'not installed', got: {err}"
