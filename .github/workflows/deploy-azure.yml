@@ -264,11 +264,27 @@ jobs:
         if: ${{ env.SERVER_INSTALL_MODE == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.FABRO_DEPLOY_GITHUB_TOKEN }}
+          FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET: ${{ secrets.FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET }}
+          FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY }}
+          FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET: ${{ secrets.FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET }}
+          FABRO_DEPLOY_GITHUB_APP_ID: ${{ vars.FABRO_DEPLOY_GITHUB_APP_ID }}
+          FABRO_DEPLOY_GITHUB_APP_CLIENT_ID: ${{ vars.FABRO_DEPLOY_GITHUB_APP_CLIENT_ID }}
+          FABRO_DEPLOY_GITHUB_APP_SLUG: ${{ vars.FABRO_DEPLOY_GITHUB_APP_SLUG }}
+          FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME: ${{ vars.FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME }}
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
         run: |
+          has_headless_github_app_config() {
+            [ -n "$FABRO_DEPLOY_GITHUB_APP_ID" ] \
+              && [ -n "$FABRO_DEPLOY_GITHUB_APP_CLIENT_ID" ] \
+              && [ -n "$FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET" ] \
+              && [ -n "$FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY" ] \
+              && [ -n "$FABRO_DEPLOY_GITHUB_APP_SLUG" ] \
+              && [ -n "$FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME" ]
+          }
+
           if [ -z "$GH_TOKEN" ]; then
-            printf 'FABRO_DEPLOY_GITHUB_TOKEN is required for Azure auto-install\n' >&2
+            printf 'FABRO_DEPLOY_GITHUB_TOKEN is required so the workflow can persist FABRO_DEPLOY_DEV_TOKEN after install\n' >&2
             exit 1
           fi
 
@@ -312,50 +328,9 @@ jobs:
           STORAGE_ACCOUNT_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw storage_account_name)
           BLOB_DATA_CONTAINER_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw blob_data_container_name)
 
-          GITHUB_INSTALL_TOKEN=$(gh auth token)
-          GITHUB_USERNAME=$(gh api user --jq .login)
-
-          if [ -z "$GITHUB_INSTALL_TOKEN" ] || [ -z "$GITHUB_USERNAME" ]; then
-            printf 'Failed to resolve GitHub install credentials from gh CLI\n' >&2
-            exit 1
-          fi
-
           if ! gh api "repos/$GITHUB_REPOSITORY" >/dev/null; then
-            printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot access target repo %s\n' "$GITHUB_REPOSITORY" >&2
+            printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot access target repo %s for repository checks and FABRO_DEPLOY_DEV_TOKEN persistence\n' "$GITHUB_REPOSITORY" >&2
             exit 1
-          fi
-
-          PROBE_SECRET_NAME="FABRO_DEPLOY_GITHUB_TOKEN_PROBE_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          for attempt in $(seq 1 3); do
-            if gh secret set "$PROBE_SECRET_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --env production \
-              --body probe >/dev/null; then
-              break
-            fi
-
-            if [ "$attempt" -eq 3 ]; then
-              printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot write GitHub production environment secrets for %s\n' "$GITHUB_REPOSITORY" >&2
-              exit 1
-            fi
-
-            sleep 5
-          done
-
-          cleanup_failed=true
-          for attempt in $(seq 1 3); do
-            if gh secret delete "$PROBE_SECRET_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --env production >/dev/null; then
-              cleanup_failed=false
-              break
-            fi
-
-            sleep 5
-          done
-
-          if [ "$cleanup_failed" = true ]; then
-            printf 'Warning: failed to delete temporary probe secret %s from the GitHub production environment after retries\n' "$PROBE_SECRET_NAME" >&2
           fi
 
           install_request() {
@@ -408,10 +383,69 @@ jobs:
 
           install_request PUT /install/llm '{"providers":[{"provider":"openai","api_key":"dummy-openai-key-for-azure-bootstrap"}]}'
 
-          install_request PUT /install/github/token "$(jq -nc \
-            --arg token "$GITHUB_INSTALL_TOKEN" \
-            --arg username "$GITHUB_USERNAME" \
-            '{token:$token,username:$username}')"
+          if has_headless_github_app_config; then
+            PROBE_SECRET_NAME="FABRO_DEPLOY_GITHUB_TOKEN_PROBE_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+            for attempt in $(seq 1 3); do
+              if gh secret set "$PROBE_SECRET_NAME" \
+                --repo "$GITHUB_REPOSITORY" \
+                --env production \
+                --body probe >/dev/null; then
+                break
+              fi
+
+              if [ "$attempt" -eq 3 ]; then
+                printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot write GitHub production environment secrets for %s to support repository access checks and FABRO_DEPLOY_DEV_TOKEN persistence\n' "$GITHUB_REPOSITORY" >&2
+                exit 1
+              fi
+
+              sleep 5
+            done
+
+            cleanup_failed=true
+            for attempt in $(seq 1 3); do
+              if gh secret delete "$PROBE_SECRET_NAME" \
+                --repo "$GITHUB_REPOSITORY" \
+                --env production >/dev/null; then
+                cleanup_failed=false
+                break
+              fi
+
+              sleep 5
+            done
+
+            if [ "$cleanup_failed" = true ]; then
+              printf 'Warning: failed to delete temporary probe secret %s from the GitHub production environment after retries\n' "$PROBE_SECRET_NAME" >&2
+            fi
+
+            install_request PUT /install/github/app "$(jq -nc \
+              --arg app_id "$FABRO_DEPLOY_GITHUB_APP_ID" \
+              --arg client_id "$FABRO_DEPLOY_GITHUB_APP_CLIENT_ID" \
+              --arg client_secret "$FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET" \
+              --arg private_key "$FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY" \
+              --arg slug "$FABRO_DEPLOY_GITHUB_APP_SLUG" \
+              --arg allowed_username "$FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME" \
+              --arg webhook_secret "$FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET" \
+              '{app_id:$app_id,client_id:$client_id,client_secret:$client_secret,private_key:$private_key,slug:$slug,allowed_username:$allowed_username,webhook_secret:($webhook_secret | if . == "" then null else . end)}')"
+          else
+            {
+              echo "### Azure install requires manual GitHub App linkage"
+              echo
+              echo "Azure infrastructure is up and the non-GitHub install steps were prefilled."
+              echo
+              echo "Missing GitHub production environment values for headless GitHub App install:"
+              echo "- vars.FABRO_DEPLOY_GITHUB_APP_ID"
+              echo "- vars.FABRO_DEPLOY_GITHUB_APP_CLIENT_ID"
+              echo "- vars.FABRO_DEPLOY_GITHUB_APP_SLUG"
+              echo "- vars.FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME"
+              echo "- secrets.FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET"
+              echo "- secrets.FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY"
+              echo "- optional secrets.FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET"
+              echo
+              echo "Complete GitHub App linkage manually in the install UI, store FABRO_DEPLOY_DEV_TOKEN, then rerun this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            printf 'GitHub App values are missing; leaving the deployment at the manual linkage handoff point\n' >&2
+            exit 1
+          fi
 
           FINISH_RESPONSE=$(install_request POST /install/finish)
           DEV_TOKEN=$(printf '%s' "$FINISH_RESPONSE" | jq -r '.dev_token // ""')
@@ -465,8 +499,8 @@ jobs:
           printf 'Server never exited install mode after auto-install\n' >&2
           exit 1
 
-      # v1 expects the install wizard's GitHub step to use token auth so the
-      # operator receives a reusable dev token for CI smoke checks.
+      # Authenticated smoke checks use a reusable dev token that the workflow
+      # persists after install completion when GitHub linkage is configured.
       - name: Authenticated API check
         if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
         run: |
