@@ -669,7 +669,12 @@ async fn install_azure_rejects_legacy_acr_credentials() {
         .await
         .unwrap();
 
-    let body = response_text(response, StatusCode::UNPROCESSABLE_ENTITY, "PUT /install/azure").await;
+    let body = response_text(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "PUT /install/azure",
+    )
+    .await;
     assert!(body.contains("acr_username"));
 }
 
@@ -1275,8 +1280,9 @@ async fn app_install_finish_persists_mixed_auth_and_dev_token() {
     assert!(dev_token.starts_with("fabro_dev_"));
 
     let storage = Storage::new(temp_dir.path());
-    let storage_dev_token = dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
-        .expect("storage dev token should exist for App installs");
+    let storage_dev_token =
+        dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
+            .expect("storage dev token should exist for App installs");
     assert_eq!(dev_token, storage_dev_token);
 
     let server_env = std::fs::read_to_string(storage.runtime_directory().env_path()).unwrap();
@@ -1359,8 +1365,9 @@ async fn headless_github_app_install_finish_persists_mixed_auth_and_dev_token() 
     assert!(dev_token.starts_with("fabro_dev_"));
 
     let storage = Storage::new(temp_dir.path());
-    let storage_dev_token = dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
-        .expect("storage dev token should exist for headless App installs");
+    let storage_dev_token =
+        dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
+            .expect("storage dev token should exist for headless App installs");
     assert_eq!(dev_token, storage_dev_token);
 
     let settings_toml = std::fs::read_to_string(&config_path).unwrap();
@@ -1811,9 +1818,7 @@ async fn put_install_github_app_clears_pending_manifest_state() {
             .headers()
             .get("location")
             .and_then(|value| value.to_str().ok()),
-        Some(
-            "/install/github?token=test-install-token&error=missing-install-github-app-state"
-        )
+        Some("/install/github?token=test-install-token&error=missing-install-github-app-state")
     );
 
     let session_response = app
