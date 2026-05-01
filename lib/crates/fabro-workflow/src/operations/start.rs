@@ -20,7 +20,7 @@ use fabro_static::EnvVars;
 use fabro_types::RunId;
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    ApprovalMode, DaytonaNetworkLayer, DaytonaSettings, DockerSettings,
+    ApprovalMode, AzureSettings, DaytonaNetworkLayer, DaytonaSettings, DockerSettings,
     DockerfileSource as ResolvedDockerfileSource, HookDefinition as ResolvedHookDefinition,
     HookEvent as ResolvedHookEvent, HookType as ResolvedHookType,
     McpServerSettings as ResolvedMcpServerSettings, McpTransport as ResolvedMcpTransport,
@@ -311,6 +311,12 @@ impl RunSession {
         let workflow_bundle =
             accepted_definition.map(|definition| Arc::new(definition.workflow_bundle()));
 
+        let (origin_url, detected_base_branch) = resolve_origin_url_and_base_branch(
+            record.repo_origin_url().map(str::to_string),
+            record.base_branch().map(str::to_string),
+            &working_directory,
+        );
+
         let resolved = &settings.run;
 
         let sandbox_provider = resolve_sandbox_provider(resolved)?;
@@ -376,11 +382,18 @@ impl RunSession {
                     config: Box::new(resolve_daytona_config(resolved).unwrap_or_default()),
                     github_app: services.github_app.clone(),
                     run_id: Some(record.run_id),
-                    clone_origin_url: record.repo_origin_url().map(str::to_string),
-                    clone_branch: record.base_branch().map(str::to_string),
+                    clone_origin_url: origin_url.clone(),
+                    clone_branch: detected_base_branch.clone(),
                     api_key,
                 }
             }
+            SandboxProvider::Azure => SandboxSpec::Azure {
+                config:           resolve_azure_config(&resolved).unwrap_or_default(),
+                github_app:       services.github_app.clone(),
+                run_id:           Some(record.run_id),
+                clone_origin_url: origin_url.clone(),
+                clone_branch:     detected_base_branch.clone(),
+            },
         };
 
         let toml_env: HashMap<String, String> = resolved
@@ -389,13 +402,11 @@ impl RunSession {
             .iter()
             .map(|(k, v)| (k.clone(), resolve_interp(v)))
             .collect();
-        let github_permissions: Option<HashMap<String, String>> =
-            (!services.github_permissions.is_empty()).then(|| services.github_permissions.clone());
         let sandbox_env = SandboxEnvSpec {
             devcontainer_env: HashMap::new(),
             toml_env,
-            github_permissions,
-            origin_url: record.repo_origin_url().map(str::to_string),
+            github_permissions: resolved_github_permissions_for_sandbox(&resolved),
+            origin_url: origin_url.clone(),
         };
 
         let devcontainer = resolved.sandbox.devcontainer.then(|| DevcontainerSpec {
@@ -471,6 +482,37 @@ fn process_env_var(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
+fn resolved_github_permissions_for_sandbox(
+    settings: &ResolvedRunSettings,
+) -> Option<HashMap<String, String>> {
+    settings
+        .scm
+        .github
+        .as_ref()
+        .filter(|github| !github.permissions.is_empty())
+        .map(|github| {
+            github
+                .permissions
+                .iter()
+                .map(|(key, value)| (key.clone(), resolve_interp(value)))
+                .collect()
+        })
+}
+
+fn resolve_origin_url_and_base_branch(
+    persisted_origin_url: Option<String>,
+    persisted_base_branch: Option<String>,
+    working_directory: &Path,
+) -> (Option<String>, Option<String>) {
+    let (detected_origin_url, detected_base_branch) =
+        fabro_sandbox::daytona::detect_repo_info(working_directory)
+            .map_or((None, None), |(url, branch)| (Some(url), branch));
+    (
+        persisted_origin_url.or(detected_origin_url),
+        persisted_base_branch.or(detected_base_branch),
+    )
+}
+
 async fn load_accepted_run_definition(
     run_store: &RunStoreHandle,
     blob_id: fabro_types::RunBlobId,
@@ -510,6 +552,10 @@ fn resolve_daytona_config(settings: &ResolvedRunSettings) -> Option<DaytonaConfi
 
 fn resolve_docker_config(settings: &ResolvedRunSettings) -> Option<DockerSandboxOptions> {
     settings.sandbox.docker.as_ref().map(runtime_docker_config)
+}
+
+fn resolve_azure_config(settings: &ResolvedRunSettings) -> Option<sandbox_config::AzureConfig> {
+    settings.sandbox.azure.as_ref().map(runtime_azure_config)
 }
 
 fn resolve_fallback_chain(
@@ -611,6 +657,14 @@ fn runtime_docker_config(settings: &DockerSettings) -> DockerSandboxOptions {
         env_vars,
         skip_clone: settings.skip_clone,
         ..DockerSandboxOptions::default()
+    }
+}
+
+fn runtime_azure_config(settings: &AzureSettings) -> sandbox_config::AzureConfig {
+    sandbox_config::AzureConfig {
+        image:     settings.image.clone(),
+        cpu:       settings.cpu,
+        memory_gb: settings.memory_gb,
     }
 }
 
@@ -1121,6 +1175,99 @@ mod tests {
             on_node: None,
             registry_override: Some(registry),
         }
+    }
+
+    #[test]
+    fn runtime_azure_config_preserves_image_cpu_and_memory() {
+        let settings = fabro_types::settings::run::AzureSettings {
+            image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".to_string()),
+            cpu:       Some(2.0),
+            memory_gb: Some(4.0),
+        };
+        let runtime = runtime_azure_config(&settings);
+        assert_eq!(
+            runtime.image.as_deref(),
+            Some("fabro.azurecr.io/fabro-sandboxes/base:latest")
+        );
+        assert_eq!(runtime.cpu, Some(2.0));
+        assert_eq!(runtime.memory_gb, Some(4.0));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_prefers_persisted_run_record_values() {
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            Some("fabro-software-factory".to_string()),
+            Path::new("/definitely/missing/on/remote/server"),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some("fabro-software-factory"));
+    }
+
+    #[test]
+    fn resolve_origin_url_and_base_branch_keeps_detected_branch_when_persisted_origin_lacks_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        std::fs::write(dir.path().join("README.md"), "seed\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("Fabro Test", "fabro@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "seed", &tree, &[])
+            .unwrap();
+        repo.remote(
+            "origin",
+            "https://github.com/fkukuck/agentic-factory-prisma.git",
+        )
+        .unwrap();
+
+        let head = repo.head().unwrap();
+        let name = head.shorthand().unwrap().to_string();
+
+        let (origin_url, base_branch) = resolve_origin_url_and_base_branch(
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git".to_string()),
+            None,
+            dir.path(),
+        );
+
+        assert_eq!(
+            origin_url.as_deref(),
+            Some("https://github.com/fkukuck/agentic-factory-prisma.git")
+        );
+        assert_eq!(base_branch.as_deref(), Some(name.as_str()));
+    }
+
+    #[test]
+    fn resolved_github_permissions_for_sandbox_reads_run_scm_github_permissions() {
+        let settings = WorkflowSettingsBuilder::from_toml(
+            r#"
+_version = 1
+
+[run.scm.github.permissions]
+contents = "write"
+pull_requests = "write"
+"#,
+        )
+        .unwrap()
+        .run;
+
+        let permissions = resolved_github_permissions_for_sandbox(&settings)
+            .expect("github permissions should be present");
+
+        assert_eq!(
+            permissions.get("contents").map(String::as_str),
+            Some("write")
+        );
+        assert_eq!(
+            permissions.get("pull_requests").map(String::as_str),
+            Some("write")
+        );
     }
 
     #[tokio::test]

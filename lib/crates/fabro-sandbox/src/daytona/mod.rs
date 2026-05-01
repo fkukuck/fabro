@@ -26,11 +26,16 @@ use tokio_util::sync::CancellationToken;
 
 use crate::clone_source::{self, CloneDecision, EmptyWorkspaceReason};
 use crate::redact::redact_auth_url;
+use crate::repo::detect_repo_info as detect_repo_info_impl;
 use crate::sandbox::resolve_path;
 use crate::{
     CommandOutputCallback, DirEntry, ExecResult, ExecStreamingResult, GrepOptions, Sandbox,
     SandboxEvent, SandboxEventCallback, format_lines_numbered, shell_quote,
 };
+
+pub fn detect_repo_info(path: &Path) -> Result<(String, Option<String>), String> {
+    detect_repo_info_impl(path)
+}
 
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
 const DEFAULT_SNAPSHOT: &str = "daytona-medium";
@@ -544,31 +549,25 @@ impl DaytonaSandbox {
     }
 }
 
-/// Detect the git remote URL and current branch from a local repository.
-///
-/// Uses `git2` to discover the repo at `path`, reads the `origin` remote URL
-/// and the HEAD branch name.
-pub fn detect_repo_info(path: &Path) -> crate::Result<(String, Option<String>)> {
-    let repo = git2::Repository::discover(path).map_err(|e| {
-        crate::Error::context(
-            format!("Failed to discover git repo at {}", path.display()),
-            e,
-        )
-    })?;
+/// Parameters for cloning a git repo into the sandbox during initialization.
+#[derive(Clone, Debug)]
+pub struct GitCloneParams {
+    /// Clean HTTPS URL (no embedded credentials).
+    pub url:    String,
+    /// Branch to clone. If None, uses the remote's default.
+    pub branch: Option<String>,
+}
 
-    let url = repo
-        .find_remote("origin")
-        .map_err(|e| crate::Error::context("Failed to find 'origin' remote", e))?
-        .url()
-        .ok_or_else(|| crate::Error::message("origin remote URL is not valid UTF-8"))?
-        .to_string();
-
-    let branch = repo
-        .head()
-        .ok()
-        .and_then(|head| head.shorthand().map(String::from));
-
-    Ok((url, branch))
+pub fn detect_clone_params(cwd: &Path) -> Option<GitCloneParams> {
+    let (detected_url, branch) = match detect_repo_info(cwd) {
+        Ok(info) => info,
+        Err(err) => {
+            tracing::warn!("No git repo detected for sandbox clone: {err}");
+            return None;
+        }
+    };
+    let url = fabro_github::ssh_url_to_https(&detected_url);
+    Some(GitCloneParams { url, branch })
 }
 
 #[async_trait]

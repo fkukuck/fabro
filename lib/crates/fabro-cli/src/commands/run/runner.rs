@@ -519,6 +519,11 @@ fn maybe_build_github_credentials(
     let resolved_server = ServerSettingsBuilder::load_default().ok();
     let required_github_credentials = (resolved_run.execution.mode != RunMode::DryRun
         && clone_sandbox_requires_github_credentials(&resolved_run.sandbox.provider))
+        || resolved_run
+            .scm
+            .github
+            .as_ref()
+            .is_some_and(|github| !github.permissions.is_empty())
         || resolved_server
             .as_ref()
             .is_some_and(|settings| !settings.server.integrations.github.permissions.is_empty());
@@ -556,7 +561,7 @@ fn maybe_build_github_credentials(
 }
 
 fn clone_sandbox_requires_github_credentials(provider: &str) -> bool {
-    matches!(provider, "docker" | "daytona")
+    matches!(provider, "docker" | "daytona" | "azure")
 }
 
 fn install_signal_handlers(
@@ -636,6 +641,7 @@ mod tests {
     fn clone_sandbox_credentials_are_required_for_clone_based_providers() {
         assert!(super::clone_sandbox_requires_github_credentials("docker"));
         assert!(super::clone_sandbox_requires_github_credentials("daytona"));
+        assert!(super::clone_sandbox_requires_github_credentials("azure"));
         assert!(!super::clone_sandbox_requires_github_credentials("local"));
     }
 
@@ -940,5 +946,36 @@ mod tests {
         let credential = guard.get("anthropic").unwrap();
 
         assert!(credential.contains("vault-key"));
+    }
+
+    #[test]
+    fn maybe_build_github_credentials_requires_them_for_azure_runs() {
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.sandbox]
+            provider = "azure"
+
+            [run.sandbox.azure]
+            image = "fabro.azurecr.io/fabro-sandboxes/base:latest"
+            "#,
+        )
+        .unwrap();
+
+        let result = maybe_build_github_credentials(&settings, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn maybe_build_github_credentials_requires_them_for_run_scm_github_permissions() {
+        let settings: fabro_types::settings::SettingsLayer = toml::from_str(
+            r#"
+            [run.scm.github.permissions]
+            issues = "read"
+            "#,
+        )
+        .unwrap();
+
+        let result = maybe_build_github_credentials(&settings, None);
+        assert!(result.is_err());
     }
 }
