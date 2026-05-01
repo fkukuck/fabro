@@ -159,6 +159,7 @@
             "pages": [
               "administration/deployment",
               "administration/self-host-docker",
+              "administration/deploy-azure",
               "administration/deploy-railway"
             ]
           }
