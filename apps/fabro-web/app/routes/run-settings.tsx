@@ -18,7 +18,7 @@ import { useRunSettings, useRunStages } from "../lib/queries";
 import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
 import {
   type Snapshot,
-  type SnapshotObject,
+  type UnknownRecord,
   getArray,
   getBool,
   getObject,
@@ -219,7 +219,7 @@ function ArtifactsPanel({ snapshot }: { snapshot: Snapshot }) {
   );
 }
 
-function GoalValue({ goal }: { goal: SnapshotObject | undefined }) {
+function GoalValue({ goal }: { goal: UnknownRecord | undefined }) {
   if (!goal) return <Muted>None</Muted>;
   const type = getString(goal, "type");
   const value = getString(goal, "value");
@@ -244,7 +244,7 @@ function AuthorValue({ name, email }: { name?: string; email?: string }) {
   return <span className="text-fg-2">{name ?? email}</span>;
 }
 
-function PullRequestValue({ pr }: { pr: SnapshotObject | undefined }) {
+function PullRequestValue({ pr }: { pr: UnknownRecord | undefined }) {
   const enabled = getBool(pr, "enabled") ?? false;
   if (!enabled) return <Toggle on={false} />;
   const draft = getBool(pr, "draft") ?? false;

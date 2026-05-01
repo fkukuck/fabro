@@ -42,6 +42,7 @@ import { CopyButton } from "../components/ui";
 import { formatDurationSecs } from "../lib/format";
 import { fetchRunCommandLog, useRunEventsList, useRunStageTurns, useRunStages } from "../lib/queries";
 import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
+import { getNumber, getString, type UnknownRecord } from "../lib/unknown";
 import type { StageTurn as ApiStageTurn, PaginatedStageTurnList, PaginatedEventList } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true };
@@ -67,6 +68,11 @@ interface RawEvent {
   is_error?: boolean;
 }
 
+function readTermination(props: UnknownRecord): CommandTermination {
+  const v = props.termination;
+  return v === "exited" || v === "timed_out" || v === "cancelled" ? v : "exited";
+}
+
 function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
   const stageEvents = events.filter((e) => e.node_id === stageId);
   const turns: TurnType[] = [];
@@ -79,31 +85,30 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
     const props = e.properties ?? {};
     switch (e.event) {
       case "stage.prompt":
-        turns.push({ kind: "system", content: props.text as string ?? e.text ?? "" });
+        turns.push({ kind: "system", content: getString(props, "text") ?? e.text ?? "" });
         break;
       case "agent.message": {
-        const msg = props.text as string ?? e.text ?? "";
+        const msg = getString(props, "text") ?? e.text ?? "";
         if (msg) turns.push({ kind: "assistant", content: msg });
         break;
       }
       case "agent.tool.started": {
-        const callId = props.tool_call_id as string ?? e.tool_call_id ?? "";
+        const callId = getString(props, "tool_call_id") ?? e.tool_call_id ?? "";
+        const args = props.arguments ?? e.arguments;
         pendingTools.set(callId, {
-          toolName: props.tool_name as string ?? e.tool_name ?? "",
-          input: typeof (props.arguments ?? e.arguments) === "string"
-            ? (props.arguments ?? e.arguments) as string
-            : JSON.stringify(props.arguments ?? e.arguments ?? ""),
+          toolName: getString(props, "tool_name") ?? e.tool_name ?? "",
+          input: typeof args === "string" ? args : JSON.stringify(args ?? ""),
         });
         break;
       }
       case "agent.tool.completed": {
-        const callId = props.tool_call_id as string ?? e.tool_call_id ?? "";
+        const callId = getString(props, "tool_call_id") ?? e.tool_call_id ?? "";
         const started = pendingTools.get(callId);
         const output = props.output ?? e.output ?? "";
         const result = typeof output === "string" ? output : JSON.stringify(output);
         const tool: ToolUse = {
           id: callId,
-          toolName: started?.toolName ?? props.tool_name as string ?? e.tool_name ?? "",
+          toolName: started?.toolName ?? getString(props, "tool_name") ?? e.tool_name ?? "",
           input: started?.input ?? "",
           result,
           isError: (props.is_error ?? e.is_error) === true,
@@ -115,8 +120,8 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
       case "command.started": {
         pendingCommand = {
           stageId: e.stage_id ?? `${stageId}@1`,
-          script: props.script as string ?? "",
-          language: props.language as string ?? "shell",
+          script: getString(props, "script") ?? "",
+          language: getString(props, "language") ?? "shell",
         };
         break;
       }
@@ -126,11 +131,11 @@ function turnsFromEvents(events: RawEvent[], stageId: string): TurnType[] {
           stageId: pendingCommand?.stageId ?? e.stage_id ?? `${stageId}@1`,
           script: pendingCommand?.script ?? "",
           language: pendingCommand?.language ?? "shell",
-          stdout: props.stdout as string ?? "",
-          stderr: props.stderr as string ?? "",
-          exitCode: props.exit_code as number | null ?? null,
-          durationMs: props.duration_ms as number ?? 0,
-          termination: props.termination as CommandTermination ?? "exited",
+          stdout: getString(props, "stdout") ?? "",
+          stderr: getString(props, "stderr") ?? "",
+          exitCode: getNumber(props, "exit_code") ?? null,
+          durationMs: getNumber(props, "duration_ms") ?? 0,
+          termination: readTermination(props),
           running: false,
         });
         pendingCommand = undefined;
@@ -278,6 +283,12 @@ function decodeBase64Bytes(value: string): Uint8Array {
 }
 
 function trimTextToBytes(text: string, maxBytes: number) {
+  // Each UTF-16 code unit encodes to at most 3 bytes in UTF-8 (4-byte encodings
+  // come from surrogate pairs counted as 2 units). Skip the full encode when
+  // the upper bound is already under the cap.
+  if (text.length * 3 <= maxBytes) {
+    return { text, truncated: false };
+  }
   const encoded = new TextEncoder().encode(text);
   if (encoded.byteLength <= maxBytes) {
     return { text, truncated: false };
@@ -344,6 +355,17 @@ function useCommandLog(
         const decoded = decoderRef.current.decode(bytes, { stream: !chunk.eof });
         finalPollDoneRef.current = chunk.eof;
         setState((current) => {
+          if (
+            decoded.length === 0 &&
+            current.eof === chunk.eof &&
+            current.totalBytes === chunk.total_bytes &&
+            current.casRef === chunk.cas_ref &&
+            current.liveStreaming === chunk.live_streaming &&
+            !current.loading &&
+            !current.error
+          ) {
+            return current;
+          }
           const next = trimTextToBytes(current.text + decoded, LOG_MEMORY_CAP_BYTES);
           return {
             text: next.text,
