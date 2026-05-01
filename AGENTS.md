@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Context
+
+We are maintaining a fork of the fabro-sh/fabro GitHub repo. The fork mainly adds first-class support for hosting fabro on Azure infrastructure (first and foremost, an ACA for the server) and run the workflow sandboxes on ACIs.
+
+- `origin/main` is the mirror branch of `upstream/main` which is the original fabro-sh/fabro main branch
+
 ## Build and test commands
 
 ### Rust
