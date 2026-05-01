@@ -184,6 +184,8 @@ That token is used only for the authenticated API check and the tiny post-deploy
 
 For this v1 flow, complete the install wizard's GitHub step with a GitHub token, not a GitHub App. App installs do not emit a reusable dev token, which means the CI smoke checks in `.github/workflows/deploy-azure.yml` cannot authenticate.
 
+In the server's `settings.toml`, you should enter both `"dev-token"` and `"github"` in `[server.auth].methods`; use `github` when you want browser OAuth in addition to the dev-token bootstrap path.
+
 ## 4. Run the first CI deploy
 
 Trigger the manual workflow from GitHub using the Azure-ready branch or ref you want to deploy:
