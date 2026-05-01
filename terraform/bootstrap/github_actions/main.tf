@@ -21,24 +21,36 @@ resource "azurerm_storage_container" "backend" {
 
 data "azurerm_client_config" "current" {}
 
-resource "azuread_application" "github_actions" {
-  display_name = var.github_actions_application_name
+resource "azurerm_user_assigned_identity" "github_actions" {
+  name                = var.github_actions_identity_name
+  resource_group_name = azurerm_resource_group.backend.name
+  location            = azurerm_resource_group.backend.location
+  tags                = var.tags
 }
 
-resource "azuread_service_principal" "github_actions" {
-  client_id = azuread_application.github_actions.client_id
-}
-
-resource "azuread_application_federated_identity_credential" "github_actions" {
-  application_id = azuread_application.github_actions.id
-  display_name   = "github-actions-${var.github_environment_name}"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repository}:environment:${var.github_environment_name}"
+resource "azurerm_federated_identity_credential" "github_actions" {
+  name                = "github-actions-${var.github_environment_name}"
+  resource_group_name = azurerm_resource_group.backend.name
+  parent_id           = azurerm_user_assigned_identity.github_actions.id
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = "https://token.actions.githubusercontent.com"
+  subject             = "repo:${var.github_repository}:environment:${var.github_environment_name}"
 }
 
 resource "azurerm_role_assignment" "backend_blob_access" {
   scope                = azurerm_storage_account.backend.id
   role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azuread_service_principal.github_actions.object_id
+  principal_id         = azurerm_user_assigned_identity.github_actions.principal_id
+}
+
+resource "azurerm_role_assignment" "backend_reader" {
+  scope                = azurerm_storage_account.backend.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.github_actions.principal_id
+}
+
+resource "azurerm_role_assignment" "backend_key_operator" {
+  scope                = azurerm_storage_account.backend.id
+  role_definition_name = "Storage Account Key Operator Service Role"
+  principal_id         = azurerm_user_assigned_identity.github_actions.principal_id
 }

@@ -5446,7 +5446,7 @@ async fn get_run_stage_command_log(
                 live_streaming,
             );
         }
-        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
             return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
                 .into_response();
@@ -11309,7 +11309,7 @@ slug = "fabro"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          0,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,
@@ -11399,7 +11399,7 @@ slug = "fabro"
             workflow_event::Event::WorkflowRunCompleted {
                 duration_ms:          0,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,

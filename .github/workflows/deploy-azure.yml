@@ -6,7 +6,6 @@ on:
       ref:
         description: Git ref to deploy
         required: true
-        default: main
         type: string
 
 permissions:
@@ -20,10 +19,8 @@ env:
 jobs:
   deploy:
     name: Deploy production Azure environment
-    runs-on: ubuntu-24.04-x86-32-cores
+    runs-on: ubuntu-24.04
     environment: production
-    env:
-      HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -36,7 +33,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      - uses: hashicorp/setup-terraform@3c0c8c4d6d0e6df0c1cb8a27a0c4ea5a20a6f6ff # v3.1.2
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
@@ -72,7 +69,23 @@ jobs:
             fi
           done
 
-      - uses: azure/login@4c8e52c0fb44e13c6e6c1f4bc8d32707fd6f0ca7 # v2.3.0
+      - name: Initialize deploy auth state
+        env:
+          FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
+        run: |
+          if [ -n "$FABRO_DEPLOY_DEV_TOKEN" ]; then
+            {
+              echo "RUN_AUTHENTICATED_CHECKS=true"
+              echo "FABRO_DEPLOY_RUNTIME_DEV_TOKEN=$FABRO_DEPLOY_DEV_TOKEN"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "RUN_AUTHENTICATED_CHECKS=false"
+              echo "FABRO_DEPLOY_RUNTIME_DEV_TOKEN="
+            } >> "$GITHUB_ENV"
+          fi
+
+      - uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -98,7 +111,13 @@ jobs:
             echo "TF_VAR_fabro_server_name=${{ vars.AZURE_FABRO_SERVER_NAME }}"
             echo "TF_VAR_fabro_server_enabled=true"
             echo "TF_VAR_github_actions_principal_id=${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
+            echo 'TF_VAR_tags={ environment = "sandbox", managed_by = "terraform" }'
           } >> "$GITHUB_ENV"
+
+      # Do not make AZURE_GITHUB_ACTIONS_PRINCIPAL_ID optional in the supported path.
+      # The greenfield sequence depends on the first manual terraform/environments/sandbox
+      # apply creating module.github_actions_access before GitHub Actions runs, so the CI
+      # identity never needs Microsoft.Authorization/roleAssignments/write itself.
 
       - name: Init Terraform backend
         run: |
@@ -108,8 +127,13 @@ jobs:
             -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
             -backend-config="key=${{ vars.TF_BACKEND_KEY }}"
 
-      - name: Validate Terraform configuration
-        run: terraform -chdir=terraform/environments/sandbox validate
+      - name: Preflight Terraform plan
+        run: |
+          terraform -chdir=terraform/environments/sandbox plan \
+            -refresh=false \
+            -lock=false \
+            -input=false \
+            -var="fabro_server_image=example.azurecr.io/fabro-server:preflight"
 
       - name: Compute deploy metadata
         run: |
@@ -208,36 +232,270 @@ jobs:
             --connect-timeout 10 \
             -fsSL "$FABRO_SERVER_URL/health"
 
+      - name: Read server health state
+        run: |
+          HEALTH_JSON=$(curl --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            -fsSL "$FABRO_SERVER_URL/health")
+          STATUS=$(printf '%s' "$HEALTH_JSON" | jq -r '.status // ""')
+          MODE=$(printf '%s' "$HEALTH_JSON" | jq -r '.mode // ""')
+
+          if [ "$STATUS" != "ok" ]; then
+            printf 'Expected /health status=ok, got: %s\n' "$HEALTH_JSON" >&2
+            exit 1
+          fi
+
+          case "$MODE" in
+            "")
+              echo "SERVER_INSTALL_MODE=false" >> "$GITHUB_ENV"
+              ;;
+            install)
+              echo "SERVER_INSTALL_MODE=true" >> "$GITHUB_ENV"
+              ;;
+            *)
+              printf 'Unexpected /health mode payload: %s\n' "$HEALTH_JSON" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Auto-complete install when needed
+        if: ${{ env.SERVER_INSTALL_MODE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FABRO_DEPLOY_GITHUB_TOKEN }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            printf 'FABRO_DEPLOY_GITHUB_TOKEN is required for Azure auto-install\n' >&2
+            exit 1
+          fi
+
+          read_install_token_from_logs() {
+            for tail_arg in '--tail 200' '--tail 500' '--tail 1000'; do
+              if token=$(az containerapp logs show \
+                --resource-group "$TF_VAR_resource_group_name" \
+                --name "$TF_VAR_fabro_server_name" \
+                --revision "$READY_REVISION" \
+                $tail_arg \
+                | perl -nle 'if (/\/install\?token=([^"[:space:]]+)/) { $token = $1 } END { print $token if defined $token }'); then
+                if [ -n "$token" ]; then
+                  printf '%s\n' "$token"
+                  return 0
+                fi
+              fi
+            done
+
+            return 0
+          }
+
+          INSTALL_TOKEN=
+          for attempt in $(seq 1 12); do
+            INSTALL_TOKEN=$(read_install_token_from_logs)
+            if [ -n "$INSTALL_TOKEN" ]; then
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [ -z "$INSTALL_TOKEN" ]; then
+            printf 'Failed to find install token in Container App logs\n' >&2
+            exit 1
+          fi
+
+          RESOURCE_GROUP_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw resource_group_name)
+          ACI_SUBNET_ID=$(terraform -chdir=terraform/environments/sandbox output -raw aci_subnet_id)
+          ACR_SERVER=$(terraform -chdir=terraform/environments/sandbox output -raw acr_login_server)
+          ACR_IDENTITY_RESOURCE_ID=$(terraform -chdir=terraform/environments/sandbox output -raw acr_identity_resource_id)
+          STORAGE_ACCOUNT_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw storage_account_name)
+          BLOB_DATA_CONTAINER_NAME=$(terraform -chdir=terraform/environments/sandbox output -raw blob_data_container_name)
+
+          GITHUB_INSTALL_TOKEN=$(gh auth token)
+          GITHUB_USERNAME=$(gh api user --jq .login)
+
+          if [ -z "$GITHUB_INSTALL_TOKEN" ] || [ -z "$GITHUB_USERNAME" ]; then
+            printf 'Failed to resolve GitHub install credentials from gh CLI\n' >&2
+            exit 1
+          fi
+
+          if ! gh api "repos/$GITHUB_REPOSITORY" >/dev/null; then
+            printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot access target repo %s\n' "$GITHUB_REPOSITORY" >&2
+            exit 1
+          fi
+
+          PROBE_SECRET_NAME="FABRO_DEPLOY_GITHUB_TOKEN_PROBE_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          for attempt in $(seq 1 3); do
+            if gh secret set "$PROBE_SECRET_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --env production \
+              --body probe >/dev/null; then
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              printf 'FABRO_DEPLOY_GITHUB_TOKEN cannot write GitHub production environment secrets for %s\n' "$GITHUB_REPOSITORY" >&2
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+          cleanup_failed=true
+          for attempt in $(seq 1 3); do
+            if gh secret delete "$PROBE_SECRET_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --env production >/dev/null; then
+              cleanup_failed=false
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [ "$cleanup_failed" = true ]; then
+            printf 'Warning: failed to delete temporary probe secret %s from the GitHub production environment after retries\n' "$PROBE_SECRET_NAME" >&2
+          fi
+
+          install_request() {
+            local method=$1
+            local path=$2
+            local body=${3-}
+
+            if [ -n "$body" ]; then
+              curl --retry 12 \
+                --retry-all-errors \
+                --retry-delay 5 \
+                --connect-timeout 10 \
+                -fsSL \
+                -X "$method" \
+                -H "Authorization: Bearer $INSTALL_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$body" \
+                "$FABRO_SERVER_URL$path"
+            else
+              curl --retry 12 \
+                --retry-all-errors \
+                --retry-delay 5 \
+                --connect-timeout 10 \
+                -fsSL \
+                -X "$method" \
+                -H "Authorization: Bearer $INSTALL_TOKEN" \
+                "$FABRO_SERVER_URL$path"
+            fi
+          }
+
+          install_request PUT /install/server "$(jq -nc \
+            --arg canonical_url "$FABRO_SERVER_URL" \
+            '{canonical_url:$canonical_url}')"
+
+          install_request PUT /install/azure "$(jq -nc \
+            --arg subscription_id "$AZURE_SUBSCRIPTION_ID" \
+            --arg resource_group "$RESOURCE_GROUP_NAME" \
+            --arg location "$AZURE_LOCATION" \
+            --arg subnet_id "$ACI_SUBNET_ID" \
+            --arg acr_server "$ACR_SERVER" \
+            --arg acr_identity_resource_id "$ACR_IDENTITY_RESOURCE_ID" \
+            '{subscription_id:$subscription_id,resource_group:$resource_group,location:$location,subnet_id:$subnet_id,acr_server:$acr_server,acr_identity_resource_id:$acr_identity_resource_id,sandboxd_port:7777}')"
+
+          install_request PUT /install/object-store "$(jq -nc \
+            --arg account "$STORAGE_ACCOUNT_NAME" \
+            --arg container "$BLOB_DATA_CONTAINER_NAME" \
+            '{provider:"azure",account:$account,container:$container}')"
+
+          install_request PUT /install/sandbox '{"provider":"azure"}'
+
+          install_request PUT /install/llm '{"providers":[{"provider":"openai","api_key":"dummy-openai-key-for-azure-bootstrap"}]}'
+
+          install_request PUT /install/github/token "$(jq -nc \
+            --arg token "$GITHUB_INSTALL_TOKEN" \
+            --arg username "$GITHUB_USERNAME" \
+            '{token:$token,username:$username}')"
+
+          FINISH_RESPONSE=$(install_request POST /install/finish)
+          DEV_TOKEN=$(printf '%s' "$FINISH_RESPONSE" | jq -r '.dev_token // ""')
+
+          if [ -z "$DEV_TOKEN" ]; then
+            printf 'Install finish did not return a dev token: %s\n' "$FINISH_RESPONSE" >&2
+            exit 1
+          fi
+
+          echo "::add-mask::$DEV_TOKEN"
+          {
+            echo "FABRO_DEPLOY_RUNTIME_DEV_TOKEN=$DEV_TOKEN"
+            echo "RUN_AUTHENTICATED_CHECKS=true"
+          } >> "$GITHUB_ENV"
+
+          for attempt in $(seq 1 3); do
+            if gh secret set FABRO_DEPLOY_DEV_TOKEN \
+              --repo "$GITHUB_REPOSITORY" \
+              --env production \
+              --body "$DEV_TOKEN"; then
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              printf 'Failed to persist FABRO_DEPLOY_DEV_TOKEN to the GitHub production environment secret\n' >&2
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+      - name: Wait for configured server
+        if: ${{ env.SERVER_INSTALL_MODE == 'true' }}
+        run: |
+          for attempt in $(seq 1 30); do
+            HEALTH_JSON=$(curl --retry 12 \
+              --retry-all-errors \
+              --retry-delay 5 \
+              --connect-timeout 10 \
+              -fsSL "$FABRO_SERVER_URL/health")
+            STATUS=$(printf '%s' "$HEALTH_JSON" | jq -r '.status // ""')
+            MODE=$(printf '%s' "$HEALTH_JSON" | jq -r '.mode // ""')
+
+            if [ "$STATUS" = "ok" ] && [ -z "$MODE" ]; then
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          printf 'Server never exited install mode after auto-install\n' >&2
+          exit 1
+
       # v1 expects the install wizard's GitHub step to use token auth so the
       # operator receives a reusable dev token for CI smoke checks.
       - name: Authenticated API check
-        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
-        env:
-          FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
+        if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
         run: |
           curl --retry 12 \
             --retry-all-errors \
             --retry-delay 5 \
             --connect-timeout 10 \
             -fsSL \
-            -H "Authorization: Bearer $FABRO_DEPLOY_DEV_TOKEN" \
+            -H "Authorization: Bearer $FABRO_DEPLOY_RUNTIME_DEV_TOKEN" \
             "$FABRO_SERVER_URL/api/v1/models"
 
-      - name: Render smoke workflow with deployed sandbox image
-        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
+      - name: Stage smoke workflow bundle with deployed sandbox image
+        if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
         run: |
-          sed \
+          rm -rf "$RUNNER_TEMP/azure-deploy-smoke"
+          mkdir -p "$RUNNER_TEMP/azure-deploy-smoke"
+          cp -R .fabro/workflows/azure-deploy-smoke/. "$RUNNER_TEMP/azure-deploy-smoke/"
+          sed -i.bak \
             "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
-            .fabro/workflows/azure-deploy-smoke/workflow.toml \
-            > "$RUNNER_TEMP/azure-deploy-smoke.toml"
+            "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml"
+          rm -f "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml.bak"
 
       - name: Run Azure smoke workflow
-        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
+        if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
         env:
-          FABRO_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
+          FABRO_DEV_TOKEN: ${{ env.FABRO_DEPLOY_RUNTIME_DEV_TOKEN }}
         run: |
           cargo run -p fabro-cli -- \
-            run "$RUNNER_TEMP/azure-deploy-smoke.toml" \
+            run "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml" \
             --server "$FABRO_SERVER_URL/api/v1"
 
       - name: Deployment summary
@@ -250,9 +508,9 @@ jobs:
             echo "- Server image: \`$ACR_SERVER/fabro-server:$DEPLOY_ID\`"
             echo "- Sandbox image: \`$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\`"
             echo "- Ready revision: \`${READY_REVISION:-unknown}\`"
-            if [ "$HAS_FABRO_DEPLOY_DEV_TOKEN" = "true" ]; then
-              echo "- Post-deploy authenticated checks: ran"
+            if [ "$RUN_AUTHENTICATED_CHECKS" = "true" ]; then
+              echo "- Post-deploy authenticated checks: passed"
             else
-              echo "- Post-deploy authenticated checks: skipped until \`FABRO_DEPLOY_DEV_TOKEN\` is set"
+              echo "- Post-deploy authenticated checks: skipped because no deploy dev token was available"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

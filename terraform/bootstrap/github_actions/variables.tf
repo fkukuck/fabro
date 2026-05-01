@@ -30,7 +30,7 @@ variable "github_environment_name" {
   type = string
 }
 
-variable "github_actions_application_name" {
+variable "github_actions_identity_name" {
   type = string
 }
 

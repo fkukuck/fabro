@@ -17,6 +17,7 @@ resource "azurerm_subnet" "aca" {
 
     service_delegation {
       name = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
     }
   }
 }
@@ -31,7 +32,8 @@ resource "azurerm_subnet" "aci" {
     name = "aci-delegation"
 
     service_delegation {
-      name = "Microsoft.ContainerInstance/containerGroups"
+      name    = "Microsoft.ContainerInstance/containerGroups"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
     }
   }
 }
