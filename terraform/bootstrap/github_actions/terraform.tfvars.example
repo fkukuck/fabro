@@ -1,0 +1,14 @@
+subscription_id                 = "00000000-0000-0000-0000-000000000000"
+location                        = "northeurope"
+backend_resource_group_name     = "fkukuck-fabro-tfstate"
+backend_storage_account_name    = "fkukuckfabrotfstate"
+backend_container_name          = "tfstate"
+backend_state_key               = "sandbox-prod.tfstate"
+github_repository               = "fkukuck/fabro"
+github_environment_name         = "production"
+github_actions_application_name = "fkukuck-fabro-github-actions"
+
+tags = {
+  environment = "bootstrap"
+  managed_by  = "terraform"
+}

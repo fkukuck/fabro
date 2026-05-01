@@ -9,49 +9,37 @@ description: "Deploy Fabro to Azure Container Apps with Azure Container Instance
 
 Azure is a good fit for hosting Fabro when you want Azure-native infrastructure for both the long-running control plane and the workflow sandbox runtime. In this setup, `fabro-server` runs in Azure Container Apps, while workflow sandboxes run as Azure Container Instances provisioned by the server.
 
-The preferred way to provision this topology is the Terraform configuration in `terraform/environments/sandbox`. The rest of this guide covers image build, workflow configuration, validation, and troubleshooting.
+This guide documents the supported production path for this repo:
 
-This guide documents the current production-ready Azure topology for Fabro:
-
-- Azure Container Apps hosts `fabro-server`
-- Azure Container Instances run workflow sandboxes
-- ACI `emptyDir` backs ephemeral sandbox workspace state at `/workspace`
-- Azure-backed storage mounted at `/storage` keeps Fabro server state across redeploys
-- Azure Container Registry stores the sandbox images referenced by Azure runs
+- one-time Terraform bootstrap for GitHub Actions OIDC and remote state
+- one manual Terraform apply for the shared Azure environment
+- manual GitHub Actions deploys that build, push, and apply immutable ACR images
+- runtime configuration completed through the web install wizard and persisted on `/storage`
 
 <Note>
-  Fabro's server currently assumes a single active writer on `/storage`. Keep the Azure Container App at exactly one replica.
+  Fabro currently assumes a single active writer on `/storage`. Keep the Azure Container App at exactly one replica.
 </Note>
 
-## Reference architecture
+## Deployment model
 
-- **Control plane:** `fabro-server` runs as a singleton Azure Container App.
-- **Sandbox plane:** each workflow run provisions an Azure Container Instance container group.
-- **Workspace plane:** ACI `emptyDir` backs `/workspace` for sandboxes and is deleted with the container group.
-- **State plane:** Azure storage mounted at `/storage` persists runs, checkpoints, sessions, and auth state for the server.
-- **Image plane:** Azure Container Registry stores the base sandbox image and any workflow-specific sandbox images.
-
-## First-deploy checklist
-
-- Copy the sandbox Terraform example and fill in subscription, naming, secret, and image values.
-- Run Terraform to create the resource group, network, storage account, the `/storage` file share, ACR, managed identity, Container Apps environment, and optionally `fabro-server`.
-- Keep `fabro-server` at exactly one replica.
-- Complete the server install flow, including the `Azure` step that persists Azure platform settings and optional ACR credentials.
-- Build and push the Azure sandbox image to ACR.
-- Run a remote workflow through the hosted server and confirm an Azure sandbox starts successfully.
+- **Bootstrap root:** `terraform/bootstrap/github_actions`
+- **Steady-state environment:** `terraform/environments/sandbox`
+- **Server runtime:** `fabro-server` in Azure Container Apps
+- **Workflow sandboxes:** Azure Container Instances
+- **Persistent app state:** Azure Files mounted at `/storage`
+- **Image registry:** Azure Container Registry for both `fabro-server` and `fabro-azure-sandbox-base`
 
 ## Prerequisites
 
 - An Azure subscription
 - Terraform `>= 1.8.0`
 - The latest [`az`](https://learn.microsoft.com/cli/azure/install-azure-cli) CLI
-- Docker with `buildx` support on the machine that will build sandbox images
-- A GitHub token if your workflows need to clone private repos or use `gh`
-- At least one LLM provider key such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
+- Docker with `buildx`
+- A GitHub repository environment named `production`
 
-## 1. Provision Azure with Terraform
+## 1. Bootstrap GitHub Actions OIDC and remote state
 
-Sign in with Azure first so Terraform can authenticate with the `azurerm` provider:
+Sign in to Azure first:
 
 ```bash
 az login
@@ -60,282 +48,188 @@ az provider register --namespace Microsoft.App
 az provider register --namespace Microsoft.OperationalInsights
 ```
 
-Copy the example environment and fill in your values:
+Copy the bootstrap example and fill in the real Azure names for this deployment:
+
+```bash
+cp terraform/bootstrap/github_actions/terraform.tfvars.example \
+  terraform/bootstrap/github_actions/terraform.tfvars
+```
+
+Then apply the bootstrap root:
+
+```bash
+terraform -chdir=terraform/bootstrap/github_actions init
+terraform -chdir=terraform/bootstrap/github_actions apply
+```
+
+Save these Terraform outputs into the GitHub `production` environment as variables:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID`
+- `TF_BACKEND_RESOURCE_GROUP`
+- `TF_BACKEND_STORAGE_ACCOUNT`
+- `TF_BACKEND_CONTAINER`
+- `TF_BACKEND_KEY`
+
+The bootstrap root is intentionally one-time only. After this, the supported environment is `terraform/environments/sandbox`.
+
+## 2. Create the shared Azure environment once
+
+Copy the sandbox example:
 
 ```bash
 cp terraform/environments/sandbox/terraform.tfvars.example \
   terraform/environments/sandbox/terraform.tfvars
 ```
 
-Then initialize and apply the sandbox environment:
+Initialize the remote backend using the values you saved from bootstrap:
 
 ```bash
-terraform -chdir=terraform/environments/sandbox init
+terraform -chdir=terraform/environments/sandbox init \
+  -backend-config="resource_group_name=<TF_BACKEND_RESOURCE_GROUP>" \
+  -backend-config="storage_account_name=<TF_BACKEND_STORAGE_ACCOUNT>" \
+  -backend-config="container_name=<TF_BACKEND_CONTAINER>" \
+  -backend-config="key=<TF_BACKEND_KEY>"
+```
+
+For the first apply, keep `fabro_server_enabled = false` so Terraform can create the shared infrastructure before the first server image exists:
+
+```bash
 terraform -chdir=terraform/environments/sandbox apply
 ```
 
-If your first `fabro-server` image does not exist yet, set `fabro_server_enabled = false`, apply once to create the supporting infrastructure, then set `fabro_server_enabled = true` and apply again after pushing an immutable image tag.
+That apply provisions the resource group, networking, storage, ACR, managed identity, Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
 
-For steady-state deploys, update the immutable image tag and apply again:
+## 3. Configure the GitHub `production` environment
 
-```bash
-terraform -chdir=terraform/environments/sandbox apply \
-  -var="fabro_server_image=ghcr.io/fabro-sh/fabro:2026-04-22-1"
-```
+Add the Azure and Terraform backend variables from bootstrap, then add the sandbox environment variables consumed by `.github/workflows/deploy-azure.yml`:
 
-The Terraform root defaults to local state. That is fine for a single operator getting started; move to a shared remote backend later for team or CI usage.
+- `AZURE_LOCATION`
+- `AZURE_RESOURCE_GROUP_NAME`
+- `AZURE_VNET_NAME`
+- `AZURE_VNET_CIDR`
+- `AZURE_ACA_SUBNET_NAME`
+- `AZURE_ACA_SUBNET_CIDR`
+- `AZURE_ACI_SUBNET_NAME`
+- `AZURE_ACI_SUBNET_CIDR`
+- `AZURE_STORAGE_ACCOUNT_NAME`
+- `AZURE_SERVER_STORAGE_SHARE_NAME`
+- `AZURE_ACR_NAME`
+- `AZURE_IDENTITY_NAME`
+- `AZURE_CONTAINER_APPS_ENVIRONMENT_NAME`
+- `AZURE_FABRO_SERVER_NAME`
 
-## 2. Review the provisioned topology
+After the first successful install wizard run, add one secret:
 
-The sandbox Terraform environment provisions:
+- `FABRO_DEPLOY_DEV_TOKEN`
 
-- a resource group
-- a VNet with one subnet for Azure Container Apps and one delegated subnet for ACI
-- a storage account with one Azure Files share for `/storage`
-- an Azure Container Registry for sandbox images
-- a user-assigned managed identity with `Contributor` on the deployment resource group
-- an Azure Container Apps environment with the `/storage` file share attached
-- a single-replica `fabro-server` Azure Container App when `fabro_server_enabled = true`
+That token is used only for the authenticated API check and the tiny post-deploy smoke workflow.
 
-`fabro-server` images can come from GHCR or ACR. The Terraform example uses GHCR, while Azure sandbox images still come from your provisioned ACR.
+For this v1 flow, complete the install wizard's GitHub step with a GitHub token, not a GitHub App. App installs do not emit a reusable dev token, which means the CI smoke checks in `.github/workflows/deploy-azure.yml` cannot authenticate.
 
-## 3. Capture the key values Terraform created
+## 4. Run the first CI deploy
 
-Use Terraform outputs to retrieve the values you need for image publishing, server access, and workflow configuration:
+Trigger the manual workflow from GitHub:
 
-```bash
-terraform -chdir=terraform/environments/sandbox output
-```
+- workflow: `.github/workflows/deploy-azure.yml`
+- environment: `production`
+- input: the Git ref to deploy
 
-In practice you will want at least:
+The deploy workflow does four things:
 
-- `acr_name`
-- `acr_login_server`
-- `aci_subnet_id`
-- `resource_group_name`
-- `fabro_server_url`
+1. Logs into Azure with GitHub OIDC.
+2. Builds and pushes `fabro-server:<deploy-id>` and `fabro-azure-sandbox-base:<deploy-id>` to ACR.
+3. Runs `terraform apply` with the exact immutable `fabro-server` image ref.
+4. Runs post-deploy smoke checks against the live deployment.
 
-Export the values used by the rest of this guide:
+Deploy IDs use `<utc-timestamp>-<short-sha>`, for example `20260428T193500Z-a1b2c3d`.
 
-```bash
-export FABRO_AZURE_ACR_NAME="$(terraform -chdir=terraform/environments/sandbox output -raw acr_name)"
-export FABRO_AZURE_ACR_SERVER="$(terraform -chdir=terraform/environments/sandbox output -raw acr_login_server)"
-export FABRO_AZURE_RESOURCE_GROUP="$(terraform -chdir=terraform/environments/sandbox output -raw resource_group_name)"
-export FABRO_SERVER_URL="$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)"
-```
+## 5. Complete the install wizard
 
-## 4. Complete server install and save Azure platform settings
+Once the Container App is reachable, open the deployed URL and complete the web install wizard.
 
-The server container already uses `/storage` for persistent state. Azure sandbox startup no longer
-discovers subscription, resource-group, subnet, and ACR settings from `FABRO_AZURE_*` worker
-environment variables. Fabro now keeps those non-secret platform settings in `settings.toml`
-under `[server.sandbox.azure.platform]`, and stores optional ACR pull credentials in the vault.
+The important runtime model is:
 
-After your Container App is reachable:
+- the Container App mounts `/storage`
+- the install wizard writes Fabro runtime state and configuration there
+- later deploys reuse the same persisted state
 
-1. Open `https://<your-container-app-fqdn>/` in a browser and finish the install wizard, or run `fabro install` on the server host if you prefer the CLI flow.
-2. In the `Server` step, confirm the public URL.
-3. In the `Azure` step, enter:
-   - the Azure subscription ID you used in `terraform.tfvars`
-   - `resource_group_name` from Terraform output
-   - the Azure region you deployed into
-   - `aci_subnet_id` from Terraform output
-   - `acr_login_server` from Terraform output
-   - `7777` for `sandboxd_port` unless your custom sandbox image listens elsewhere
-   - optional ACR username/password only when your registry requires explicit pull credentials
-4. Finish the remaining `Object store`, `LLM`, and `GitHub` steps, then start the server again.
+The server should come up in install mode without relying on install-time `SESSION_SECRET`, `FABRO_DEV_TOKEN`, or `FABRO_AZURE_*` worker env injection from Terraform.
 
-If you want to carry a custom `settings.toml` into your own Azure-hosted image or startup wrapper,
-start from this minimal shape:
+After install succeeds:
 
-```toml
-_version = 1
+1. Save the dev token shown by the wizard.
+2. Store it in the GitHub `production` environment as `FABRO_DEPLOY_DEV_TOKEN`.
+3. Use the same workflow for every steady-state deploy.
 
-[run.sandbox]
-provider = "azure"
+If the install wizard does not show a dev token, revisit the GitHub step and switch the deployment to the token-based path before relying on CI smoke checks.
 
-[server.auth]
-methods = ["dev-token"]
+## 6. Shared sandbox image and workflow-specific images
 
-[server.sandbox.azure.platform]
-subscription_id = "00000000-0000-0000-0000-000000000000"
-resource_group = "fabro-prod"
-location = "eastus"
-subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/fabro-prod/providers/Microsoft.Network/virtualNetworks/fabro/subnets/aci"
-acr_server = "fabro.azurecr.io"
-sandboxd_port = 7777
+The deploy workflow publishes a shared Azure sandbox base image to ACR:
 
-[server.integrations.github]
-strategy = "token"
-```
+- `fabro-azure-sandbox-base:<deploy-id>`
 
-Keep the usual server/runtime secrets in the Container App environment, such as `SESSION_SECRET`,
-`FABRO_DEV_TOKEN`, your LLM provider keys, and optionally `AZURE_CLIENT_ID` when using a
-user-assigned managed identity.
+The checked-in smoke workflow uses a placeholder image ref:
 
-Do not rely on `FABRO_AZURE_SUBSCRIPTION_ID`, `FABRO_AZURE_RESOURCE_GROUP`,
-`FABRO_AZURE_LOCATION`, `FABRO_AZURE_SANDBOX_SUBNET_ID`, or `FABRO_AZURE_ACR_SERVER` as the
-authoritative Azure sandbox config for new deployments.
-
-When provided, ACR username/password are stored in the vault instead of `settings.toml`:
-
-| Variable | Purpose |
-|---|---|
-| `FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` | Optional registry credentials for private ACR images |
-
-## 5. Build sandbox images for Azure runs
-
-The `fabro-server` image can come from GHCR or ACR, but the current Azure sandbox provider expects sandbox images to be available in your own ACR. Build and push a base image that contains `fabro-sandboxd`:
-
-```bash
-az acr login --name "$FABRO_AZURE_ACR_NAME"
-
-cargo build --release -p fabro-sandboxd
-
-mkdir -p .azure-image
-cp target/release/fabro-sandboxd .azure-image/fabro-sandboxd
-```
-
-Create `.azure-image/Dockerfile` with this exact content:
-
-```dockerfile
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git bash coreutils findutils grep curl \
-    && rm -rf /var/lib/apt/lists/*
-COPY fabro-sandboxd /usr/local/bin/fabro-sandboxd
-WORKDIR /workspace
-CMD ["fabro-sandboxd"]
-```
-
-Build and push the base image:
-
-```bash
-docker buildx build \
-  --platform linux/amd64 \
-  -f .azure-image/Dockerfile \
-  -t "$FABRO_AZURE_ACR_SERVER/fabro-sandboxes/base:2026-04-22-1" \
-  --push .azure-image
-```
-
-If a workflow needs extra tools, build a workflow-specific image that starts from the Fabro Azure base image:
-
-```dockerfile
-FROM <acr-login-server>/fabro-sandboxes/base:2026-04-22-1
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
-    git \
-    jq \
-    python3 \
-    python3-pip \
-    unzip \
-  && rm -rf /var/lib/apt/lists/*
-```
-
-Build and push that image from the repo root:
-
-```bash
-docker buildx build \
-  --platform linux/amd64 \
-  -f .fabro/workflows/software-factory/snapshot.Dockerfile \
-  -t "$FABRO_AZURE_ACR_SERVER/fabro-sandboxes/software-factory:2026-04-22-1" \
-  --push .
-```
-
-## 6. Run your first workflow through the hosted server
-
-For Azure-hosted remote runs, keep the per-workflow sandbox shape in the checked-in workflow file:
-
-```toml
-_version = 1
-
-[workflow]
-graph = "workflow.fabro"
-
-[run.sandbox]
-provider = "azure"
-preserve = false
-
+```toml title=".fabro/workflows/azure-deploy-smoke/workflow.toml"
 [run.sandbox.azure]
-cpu = 2.0
-memory_gb = 4.0
-image = "<acr-login-server>/fabro-sandboxes/base:2026-04-22-1"
-
-[run.scm.github.permissions]
-contents = "write"
-pull_requests = "write"
+image = "example.azurecr.io/fabro-azure-sandbox-base:example"
 ```
 
-Point your local CLI at the hosted server:
+CI replaces that placeholder with the just-built immutable image before running the smoke workflow.
 
-```toml title="~/.fabro/settings.toml"
-[cli.target]
-type = "http"
-url = "https://<your-container-app-fqdn>/api/v1"
-```
+Workflow-specific sandbox images still live in the workflow repositories that use them. Those refs are updated manually by workflow owners.
 
-Then authenticate and run a workflow from your laptop:
+## 7. Post-deploy validation
+
+Every production deploy should validate all three of these checks:
+
+1. `GET /health`
+2. authenticated `GET /api/v1/models`
+3. run `.fabro/workflows/azure-deploy-smoke` against the deployed server
+
+Equivalent manual checks:
 
 ```bash
-export FABRO_DEV_TOKEN="$FABRO_DEV_TOKEN"
+curl -fsSL "$FABRO_SERVER_URL/health"
 
-fabro model list --server "$FABRO_SERVER_URL/api/v1"
-fabro run .fabro/workflows/software-factory/workflow.toml --server "$FABRO_SERVER_URL/api/v1"
-```
-
-Only the per-run sandbox shape belongs in `[run.sandbox.azure]`. Subscription, resource group,
-location, subnet, ACR server, and optional ACR auth now come from the server's persisted Azure
-platform config.
-
-## 7. Validation
-
-Use this sequence to validate the full Azure deployment path:
-
-```bash
-curl -sSf "$FABRO_SERVER_URL/health"
-
-curl -sSf \
-  -H "Authorization: Bearer $FABRO_DEV_TOKEN" \
+curl -fsSL \
+  -H "Authorization: Bearer $FABRO_DEPLOY_DEV_TOKEN" \
   "$FABRO_SERVER_URL/api/v1/models"
 
-fabro model list --server "$FABRO_SERVER_URL/api/v1"
+sed \
+  "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
+  .fabro/workflows/azure-deploy-smoke/workflow.toml \
+  > /tmp/azure-deploy-smoke.toml
 
-az container list \
-  --resource-group "$FABRO_AZURE_RESOURCE_GROUP" \
-  --query '[].name' -o table
+fabro run /tmp/azure-deploy-smoke.toml \
+  --server "$FABRO_SERVER_URL/api/v1"
 ```
 
-Expected results:
-
-1. `curl -sSf "$FABRO_SERVER_URL/health"` returns `ok`
-2. the authenticated `/api/v1/models` request returns JSON instead of `401`
-3. `fabro model list` succeeds against the hosted server
-4. the workflow run creates at least one `fabro-*` Azure Container Instance during execution
+If the smoke workflow succeeds, the deployed server has proven that it can launch an Azure sandbox using the shared base image.
 
 ## 8. Troubleshooting and caveats
 
-- **Single replica only.** Keep `--min-replicas 1` and `--max-replicas 1` on the Container App.
-- **Terraform defaults to local state.** That is fine for one operator getting started; move to a remote backend later for team or CI usage.
-- **ACI names must be lowercase.** Azure Container Instances reject mixed-case container group names.
-- **ACI quota is easy to exhaust in trial subscriptions.** Clean up stale `fabro-*` container groups before retrying failed runs.
-- **If preflight says Azure platform config is not configured.** Re-run `fabro install` and complete the `Azure` step, or add `[server.sandbox.azure.platform]` manually and restart the server.
-- **Set `run.sandbox.azure.image` explicitly.** Do not rely on a server-local default image for remote runs.
-- **Custom images must inherit from the Fabro Azure base image.** `fabro-sandboxd` must remain on `PATH` inside the sandbox.
-- **ACI workspaces are ephemeral.** Anything you want to keep must be persisted explicitly outside `/workspace`.
+- **Single replica only.** Keep the Container App at one replica.
+- **The first production deploy is two-phase.** Bootstrap and run the shared environment apply once before expecting CI to deploy the server.
+- **Remote state is required.** Local Terraform state is no longer the supported production path for this environment.
+- **ACI quotas are easy to exhaust.** Trial subscriptions often need stale `fabro-*` container groups cleaned up before retries.
+- **CI smoke checks need a dev token.** For now that means using the token-based GitHub install path instead of the GitHub App path.
+- **The smoke workflow validation command is server-backed.** `fabro validate` currently uses server preflight, so it needs a configured server target rather than an unconfigured local machine.
+- **Workflow-specific images are still manual.** This repo only automates the shared deployment substrate.
 
-To clean up stuck sandboxes, list and delete stale container groups:
+To inspect or clean up stale Azure sandboxes:
 
 ```bash
 az container list \
-  --resource-group "$FABRO_AZURE_RESOURCE_GROUP" \
+  --resource-group "$AZURE_RESOURCE_GROUP_NAME" \
   -o table
 
 az container delete \
-  --resource-group "$FABRO_AZURE_RESOURCE_GROUP" \
+  --resource-group "$AZURE_RESOURCE_GROUP_NAME" \
   --name <stale-fabro-container-group> \
   --yes
 ```
@@ -344,9 +238,9 @@ az container delete \
 
 <Columns cols={2}>
   <Card title="Running the Fabro Server" icon="server" href="/administration/deploy-server">
-    Auth, dev tokens, submitting runs, and pointing the CLI at your deployment.
+    Auth, install mode, and day-two server operations.
   </Card>
   <Card title="Server Configuration" icon="gear" href="/administration/server-configuration">
-    Full `settings.toml` reference for auth methods, runtime secrets, storage, and run defaults.
+    Full `settings.toml` reference for auth, storage, and run defaults.
   </Card>
 </Columns>

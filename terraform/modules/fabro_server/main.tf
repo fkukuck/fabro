@@ -1,15 +1,4 @@
 locals {
-  optional_secret_env = {
-    GITHUB_TOKEN      = var.github_token
-    OPENAI_API_KEY    = var.openai_api_key
-    ANTHROPIC_API_KEY = var.anthropic_api_key
-  }
-
-  optional_secrets = {
-    for name, value in local.optional_secret_env : name => value
-    if value != null && value != ""
-  }
-
   image_registry_enabled = (
     var.registry_server != null &&
     var.registry_username != null &&
@@ -31,39 +20,11 @@ resource "azurerm_container_app" "this" {
     identity_ids = [var.identity_id]
   }
 
-  secret {
-    name  = "fabro-dev-token"
-    value = var.fabro_dev_token
-  }
-
-  secret {
-    name  = "session-secret"
-    value = var.session_secret
-  }
-
-  secret {
-    name  = "azure-acr-username"
-    value = var.azure_acr_username
-  }
-
-  secret {
-    name  = "azure-acr-password"
-    value = var.azure_acr_password
-  }
-
   dynamic "secret" {
     for_each = local.image_registry_enabled ? [1] : []
     content {
       name  = "image-registry-password"
       value = var.registry_password
-    }
-  }
-
-  dynamic "secret" {
-    for_each = local.optional_secrets
-    content {
-      name  = lower(replace(secret.key, "_", "-"))
-      value = secret.value
     }
   }
 
@@ -104,66 +65,8 @@ resource "azurerm_container_app" "this" {
       memory = var.memory
 
       env {
-        name        = "FABRO_DEV_TOKEN"
-        secret_name = "fabro-dev-token"
-      }
-
-      env {
-        name        = "SESSION_SECRET"
-        secret_name = "session-secret"
-      }
-
-      env {
-        name  = "FABRO_AZURE_SUBSCRIPTION_ID"
-        value = var.azure_subscription_id
-      }
-
-      env {
-        name  = "FABRO_AZURE_RESOURCE_GROUP"
-        value = var.azure_resource_group
-      }
-
-      env {
-        name  = "FABRO_AZURE_LOCATION"
-        value = var.azure_location
-      }
-
-      env {
-        name  = "FABRO_AZURE_SANDBOX_SUBNET_ID"
-        value = var.azure_sandbox_subnet_id
-      }
-
-      env {
-        name  = "FABRO_AZURE_ACR_SERVER"
-        value = var.azure_acr_server
-      }
-
-      env {
-        name        = "FABRO_AZURE_ACR_USERNAME"
-        secret_name = "azure-acr-username"
-      }
-
-      env {
-        name        = "FABRO_AZURE_ACR_PASSWORD"
-        secret_name = "azure-acr-password"
-      }
-
-      env {
-        name  = "FABRO_AZURE_SANDBOXD_PORT"
-        value = tostring(var.azure_sandboxd_port)
-      }
-
-      env {
         name  = "AZURE_CLIENT_ID"
         value = var.identity_client_id
-      }
-
-      dynamic "env" {
-        for_each = local.optional_secrets
-        content {
-          name        = env.key
-          secret_name = lower(replace(env.key, "_", "-"))
-        }
       }
 
       volume_mounts {

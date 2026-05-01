@@ -1,0 +1,16 @@
+# GitHub Actions Bootstrap
+
+1. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in real values.
+2. Run `terraform init`.
+3. Run `terraform apply`.
+4. Record these outputs in the GitHub `production` environment:
+   - `AZURE_CLIENT_ID` = `terraform output -raw github_actions_client_id`
+   - `AZURE_TENANT_ID` = `terraform output -raw tenant_id`
+   - `AZURE_SUBSCRIPTION_ID` = `terraform output -raw subscription_id`
+   - `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` = `terraform output -raw github_actions_principal_id`
+   - `TF_BACKEND_RESOURCE_GROUP` = `terraform output -raw backend_resource_group_name`
+   - `TF_BACKEND_STORAGE_ACCOUNT` = `terraform output -raw backend_storage_account_name`
+   - `TF_BACKEND_CONTAINER` = `terraform output -raw backend_container_name`
+   - `TF_BACKEND_KEY` = `terraform output -raw backend_state_key`
+
+This root is intentionally bootstrap-only. The steady-state environment lives in `terraform/environments/sandbox`.

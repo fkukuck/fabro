@@ -1,0 +1,13 @@
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+[run.sandbox]
+provider = "azure"
+preserve = false
+
+[run.sandbox.azure]
+cpu = 1.0
+memory_gb = 2.0
+image = "example.azurecr.io/fabro-azure-sandbox-base:example"
