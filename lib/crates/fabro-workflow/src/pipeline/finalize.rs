@@ -198,15 +198,19 @@ pub async fn write_finalize_commit(
         Err(err) => {
             let message = format!("failed to build run dump for final metadata snapshot: {err}");
             emit_metadata_snapshot_failed(
-                services,
+                &services.emitter,
                 phase,
                 meta_branch,
                 started,
-                MetadataSnapshotFailureKind::Write,
-                message.clone(),
-                collect_causes(err.as_ref()),
-                None,
-                None,
+                MetadataSnapshotFailure {
+                    kind:             MetadataSnapshotFailureKind::Write,
+                    error:            message.clone(),
+                    causes:           collect_causes(err.as_ref()),
+                    commit_sha:       None,
+                    entry_count:      None,
+                    bytes:            None,
+                    exec_output_tail: None,
+                },
                 None,
             );
             emit_metadata_warning(services, "checkpoint_metadata_write_failed", message);

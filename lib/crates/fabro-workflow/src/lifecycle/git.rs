@@ -109,16 +109,20 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                     }
                     Err(err) => {
                         let message = format!("failed to build run dump for metadata init: {err}");
-                        self.emit_metadata_snapshot_failed(
+                        emit_metadata_snapshot_failed(
+                            &self.emitter,
                             phase,
                             &meta_branch,
                             started,
-                            MetadataSnapshotFailureKind::Write,
-                            message.clone(),
-                            collect_causes(err.as_ref()),
-                            None,
-                            None,
-                            None,
+                            MetadataSnapshotFailure {
+                                kind:             MetadataSnapshotFailureKind::Write,
+                                error:            message.clone(),
+                                causes:           collect_causes(err.as_ref()),
+                                commit_sha:       None,
+                                entry_count:      None,
+                                bytes:            None,
+                                exec_output_tail: None,
+                            },
                             None,
                         );
                         self.emit_metadata_warning("checkpoint_metadata_write_failed", message);
@@ -201,16 +205,20 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                                 let message = format!(
                                     "failed to build run dump for metadata checkpoint: {err}"
                                 );
-                                self.emit_metadata_snapshot_failed(
+                                emit_metadata_snapshot_failed(
+                                    &self.emitter,
                                     phase,
                                     &meta_branch,
                                     started,
-                                    MetadataSnapshotFailureKind::Write,
-                                    message.clone(),
-                                    collect_causes(err.as_ref()),
-                                    None,
-                                    None,
-                                    None,
+                                    MetadataSnapshotFailure {
+                                        kind:             MetadataSnapshotFailureKind::Write,
+                                        error:            message.clone(),
+                                        causes:           collect_causes(err.as_ref()),
+                                        commit_sha:       None,
+                                        entry_count:      None,
+                                        bytes:            None,
+                                        exec_output_tail: None,
+                                    },
                                     Some(&scope),
                                 );
                                 self.emit_metadata_warning(
