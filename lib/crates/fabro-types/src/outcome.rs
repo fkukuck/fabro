@@ -63,10 +63,13 @@ impl FromStr for StageOutcome {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "succeeded" => Ok(Self::Succeeded),
-            "partially_succeeded" => Ok(Self::PartiallySucceeded),
-            "failed" => Ok(Self::Failed {
+            "succeeded" | "success" => Ok(Self::Succeeded),
+            "partially_succeeded" | "partial_success" => Ok(Self::PartiallySucceeded),
+            "failed" | "fail" => Ok(Self::Failed {
                 retry_requested: false,
+            }),
+            "retry" => Ok(Self::Failed {
+                retry_requested: true,
             }),
             "skipped" => Ok(Self::Skipped),
             other => Err(format!("unknown stage outcome: {other}")),
@@ -322,6 +325,30 @@ mod tests {
             serde_json::from_value::<StageOutcome>(json!("failed")).unwrap(),
             StageOutcome::Failed {
                 retry_requested: false,
+            }
+        );
+    }
+
+    #[test]
+    fn stage_outcome_deserializes_legacy_persisted_status_strings() {
+        assert_eq!(
+            serde_json::from_value::<StageOutcome>(json!("success")).unwrap(),
+            StageOutcome::Succeeded
+        );
+        assert_eq!(
+            serde_json::from_value::<StageOutcome>(json!("partial_success")).unwrap(),
+            StageOutcome::PartiallySucceeded
+        );
+        assert_eq!(
+            serde_json::from_value::<StageOutcome>(json!("fail")).unwrap(),
+            StageOutcome::Failed {
+                retry_requested: false,
+            }
+        );
+        assert_eq!(
+            serde_json::from_value::<StageOutcome>(json!("retry")).unwrap(),
+            StageOutcome::Failed {
+                retry_requested: true,
             }
         );
     }
