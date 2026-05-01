@@ -161,7 +161,7 @@ impl GitHubCredentials {
         Ok(GitHubAppCredentials::from_env_with_slug(app_id, slug)?.map(Self::App))
     }
 
-    async fn resolve_bearer_token(
+    pub async fn resolve_bearer_token(
         &self,
         client: &impl HttpClient,
         owner: &str,

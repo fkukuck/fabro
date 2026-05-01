@@ -57,25 +57,25 @@ pub(crate) struct MetadataSnapshot {
 }
 
 pub(crate) struct RunMetadataRuntime {
-    metadata_degraded:        AtomicBool,
-    metadata_warning_emitted: AtomicBool,
+    degraded:        AtomicBool,
+    warning_emitted: AtomicBool,
 }
 
 impl RunMetadataRuntime {
     pub(crate) fn new() -> Self {
         Self {
-            metadata_degraded:        AtomicBool::new(false),
-            metadata_warning_emitted: AtomicBool::new(false),
+            degraded:        AtomicBool::new(false),
+            warning_emitted: AtomicBool::new(false),
         }
     }
 
     pub(crate) fn mark_metadata_degraded(&self) -> bool {
-        self.metadata_degraded.store(true, Ordering::SeqCst);
-        !self.metadata_warning_emitted.swap(true, Ordering::SeqCst)
+        self.degraded.store(true, Ordering::SeqCst);
+        !self.warning_emitted.swap(true, Ordering::SeqCst)
     }
 
     pub(crate) fn metadata_degraded(&self) -> bool {
-        self.metadata_degraded.load(Ordering::SeqCst)
+        self.degraded.load(Ordering::SeqCst)
     }
 }
 
@@ -249,29 +249,19 @@ pub(crate) async fn mint_token(
     origin_url: &str,
     permissions: &HashMap<String, String>,
 ) -> Result<String, String> {
-    if let fabro_github::GitHubCredentials::Token(token) = creds {
-        return Ok(token.clone());
-    }
-
     let normalized_url = fabro_github::normalize_repo_origin_url(origin_url);
     let (owner, repo) = fabro_github::parse_github_owner_repo(&normalized_url)?;
-    let fabro_github::GitHubCredentials::App(creds) = creds else {
-        unreachable!("token credentials return early");
-    };
-    let jwt = fabro_github::sign_app_jwt(&creds.app_id, &creds.private_key_pem)?;
     let client = fabro_http::http_client().map_err(|err| err.to_string())?;
     let permissions = serde_json::to_value(permissions).map_err(|err| err.to_string())?;
-    let install_url = creds.installation_url(&owner);
-    fabro_github::create_installation_access_token_with_permissions_and_install_url(
-        &client,
-        &jwt,
-        &owner,
-        &repo,
-        &fabro_github::github_api_base_url(),
-        permissions,
-        install_url.as_deref(),
-    )
-    .await
+    creds
+        .resolve_bearer_token(
+            &client,
+            &owner,
+            &repo,
+            &fabro_github::github_api_base_url(),
+            permissions,
+        )
+        .await
 }
 
 pub(crate) struct RunMetadataWriter {
