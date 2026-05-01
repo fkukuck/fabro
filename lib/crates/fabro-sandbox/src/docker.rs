@@ -723,6 +723,10 @@ stop_file={stop_file}; \
 pid_file={pid_file}; \
 user_command={command}; \
 rm -f \"$pid_file\"; \
+if [ -e \"$stop_file\" ]; then \
+  rm -f \"$stop_file\" \"$pid_file\"; \
+  exit 143; \
+fi; \
 ( \
   while [ ! -e \"$stop_file\" ]; do sleep {stop_poll_sleep}; done; \
   while [ ! -s \"$pid_file\" ]; do sleep {stop_poll_sleep}; done; \
@@ -1614,6 +1618,43 @@ mod tests {
         assert!(
             matching_processes.is_empty(),
             "controlled shell command should not leave child processes: {matching_processes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn controlled_shell_command_skips_user_command_when_stop_already_requested() {
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        let stop_file = tempdir.path().join("stop");
+        let pid_file = tempdir.path().join("pid");
+        let marker_file = tempdir.path().join("started");
+        let stop_file = stop_file.to_string_lossy().into_owned();
+        let pid_file = pid_file.to_string_lossy().into_owned();
+        let marker_file = marker_file.to_string_lossy().into_owned();
+        let command = docker_controlled_shell_command(
+            &format!("touch {}", shell_quote(&marker_file)),
+            &stop_file,
+            &pid_file,
+        );
+
+        fs::write(&stop_file, b"")
+            .await
+            .expect("early stop file should be written");
+        let output = Command::new("/bin/bash")
+            .arg("-lc")
+            .arg(command)
+            .output()
+            .await
+            .expect("controlled shell command should run");
+
+        assert!(
+            !output.status.success(),
+            "controlled shell command should exit as stopped"
+        );
+        assert!(
+            !fs::try_exists(&marker_file)
+                .await
+                .expect("marker file existence should be checked"),
+            "controlled shell command should not start user command after an early stop"
         );
     }
 
