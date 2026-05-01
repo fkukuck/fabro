@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "fabro-dump"
-version = "0.219.0-nightly.0"
+version = "0.220.0-nightly.0"
 dependencies = [
  "anyhow",
  "bytes",

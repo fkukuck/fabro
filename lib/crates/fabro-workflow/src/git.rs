@@ -551,7 +551,10 @@ mod tests {
         .unwrap();
 
         let state = run.state().await.unwrap();
-        let files = RunDump::from_projection(&state).git_entries().unwrap();
+        let files = RunDump::from_projection(&state)
+            .unwrap()
+            .git_entries()
+            .unwrap();
         let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
         assert!(paths.contains(&"stages/work@2/prompt.md"));
         assert!(paths.contains(&"stages/work@2/response.md"));

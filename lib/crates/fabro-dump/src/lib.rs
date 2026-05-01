@@ -38,11 +38,10 @@ pub(crate) enum RunDumpContents {
 }
 
 impl RunDump {
-    #[must_use]
-    pub fn from_projection(state: &RunProjection) -> Self {
+    pub fn from_projection(state: &RunProjection) -> Result<Self> {
         let mut entries = Vec::new();
 
-        push_json_entry(&mut entries, "run.json", &SerializableProjection(state));
+        push_json_entry(&mut entries, "run.json", &SerializableProjection(state))?;
 
         if let Some(graph_source) = state.graph_source.as_ref() {
             entries.push(RunDumpEntry::text("graph.fabro", graph_source.clone()));
@@ -73,7 +72,7 @@ impl RunDump {
                 ));
             }
             if let Some(status) = node.status.as_ref() {
-                push_json_entry_path(&mut entries, &base.join("status.json"), status);
+                push_json_entry_path(&mut entries, &base.join("status.json"), status)?;
             }
             if let Some(provider_used) = node.provider_used.as_ref() {
                 entries.push(RunDumpEntry::json_path(
@@ -129,14 +128,14 @@ impl RunDump {
             ));
         }
 
-        Self { entries }
+        Ok(Self { entries })
     }
 
     pub fn from_store_state_and_events(
         state: &RunProjection,
         events: &[EventEnvelope],
     ) -> Result<Self> {
-        let mut dump = Self::from_projection(state);
+        let mut dump = Self::from_projection(state)?;
 
         let mut events_jsonl = Vec::new();
         for event in events {
@@ -151,7 +150,7 @@ impl RunDump {
                 &mut dump.entries,
                 &PathBuf::from("checkpoints").join(format!("{seq:04}.json")),
                 checkpoint,
-            );
+            )?;
         }
 
         Ok(dump)
@@ -310,22 +309,20 @@ impl RunDumpContents {
     }
 }
 
-fn push_json_entry<T>(entries: &mut Vec<RunDumpEntry>, path: &str, value: &T)
+fn push_json_entry<T>(entries: &mut Vec<RunDumpEntry>, path: &str, value: &T) -> Result<()>
 where
     T: serde::Serialize,
 {
-    if let Ok(value) = serde_json::to_value(value) {
-        entries.push(RunDumpEntry::json(path, value));
-    }
+    entries.push(RunDumpEntry::json(path, serde_json::to_value(value)?));
+    Ok(())
 }
 
-fn push_json_entry_path<T>(entries: &mut Vec<RunDumpEntry>, path: &Path, value: &T)
+fn push_json_entry_path<T>(entries: &mut Vec<RunDumpEntry>, path: &Path, value: &T) -> Result<()>
 where
     T: serde::Serialize,
 {
-    if let Ok(value) = serde_json::to_value(value) {
-        entries.push(RunDumpEntry::json_path(path, value));
-    }
+    entries.push(RunDumpEntry::json_path(path, serde_json::to_value(value)?));
+    Ok(())
 }
 
 fn path_to_string(path: &Path) -> String {
@@ -551,7 +548,7 @@ mod tests {
             termination:       None,
         });
 
-        let dump = RunDump::from_projection(&projection);
+        let dump = RunDump::from_projection(&projection).unwrap();
         let paths: Vec<&str> = dump
             .entries()
             .iter()

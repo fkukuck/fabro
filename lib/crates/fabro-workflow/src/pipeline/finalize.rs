@@ -187,7 +187,26 @@ pub async fn write_finalize_commit(
         }
     };
     projection.conclusion = Some(conclusion.clone());
-    let dump = RunDump::from_projection(&projection);
+    let dump = match RunDump::from_projection(&projection) {
+        Ok(dump) => dump,
+        Err(err) => {
+            let message = format!("failed to build run dump for final metadata snapshot: {err}");
+            emit_metadata_snapshot_failed(
+                services,
+                phase,
+                meta_branch,
+                started,
+                MetadataSnapshotFailureKind::Write,
+                message.clone(),
+                collect_causes(err.as_ref()),
+                None,
+                None,
+                None,
+            );
+            emit_metadata_warning(services, "checkpoint_metadata_write_failed", message);
+            return;
+        }
+    };
     let run_id = run_options.run_id.to_string();
     let writer = SandboxMetadataWriter::new(
         &*services.sandbox,

@@ -91,19 +91,36 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
             let started = Instant::now();
             self.emit_metadata_snapshot_started(phase, &meta_branch, None);
             match self.run_store.state().await {
-                Ok(state) => {
-                    let dump = RunDump::from_projection(&state);
-                    let _ = self
-                        .write_metadata_snapshot(
+                Ok(state) => match RunDump::from_projection(&state) {
+                    Ok(dump) => {
+                        let _ = self
+                            .write_metadata_snapshot(
+                                phase,
+                                &meta_branch,
+                                started,
+                                &dump,
+                                "init run",
+                                None,
+                            )
+                            .await;
+                    }
+                    Err(err) => {
+                        let message = format!("failed to build run dump for metadata init: {err}");
+                        self.emit_metadata_snapshot_failed(
                             phase,
                             &meta_branch,
                             started,
-                            &dump,
-                            "init run",
+                            MetadataSnapshotFailureKind::Write,
+                            message.clone(),
+                            collect_causes(err.as_ref()),
                             None,
-                        )
-                        .await;
-                }
+                            None,
+                            None,
+                            None,
+                        );
+                        self.emit_metadata_warning("checkpoint_metadata_write_failed", message);
+                    }
+                },
                 Err(err) => {
                     let message = format!("failed to load run state for metadata init: {err}");
                     self.emit_metadata_snapshot_failed(
@@ -161,16 +178,41 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                 match self.run_store.state().await {
                     Ok(mut projection) => {
                         projection.checkpoint = Some(checkpoint);
-                        let dump = RunDump::from_projection(&projection);
-                        self.write_metadata_snapshot(
-                            phase,
-                            &meta_branch,
-                            started,
-                            &dump,
-                            "checkpoint",
-                            Some(&scope),
-                        )
-                        .await
+                        match RunDump::from_projection(&projection) {
+                            Ok(dump) => {
+                                self.write_metadata_snapshot(
+                                    phase,
+                                    &meta_branch,
+                                    started,
+                                    &dump,
+                                    "checkpoint",
+                                    Some(&scope),
+                                )
+                                .await
+                            }
+                            Err(err) => {
+                                let message = format!(
+                                    "failed to build run dump for metadata checkpoint: {err}"
+                                );
+                                self.emit_metadata_snapshot_failed(
+                                    phase,
+                                    &meta_branch,
+                                    started,
+                                    MetadataSnapshotFailureKind::Write,
+                                    message.clone(),
+                                    collect_causes(err.as_ref()),
+                                    None,
+                                    None,
+                                    None,
+                                    Some(&scope),
+                                );
+                                self.emit_metadata_warning(
+                                    "checkpoint_metadata_write_failed",
+                                    message,
+                                );
+                                None
+                            }
+                        }
                     }
                     Err(err) => {
                         let message =
@@ -624,7 +666,10 @@ mod tests {
         let run_store = run_store(fixtures::RUN_1).await;
         let handle = RunStoreHandle::local(run_store.clone());
         let state = handle.state().await.unwrap();
-        let expected_entries = RunDump::from_projection(&state).git_entries().unwrap();
+        let expected_entries = RunDump::from_projection(&state)
+            .unwrap()
+            .git_entries()
+            .unwrap();
         let expected_entry_count = expected_entries.len();
         let expected_bytes = expected_entries
             .iter()
@@ -719,7 +764,10 @@ mod tests {
         let run_store = run_store(fixtures::RUN_1).await;
         let handle = RunStoreHandle::local(run_store.clone());
         let state = handle.state().await.unwrap();
-        let expected_entries = RunDump::from_projection(&state).git_entries().unwrap();
+        let expected_entries = RunDump::from_projection(&state)
+            .unwrap()
+            .git_entries()
+            .unwrap();
         let expected_entry_count = expected_entries.len();
         let expected_bytes = expected_entries
             .iter()
