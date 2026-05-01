@@ -700,9 +700,8 @@ where
         if read == 0 {
             return Ok(output);
         }
-        let chunk = buf[..read].to_vec();
-        output_callback(stream, chunk.clone()).await?;
-        output.extend_from_slice(&chunk);
+        output.extend_from_slice(&buf[..read]);
+        output_callback(stream, buf[..read].to_vec()).await?;
     }
 }
 

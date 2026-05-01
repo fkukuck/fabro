@@ -262,14 +262,12 @@ impl DockerSandbox {
             while let Some(chunk) = output.next().await {
                 match chunk {
                     Ok(LogOutput::StdOut { message }) => {
-                        let bytes = message.to_vec();
-                        output_callback(CommandOutputStream::Stdout, bytes.clone()).await?;
-                        stdout.extend_from_slice(&bytes);
+                        stdout.extend_from_slice(&message);
+                        output_callback(CommandOutputStream::Stdout, message.to_vec()).await?;
                     }
                     Ok(LogOutput::StdErr { message }) => {
-                        let bytes = message.to_vec();
-                        output_callback(CommandOutputStream::Stderr, bytes.clone()).await?;
-                        stderr.extend_from_slice(&bytes);
+                        stderr.extend_from_slice(&message);
+                        output_callback(CommandOutputStream::Stderr, message.to_vec()).await?;
                     }
                     Ok(_) => {}
                     Err(e) => {

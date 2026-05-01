@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use fabro_config::RunScratch;
 use fabro_store::stage_storage_segment;
@@ -24,12 +23,10 @@ pub struct FinalizedCommandLogs {
 }
 
 pub struct CommandLogRecorder {
-    stdout:       Mutex<File>,
-    stderr:       Mutex<File>,
-    stdout_bytes: AtomicU64,
-    stderr_bytes: AtomicU64,
-    stdout_path:  PathBuf,
-    stderr_path:  PathBuf,
+    stdout:      Mutex<File>,
+    stderr:      Mutex<File>,
+    stdout_path: PathBuf,
+    stderr_path: PathBuf,
 }
 
 impl CommandLogRecorder {
@@ -49,8 +46,6 @@ impl CommandLogRecorder {
         Ok(Arc::new(Self {
             stdout: Mutex::new(stdout),
             stderr: Mutex::new(stderr),
-            stdout_bytes: AtomicU64::new(0),
-            stderr_bytes: AtomicU64::new(0),
             stdout_path,
             stderr_path,
         }))
@@ -67,27 +62,13 @@ impl CommandLogRecorder {
         file.write_all(bytes)
             .await
             .map_err(|err| Error::Io(format!("writing command {stream} log failed: {err}")))?;
-        file.flush()
-            .await
-            .map_err(|err| Error::Io(format!("flushing command {stream} log failed: {err}")))?;
-        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        match stream {
-            CommandOutputStream::Stdout => {
-                self.stdout_bytes.fetch_add(len, Ordering::Relaxed);
-            }
-            CommandOutputStream::Stderr => {
-                self.stderr_bytes.fetch_add(len, Ordering::Relaxed);
-            }
-        }
         Ok(())
     }
 
     pub async fn finalize(&self, run_store: &RunStoreHandle) -> Result<FinalizedCommandLogs> {
         self.flush_all().await?;
-        let stdout_text = read_lossy_text(&self.stdout_path).await?;
-        let stderr_text = read_lossy_text(&self.stderr_path).await?;
-        let stdout_bytes = self.stdout_bytes();
-        let stderr_bytes = self.stderr_bytes();
+        let (stdout_text, stdout_bytes) = read_lossy_text(&self.stdout_path).await?;
+        let (stderr_text, stderr_bytes) = read_lossy_text(&self.stderr_path).await?;
         let stdout_ref = write_json_string_blob(run_store, &stdout_text).await?;
         let stderr_ref = write_json_string_blob(run_store, &stderr_text).await?;
         Ok(FinalizedCommandLogs {
@@ -107,14 +88,6 @@ impl CommandLogRecorder {
         drop(self);
         remove_if_exists(&stdout_path).await?;
         remove_if_exists(&stderr_path).await
-    }
-
-    pub fn stdout_bytes(&self) -> u64 {
-        self.stdout_bytes.load(Ordering::Relaxed)
-    }
-
-    pub fn stderr_bytes(&self) -> u64 {
-        self.stderr_bytes.load(Ordering::Relaxed)
     }
 
     async fn flush_all(&self) -> Result<()> {
@@ -188,11 +161,12 @@ async fn open_truncated(path: &Path) -> Result<File> {
         .map_err(|err| Error::Io(format!("opening command log {}: {err}", path.display())))
 }
 
-async fn read_lossy_text(path: &Path) -> Result<String> {
+async fn read_lossy_text(path: &Path) -> Result<(String, u64)> {
     let bytes = fs::read(path)
         .await
         .map_err(|err| Error::Io(format!("reading command log {}: {err}", path.display())))?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    Ok((String::from_utf8_lossy(&bytes).into_owned(), len))
 }
 
 async fn remove_if_exists(path: &Path) -> Result<()> {
