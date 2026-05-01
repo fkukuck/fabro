@@ -2091,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "fabro-sandboxd"
-version = "0.219.0-nightly.0"
+version = "0.220.0-nightly.0"
 dependencies = [
  "anyhow",
  "axum",
