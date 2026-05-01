@@ -30,13 +30,20 @@ Record these outputs in the GitHub `production` environment:
 - `TF_BACKEND_KEY`
 
 All of these values are required for the supported Azure deploy workflow. In particular,
-`AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` must be copied into the GitHub environment before the
-first `terraform/environments/sandbox` apply so Terraform can grant CI access during
-greenfield bring-up.
+`AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` must be copied into the GitHub environment as the CI
+handoff value that the deploy workflow uses during greenfield bring-up. The first operator-run
+`terraform/environments/sandbox` apply also needs the same principal ID set separately as that
+root's `github_actions_principal_id` Terraform input.
 
 This root is intentionally bootstrap-only. The steady-state environment lives in
 `terraform/environments/sandbox`.
 
-If you need a fork or a second Azure environment, create a separate backend state key and
-GitHub environment for it. Do not reuse this bootstrap state for two independent deployments
-unless they are intentionally sharing the same Azure environment.
+After bootstrap handoff, operators must run `.github/workflows/deploy-azure.yml`
+from the Azure-ready branch or ref that contains the deploy workflow and Azure
+deployment changes. Forks that keep `main` as an upstream mirror must not assume
+`main` is the deployable branch.
+
+If you need a fork or a second Azure environment, give that independent deployment its own
+backend state key, GitHub environment, and Azure resource group. Do not reuse this bootstrap
+state across independent deployments unless they are intentionally sharing the same Azure
+environment.

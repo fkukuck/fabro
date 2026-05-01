@@ -6,7 +6,6 @@ on:
       ref:
         description: Git ref to deploy
         required: true
-        default: main
         type: string
 
 permissions:
@@ -479,13 +478,16 @@ jobs:
             -H "Authorization: Bearer $FABRO_DEPLOY_RUNTIME_DEV_TOKEN" \
             "$FABRO_SERVER_URL/api/v1/models"
 
-      - name: Render smoke workflow with deployed sandbox image
+      - name: Stage smoke workflow bundle with deployed sandbox image
         if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
         run: |
-          sed \
+          rm -rf "$RUNNER_TEMP/azure-deploy-smoke"
+          mkdir -p "$RUNNER_TEMP/azure-deploy-smoke"
+          cp -R .fabro/workflows/azure-deploy-smoke/. "$RUNNER_TEMP/azure-deploy-smoke/"
+          sed -i.bak \
             "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
-            .fabro/workflows/azure-deploy-smoke/workflow.toml \
-            > "$RUNNER_TEMP/azure-deploy-smoke.toml"
+            "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml"
+          rm -f "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml.bak"
 
       - name: Run Azure smoke workflow
         if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
@@ -493,7 +495,7 @@ jobs:
           FABRO_DEV_TOKEN: ${{ env.FABRO_DEPLOY_RUNTIME_DEV_TOKEN }}
         run: |
           cargo run -p fabro-cli -- \
-            run "$RUNNER_TEMP/azure-deploy-smoke.toml" \
+            run "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml" \
             --server "$FABRO_SERVER_URL/api/v1"
 
       - name: Deployment summary
