@@ -1125,7 +1125,7 @@ async fn token_install_finish_invokes_finish_hook_before_response_returns() {
 }
 
 #[tokio::test]
-async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
+async fn app_install_finish_persists_mixed_auth_and_dev_token() {
     let temp_dir = tempfile::tempdir().unwrap();
     let home_root = tempfile::tempdir().unwrap();
     let home = Home::new(home_root.path().join(".fabro"));
@@ -1269,26 +1269,132 @@ async fn app_install_finish_omits_dev_token_and_does_not_write_it() {
     .await;
     assert_eq!(finish_body["status"], "completing");
     assert_eq!(finish_body["restart_url"], "https://fabro.example.com");
-    assert!(
-        finish_body.get("dev_token").is_none(),
-        "App installs must not expose a dev token"
-    );
+    let dev_token = finish_body["dev_token"]
+        .as_str()
+        .expect("App installs should now emit a dev token");
+    assert!(dev_token.starts_with("fabro_dev_"));
 
-    let server_env =
-        std::fs::read_to_string(Storage::new(temp_dir.path()).runtime_directory().env_path())
-            .unwrap();
-    assert!(!server_env.contains("FABRO_DEV_TOKEN="));
+    let storage = Storage::new(temp_dir.path());
+    let storage_dev_token = dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
+        .expect("storage dev token should exist for App installs");
+    assert_eq!(dev_token, storage_dev_token);
+
+    let server_env = std::fs::read_to_string(storage.runtime_directory().env_path()).unwrap();
+    assert!(server_env.contains(&format!("FABRO_DEV_TOKEN={dev_token}")));
 
     assert!(
         !home.root().join("dev-token").exists(),
         "home dev token file should not be created for App installs"
     );
+
     assert!(
-        !Storage::new(temp_dir.path())
-            .runtime_directory()
-            .dev_token_path()
-            .exists(),
-        "storage dev token file should not be created for App installs"
+        storage.runtime_directory().dev_token_path().exists(),
+        "storage dev token file should be created for App installs"
+    );
+
+    let settings_toml = std::fs::read_to_string(&config_path).unwrap();
+    let settings_doc: toml::Value = toml::from_str(&settings_toml).unwrap();
+    assert_eq!(
+        settings_doc["server"]["auth"]["methods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["dev-token", "github"]
+    );
+    assert_eq!(
+        settings_doc["server"]["auth"]["github"]["allowed_usernames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["octocat"]
+    );
+    assert_eq!(
+        settings_doc["server"]["integrations"]["github"]["strategy"].as_str(),
+        Some("app")
+    );
+}
+
+#[tokio::test]
+async fn headless_github_app_install_finish_persists_mixed_auth_and_dev_token() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let app = build_install_router(
+        InstallAppState::for_test_with_paths("test-install-token", temp_dir.path(), &config_path)
+            .with_home(Home::new(home.path().join(".fabro"))),
+    );
+
+    put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_azure_default(&app, "test-install-token").await;
+    put_install_object_store_local(&app, "test-install-token").await;
+    put_install_sandbox_docker(&app, "test-install-token").await;
+    put_install_llm(&app, "test-install-token").await;
+    put_install_github_app(&app, "test-install-token", "octocat").await;
+
+    let finish_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let finish_body = response_json(
+        finish_response,
+        StatusCode::ACCEPTED,
+        "POST /install/finish",
+    )
+    .await;
+
+    let dev_token = finish_body["dev_token"]
+        .as_str()
+        .expect("Headless App installs should emit a dev token");
+    assert!(dev_token.starts_with("fabro_dev_"));
+
+    let storage = Storage::new(temp_dir.path());
+    let storage_dev_token = dev_token::read_dev_token_file(&storage.runtime_directory().dev_token_path())
+        .expect("storage dev token should exist for headless App installs");
+    assert_eq!(dev_token, storage_dev_token);
+
+    let settings_toml = std::fs::read_to_string(&config_path).unwrap();
+    let settings_doc: toml::Value = toml::from_str(&settings_toml).unwrap();
+    assert_eq!(
+        settings_doc["server"]["auth"]["methods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["dev-token", "github"]
+    );
+    assert_eq!(
+        settings_doc["server"]["auth"]["github"]["allowed_usernames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["octocat"]
+    );
+    assert_eq!(
+        settings_doc["server"]["integrations"]["github"]["strategy"].as_str(),
+        Some("app")
+    );
+
+    let server_env = std::fs::read_to_string(storage.runtime_directory().env_path()).unwrap();
+    assert!(server_env.contains(&format!("FABRO_DEV_TOKEN={dev_token}")));
+    assert!(server_env.contains("GITHUB_APP_CLIENT_SECRET="));
+    assert!(server_env.contains("GITHUB_APP_PRIVATE_KEY="));
+    assert!(
+        !home.path().join(".fabro/dev-token").exists(),
+        "home dev token file should not be created for headless App installs"
     );
 }
 

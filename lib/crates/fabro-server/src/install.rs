@@ -1787,8 +1787,7 @@ async fn post_install_finish(
     };
     let mut server_env_writes = object_store_env_plan.writes;
     let server_env_removals = object_store_env_plan.removals;
-    let mut dev_token: Option<String> = None;
-    match github {
+    let dev_token = match github {
         GithubInstallState::Token(github) => {
             if let Err(err) = write_token_settings(&mut settings_doc) {
                 return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
@@ -1811,7 +1810,7 @@ async fn post_install_finish(
                     );
                 }
             };
-            dev_token = Some(token);
+            Some(token)
         }
         GithubInstallState::App(github) => {
             if let Err(err) = write_github_app_settings(
@@ -1823,6 +1822,18 @@ async fn post_install_finish(
             ) {
                 return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
             }
+            let dev_token_path = Storage::new(state.storage_dir.as_ref())
+                .runtime_directory()
+                .dev_token_path();
+            let token = match dev_token::read_or_mint_dev_token_for_install(&dev_token_path) {
+                Ok(value) => value,
+                Err(err) => {
+                    return install_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        err.to_string(),
+                    );
+                }
+            };
             server_env_writes.push(make_env_write(
                 EnvVars::GITHUB_APP_PRIVATE_KEY,
                 BASE64_STANDARD.encode(github.pem.as_bytes()),
@@ -1834,8 +1845,9 @@ async fn post_install_finish(
             if let Some(secret) = github.webhook_secret {
                 server_env_writes.push(make_env_write(EnvVars::GITHUB_APP_WEBHOOK_SECRET, secret));
             }
+            Some(token)
         }
-    }
+    };
 
     let settings_toml = match toml::to_string_pretty(&settings_doc) {
         Ok(value) => value,
