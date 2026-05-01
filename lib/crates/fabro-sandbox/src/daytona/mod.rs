@@ -7,10 +7,13 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use daytona_sdk::api_types::SignedPortPreviewUrl;
+use daytona_sdk::toolbox_types::Command as SessionCommandResult;
 use daytona_sdk::{DaytonaError, SessionCommandLogsResult};
 use fabro_github::GitHubCredentials;
 use fabro_types::{CommandOutputStream, CommandTermination, RunId};
+use fabro_util::time::elapsed_ms;
 use rand::Rng;
+use tokio::runtime::Handle;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::task::JoinHandle;
 use tokio::{fs, time};
@@ -53,10 +56,6 @@ pub async fn validate_daytona_api_key(api_key: String) -> Result<(), daytona_sdk
     let client = build_daytona_client(Some(api_key)).await?;
     client.list(None, Some(1), Some(1)).await?;
     Ok(())
-}
-
-fn elapsed_ms(start: &Instant) -> u64 {
-    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 fn command_kind(command: &str) -> &'static str {
@@ -1066,7 +1065,7 @@ impl Sandbox for DaytonaSandbox {
             .map_err(|e| crate::Error::context("Failed to get process service", e))?;
 
         tracing::info!(
-            elapsed_ms = elapsed_ms(&start),
+            elapsed_ms = elapsed_ms(start),
             "exec_command: process service acquired, starting select"
         );
 
@@ -1105,7 +1104,7 @@ impl Sandbox for DaytonaSandbox {
         let result = tokio::select! {
             res = exec_future => {
                 tracing::info!(
-                    elapsed_ms = elapsed_ms(&start),
+                    elapsed_ms = elapsed_ms(start),
                     ok = res.is_ok(),
                     "exec_command: HTTP response received"
                 );
@@ -1113,7 +1112,7 @@ impl Sandbox for DaytonaSandbox {
             }
             () = time::sleep(timeout_duration) => {
                 tracing::info!(
-                    elapsed_ms = elapsed_ms(&start),
+                    elapsed_ms = elapsed_ms(start),
                     timeout_ms,
                     "exec_command: client-side timeout fired"
                 );
@@ -1122,12 +1121,12 @@ impl Sandbox for DaytonaSandbox {
                     stderr: "Command timed out locally".to_string(),
                     exit_code: None,
                     termination: CommandTermination::TimedOut,
-                    duration_ms: elapsed_ms(&start),
+                    duration_ms: elapsed_ms(start),
                 });
             }
             () = token.cancelled() => {
                 tracing::info!(
-                    elapsed_ms = elapsed_ms(&start),
+                    elapsed_ms = elapsed_ms(start),
                     "exec_command: cancelled via token"
                 );
                 return Ok(ExecResult {
@@ -1135,12 +1134,12 @@ impl Sandbox for DaytonaSandbox {
                     stderr: "Command cancelled".to_string(),
                     exit_code: None,
                     termination: CommandTermination::Cancelled,
-                    duration_ms: elapsed_ms(&start),
+                    duration_ms: elapsed_ms(start),
                 });
             }
         };
 
-        let duration_ms = elapsed_ms(&start);
+        let duration_ms = elapsed_ms(start);
 
         // The Daytona SDK returns combined output in `result` field.
         // Separate stderr isn't available in the simple execute_command API.
@@ -1167,31 +1166,13 @@ impl Sandbox for DaytonaSandbox {
         let cwd =
             working_dir.map_or_else(|| WORKING_DIRECTORY.to_string(), |d| self.resolve_path(d));
 
-        let process_svc = sandbox
-            .process()
-            .await
-            .map_err(|e| crate::Error::context("Failed to get process service", e))?;
-
-        let session_id = format!("fabro-{:016x}", rand::rng().random::<u64>());
-        process_svc
-            .create_session(&session_id)
-            .await
-            .map_err(|e| crate::Error::context("Failed to create Daytona session", e))?;
+        let mut session = DaytonaSession::create(sandbox).await?;
 
         let session_command = build_session_command(command, &cwd, env_vars);
-        let session_exec = match process_svc
-            .execute_session_command(&session_id, &session_command, true, true)
-            .await
-        {
+        let session_exec = match session.execute(&session_command, true, true).await {
             Ok(result) => result,
             Err(err) => {
-                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
-                    tracing::warn!(
-                        error = %delete_err,
-                        session_id,
-                        "failed to delete Daytona session after command start failure"
-                    );
-                }
+                session.close("command start failure").await;
                 return Err(crate::Error::context(
                     "Failed to execute Daytona session command",
                     err,
@@ -1203,13 +1184,7 @@ impl Sandbox for DaytonaSandbox {
         let stream_process_svc = match sandbox.process().await {
             Ok(process_svc) => process_svc,
             Err(err) => {
-                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
-                    tracing::warn!(
-                        error = %delete_err,
-                        session_id,
-                        "failed to delete Daytona session after stream setup failure"
-                    );
-                }
+                session.close("stream setup failure").await;
                 return Err(crate::Error::context("Failed to get process service", err));
             }
         };
@@ -1217,7 +1192,7 @@ impl Sandbox for DaytonaSandbox {
         let stderr_seen = Arc::new(Mutex::new(Vec::new()));
         let saw_live_chunk = Arc::new(AtomicBool::new(false));
 
-        let stream_session_id = session_id.clone();
+        let stream_session_id = session.id().to_string();
         let stream_command_id = command_id.clone();
         let stdout_callback = output_callback.clone();
         let stderr_callback = output_callback.clone();
@@ -1266,93 +1241,46 @@ impl Sandbox for DaytonaSandbox {
                 .await
         });
 
-        let timeout_duration = Duration::from_millis(timeout_ms);
-        let token = cancel_token.unwrap_or_default();
-        let mut exit_code = session_exec.exit_code;
-        let mut termination = CommandTermination::Exited;
-        let mut final_logs = None;
-
-        if exit_code.is_none() {
-            let timeout_sleep = time::sleep(timeout_duration);
-            tokio::pin!(timeout_sleep);
-            loop {
-                tokio::select! {
-                    () = time::sleep(Duration::from_millis(250)) => {
-                        let status = match process_svc
-                            .get_session_command(&session_id, &command_id)
-                            .await
-                        {
-                            Ok(status) => status,
-                            Err(err) => {
-                                stream_task.abort();
-                                if let Err(delete_err) = process_svc.delete_session(&session_id).await {
-                                    tracing::warn!(
-                                        error = %delete_err,
-                                        session_id,
-                                        "failed to delete Daytona session after status poll failure"
-                                    );
-                                }
-                                return Err(crate::Error::context("Failed to get Daytona session command status", err));
-                            }
-                        };
-                        if let Some(code) = status.exit_code {
-                            exit_code = Some(code);
-                            break;
-                        }
-                    }
-                    () = &mut timeout_sleep => {
-                        termination = CommandTermination::TimedOut;
-                        final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
-                        break;
-                    }
-                    () = token.cancelled() => {
-                        termination = CommandTermination::Cancelled;
-                        final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
-                        break;
-                    }
-                }
+        let outcome = match wait_for_completion(
+            &session,
+            &command_id,
+            session_exec.exit_code,
+            Duration::from_millis(timeout_ms),
+            cancel_token.unwrap_or_default(),
+            &mut stream_task,
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                session.close("status poll failure").await;
+                return Err(err);
             }
-        }
+        };
+        let exit_code = outcome.exit_code;
+        let termination = outcome.termination;
+        let mut final_logs = outcome.final_logs;
 
+        // On timeout/cancel, delete the session early so the streaming task can
+        // terminate (Daytona closes the log stream when the session is deleted).
+        // On natural exit we delete after the stream task drains.
         if termination != CommandTermination::Exited {
-            if let Err(err) = process_svc.delete_session(&session_id).await {
-                tracing::warn!(
-                    error = %err,
-                    session_id,
-                    "failed to delete Daytona session after terminal command state"
-                );
-            }
+            session.close("terminal command state").await;
         }
 
         let stream_succeeded = match finish_daytona_log_stream(&mut stream_task).await {
             Ok(stream_succeeded) => stream_succeeded,
             Err(err) => {
-                if termination == CommandTermination::Exited {
-                    if let Err(delete_err) = process_svc.delete_session(&session_id).await {
-                        tracing::warn!(
-                            error = %delete_err,
-                            session_id,
-                            "failed to delete Daytona session after log stream failure"
-                        );
-                    }
-                }
+                session.close("log stream failure").await;
                 return Err(err);
             }
         };
 
         if final_logs.is_none() {
-            final_logs = fetch_daytona_session_logs(&process_svc, &session_id, &command_id).await;
+            final_logs = session.fetch_logs(&command_id).await;
         }
 
-        if termination == CommandTermination::Exited {
-            if let Err(err) = process_svc.delete_session(&session_id).await {
-                tracing::warn!(
-                    error = %err,
-                    session_id,
-                    "failed to delete Daytona session after command completion"
-                );
-            }
-        }
+        session.close("command finished").await;
 
         let mut streams_separated = stream_succeeded;
         if let Some(logs) = final_logs.as_ref() {
@@ -1384,7 +1312,7 @@ impl Sandbox for DaytonaSandbox {
                     .then_some(exit_code)
                     .flatten(),
                 termination,
-                duration_ms: elapsed_ms(&start),
+                duration_ms: elapsed_ms(start),
             },
             streams_separated,
             live_streaming: saw_live_chunk.load(Ordering::Relaxed),
@@ -1521,6 +1449,184 @@ async fn finish_daytona_log_stream(
             stream_task.abort();
             tracing::warn!("Daytona log stream did not close after command completion");
             Ok(false)
+        }
+    }
+}
+
+/// RAII wrapper around a Daytona toolbox session.
+///
+/// Holds the per-session [`ProcessService`] handle and the session id, and
+/// guarantees the session is deleted exactly once. Callers should invoke
+/// [`close`] on every path. If a `DaytonaSession` is dropped while still
+/// active, [`Drop`] spawns a cleanup task on the current Tokio runtime as a
+/// safety net (matching the [`DetachedRunBootstrapGuard`] pattern in
+/// `fabro-workflow`).
+struct DaytonaSession {
+    process_svc: Option<daytona_sdk::ProcessService>,
+    session_id:  String,
+    active:      bool,
+}
+
+impl DaytonaSession {
+    async fn create(sandbox: &daytona_sdk::Sandbox) -> crate::Result<Self> {
+        let process_svc = sandbox
+            .process()
+            .await
+            .map_err(|e| crate::Error::context("Failed to get process service", e))?;
+        let session_id = format!("fabro-{:016x}", rand::rng().random::<u64>());
+        process_svc
+            .create_session(&session_id)
+            .await
+            .map_err(|e| crate::Error::context("Failed to create Daytona session", e))?;
+        Ok(Self {
+            process_svc: Some(process_svc),
+            session_id,
+            active: true,
+        })
+    }
+
+    fn id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn process_svc(&self) -> &daytona_sdk::ProcessService {
+        self.process_svc
+            .as_ref()
+            .expect("DaytonaSession used after close")
+    }
+
+    async fn execute(
+        &self,
+        command: &str,
+        run_async: bool,
+        suppress_input_echo: bool,
+    ) -> Result<daytona_sdk::SessionExecuteResult, daytona_sdk::DaytonaError> {
+        self.process_svc()
+            .execute_session_command(&self.session_id, command, run_async, suppress_input_echo)
+            .await
+    }
+
+    async fn get_command_status(
+        &self,
+        command_id: &str,
+    ) -> Result<SessionCommandResult, DaytonaError> {
+        self.process_svc()
+            .get_session_command(&self.session_id, command_id)
+            .await
+    }
+
+    async fn fetch_logs(&self, command_id: &str) -> Option<SessionCommandLogsResult> {
+        let svc = self.process_svc.as_ref()?;
+        fetch_daytona_session_logs(svc, &self.session_id, command_id).await
+    }
+
+    /// Idempotent: a second call after `active=false` is a no-op.
+    async fn close(&mut self, reason: &'static str) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        if let Some(svc) = self.process_svc.take() {
+            if let Err(err) = svc.delete_session(&self.session_id).await {
+                tracing::warn!(
+                    error = %err,
+                    session_id = %self.session_id,
+                    reason,
+                    "failed to delete Daytona session"
+                );
+            }
+        }
+    }
+}
+
+impl Drop for DaytonaSession {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let svc = self.process_svc.take();
+        let session_id = std::mem::take(&mut self.session_id);
+        match (svc, Handle::try_current()) {
+            (Some(svc), Ok(handle)) => {
+                handle.spawn(async move {
+                    if let Err(err) = svc.delete_session(&session_id).await {
+                        tracing::warn!(
+                            error = %err,
+                            session_id,
+                            "Daytona session leaked; deleted from Drop"
+                        );
+                    }
+                });
+            }
+            _ => {
+                tracing::error!(session_id, "Daytona session leaked; no runtime to clean up");
+            }
+        }
+    }
+}
+
+struct WaitOutcome {
+    exit_code:   Option<i32>,
+    termination: CommandTermination,
+    final_logs:  Option<SessionCommandLogsResult>,
+}
+
+/// Wait for the session command to terminate by polling status, the timeout
+/// timer, and the cancel token. On status-poll failure, aborts `stream_task`
+/// and returns an error; the caller is responsible for closing the session.
+async fn wait_for_completion(
+    session: &DaytonaSession,
+    command_id: &str,
+    initial_exit_code: Option<i32>,
+    timeout: Duration,
+    cancel_token: CancellationToken,
+    stream_task: &mut JoinHandle<Result<(), DaytonaError>>,
+) -> crate::Result<WaitOutcome> {
+    if let Some(code) = initial_exit_code {
+        return Ok(WaitOutcome {
+            exit_code:   Some(code),
+            termination: CommandTermination::Exited,
+            final_logs:  None,
+        });
+    }
+
+    let timeout_sleep = time::sleep(timeout);
+    tokio::pin!(timeout_sleep);
+    loop {
+        tokio::select! {
+            () = time::sleep(Duration::from_millis(250)) => {
+                let status = match session.get_command_status(command_id).await {
+                    Ok(status) => status,
+                    Err(err) => {
+                        stream_task.abort();
+                        return Err(crate::Error::context(
+                            "Failed to get Daytona session command status",
+                            err,
+                        ));
+                    }
+                };
+                if let Some(code) = status.exit_code {
+                    return Ok(WaitOutcome {
+                        exit_code:   Some(code),
+                        termination: CommandTermination::Exited,
+                        final_logs:  None,
+                    });
+                }
+            }
+            () = &mut timeout_sleep => {
+                return Ok(WaitOutcome {
+                    exit_code:   None,
+                    termination: CommandTermination::TimedOut,
+                    final_logs:  session.fetch_logs(command_id).await,
+                });
+            }
+            () = cancel_token.cancelled() => {
+                return Ok(WaitOutcome {
+                    exit_code:   None,
+                    termination: CommandTermination::Cancelled,
+                    final_logs:  session.fetch_logs(command_id).await,
+                });
+            }
         }
     }
 }
