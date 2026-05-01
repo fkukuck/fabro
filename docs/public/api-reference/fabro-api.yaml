@@ -457,6 +457,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /install/github/app:
+    put:
+      operationId: putInstallGithubApp
+      tags: [Install]
+      summary: Save install GitHub App
+      description: Records a pre-existing GitHub App chosen for headless install. Requires the one-time install token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallGithubAppInput"
+      responses:
+        "204":
+          description: GitHub App recorded
+        "401":
+          description: Invalid or missing install token
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Invalid install input
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /install/github/app/manifest:
     post:
       operationId: createInstallGithubAppManifest
@@ -3483,6 +3518,25 @@ components:
           type: string
         username:
           type: string
+
+    InstallGithubAppInput:
+      type: object
+      required: [app_id, client_id, client_secret, private_key, slug, allowed_username]
+      properties:
+        app_id:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        private_key:
+          type: string
+        slug:
+          type: string
+        allowed_username:
+          type: string
+        webhook_secret:
+          type: ["string", "null"]
 
     InstallGithubAppManifestInput:
       description: Input required to build the browser-install GitHub App manifest.
