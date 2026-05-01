@@ -43,11 +43,11 @@ This guide documents the supported production path for this repo:
 - create a GitHub environment named `production`
 - copy bootstrap outputs into that environment
 - add the environment-specific Azure naming variables
-- add `FABRO_DEPLOY_GITHUB_TOKEN` if you want the first run to use the supported workflow-managed install path
+- create the GitHub App manually and store its values in the GitHub `production` environment before the first browser-login-ready deploy
 - run the first `terraform/environments/sandbox` apply with `fabro_server_enabled = false`
 - trigger `.github/workflows/deploy-azure.yml`
-- let CI complete install, persist `FABRO_DEPLOY_DEV_TOKEN`, and continue authenticated checks in the same run when `/health` reports install mode
-- use the manual fallback only if workflow-managed install is unavailable
+- let CI complete install, persist `FABRO_DEPLOY_DEV_TOKEN`, and continue authenticated checks in the same run when `/health` reports install mode and the GitHub App values are present
+- use the manual fallback only when the GitHub App values are missing
 
 ## 1. Bootstrap GitHub Actions managed identity and remote state
 
@@ -168,13 +168,26 @@ Add the Azure and Terraform backend variables from bootstrap, then add the sandb
 - `AZURE_CONTAINER_APPS_ENVIRONMENT_NAME`
 - `AZURE_FABRO_SERVER_NAME`
 
-Before the first deploy, add one secret for the workflow-managed install path:
+Before the first browser-login-ready deploy, create the GitHub App manually and store its values in the GitHub `production` environment.
 
+Required environment variables:
+
+- `FABRO_DEPLOY_GITHUB_APP_ID`
+- `FABRO_DEPLOY_GITHUB_APP_CLIENT_ID`
+- `FABRO_DEPLOY_GITHUB_APP_SLUG`
+- `FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME`
+
+Required environment secrets:
+
+- `FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET`
+- `FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY`
 - `FABRO_DEPLOY_GITHUB_TOKEN`
 
-The deploy workflow uses that token as the server's installed GitHub token for the token-based install path, for Fabro runtime GitHub access to the target repo, and to persist the emitted `FABRO_DEPLOY_DEV_TOKEN` back into the GitHub `production` environment secret.
+Optional environment secret:
 
-Use a user-backed token or PAT for this path. It must satisfy `gh api user`, complete the repo/token-based GitHub install step, access the target repo for Fabro runtime GitHub operations, and update the GitHub `production` environment secret. GitHub App installation tokens are not valid here.
+- `FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET`
+
+`FABRO_DEPLOY_GITHUB_TOKEN` is no longer sent to the server as the installed GitHub credential. It remains required only so the deploy workflow can validate repository access and persist `FABRO_DEPLOY_DEV_TOKEN` back into the GitHub `production` environment after a successful install.
 
 After the first successful install, add one secret if the workflow did not already persist it:
 
@@ -182,9 +195,7 @@ After the first successful install, add one secret if the workflow did not alrea
 
 That token is used only for the authenticated API check and the tiny post-deploy smoke workflow.
 
-For this v1 flow, complete the install wizard's GitHub step with a GitHub token, not a GitHub App. App installs do not emit a reusable dev token, which means the CI smoke checks in `.github/workflows/deploy-azure.yml` cannot authenticate.
-
-In the server's `settings.toml`, you should enter both `"dev-token"` and `"github"` in `[server.auth].methods`; use `github` when you want browser OAuth in addition to the dev-token bootstrap path.
+In the server's `settings.toml`, the GitHub App bootstrap path should leave both `"dev-token"` and `"github"` in `[server.auth].methods` so browser OAuth and operator dev-token access stay available together.
 
 ## 4. Run the first CI deploy
 
@@ -203,24 +214,22 @@ The deploy workflow does seven things:
 3. Runs `terraform apply` with the exact immutable `fabro-server` image ref.
 4. Runs a follow-up `terraform plan -detailed-exitcode` to prove the apply reached steady state.
 5. Waits for the new Container App revision to report ready before hitting the live URL.
-6. Reads `/health`, auto-completes install when the server reports install mode, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured auth state after install, and then runs the authenticated checks in the same run. When `/health` already returns plain `{"status":"ok"}`, install is skipped and the workflow continues directly, but authenticated validation still runs only if a dev token is already available.
-7. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, and whether the token-gated checks ran.
+6. Reads `/health`, auto-completes install when the server reports install mode and the GitHub App values are present, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured auth state after install, and then runs the authenticated checks in the same run. When `/health` already returns plain `{"status":"ok"}`, install is skipped and the workflow continues directly, but authenticated validation still runs only if a dev token is already available.
+7. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, and whether the authenticated checks ran.
 
 Deploy IDs use `<utc-timestamp>-<short-sha>`, for example `20260428T193500Z-a1b2c3d`.
 
-Treat the `/health` response as the source of truth for what happens next in CI. The same `deploy-azure.yml` run is intentionally idempotent across first deploys and later redeploys. If `/health` returns `{"status":"ok","mode":"install"}`, the workflow completes install immediately, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured auth state, and then continues to the authenticated API check and Azure smoke workflow in the same run. If `/health` returns plain `{"status":"ok"}`, the workflow skips install and continues directly. The authenticated checks run only when `FABRO_DEPLOY_DEV_TOKEN` is already available; otherwise those authenticated checks remain skipped.
+Treat the `/health` response as the source of truth for what happens next in CI. The same `deploy-azure.yml` run is intentionally idempotent across first deploys and later redeploys.
 
-The supported auto-install path depends on the GitHub `production` environment secret `FABRO_DEPLOY_GITHUB_TOKEN`.
-The workflow uses it as the server's installed GitHub token for the token-based GitHub install step, for Fabro runtime
-GitHub access to the target repo, and to persist the emitted `FABRO_DEPLOY_DEV_TOKEN` back into the `production`
-environment secret after bootstrap.
+If `/health` returns `{"status":"ok","mode":"install"}` and the GitHub App values are present, the workflow completes install headlessly, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured state, and continues with authenticated validation in the same run.
 
-Use a user-backed token or PAT for this workflow-managed path. It must satisfy `gh api user`, access the target repo,
-and write GitHub `production` environment secrets. GitHub App installation tokens are not valid for this path.
+If `/health` returns install mode and the GitHub App values are missing, the workflow still pre-fills the server, Azure, object-store, sandbox, and LLM install steps, then stops at the GitHub App linkage handoff point. Complete the remaining GitHub step manually in the browser, store the emitted `FABRO_DEPLOY_DEV_TOKEN`, and rerun `.github/workflows/deploy-azure.yml`.
+
+If `/health` returns plain `{"status":"ok"}`, the workflow skips install and continues directly. The authenticated checks run only when `FABRO_DEPLOY_DEV_TOKEN` is already available; otherwise those authenticated checks remain skipped.
 
 ## 5. Install completion
 
-Once the Container App is reachable, let the deploy workflow handle install when `/health` reports install mode. In the supported path, CI can complete install, persist `FABRO_DEPLOY_DEV_TOKEN`, wait for the configured state, and continue with the authenticated checks in the same run.
+Once the Container App is reachable, let the deploy workflow handle install when `/health` reports install mode. In the supported path, CI can complete install headlessly with the pre-existing GitHub App values, persist `FABRO_DEPLOY_DEV_TOKEN`, wait for the configured state, and continue with the authenticated checks in the same run.
 
 If the deploy workflow already observed `/health` return `{"status":"ok","mode":"install"}`, treat that as a
 signal to finish install immediately before attempting any authenticated checks. If `/health` already returns plain
@@ -244,7 +253,7 @@ The server should come up in install mode without relying on install-time `SESSI
 For the supported workflow-managed install path, the bootstrap automation uses a hard-coded dummy OpenAI API key only to
 leave install mode. Replace the resulting LLM provider configuration manually after the deployment succeeds.
 
-If you need the manual fallback instead, open the web install wizard after the Container App is reachable. The workflow is still idempotent across first deploys and later redeploys, but this first workflow run intentionally fails after bringing up the app when `/health` reports install mode and `FABRO_DEPLOY_GITHUB_TOKEN` is absent. That failure is the handoff point for the operator to finish manual install and then rerun `.github/workflows/deploy-azure.yml` for the authenticated validation path.
+If you need the manual fallback instead, open the web install wizard after the Container App is reachable. The workflow is still idempotent across first deploys and later redeploys, but this first workflow run intentionally fails after bringing up the app when `/health` reports install mode and the GitHub App values are missing. That failure is the handoff point for the operator to finish GitHub App linkage manually and then rerun `.github/workflows/deploy-azure.yml` for the authenticated validation path.
 
 For that manual Azure install path, capture or derive the same values the workflow sends to `/install/azure` and `/install/object-store`:
 
@@ -263,8 +272,6 @@ After the manual install succeeds:
 2. Store it in the GitHub `production` environment as `FABRO_DEPLOY_DEV_TOKEN`.
 3. Use the same workflow for every steady-state deploy.
 4. Rerun `.github/workflows/deploy-azure.yml` so the authenticated API check and Azure smoke workflow execute against the configured deployment.
-
-If the install wizard does not show a dev token, revisit the GitHub step and switch the deployment to the token-based path before relying on CI smoke checks.
 
 ## 6. Shared sandbox image and workflow-specific images
 
@@ -347,7 +354,7 @@ Before relying on CI deploys, verify all of the following:
 - the bootstrap root has already created the GitHub Actions OIDC identity and remote backend
 - `terraform/environments/sandbox` has been applied once manually with `fabro_server_enabled = false`
 - the GitHub `production` environment contains every Azure and Terraform variable listed in this guide
-- the install wizard was completed through the GitHub token path and emitted a reusable dev token
+- the GitHub App values are present for headless bootstrap, or manual GitHub App linkage has already completed
 - `FABRO_DEPLOY_DEV_TOKEN` is stored in the GitHub `production` environment
 - the Container App is still configured for exactly one replica
 - the deploy workflow can pass `GET /health`, authenticated `GET /api/v1/models`, and the Azure smoke workflow
@@ -373,7 +380,7 @@ Terraform state, and the live Azure resource group all describe the same environ
 - **The first production deploy is two-phase.** Bootstrap and run the shared environment apply once before expecting CI to deploy the server.
 - **Remote state is required.** Local Terraform state is no longer the supported production path for this environment.
 - **ACI quotas are easy to exhaust.** Trial subscriptions often need stale `fabro-*` container groups cleaned up before retries.
-- **CI smoke checks need a dev token.** For now that means using the token-based GitHub install path instead of the GitHub App path.
+- **CI smoke checks need a dev token.** The headless GitHub App path persists one automatically when the GitHub App values are present; otherwise finish GitHub App linkage manually, store `FABRO_DEPLOY_DEV_TOKEN`, and rerun the workflow.
 - **The smoke workflow validation command is server-backed.** `fabro validate` currently uses server preflight, so it needs a configured server target rather than an unconfigured local machine.
 - **Workflow-specific images are still manual.** This repo only automates the shared deployment substrate.
 
