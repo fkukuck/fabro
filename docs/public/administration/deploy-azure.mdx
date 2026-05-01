@@ -4,7 +4,8 @@ description: "Deploy Fabro to Azure Container Apps with Azure Container Instance
 ---
 
 <Warning>
-  The server interface is in private early access. Contact [bryan@qlty.sh](mailto:bryan@qlty.sh) if you're interested in trying it.
+  The server interface is in private early access. Contact
+  [bryan@qlty.sh](mailto:bryan@qlty.sh) if you're interested in trying it.
 </Warning>
 
 Azure is a good fit for hosting Fabro when you want Azure-native infrastructure for both the long-running control plane and the workflow sandbox runtime. In this setup, `fabro-server` runs in Azure Container Apps, while workflow sandboxes run as Azure Container Instances provisioned by the server.
@@ -12,12 +13,13 @@ Azure is a good fit for hosting Fabro when you want Azure-native infrastructure 
 This guide documents the supported production path for this repo:
 
 - one-time Terraform bootstrap for GitHub Actions OIDC and remote state
-- one manual Terraform apply for the shared Azure environment
-- manual GitHub Actions deploys that build, push, and apply immutable ACR images
+- one manual Terraform apply for the shared Azure environment, with no `-target` workaround
+- manual GitHub Actions deploys that build, push, apply immutable ACR images, and verify a no-op follow-up plan
 - runtime configuration completed through the web install wizard and persisted on `/storage`
 
 <Note>
-  Fabro currently assumes a single active writer on `/storage`. Keep the Azure Container App at exactly one replica.
+  Fabro currently assumes a single active writer on `/storage`. Keep the Azure
+  Container App at exactly one replica.
 </Note>
 
 ## Deployment model
@@ -94,13 +96,19 @@ terraform -chdir=terraform/environments/sandbox init \
   -backend-config="key=<TF_BACKEND_KEY>"
 ```
 
-For the first apply, keep `fabro_server_enabled = false` so Terraform can create the shared infrastructure before the first server image exists:
+For the first apply, keep `fabro_server_enabled = false` and set `github_actions_principal_id` to the bootstrap-created GitHub Actions principal ID so Terraform can grant CI access during greenfield bring-up. Run a normal apply with no `-target` flags:
 
 ```bash
 terraform -chdir=terraform/environments/sandbox apply
 ```
 
-That apply provisions the resource group, networking, storage, ACR, managed identity, Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
+That apply provisions the resource group, networking, storage, ACR, a privileged server identity for `fabro-server`, a separate low-privilege sandbox-pull identity for Azure sandbox image pulls, the role assignment that lets the server attach that sandbox-pull identity to ACI groups, the Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
+
+Record these Terraform outputs for the install flow:
+
+- `storage_account_name`
+- `blob_data_container_name`
+- `acr_identity_resource_id`
 
 ## 3. Configure the GitHub `production` environment
 
@@ -137,14 +145,21 @@ Trigger the manual workflow from GitHub:
 - environment: `production`
 - input: the Git ref to deploy
 
-The deploy workflow does four things:
+The deploy workflow does seven things:
 
 1. Logs into Azure with GitHub OIDC.
 2. Builds and pushes `fabro-server:<deploy-id>` and `fabro-azure-sandbox-base:<deploy-id>` to ACR.
 3. Runs `terraform apply` with the exact immutable `fabro-server` image ref.
-4. Runs post-deploy smoke checks against the live deployment.
+4. Runs a follow-up `terraform plan -detailed-exitcode` to prove the apply reached steady state.
+5. Waits for the new Container App revision to report ready before hitting the live URL.
+6. Runs the authenticated API check and smoke workflow when `FABRO_DEPLOY_DEV_TOKEN` is already set.
+7. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, and whether the token-gated checks ran.
 
 Deploy IDs use `<utc-timestamp>-<short-sha>`, for example `20260428T193500Z-a1b2c3d`.
+
+On the first CI deploy, `FABRO_DEPLOY_DEV_TOKEN` is usually not present yet. In that case the workflow still brings the
+Container App up, runs the rollout wait and unauthenticated `/health` check, and skips the authenticated API check and
+Azure smoke workflow until the install wizard has emitted the reusable dev token.
 
 ## 5. Complete the install wizard
 
@@ -153,8 +168,12 @@ Once the Container App is reachable, open the deployed URL and complete the web 
 The important runtime model is:
 
 - the Container App mounts `/storage`
-- the install wizard writes Fabro runtime state and configuration there
-- later deploys reuse the same persisted state
+- the install wizard writes runtime configuration there
+- the install wizard's `Azure` step should use the Terraform output `acr_identity_resource_id`
+- on the sandbox step, choose `Azure Container Instances` so the wizard writes `provider = "azure"` and reuses the Azure subnet, registry, and managed-identity settings collected on the Azure step
+- the sandbox-attached identity for ACR pulls is the dedicated low-privilege sandbox-pull identity, not the privileged `fabro-server` identity
+- Azure Blob is the durable data plane for artifacts, SlateDB, and archived raw run logs
+- later deploys reuse the same persisted config and Blob-backed runtime data
 
 The server should come up in install mode without relying on install-time `SESSION_SECRET`, `FABRO_DEV_TOKEN`, or `FABRO_AZURE_*` worker env injection from Terraform.
 
@@ -185,7 +204,7 @@ Workflow-specific sandbox images still live in the workflow repositories that us
 
 ## 7. Post-deploy validation
 
-Every production deploy should validate all three of these checks:
+Steady-state production deploys should validate all three of these checks:
 
 1. `GET /health`
 2. authenticated `GET /api/v1/models`
@@ -211,7 +230,53 @@ fabro run /tmp/azure-deploy-smoke.toml \
 
 If the smoke workflow succeeds, the deployed server has proven that it can launch an Azure sandbox using the shared base image.
 
-## 8. Troubleshooting and caveats
+If `FABRO_DEPLOY_DEV_TOKEN` is not set yet, treat the first deploy as install-mode bring-up only. Confirm `/health`,
+finish the install wizard, store the emitted token as `FABRO_DEPLOY_DEV_TOKEN`, and then run the deploy workflow again
+to exercise the authenticated API check and smoke workflow.
+
+## 8. Rollback
+
+Rollbacks use the same workflow. Re-run `.github/workflows/deploy-azure.yml` with the last known-good Git ref.
+That rebuilds immutable images for that ref, repoints Terraform at the older server image, and waits for the
+replacement Container App revision before the smoke checks run.
+
+For an operational rollback:
+
+1. Pick the last deploy whose `/health`, authenticated `/api/v1/models`, and smoke workflow all passed.
+2. Trigger the manual deploy workflow with that Git ref.
+3. Confirm the new workflow run reports a healthy ready revision and passes the post-deploy checks.
+
+Because `/storage` and the Blob-backed runtime data stay in place, this rollback path is intended for code or image
+regressions, not for reverting install-wizard state changes.
+
+## 9. CI validation checklist
+
+Before relying on CI deploys, verify all of the following:
+
+- the bootstrap root has already created the GitHub Actions OIDC identity and remote backend
+- `terraform/environments/sandbox` has been applied once manually with `fabro_server_enabled = false`
+- the GitHub `production` environment contains every Azure and Terraform variable listed in this guide
+- the install wizard was completed through the GitHub token path and emitted a reusable dev token
+- `FABRO_DEPLOY_DEV_TOKEN` is stored in the GitHub `production` environment
+- the Container App is still configured for exactly one replica
+- the deploy workflow can pass `GET /health`, authenticated `GET /api/v1/models`, and the Azure smoke workflow
+
+For the very first CI deploy, the last three checklist items become the follow-up gate after install is complete rather
+than a prerequisite for bringing the app up.
+
+## 10. Fork and resource-group reuse
+
+The supported production shape is one GitHub repository environment driving one steady-state Azure environment.
+
+If you are testing from a fork, create a separate bootstrap state key, GitHub environment, and Azure resource group for
+that fork. Do not point two repositories at the same production backend and resource group unless they are intentionally
+operating the exact same deployment.
+
+If you need to reuse an existing Azure resource group, keep the Terraform backend and all GitHub environment variables
+aligned with the names already provisioned there. The deploy workflow only works when the GitHub environment, the
+Terraform state, and the live Azure resource group all describe the same environment.
+
+## 11. Troubleshooting and caveats
 
 - **Single replica only.** Keep the Container App at one replica.
 - **The first production deploy is two-phase.** Bootstrap and run the shared environment apply once before expecting CI to deploy the server.
@@ -234,13 +299,21 @@ az container delete \
   --yes
 ```
 
-## Next steps
+## 12. Next steps
 
 <Columns cols={2}>
-  <Card title="Running the Fabro Server" icon="server" href="/administration/deploy-server">
+  <Card
+    title="Running the Fabro Server"
+    icon="server"
+    href="/administration/deploy-server"
+  >
     Auth, install mode, and day-two server operations.
   </Card>
-  <Card title="Server Configuration" icon="gear" href="/administration/server-configuration">
+  <Card
+    title="Server Configuration"
+    icon="gear"
+    href="/administration/server-configuration"
+  >
     Full `settings.toml` reference for auth, storage, and run defaults.
   </Card>
 </Columns>

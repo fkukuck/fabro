@@ -14,6 +14,14 @@ output "server_storage_share_name" {
   value = module.storage.server_storage_share_name
 }
 
+output "storage_account_name" {
+  value = module.storage.account_name
+}
+
+output "blob_data_container_name" {
+  value = module.storage.data_container_name
+}
+
 output "acr_login_server" {
   value = module.acr.login_server
 }
@@ -23,7 +31,11 @@ output "acr_name" {
 }
 
 output "managed_identity_client_id" {
-  value = module.identity.client_id
+  value = module.server_identity.client_id
+}
+
+output "acr_identity_resource_id" {
+  value = module.sandbox_pull_identity.id
 }
 
 output "fabro_server_fqdn" {

@@ -56,7 +56,6 @@ import { LoadingState } from "./components/state";
 const INSTALL_STEPS = [
   { id: "welcome", label: "Welcome", href: "/install/welcome" },
   { id: "server", label: "Server", href: "/install/server" },
-  { id: "object_store", label: "Storage", href: "/install/object-store" },
   { id: "azure", label: "Azure", href: "/install/azure" },
   { id: "object_store", label: "Storage", href: "/install/object-store" },
   { id: "sandbox", label: "Sandbox", href: "/install/sandbox" },
@@ -87,13 +86,15 @@ type AppForm = {
 };
 
 type ProviderSelection = Record<string, { apiKey: string }>;
-type ObjectStoreProvider = "local" | "s3";
+type ObjectStoreProvider = "local" | "s3" | "azure";
 type ObjectStoreCredentialMode = "runtime" | "access_key";
 type ObjectStoreForm = {
   provider: ObjectStoreProvider;
   localRoot: string;
   bucket: string;
   region: string;
+  account: string;
+  container: string;
   credentialMode: ObjectStoreCredentialMode;
   accessKeyId: string;
   secretAccessKey: string;
@@ -112,10 +113,8 @@ type AzureForm = {
   location: string;
   subnetId: string;
   acrServer: string;
+  acrIdentityResourceId: string;
   sandboxdPort: string;
-  acrUsername: string;
-  acrPassword: string;
-  acrCredentialsSaved: boolean;
 };
 
 export default function InstallApp() {
@@ -155,10 +154,13 @@ export default function InstallApp() {
   const azureLocationInputRef = useRef<HTMLInputElement>(null);
   const azureSubnetIdInputRef = useRef<HTMLInputElement>(null);
   const azureAcrServerInputRef = useRef<HTMLInputElement>(null);
+  const azureAcrIdentityResourceIdInputRef = useRef<HTMLInputElement>(null);
   const azureSandboxdPortInputRef = useRef<HTMLInputElement>(null);
   const localRootInputRef = useRef<HTMLInputElement>(null);
   const bucketInputRef = useRef<HTMLInputElement>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
+  const accountInputRef = useRef<HTMLInputElement>(null);
+  const containerInputRef = useRef<HTMLInputElement>(null);
   const accessKeyIdInputRef = useRef<HTMLInputElement>(null);
   const secretAccessKeyInputRef = useRef<HTMLInputElement>(null);
   const sandboxApiKeyInputRef = useRef<HTMLInputElement>(null);
@@ -454,7 +456,7 @@ export default function InstallApp() {
       ) : location.pathname === "/install/azure" ? (
         <StepPanel
           title="Connect Azure"
-          description="Save the Azure platform settings Fabro needs for sandbox startup. ACR credentials are optional and stored separately from the config file."
+          description="Save the Azure platform settings Fabro needs for sandbox startup. Fabro uses the ACR identity resource ID you provide to pull sandbox images with managed identity."
           error={saveError}
           submitting={submitting}
           backHref="/install/server"
@@ -484,11 +486,9 @@ export default function InstallApp() {
               focusInput(azureAcrServerInputRef);
               return;
             }
-
-            const acrUsername = azureForm.acrUsername.trim();
-            const acrPassword = azureForm.acrPassword.trim();
-            if ((acrUsername && !acrPassword) || (!acrUsername && acrPassword)) {
-              setSaveError("Enter both ACR username and password, or leave both blank.");
+            if (!azureForm.acrIdentityResourceId.trim()) {
+              setSaveError("Enter the Azure ACR identity resource ID before continuing.");
+              focusInput(azureAcrIdentityResourceIdInputRef);
               return;
             }
 
@@ -500,11 +500,10 @@ export default function InstallApp() {
                   location: azureForm.location.trim(),
                   subnet_id: azureForm.subnetId.trim(),
                   acr_server: azureForm.acrServer.trim(),
+                  acr_identity_resource_id: azureForm.acrIdentityResourceId.trim(),
                   sandboxd_port: azureForm.sandboxdPort.trim()
                     ? Number(azureForm.sandboxdPort.trim())
                     : 7777,
-                  acr_username: acrUsername || undefined,
-                  acr_password: acrPassword || undefined,
                 }),
               fallback: "Failed to save Azure settings.",
               next:     "/install/object-store",
@@ -596,6 +595,23 @@ export default function InstallApp() {
                 autoCapitalize="off"
               />
             </Field>
+            <Field label="ACR identity resource ID">
+              <input
+                ref={azureAcrIdentityResourceIdInputRef}
+                name="azure_acr_identity_resource_id"
+                value={azureForm.acrIdentityResourceId}
+                onChange={(event) =>
+                  setAzureForm((current) => ({
+                    ...current,
+                    acrIdentityResourceId: event.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono`}
+                placeholder="/subscriptions/.../userAssignedIdentities/fabro-acr"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </Field>
             <Field label="Sandboxd port">
               <input
                 ref={azureSandboxdPortInputRef}
@@ -614,35 +630,6 @@ export default function InstallApp() {
                 max={65535}
               />
             </Field>
-            <Field label="ACR username" hint="Optional">
-              <input
-                name="azure_acr_username"
-                value={azureForm.acrUsername}
-                onChange={(event) =>
-                  setAzureForm((current) => ({
-                    ...current,
-                    acrUsername: event.target.value,
-                  }))
-                }
-                className={`${INPUT_CLASS} font-mono`}
-                placeholder="registry user"
-                spellCheck={false}
-                autoCapitalize="off"
-              />
-            </Field>
-            <Field label="ACR password" hint="Optional">
-              <PasswordInput
-                name="azure_acr_password"
-                value={azureForm.acrPassword}
-                onChange={(value) =>
-                  setAzureForm((current) => ({
-                    ...current,
-                    acrPassword: value,
-                  }))
-                }
-                placeholder="registry password"
-              />
-            </Field>
           </div>
         </StepPanel>
       ) : location.pathname === "/install/object-store" ? (
@@ -652,7 +639,7 @@ export default function InstallApp() {
           error={saveError}
           submitting={submitting}
           submittingLabel={
-            objectStoreForm.provider === "s3" ? "Checking access..." : "Saving..."
+            objectStoreForm.provider === "local" ? "Saving..." : "Checking access..."
           }
           backHref="/install/azure"
           onSubmit={async () => {
@@ -662,7 +649,7 @@ export default function InstallApp() {
                 focusInput(localRootInputRef);
                 return;
               }
-            } else {
+            } else if (objectStoreForm.provider === "s3") {
               if (!objectStoreForm.bucket.trim()) {
                 setSaveError("Enter the S3 bucket before continuing.");
                 focusInput(bucketInputRef);
@@ -691,12 +678,23 @@ export default function InstallApp() {
                   return;
                 }
               }
+            } else {
+              if (!objectStoreForm.account.trim()) {
+                setSaveError("Enter the Azure storage account before continuing.");
+                focusInput(accountInputRef);
+                return;
+              }
+              if (!objectStoreForm.container.trim()) {
+                setSaveError("Enter the Azure Blob container before continuing.");
+                focusInput(containerInputRef);
+                return;
+              }
             }
 
             const payload = buildObjectStorePayload(objectStoreForm);
             await runStepSubmit({
               action: async () => {
-                if (objectStoreForm.provider === "s3") {
+                if (objectStoreForm.provider !== "local") {
                   await testInstallObjectStore(installToken, payload);
                 }
                 await putInstallObjectStore(installToken, payload);
@@ -714,6 +712,8 @@ export default function InstallApp() {
               setObjectStoreForm((current) => ({ ...current, provider }));
               if (provider === "s3") {
                 focusInput(bucketInputRef);
+              } else if (provider === "azure") {
+                focusInput(accountInputRef);
               } else {
                 focusInput(localRootInputRef);
               }
@@ -816,6 +816,47 @@ export default function InstallApp() {
                 </p>
               )}
             </div>
+          ) : objectStoreForm.provider === "azure" ? (
+            <div className="space-y-5">
+              <Field label="Storage account">
+                <input
+                  ref={accountInputRef}
+                  name="object_store_account"
+                  value={objectStoreForm.account}
+                  onChange={(event) =>
+                    setObjectStoreForm((current) => ({
+                      ...current,
+                      account: event.target.value,
+                    }))
+                  }
+                  className={`${INPUT_CLASS} font-mono`}
+                  placeholder="fkukuckfabrosbx01"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </Field>
+              <Field label="Blob container">
+                <input
+                  ref={containerInputRef}
+                  name="object_store_container"
+                  value={objectStoreForm.container}
+                  onChange={(event) =>
+                    setObjectStoreForm((current) => ({
+                      ...current,
+                      container: event.target.value,
+                    }))
+                  }
+                  className={`${INPUT_CLASS} font-mono`}
+                  placeholder="fabro-data"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                />
+              </Field>
+              <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+                Fabro will validate access using the Azure runtime identity already
+                configured for the server.
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
               <Field
@@ -847,11 +888,11 @@ export default function InstallApp() {
       ) : location.pathname === "/install/sandbox" ? (
         <StepPanel
           title="Choose the sandbox runtime"
-          description="Workflows run inside this sandbox. Docker uses the host daemon; Daytona runs each sandbox in its cloud."
+          description="Workflows run inside this sandbox. Azure uses the platform settings from the Azure step, Docker uses the host daemon, and Daytona runs each sandbox in its cloud."
           error={saveError}
           submitting={submitting}
           submittingLabel={
-            sandboxForm.provider === "daytona" ? "Checking access..." : "Saving..."
+            sandboxForm.provider === "docker" ? "Saving..." : "Checking access..."
           }
           backHref="/install/object-store"
           onSubmit={async () => {
@@ -868,7 +909,7 @@ export default function InstallApp() {
             const payload = buildSandboxPayload(sandboxForm);
             await runStepSubmit({
               action: async () => {
-                if (sandboxForm.provider === "daytona") {
+                if (sandboxForm.provider !== "docker") {
                   await testInstallSandbox(installToken, payload);
                 }
                 await putInstallSandbox(installToken, payload);
@@ -919,6 +960,12 @@ export default function InstallApp() {
                 />
               </Field>
             </div>
+          ) : sandboxForm.provider === "azure" ? (
+            <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+              Fabro will use the Azure Container Instances settings from the Azure
+              step. Make sure the Azure subnet, registry, and identity settings are
+              saved before continuing.
+            </p>
           ) : (
             <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
               Fabro will use the host Docker daemon. Make sure the server has
@@ -1348,7 +1395,10 @@ function WelcomeScreen() {
             "Object store",
             "Choose local disk or AWS S3 for SlateDB and artifacts.",
           ],
-          ["Sandbox", "Choose Docker or Daytona for workflow execution."],
+          [
+            "Sandbox",
+            "Choose Azure Container Instances, Docker, or Daytona for workflow execution.",
+          ],
           ["LLMs", "Validate API keys for Anthropic, OpenAI, or Gemini."],
           ["GitHub", "Choose a personal access token or a GitHub App."],
           ["Review", "Double-check the plan, then write the files."],
@@ -1667,6 +1717,11 @@ const OBJECT_STORE_PROVIDER_OPTIONS: ReadonlyArray<CardOption<ObjectStoreProvide
     title: "AWS S3",
     body:  "Uses one S3 bucket with fixed slatedb/ and artifacts/ prefixes.",
   },
+  {
+    id:    "azure",
+    title: "Azure Blob",
+    body:  "Uses one Blob container with fixed slatedb/ and artifacts/ prefixes.",
+  },
 ];
 
 const OBJECT_STORE_CREDENTIAL_MODE_OPTIONS: ReadonlyArray<
@@ -1686,9 +1741,14 @@ const OBJECT_STORE_CREDENTIAL_MODE_OPTIONS: ReadonlyArray<
 
 const SANDBOX_PROVIDER_OPTIONS: ReadonlyArray<CardOption<SandboxProvider>> = [
   {
+    id:    "azure",
+    title: "Azure Container Instances",
+    body:  "Use the Azure subnet, registry, and sandbox platform settings saved on the Azure step.",
+  },
+  {
     id:    "docker",
     title: "Docker",
-    body:  "Default. Uses the host Docker daemon to run sandbox containers.",
+    body:  "Uses the host Docker daemon to run sandbox containers.",
   },
   {
     id:    "daytona",
@@ -1988,6 +2048,8 @@ function defaultObjectStoreForm(localRoot = ""): ObjectStoreForm {
     localRoot,
     bucket: "",
     region: "",
+    account: "",
+    container: "",
     credentialMode: "runtime",
     accessKeyId: "",
     secretAccessKey: "",
@@ -2002,10 +2064,8 @@ function defaultAzureForm(): AzureForm {
     location: "",
     subnetId: "",
     acrServer: "",
+    acrIdentityResourceId: "",
     sandboxdPort: "7777",
-    acrUsername: "",
-    acrPassword: "",
-    acrCredentialsSaved: false,
   };
 }
 
@@ -2030,15 +2090,32 @@ function hydrateObjectStoreForm(session: InstallSessionResponse): ObjectStoreFor
       summary?.root ?? session.prefill.object_store_local_root,
     );
   }
+  if (summary.provider === "s3") {
+    return {
+      provider: "s3",
+      localRoot: session.prefill.object_store_local_root,
+      bucket: summary.bucket ?? "",
+      region: summary.region ?? "",
+      account: "",
+      container: "",
+      credentialMode:
+        summary.credential_mode === "access_key" ? "access_key" : "runtime",
+      accessKeyId: "",
+      secretAccessKey: "",
+      manualCredentialsSaved: Boolean(summary.manual_credentials_saved),
+    };
+  }
   return {
-    provider: "s3",
+    provider: "azure",
     localRoot: session.prefill.object_store_local_root,
-    bucket: summary.bucket ?? "",
-    region: summary.region ?? "",
-    credentialMode: summary.credential_mode === "access_key" ? "access_key" : "runtime",
+    bucket: "",
+    region: "",
+    account: summary.account ?? "",
+    container: summary.container ?? "",
+    credentialMode: "runtime",
     accessKeyId: "",
     secretAccessKey: "",
-    manualCredentialsSaved: Boolean(summary.manual_credentials_saved),
+    manualCredentialsSaved: false,
   };
 }
 
@@ -2053,16 +2130,22 @@ function hydrateAzureForm(session: InstallSessionResponse): AzureForm {
     location: summary.location,
     subnetId: summary.subnet_id,
     acrServer: summary.acr_server,
+    acrIdentityResourceId: summary.acr_identity_resource_id,
     sandboxdPort: String(summary.sandboxd_port),
-    acrUsername: "",
-    acrPassword: "",
-    acrCredentialsSaved: Boolean(summary.acr_credentials_saved),
   };
 }
 
 function buildObjectStorePayload(form: ObjectStoreForm): InstallObjectStoreInput {
   if (form.provider === "local") {
     return { provider: "local", root: form.localRoot.trim() };
+  }
+
+  if (form.provider === "azure") {
+    return {
+      provider: "azure",
+      account: form.account.trim(),
+      container: form.container.trim(),
+    };
   }
 
   const payload: InstallObjectStoreInput = {
@@ -2100,13 +2183,16 @@ function hydrateSandboxForm(
     return { ...current, apiKeySaved: Boolean(summary.api_key_saved) };
   }
   return {
-    provider:    summary.provider === "daytona" ? "daytona" : "docker",
+    provider:    summary.provider,
     apiKey:      "",
     apiKeySaved: Boolean(summary.api_key_saved),
   };
 }
 
 function buildSandboxPayload(form: SandboxForm): InstallSandboxInput {
+  if (form.provider === "azure") {
+    return { provider: "azure" };
+  }
   if (form.provider === "docker") {
     return { provider: "docker" };
   }
@@ -2178,11 +2264,12 @@ function renderAzureSummaryRows(
       <SummaryRow label="Location" value={azure.location} mono />
       <SummaryRow label="Subnet" value={azure.subnet_id} mono />
       <SummaryRow label="ACR server" value={azure.acr_server} mono />
-      <SummaryRow label="Sandboxd port" value={String(azure.sandboxd_port)} mono />
       <SummaryRow
-        label="ACR credentials"
-        value={azure.acr_credentials_saved ? "Saved in vault" : "Not provided"}
+        label="ACR identity"
+        value={azure.acr_identity_resource_id}
+        mono
       />
+      <SummaryRow label="Sandboxd port" value={String(azure.sandboxd_port)} mono />
     </>
   );
 }
@@ -2202,6 +2289,17 @@ function renderObjectStoreSummaryRows(
       <>
         <SummaryRow label="Object store" value="Local disk" />
         <SummaryRow label="Directory" value={objectStore.root ?? "Not set"} mono />
+      </>
+    );
+  }
+  if (objectStore.provider === "azure") {
+    return (
+      <>
+        <SummaryRow label="Object store" value="Azure Blob" />
+        <SummaryRow label="Storage account" value={objectStore.account ?? "Not set"} mono />
+        <SummaryRow label="Container" value={objectStore.container ?? "Not set"} mono />
+        <SummaryRow label="Credentials" value="Runtime identity" />
+        <SummaryRow label="Prefixes" value="slatedb/, artifacts/" mono />
       </>
     );
   }
@@ -2239,6 +2337,9 @@ function renderSandboxSummaryRows(
         />
       </>
     );
+  }
+  if (sandbox.provider === "azure") {
+    return <SummaryRow label="Sandbox" value="Azure Container Instances" />;
   }
   return <SummaryRow label="Sandbox" value="Docker" />;
 }

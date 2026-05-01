@@ -141,6 +141,17 @@ impl AzureSandbox {
             .ok_or_else(|| "Azure sandbox not initialized".to_string())
     }
 
+    fn validate_platform_for_creation(&self) -> Result<(), String> {
+        if self.platform.acr_identity_resource_id.trim().is_empty() {
+            return Err(
+                "Azure platform config is missing acr_identity_resource_id; this looks like an old snapshot and cannot be used to create a new Azure sandbox"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
     async fn sandboxd_client(&self) -> Result<&SandboxdClient, String> {
         self.sandboxd
             .get_or_try_init(|| async {
@@ -241,7 +252,7 @@ impl AzureSandbox {
             );
             self.emit(SandboxEvent::GitCloneFailed {
                 url,
-                error:  err.clone(),
+                error: err.clone(),
                 causes: Vec::new(),
             });
             return Err(err.into());
@@ -477,13 +488,13 @@ impl Sandbox for AzureSandbox {
             .read_file(&Self::resolve_path(remote_path))
             .await?;
         if let Some(parent) = local_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|err| {
-                crate::Error::context("Failed to create local parent dirs", err)
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|err| crate::Error::context("Failed to create local parent dirs", err))?;
         }
-        fs::write(local_path, bytes)
-            .await
-            .map_err(|err| crate::Error::context(format!("Failed to write {}", local_path.display()), err))
+        fs::write(local_path, bytes).await.map_err(|err| {
+            crate::Error::context(format!("Failed to write {}", local_path.display()), err)
+        })
     }
 
     async fn upload_file_from_local(
@@ -510,6 +521,7 @@ impl Sandbox for AzureSandbox {
         let resource_id = if let Some(resource_id) = self.resource_id.get() {
             resource_id.clone()
         } else {
+            self.validate_platform_for_creation()?;
             let image = self
                 .runtime
                 .image
@@ -645,8 +657,11 @@ impl Sandbox for AzureSandbox {
         }
     }
 
-    async fn setup_git_for_run(&self, run_id: &str) -> crate::Result<Option<crate::GitRunInfo>> {
-        setup_git_via_exec(self, run_id).await.map(Some)
+    async fn setup_git(
+        &self,
+        intent: &crate::GitSetupIntent,
+    ) -> crate::Result<Option<crate::GitRunInfo>> {
+        setup_git_via_exec(self, intent).await.map(Some)
     }
 
     fn resume_setup_commands(&self, run_branch: &str) -> Vec<String> {
@@ -655,8 +670,8 @@ impl Sandbox for AzureSandbox {
         )]
     }
 
-    async fn git_push_branch(&self, branch: &str) -> bool {
-        git_push_via_exec(self, branch).await
+    async fn git_push_ref(&self, refspec: &str) -> crate::Result<()> {
+        git_push_via_exec(self, refspec).await
     }
 
     fn parallel_worktree_path(
@@ -739,9 +754,8 @@ mod tests {
                 location:        "loc".into(),
                 subnet_id:       "subnet".into(),
                 acr_server:      "acr.azurecr.io".into(),
+                acr_identity_resource_id: "identity".into(),
                 sandboxd_port:   7777,
-                acr_username:    None,
-                acr_password:    None,
             },
             arm:              AzureArmClient::new_with_base_url(
                 fabro_http::http_client().unwrap(),
@@ -751,9 +765,8 @@ mod tests {
                     location:        "loc".into(),
                     subnet_id:       "subnet".into(),
                     acr_server:      "acr.azurecr.io".into(),
+                    acr_identity_resource_id: "identity".into(),
                     sandboxd_port:   7777,
-                    acr_username:    None,
-                    acr_password:    None,
                 },
                 "https://management.azure.com".into(),
             ),
@@ -768,5 +781,50 @@ mod tests {
         };
 
         assert_eq!(sandbox.sandbox_name(), "fabro-01kpjgm228cbvw27w2krje7np1");
+    }
+
+    #[tokio::test]
+    async fn initialize_rejects_missing_acr_identity_resource_id_before_arm_create() {
+        let sandbox = AzureSandbox {
+            runtime:          AzureConfig {
+                image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".into()),
+                cpu:       Some(2.0),
+                memory_gb: Some(4.0),
+            },
+            platform:         AzurePlatformConfig {
+                subscription_id: "sub".into(),
+                resource_group:  "rg".into(),
+                location:        "loc".into(),
+                subnet_id:       "subnet".into(),
+                acr_server:      "acr.azurecr.io".into(),
+                acr_identity_resource_id: String::new(),
+                sandboxd_port:   7777,
+            },
+            arm:              AzureArmClient::new_with_base_url(
+                fabro_http::test_http_client().unwrap(),
+                AzurePlatformConfig {
+                    subscription_id: "sub".into(),
+                    resource_group:  "rg".into(),
+                    location:        "loc".into(),
+                    subnet_id:       "subnet".into(),
+                    acr_server:      "acr.azurecr.io".into(),
+                    acr_identity_resource_id: String::new(),
+                    sandboxd_port:   7777,
+                },
+                "http://127.0.0.1:1".into(),
+            ),
+            resource_id:      OnceCell::new(),
+            sandboxd:         OnceCell::new(),
+            run_id:           None,
+            github_app:       None,
+            clone_origin_url: None,
+            clone_branch:     None,
+            origin_url:       OnceCell::new(),
+            event_callback:   None,
+        };
+
+        let err = sandbox.initialize().await.unwrap_err().to_string();
+        assert!(err.contains("acr_identity_resource_id"));
+        assert!(err.contains("old snapshot") || err.contains("legacy snapshot"));
     }
 }

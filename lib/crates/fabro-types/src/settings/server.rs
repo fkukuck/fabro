@@ -179,23 +179,25 @@ pub struct ServerAzureSandboxSettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerAzurePlatformSettings {
-    pub subscription_id: String,
-    pub resource_group:  String,
-    pub location:        String,
-    pub subnet_id:       String,
-    pub acr_server:      String,
-    pub sandboxd_port:   u16,
+    pub subscription_id:          String,
+    pub resource_group:           String,
+    pub location:                 String,
+    pub subnet_id:                String,
+    pub acr_server:               String,
+    pub acr_identity_resource_id: String,
+    pub sandboxd_port:            u16,
 }
 
 impl Default for ServerAzurePlatformSettings {
     fn default() -> Self {
         Self {
-            subscription_id: String::new(),
-            resource_group:  String::new(),
-            location:        String::new(),
-            subnet_id:       String::new(),
-            acr_server:      String::new(),
-            sandboxd_port:   7777,
+            subscription_id:          String::new(),
+            resource_group:           String::new(),
+            location:                 String::new(),
+            subnet_id:                String::new(),
+            acr_server:               String::new(),
+            acr_identity_resource_id: String::new(),
+            sandboxd_port:            7777,
         }
     }
 }
@@ -249,6 +251,10 @@ pub enum ObjectStoreSettings {
         region:     InterpString,
         endpoint:   Option<InterpString>,
         path_style: bool,
+    },
+    Azure {
+        account:   InterpString,
+        container: InterpString,
     },
 }
 
@@ -369,6 +375,7 @@ where
 pub enum ObjectStoreProvider {
     Local,
     S3,
+    Azure,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

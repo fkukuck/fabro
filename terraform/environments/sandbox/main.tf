@@ -24,6 +24,7 @@ module "storage" {
   location                  = module.resource_group.location
   account_name              = var.storage_account_name
   server_storage_share_name = var.server_storage_share_name
+  data_container_name       = var.blob_data_container_name
   tags                      = var.tags
 }
 
@@ -42,16 +43,33 @@ module "github_actions_access" {
   principal_id      = var.github_actions_principal_id
   resource_group_id = module.resource_group.id
   acr_id            = module.acr.id
-  identity_id       = module.identity.id
+  identity_id       = module.server_identity.id
 }
 
-module "identity" {
+module "sandbox_pull_identity" {
   source              = "../../modules/identity"
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
-  name                = var.identity_name
-  contributor_scope   = module.resource_group.id
+  name                = "${var.identity_name}-sandbox-pull"
+  acr_pull_scope      = module.acr.id
+  acr_pull_enabled    = true
   tags                = var.tags
+}
+
+module "server_identity" {
+  source                  = "../../modules/identity"
+  resource_group_name     = module.resource_group.name
+  location                = module.resource_group.location
+  name                    = var.identity_name
+  contributor_scope       = module.resource_group.id
+  contributor_enabled     = true
+  blob_data_scope         = module.storage.id
+  blob_data_enabled       = true
+  acr_pull_scope          = module.acr.id
+  acr_pull_enabled        = true
+  identity_attach_scope   = module.sandbox_pull_identity.id
+  identity_attach_enabled = true
+  tags                    = var.tags
 }
 
 module "container_apps_env" {
@@ -69,18 +87,17 @@ module "container_apps_env" {
 
 module "fabro_server" {
   source                       = "../../modules/fabro_server"
+  depends_on                   = [module.server_identity]
   enabled                      = var.fabro_server_enabled
   name                         = var.fabro_server_name
   resource_group_name          = module.resource_group.name
   container_app_environment_id = module.container_apps_env.id
   image                        = var.fabro_server_image
   registry_server              = module.acr.login_server
-  registry_username            = module.acr.admin_username
-  registry_password            = module.acr.admin_passwords
   cpu                          = var.fabro_server_cpu
   memory                       = var.fabro_server_memory
-  identity_id                  = module.identity.id
-  identity_client_id           = module.identity.client_id
+  identity_id                  = module.server_identity.id
+  identity_client_id           = module.server_identity.client_id
   storage_attachment_name      = module.container_apps_env.storage_attachment_name
   tags                         = var.tags
 }

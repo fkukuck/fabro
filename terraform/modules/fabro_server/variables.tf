@@ -29,26 +29,6 @@ variable "registry_server" {
   default = null
 }
 
-variable "registry_username" {
-  type      = string
-  sensitive = true
-  default   = null
-}
-
-variable "registry_password" {
-  type      = string
-  sensitive = true
-  default   = null
-
-  validation {
-    condition = (
-      (var.registry_server == null && var.registry_username == null && var.registry_password == null) ||
-      (var.registry_server != null && var.registry_username != null && var.registry_password != null)
-    )
-    error_message = "Set registry_server, registry_username, and registry_password together, or leave all of them null."
-  }
-}
-
 variable "cpu" {
   type    = number
   default = 1

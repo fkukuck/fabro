@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
+use fabro_static::EnvVars;
 use fabro_types::RunId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,19 +85,23 @@ impl RuntimeDirectory {
         Self { root: root.into() }
     }
 
+    fn transient_root(&self) -> PathBuf {
+        server_runtime_dir_override().unwrap_or_else(|| self.root.clone())
+    }
+
     #[must_use]
     pub fn logs_dir(&self) -> PathBuf {
-        self.root.join("logs")
+        self.transient_root().join("logs")
     }
 
     #[must_use]
     pub fn record_path(&self) -> PathBuf {
-        self.root.join("server.json")
+        self.transient_root().join("server.json")
     }
 
     #[must_use]
     pub fn lock_path(&self) -> PathBuf {
-        self.root.join("server.lock")
+        self.transient_root().join("server.lock")
     }
 
     #[must_use]
@@ -163,10 +168,21 @@ impl RunScratch {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "RuntimeDirectory owns the process-env lookup for transient server runtime files."
+)]
+fn server_runtime_dir_override() -> Option<PathBuf> {
+    std::env::var_os(EnvVars::FABRO_SERVER_RUNTIME_DIR)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Local;
     use fabro_types::RunId;
+    use temp_env::with_var;
 
     use super::{RunScratch, RuntimeDirectory, Storage};
 
@@ -246,6 +262,46 @@ mod tests {
         assert_eq!(
             runtime.azure_platform_config_path(),
             std::path::PathBuf::from("/srv/fabro/azure-platform.json")
+        );
+    }
+
+    #[test]
+    fn runtime_directory_can_move_transient_server_files_off_storage_root() {
+        let runtime = RuntimeDirectory::new("/srv/fabro");
+
+        with_var(
+            "FABRO_SERVER_RUNTIME_DIR",
+            Some("/tmp/fabro-runtime"),
+            || {
+                assert_eq!(
+                    runtime.logs_dir(),
+                    std::path::Path::new("/tmp/fabro-runtime/logs")
+                );
+                assert_eq!(
+                    runtime.record_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/server.json")
+                );
+                assert_eq!(
+                    runtime.lock_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/server.lock")
+                );
+                assert_eq!(
+                    runtime.log_path(),
+                    std::path::Path::new("/tmp/fabro-runtime/logs/server.log")
+                );
+                assert_eq!(
+                    runtime.env_path(),
+                    std::path::Path::new("/srv/fabro/server.env")
+                );
+                assert_eq!(
+                    runtime.azure_platform_config_path(),
+                    std::path::Path::new("/srv/fabro/azure-platform.json")
+                );
+                assert_eq!(
+                    runtime.dev_token_path(),
+                    std::path::Path::new("/srv/fabro/server.dev-token")
+                );
+            },
         );
     }
 

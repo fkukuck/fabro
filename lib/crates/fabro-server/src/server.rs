@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::str::FromStr;
@@ -91,6 +90,7 @@ use fabro_workflow::run_lookup::{
 };
 use fabro_workflow::run_status::{FailureReason, RunStatus, SuccessReason};
 use fabro_workflow::{Error as WorkflowError, operations, pull_request};
+use object_store::ObjectStore;
 use object_store::memory::InMemory as MemoryObjectStore;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
@@ -129,10 +129,13 @@ use crate::worker_token::{
     WorkerTokenKeys, issue_worker_token,
 };
 use crate::{
-    canonical_host, demo, diagnostics, run_manifest, security_headers, static_files, web_auth,
+    canonical_host, demo, diagnostics, run_logs, run_manifest, security_headers, static_files,
+    web_auth,
 };
 
 pub(crate) type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+const DURABLE_RUN_LOG_PREFIX: &str = "run-logs";
 
 pub fn default_page_limit() -> u32 {
     20
@@ -547,6 +550,7 @@ pub struct AppState {
     aggregate_billing: Mutex<BillingAccumulator>,
     store: Arc<Database>,
     artifact_store: ArtifactStore,
+    run_log_store: Arc<dyn ObjectStore>,
     worker_tokens: WorkerTokenKeys,
     started_at: Instant,
     max_concurrent_runs: usize,
@@ -625,6 +629,7 @@ pub(crate) struct AppStateConfig {
     pub(crate) max_concurrent_runs:       usize,
     pub(crate) store:                     Arc<Database>,
     pub(crate) artifact_store:            ArtifactStore,
+    pub(crate) run_log_store:             Arc<dyn ObjectStore>,
     pub(crate) vault_path:                PathBuf,
     pub(crate) server_secrets:            ServerSecrets,
     pub(crate) env_lookup:                EnvLookup,
@@ -691,6 +696,10 @@ impl AppState {
             resolve_interp_string(&self.server_settings().server.storage.root)
                 .expect("server storage root should be resolved at startup"),
         )
+    }
+
+    pub(crate) fn run_log_store(&self) -> &Arc<dyn ObjectStore> {
+        &self.run_log_store
     }
 
     pub(crate) async fn resolve_llm_client(&self) -> Result<LlmClientResult, String> {
@@ -2529,7 +2538,7 @@ pub fn create_app_state_with_runtime_settings_and_options_and_registry_factory(
     max_concurrent_runs: usize,
     registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
 ) -> Arc<AppState> {
-    let (store, artifact_store) = test_store_bundle();
+    let (store, artifact_store, run_log_store) = test_store_bundle();
     let vault_path = test_secret_store_path();
     let server_env_path = vault_path.with_file_name("server.env");
     let env_lookup = default_env_lookup();
@@ -2542,6 +2551,7 @@ pub fn create_app_state_with_runtime_settings_and_options_and_registry_factory(
         max_concurrent_runs,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
         env_lookup,
@@ -2592,7 +2602,7 @@ pub fn create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_e
     env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
     server_secret_env: &HashMap<String, String>,
 ) -> Arc<AppState> {
-    let (store, artifact_store) = test_store_bundle();
+    let (store, artifact_store, run_log_store) = test_store_bundle();
     let env_lookup: EnvLookup = Arc::new(env_lookup);
     let vault_path = test_secret_store_path();
     let server_env_path = vault_path.with_file_name("server.env");
@@ -2605,6 +2615,7 @@ pub fn create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_e
         max_concurrent_runs,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, server_secret_env.clone()),
         env_lookup,
@@ -2668,7 +2679,7 @@ pub(crate) fn create_test_app_state_with_runtime_settings_and_session_key(
         )
         .expect("test server env should be writable");
     }
-    let (store, artifact_store) = test_store_bundle();
+    let (store, artifact_store, run_log_store) = test_store_bundle();
     let env_lookup = default_env_lookup();
     build_app_state(AppStateConfig {
         resolved_settings: resolved_runtime_settings_for_tests(
@@ -2679,6 +2690,7 @@ pub(crate) fn create_test_app_state_with_runtime_settings_and_session_key(
         max_concurrent_runs: 5,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
         env_lookup,
@@ -2717,7 +2729,7 @@ pub fn create_app_state_with_store(
     )
 }
 
-fn test_store_bundle() -> (Arc<Database>, ArtifactStore) {
+fn test_store_bundle() -> (Arc<Database>, ArtifactStore, Arc<dyn ObjectStore>) {
     let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(MemoryObjectStore::new());
     let store = Arc::new(fabro_store::Database::new(
         Arc::clone(&object_store),
@@ -2725,8 +2737,8 @@ fn test_store_bundle() -> (Arc<Database>, ArtifactStore) {
         Duration::from_millis(1),
         None,
     ));
-    let artifact_store = ArtifactStore::new(object_store, "artifacts");
-    (store, artifact_store)
+    let artifact_store = ArtifactStore::new(Arc::clone(&object_store), "artifacts");
+    (store, artifact_store, object_store)
 }
 
 #[doc(hidden)]
@@ -2737,6 +2749,7 @@ pub fn create_app_state_with_store_and_runtime_settings(
     store: Arc<Database>,
     artifact_store: ArtifactStore,
 ) -> Arc<AppState> {
+    let run_log_store: Arc<dyn ObjectStore> = Arc::new(MemoryObjectStore::new());
     let vault_path = test_secret_store_path();
     let server_env_path = vault_path.with_file_name("server.env");
     build_app_state(AppStateConfig {
@@ -2748,6 +2761,7 @@ pub fn create_app_state_with_store_and_runtime_settings(
         max_concurrent_runs,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
         env_lookup: default_env_lookup(),
@@ -2806,6 +2820,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         max_concurrent_runs,
         store,
         artifact_store,
+        run_log_store,
         vault_path,
         server_secrets,
         env_lookup,
@@ -2865,6 +2880,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         aggregate_billing: Mutex::new(BillingAccumulator::default()),
         store,
         artifact_store,
+        run_log_store,
         worker_tokens,
         started_at: Instant::now(),
         max_concurrent_runs,
@@ -4824,17 +4840,32 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         agg.total_runtime_secs += run_runtime;
     }
 
-    let mut runs = state.runs.lock().expect("runs lock poisoned");
-    if let Some(managed_run) = runs.get_mut(&run_id) {
-        match &result {
-            ExecutionResult::Completed(result) => match result.as_ref() {
-                Ok(started) => match &started.finalized.outcome {
-                    Ok(_) => {
-                        info!(run_id = %run_id, "Run completed");
-                        managed_run.status = RunStatus::Succeeded {
-                            reason: SuccessReason::Completed,
-                        };
-                    }
+    {
+        let mut runs = state.runs.lock().expect("runs lock poisoned");
+        if let Some(managed_run) = runs.get_mut(&run_id) {
+            match &result {
+                ExecutionResult::Completed(result) => match result.as_ref() {
+                    Ok(started) => match &started.finalized.outcome {
+                        Ok(_) => {
+                            info!(run_id = %run_id, "Run completed");
+                            managed_run.status = RunStatus::Succeeded {
+                                reason: SuccessReason::Completed,
+                            };
+                        }
+                        Err(WorkflowError::Cancelled) => {
+                            info!(run_id = %run_id, "Run cancelled");
+                            managed_run.status = RunStatus::Failed {
+                                reason: FailureReason::Cancelled,
+                            };
+                        }
+                        Err(e) => {
+                            error!(run_id = %run_id, error = %e, "Run failed");
+                            managed_run.status = RunStatus::Failed {
+                                reason: FailureReason::WorkflowError,
+                            };
+                            managed_run.error = Some(e.to_string());
+                        }
+                    },
                     Err(WorkflowError::Cancelled) => {
                         info!(run_id = %run_id, "Run cancelled");
                         managed_run.status = RunStatus::Failed {
@@ -4849,32 +4880,19 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
                         managed_run.error = Some(e.to_string());
                     }
                 },
-                Err(WorkflowError::Cancelled) => {
+                ExecutionResult::CancelledBySignal => {
                     info!(run_id = %run_id, "Run cancelled");
                     managed_run.status = RunStatus::Failed {
                         reason: FailureReason::Cancelled,
                     };
                 }
-                Err(e) => {
-                    error!(run_id = %run_id, error = %e, "Run failed");
-                    managed_run.status = RunStatus::Failed {
-                        reason: FailureReason::WorkflowError,
-                    };
-                    managed_run.error = Some(e.to_string());
-                }
-            },
-            ExecutionResult::CancelledBySignal => {
-                info!(run_id = %run_id, "Run cancelled");
-                managed_run.status = RunStatus::Failed {
-                    reason: FailureReason::Cancelled,
-                };
             }
+            managed_run.checkpoint = checkpoint;
+            managed_run.run_dir = Some(run_dir);
+            clear_live_run_state(managed_run);
         }
-        managed_run.checkpoint = checkpoint;
-        managed_run.run_dir = Some(run_dir);
-        clear_live_run_state(managed_run);
     }
-    drop(runs);
+    archive_terminal_run_log_if_present(&state, &run_id).await;
     state.scheduler_notify.notify_one();
 }
 
@@ -5141,25 +5159,27 @@ async fn execute_run_subprocess(state: Arc<AppState>, run_id: RunId) {
         agg.total_runtime_secs += run_runtime;
     }
 
-    let mut runs = state.runs.lock().expect("runs lock poisoned");
-    if let Some(managed_run) = runs.get_mut(&run_id) {
-        if let Some(status) = final_state.status {
-            managed_run.status = status;
-        } else if !wait_status.success() {
-            managed_run.status = RunStatus::Failed {
-                reason: FailureReason::Terminated,
-            };
+    {
+        let mut runs = state.runs.lock().expect("runs lock poisoned");
+        if let Some(managed_run) = runs.get_mut(&run_id) {
+            if let Some(status) = final_state.status {
+                managed_run.status = status;
+            } else if !wait_status.success() {
+                managed_run.status = RunStatus::Failed {
+                    reason: FailureReason::Terminated,
+                };
+            }
+            managed_run.error = final_state
+                .conclusion
+                .as_ref()
+                .and_then(|conclusion| conclusion.failure_reason.clone())
+                .or_else(|| managed_run.error.clone());
+            managed_run.checkpoint = final_state.checkpoint;
+            managed_run.run_dir = Some(run_dir);
+            clear_live_run_state(managed_run);
         }
-        managed_run.error = final_state
-            .conclusion
-            .as_ref()
-            .and_then(|conclusion| conclusion.failure_reason.clone())
-            .or_else(|| managed_run.error.clone());
-        managed_run.checkpoint = final_state.checkpoint;
-        managed_run.run_dir = Some(run_dir);
-        clear_live_run_state(managed_run);
     }
-    drop(runs);
+    archive_terminal_run_log_if_present(&state, &run_id).await;
     state.scheduler_notify.notify_one();
 }
 
@@ -5354,19 +5374,23 @@ async fn get_run_logs(
         return ApiError::not_found("Run not found.").into_response();
     }
 
-    let path = Storage::new(state.server_storage_dir())
-        .run_scratch(&id)
-        .runtime_dir()
-        .join("server.log");
-    match fs::read(&path).await {
-        Ok(bytes) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes).into_response(),
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            ApiError::not_found("Run log not available.").into_response()
-        }
+    if let Some(bytes) = match run_logs::read_durable_run_log(
+        Arc::clone(state.run_log_store()),
+        DURABLE_RUN_LOG_PREFIX,
+        &id,
+    )
+    .await
+    {
+        Ok(bytes) => bytes,
         Err(err) => {
-            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+                .into_response();
         }
+    } {
+        return ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], bytes).into_response();
     }
+
+    ApiError::not_found("Run log not available.").into_response()
 }
 
 async fn get_run_stage_command_log(
@@ -5515,6 +5539,77 @@ fn build_command_log_response(
         live_streaming,
     })
     .into_response()
+}
+
+async fn archive_terminal_run_log_if_present(state: &Arc<AppState>, run_id: &RunId) {
+    let local_log_path = Storage::new(state.server_storage_dir())
+        .run_scratch(run_id)
+        .runtime_dir()
+        .join("server.log");
+
+    match fs::try_exists(&local_log_path).await {
+        Ok(false) => {}
+        Ok(true) => {
+            if let Err(err) = run_logs::archive_terminal_run_log(
+                Arc::clone(state.run_log_store()),
+                DURABLE_RUN_LOG_PREFIX,
+                run_id,
+                &local_log_path,
+            )
+            .await
+            {
+                surface_durable_run_log_archive_failure(state, run_id, err.to_string()).await;
+            }
+        }
+        Err(err) => {
+            surface_durable_run_log_archive_failure(state, run_id, err.to_string()).await;
+        }
+    }
+}
+
+async fn surface_durable_run_log_archive_failure(
+    state: &Arc<AppState>,
+    run_id: &RunId,
+    error_text: String,
+) {
+    let message = format!("Durable run log archive failed: {error_text}");
+    error!(run_id = %run_id, error = %error_text, "Durable run log archive failed");
+
+    {
+        let mut runs = state.runs.lock().expect("runs lock poisoned");
+        if let Some(managed_run) = runs.get_mut(run_id) {
+            managed_run.error = Some(match managed_run.error.as_deref() {
+                Some(existing) if existing.contains(&message) => existing.to_string(),
+                Some(existing) => format!("{existing}\n{message}"),
+                None => message.clone(),
+            });
+        }
+    }
+
+    match state.store.open_run(run_id).await {
+        Ok(run_store) => {
+            let event = workflow_event::Event::RunNotice {
+                level:   workflow_event::RunNoticeLevel::Error,
+                code:    "durable_run_log_archive_failed".to_string(),
+                message: message.clone(),
+            };
+            if let Err(notice_err) = workflow_event::append_event(&run_store, run_id, &event).await
+            {
+                warn!(
+                    run_id = %run_id,
+                    error = %notice_err,
+                    "Failed to append terminal run log archive failure notice"
+                );
+            }
+        }
+        Err(open_err) => {
+            warn!(
+                run_id = %run_id,
+                error = %open_err,
+                "Failed to open run store for terminal run log archive failure notice"
+            );
+        }
+    }
 }
 
 #[expect(
@@ -8257,12 +8352,14 @@ async fn get_graph_source(
 )]
 mod tests {
     use std::collections::HashMap;
+    use std::fmt;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     #[cfg(unix)]
     use std::process::Stdio;
 
+    use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::{Method, Request, header};
     use chrono::{Duration as ChronoDuration, Utc};
@@ -8280,6 +8377,12 @@ mod tests {
     };
     use httpmock::Method::POST;
     use httpmock::MockServer;
+    use object_store::memory::InMemory;
+    use object_store::path::Path as ObjectStorePath;
+    use object_store::{
+        GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
+        PutMultipartOptions, PutOptions, PutPayload, PutResult,
+    };
     use serde_json::json;
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt;
@@ -8301,6 +8404,84 @@ mod tests {
     const TEST_JWT_ISSUER: &str = "https://fabro.example";
     const WRONG_DEV_TOKEN: &str =
         "fabro_dev_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+
+    #[derive(Debug, Default)]
+    struct FailingPutObjectStore {
+        inner: InMemory,
+    }
+
+    impl fmt::Display for FailingPutObjectStore {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("failing-put-object-store")
+        }
+    }
+
+    #[async_trait]
+    impl ObjectStore for FailingPutObjectStore {
+        async fn put_opts(
+            &self,
+            location: &ObjectStorePath,
+            _payload: PutPayload,
+            _opts: PutOptions,
+        ) -> object_store::Result<PutResult> {
+            Err(object_store::Error::Generic {
+                store:  "failing-put-object-store",
+                source: Box::new(std::io::Error::other(format!(
+                    "refused durable write for {location}"
+                ))),
+            })
+        }
+
+        async fn put_multipart_opts(
+            &self,
+            location: &ObjectStorePath,
+            opts: PutMultipartOptions,
+        ) -> object_store::Result<Box<dyn MultipartUpload>> {
+            self.inner.put_multipart_opts(location, opts).await
+        }
+
+        async fn get_opts(
+            &self,
+            location: &ObjectStorePath,
+            options: GetOptions,
+        ) -> object_store::Result<GetResult> {
+            self.inner.get_opts(location, options).await
+        }
+
+        async fn delete(&self, location: &ObjectStorePath) -> object_store::Result<()> {
+            self.inner.delete(location).await
+        }
+
+        fn list(
+            &self,
+            prefix: Option<&ObjectStorePath>,
+        ) -> futures_util::stream::BoxStream<'static, object_store::Result<ObjectMeta>> {
+            self.inner.list(prefix)
+        }
+
+        async fn list_with_delimiter(
+            &self,
+            prefix: Option<&ObjectStorePath>,
+        ) -> object_store::Result<ListResult> {
+            self.inner.list_with_delimiter(prefix).await
+        }
+
+        async fn copy(
+            &self,
+            from: &ObjectStorePath,
+            to: &ObjectStorePath,
+        ) -> object_store::Result<()> {
+            self.inner.copy(from, to).await
+        }
+
+        async fn copy_if_not_exists(
+            &self,
+            from: &ObjectStorePath,
+            to: &ObjectStorePath,
+        ) -> object_store::Result<()> {
+            self.inner.copy_if_not_exists(from, to).await
+        }
+    }
 
     fn manifest_run_defaults_from_toml(source: &str) -> fabro_config::RunLayer {
         let mut document: toml::Table = source.parse().expect("run defaults should parse");
@@ -8366,6 +8547,48 @@ methods = ["dev-token"]
             manifest_run_defaults_from_toml(&source),
             5,
         )
+    }
+
+    fn create_app_state_with_isolated_storage_and_run_log_store(
+        run_log_store: Arc<dyn ObjectStore>,
+    ) -> Arc<AppState> {
+        let storage_dir = std::env::temp_dir().join(format!("fabro-server-test-{}", Ulid::new()));
+        std::fs::create_dir_all(&storage_dir).expect("test storage dir should be creatable");
+        let source = format!(
+            r#"
+_version = 1
+
+[server.storage]
+root = "{}"
+
+[server.auth]
+methods = ["dev-token"]
+"#,
+            storage_dir.display()
+        );
+        let (store, artifact_store, _) = test_store_bundle();
+        let vault_path = test_secret_store_path();
+        let server_env_path = vault_path.with_file_name("server.env");
+
+        build_app_state(AppStateConfig {
+            resolved_settings: resolved_runtime_settings_for_tests(
+                server_settings_from_toml(&source),
+                manifest_run_defaults_from_toml(&source),
+            ),
+            registry_factory_override: None,
+            max_concurrent_runs: 5,
+            store,
+            artifact_store,
+            run_log_store,
+            vault_path,
+            server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
+            env_lookup: default_env_lookup(),
+            github_api_base_url: None,
+            http_client: Some(
+                fabro_http::test_http_client().expect("test HTTP client should build"),
+            ),
+        })
+        .expect("test app state should build")
     }
 
     async fn body_json(body: Body) -> serde_json::Value {
@@ -9582,7 +9805,7 @@ _version = 1
 methods = ["dev-token"]
 "#,
         );
-        let (store, artifact_store) = test_store_bundle();
+        let (store, artifact_store, run_log_store) = test_store_bundle();
         let vault_path = test_secret_store_path();
         let server_env_path = vault_path.with_file_name("server.env");
         let Err(err) = build_app_state(AppStateConfig {
@@ -9594,6 +9817,7 @@ methods = ["dev-token"]
             max_concurrent_runs: 5,
             store,
             artifact_store,
+            run_log_store,
             vault_path,
             server_secrets: ServerSecrets::load(server_env_path, HashMap::new()).unwrap(),
             env_lookup: default_env_lookup(),
@@ -9644,10 +9868,12 @@ acr_server = "fabro.azurecr.io"
             )]),
         );
 
-        assert!(Storage::new(storage_dir.path())
-            .runtime_directory()
-            .azure_platform_config_path()
-            .exists());
+        assert!(
+            Storage::new(storage_dir.path())
+                .runtime_directory()
+                .azure_platform_config_path()
+                .exists()
+        );
     }
 
     fn worker_command_test_state(
@@ -10133,7 +10359,7 @@ strategy = "token"
         github_api_base_url: Option<String>,
         env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
     ) -> Arc<AppState> {
-        let (store, artifact_store) = test_store_bundle();
+        let (store, artifact_store, run_log_store) = test_store_bundle();
         let vault_path = test_secret_store_path();
         let server_env_path = vault_path.with_file_name("server.env");
         let config = AppStateConfig {
@@ -10145,6 +10371,7 @@ strategy = "token"
             max_concurrent_runs: 5,
             store,
             artifact_store,
+            run_log_store,
             vault_path,
             server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
             env_lookup: Arc::new(env_lookup),
@@ -10965,7 +11192,75 @@ slug = "fabro"
     }
 
     #[tokio::test]
-    async fn get_run_logs_returns_per_run_log_file() {
+    async fn get_run_logs_returns_durable_log_file() {
+        let state = create_app_state_with_isolated_storage();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = RunId::new();
+        create_durable_run_with_events(&state, run_id, &[workflow_event::Event::RunSubmitted {
+            definition_blob: None,
+        }])
+        .await;
+
+        state
+            .run_log_store()
+            .put(
+                &crate::run_logs::durable_run_log_path("run-logs", &run_id),
+                bytes::Bytes::from_static(b"worker log line\nsecond line\n").into(),
+            )
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api(&format!("/runs/{run_id}/logs")))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body = response_bytes!(response, StatusCode::OK).await;
+
+        assert_eq!(content_type.as_deref(), Some("text/plain; charset=utf-8"));
+        assert_eq!(&body[..], b"worker log line\nsecond line\n");
+    }
+
+    #[tokio::test]
+    async fn get_run_logs_returns_archived_log_when_scratch_log_is_missing() {
+        let state = create_app_state_with_isolated_storage();
+        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let run_id = RunId::new();
+        create_durable_run_with_events(&state, run_id, &[workflow_event::Event::RunSubmitted {
+            definition_blob: None,
+        }])
+        .await;
+
+        state
+            .run_log_store()
+            .put(
+                &crate::run_logs::durable_run_log_path("run-logs", &run_id),
+                bytes::Bytes::from_static(b"archived worker log\n").into(),
+            )
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(api(&format!("/runs/{run_id}/logs")))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        let body = response_bytes!(response, StatusCode::OK).await;
+
+        assert_eq!(&body[..], b"archived worker log\n");
+    }
+
+    #[tokio::test]
+    async fn get_run_logs_returns_not_found_when_only_scratch_log_exists() {
         let state = create_app_state_with_isolated_storage();
         let app = build_router(Arc::clone(&state), AuthMode::Disabled);
         let run_id = RunId::new();
@@ -10991,15 +11286,182 @@ slug = "fabro"
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        let content_type = response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let body = response_bytes!(response, StatusCode::OK).await;
+        assert_status!(response, StatusCode::NOT_FOUND).await;
+    }
 
-        assert_eq!(content_type.as_deref(), Some("text/plain; charset=utf-8"));
-        assert_eq!(&body[..], b"worker log line\nsecond line\n");
+    #[tokio::test]
+    async fn archive_terminal_run_log_failure_preserves_terminal_status_and_records_error() {
+        let state = create_app_state_with_isolated_storage_and_run_log_store(Arc::new(
+            FailingPutObjectStore::default(),
+        ));
+        let run_id = RunId::new();
+        let run_dir = Storage::new(state.server_storage_dir())
+            .run_scratch(&run_id)
+            .root()
+            .to_path_buf();
+
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+            workflow_event::Event::WorkflowRunCompleted {
+                duration_ms:          0,
+                artifact_count:       0,
+                status:               "success".to_string(),
+                reason:               SuccessReason::Completed,
+                total_usd_micros:     None,
+                final_git_commit_sha: None,
+                final_patch:          None,
+                billing:              None,
+            },
+        ])
+        .await;
+
+        {
+            let mut runs = state.runs.lock().expect("runs lock poisoned");
+            let mut run = managed_run(
+                String::new(),
+                RunStatus::Succeeded {
+                    reason: SuccessReason::Completed,
+                },
+                run_id.created_at(),
+                run_dir,
+                RunExecutionMode::Start,
+            );
+            run.error = Some("real workflow failure".to_string());
+            runs.insert(run_id, run);
+        }
+
+        let log_path = Storage::new(state.server_storage_dir())
+            .run_scratch(&run_id)
+            .runtime_dir()
+            .join("server.log");
+        tokio::fs::create_dir_all(log_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&log_path, b"worker log line\n")
+            .await
+            .unwrap();
+
+        archive_terminal_run_log_if_present(&state, &run_id).await;
+
+        let runs = state.runs.lock().expect("runs lock poisoned");
+        let managed_run = runs.get(&run_id).expect("managed run should exist");
+        assert_eq!(managed_run.status, RunStatus::Succeeded {
+            reason: SuccessReason::Completed,
+        });
+        assert!(
+            managed_run.error.as_deref().is_some_and(|error| {
+                error.contains("real workflow failure")
+                    && error.contains("Durable run log archive failed:")
+            }),
+            "expected archive failure in managed run error, got {:?}",
+            managed_run.error
+        );
+
+        let run_store = state.store.open_run_reader(&run_id).await.unwrap();
+        let events = run_store.list_events().await.unwrap();
+        let notice = events
+            .last()
+            .expect("archive failure notice should be appended");
+        assert!(matches!(
+            &notice.event.body,
+            EventBody::RunNotice(props)
+                if props.code == "durable_run_log_archive_failed"
+                    && props.message.contains("Durable run log archive failed:")
+        ));
+        let run_state = run_store.state().await.unwrap();
+        assert_eq!(
+            run_state.status,
+            Some(RunStatus::Succeeded {
+                reason: SuccessReason::Completed,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_terminal_run_log_try_exists_failure_records_error_and_notice() {
+        let state = create_app_state_with_isolated_storage();
+        let run_id = RunId::new();
+        let run_dir = Storage::new(state.server_storage_dir())
+            .run_scratch(&run_id)
+            .root()
+            .to_path_buf();
+
+        create_durable_run_with_events(&state, run_id, &[
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+            workflow_event::Event::WorkflowRunCompleted {
+                duration_ms:          0,
+                artifact_count:       0,
+                status:               "success".to_string(),
+                reason:               SuccessReason::Completed,
+                total_usd_micros:     None,
+                final_git_commit_sha: None,
+                final_patch:          None,
+                billing:              None,
+            },
+        ])
+        .await;
+
+        {
+            let mut runs = state.runs.lock().expect("runs lock poisoned");
+            runs.insert(
+                run_id,
+                managed_run(
+                    String::new(),
+                    RunStatus::Succeeded {
+                        reason: SuccessReason::Completed,
+                    },
+                    run_id.created_at(),
+                    run_dir,
+                    RunExecutionMode::Start,
+                ),
+            );
+        }
+
+        let runtime_path = Storage::new(state.server_storage_dir())
+            .run_scratch(&run_id)
+            .runtime_dir();
+        tokio::fs::create_dir_all(runtime_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&runtime_path, b"not a directory")
+            .await
+            .unwrap();
+
+        archive_terminal_run_log_if_present(&state, &run_id).await;
+
+        let runs = state.runs.lock().expect("runs lock poisoned");
+        let managed_run = runs.get(&run_id).expect("managed run should exist");
+        assert_eq!(managed_run.status, RunStatus::Succeeded {
+            reason: SuccessReason::Completed,
+        });
+        assert!(
+            managed_run
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Durable run log archive failed:")),
+            "expected try_exists failure in managed run error, got {:?}",
+            managed_run.error
+        );
+
+        let run_store = state.store.open_run_reader(&run_id).await.unwrap();
+        let events = run_store.list_events().await.unwrap();
+        let notice = events
+            .last()
+            .expect("archive failure notice should be appended");
+        assert!(matches!(
+            &notice.event.body,
+            EventBody::RunNotice(props)
+                if props.code == "durable_run_log_archive_failed"
+                    && props.message.contains("Durable run log archive failed:")
+        ));
     }
 
     #[tokio::test]

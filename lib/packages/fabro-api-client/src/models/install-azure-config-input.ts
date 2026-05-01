@@ -23,8 +23,7 @@ export interface InstallAzureConfigInput {
     'location': string;
     'subnet_id': string;
     'acr_server': string;
+    'acr_identity_resource_id': string;
     'sandboxd_port'?: number;
-    'acr_username'?: string;
-    'acr_password'?: string;
 }
 

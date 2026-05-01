@@ -314,7 +314,7 @@ paths:
       operationId: testInstallSandbox
       tags: [Install]
       summary: Validate install sandbox configuration
-      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker and Azure, returns ok without further checks, but Azure requires the Azure platform step to be completed first. Requires the one-time install token.
       security: []
       requestBody:
         required: true
@@ -3275,6 +3275,7 @@ components:
         - location
         - subnet_id
         - acr_server
+        - acr_identity_resource_id
       properties:
         subscription_id:
           type: string
@@ -3286,15 +3287,13 @@ components:
           type: string
         acr_server:
           type: string
+        acr_identity_resource_id:
+          type: string
         sandboxd_port:
           type: integer
           format: int32
           minimum: 1
           maximum: 65535
-        acr_username:
-          type: string
-        acr_password:
-          type: string
 
     InstallAzureSummary:
       description: Redacted summary of persisted Azure platform install choices.
@@ -3305,8 +3304,8 @@ components:
         - location
         - subnet_id
         - acr_server
+        - acr_identity_resource_id
         - sandboxd_port
-        - acr_credentials_saved
       properties:
         subscription_id:
           type: string
@@ -3318,11 +3317,11 @@ components:
           type: string
         acr_server:
           type: string
+        acr_identity_resource_id:
+          type: string
         sandboxd_port:
           type: integer
           format: int32
-        acr_credentials_saved:
-          type: boolean
 
     InstallObjectStoreValidationResponse:
       description: Successful response from install-time object-store validation.
@@ -3336,15 +3335,39 @@ components:
 
     InstallObjectStoreInput:
       description: Object-store mode selected during browser install.
+      discriminator:
+        propertyName: provider
+        mapping:
+          local: "#/components/schemas/InstallObjectStoreLocalInput"
+          s3: "#/components/schemas/InstallObjectStoreS3Input"
+          azure: "#/components/schemas/InstallObjectStoreAzureInput"
+      oneOf:
+        - $ref: "#/components/schemas/InstallObjectStoreLocalInput"
+        - $ref: "#/components/schemas/InstallObjectStoreS3Input"
+        - $ref: "#/components/schemas/InstallObjectStoreAzureInput"
+
+    InstallObjectStoreLocalInput:
       type: object
       required:
         - provider
+        - root
       properties:
         provider:
           type: string
-          enum: [local, s3]
+          enum: [local]
         root:
           type: string
+
+    InstallObjectStoreS3Input:
+      type: object
+      required:
+        - provider
+        - bucket
+        - region
+      properties:
+        provider:
+          type: string
+          enum: [s3]
         bucket:
           type: string
         region:
@@ -3357,6 +3380,21 @@ components:
         secret_access_key:
           type: string
 
+    InstallObjectStoreAzureInput:
+      type: object
+      required:
+        - provider
+        - account
+        - container
+      properties:
+        provider:
+          type: string
+          enum: [azure]
+        account:
+          type: string
+        container:
+          type: string
+
     InstallObjectStoreSummary:
       description: Redacted summary of the object-store mode selected during browser install.
       type: object
@@ -3365,12 +3403,16 @@ components:
       properties:
         provider:
           type: string
-          enum: [local, s3]
+          enum: [local, s3, azure]
         root:
           type: string
         bucket:
           type: string
         region:
+          type: string
+        account:
+          type: string
+        container:
           type: string
         credential_mode:
           type: string
@@ -3389,14 +3431,14 @@ components:
           example: true
 
     InstallSandboxInput:
-      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker.
+      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker and Azure.
       type: object
       required:
         - provider
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, azure]
         api_key:
           type: string
 
@@ -3408,7 +3450,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, azure]
         api_key_saved:
           type: boolean
 

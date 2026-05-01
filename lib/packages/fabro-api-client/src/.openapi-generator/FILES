@@ -116,7 +116,10 @@ models/install-llm-summary-providers-inner.ts
 models/install-llm-summary.ts
 models/install-llm-test-input.ts
 models/install-llm-validation-response.ts
+models/install-object-store-azure-input.ts
 models/install-object-store-input.ts
+models/install-object-store-local-input.ts
+models/install-object-store-s3-input.ts
 models/install-object-store-summary.ts
 models/install-object-store-validation-response.ts
 models/install-prefill.ts

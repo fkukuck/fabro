@@ -2091,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "fabro-sandboxd"
-version = "0.216.0-nightly.1"
+version = "0.219.0-nightly.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2166,6 +2166,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "strum",
+ "temp-env",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -4534,6 +4535,7 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
+ "httparse",
  "humantime",
  "hyper",
  "itertools",

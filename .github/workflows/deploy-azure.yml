@@ -22,6 +22,8 @@ jobs:
     name: Deploy production Azure environment
     runs-on: ubuntu-24.04-x86-32-cores
     environment: production
+    env:
+      HAS_FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN != '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -37,6 +39,38 @@ jobs:
       - uses: hashicorp/setup-terraform@3c0c8c4d6d0e6df0c1cb8a27a0c4ea5a20a6f6ff # v3.1.2
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Validate Azure deploy inputs
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          AZURE_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+          AZURE_VNET_NAME: ${{ vars.AZURE_VNET_NAME }}
+          AZURE_VNET_CIDR: ${{ vars.AZURE_VNET_CIDR }}
+          AZURE_ACA_SUBNET_NAME: ${{ vars.AZURE_ACA_SUBNET_NAME }}
+          AZURE_ACA_SUBNET_CIDR: ${{ vars.AZURE_ACA_SUBNET_CIDR }}
+          AZURE_ACI_SUBNET_NAME: ${{ vars.AZURE_ACI_SUBNET_NAME }}
+          AZURE_ACI_SUBNET_CIDR: ${{ vars.AZURE_ACI_SUBNET_CIDR }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_SERVER_STORAGE_SHARE_NAME: ${{ vars.AZURE_SERVER_STORAGE_SHARE_NAME }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_IDENTITY_NAME: ${{ vars.AZURE_IDENTITY_NAME }}
+          AZURE_CONTAINER_APPS_ENVIRONMENT_NAME: ${{ vars.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME }}
+          AZURE_FABRO_SERVER_NAME: ${{ vars.AZURE_FABRO_SERVER_NAME }}
+          AZURE_GITHUB_ACTIONS_PRINCIPAL_ID: ${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}
+          TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          TF_BACKEND_CONTAINER: ${{ vars.TF_BACKEND_CONTAINER }}
+          TF_BACKEND_KEY: ${{ vars.TF_BACKEND_KEY }}
+        run: |
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_LOCATION AZURE_RESOURCE_GROUP_NAME AZURE_VNET_NAME AZURE_VNET_CIDR AZURE_ACA_SUBNET_NAME AZURE_ACA_SUBNET_CIDR AZURE_ACI_SUBNET_NAME AZURE_ACI_SUBNET_CIDR AZURE_STORAGE_ACCOUNT_NAME AZURE_SERVER_STORAGE_SHARE_NAME AZURE_ACR_NAME AZURE_IDENTITY_NAME AZURE_CONTAINER_APPS_ENVIRONMENT_NAME AZURE_FABRO_SERVER_NAME AZURE_GITHUB_ACTIONS_PRINCIPAL_ID TF_BACKEND_RESOURCE_GROUP TF_BACKEND_STORAGE_ACCOUNT TF_BACKEND_CONTAINER TF_BACKEND_KEY; do
+            if [ -z "${!name}" ]; then
+              printf 'Missing required GitHub environment variable: %s\n' "$name" >&2
+              exit 1
+            fi
+          done
 
       - uses: azure/login@4c8e52c0fb44e13c6e6c1f4bc8d32707fd6f0ca7 # v2.3.0
         with:
@@ -74,6 +108,9 @@ jobs:
             -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
             -backend-config="key=${{ vars.TF_BACKEND_KEY }}"
 
+      - name: Validate Terraform configuration
+        run: terraform -chdir=terraform/environments/sandbox validate
+
       - name: Compute deploy metadata
         run: |
           echo "DEPLOY_ID=$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
@@ -100,44 +137,94 @@ jobs:
             -t "$ACR_SERVER/fabro-server:$DEPLOY_ID" \
             --push .
 
-      - name: Build fabro-sandboxd
-        run: cargo build --release -p fabro-sandboxd
-
       - name: Stage sandbox base Docker context
         run: |
-          mkdir -p tmp/azure-sandbox-base
-          cp target/release/fabro-sandboxd tmp/azure-sandbox-base/fabro-sandboxd
+          rm -rf "$RUNNER_TEMP/azure-sandbox-build"
+          mkdir -p "$RUNNER_TEMP/azure-sandbox-build"
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.terraform' \
+            --exclude 'target' \
+            --exclude 'tmp' \
+            --exclude '.worktrees' \
+            --exclude 'node_modules' \
+            --exclude 'apps/fabro-web/node_modules' \
+            --exclude 'apps/marketing/node_modules' \
+            ./ "$RUNNER_TEMP/azure-sandbox-build/"
+          rm -f "$RUNNER_TEMP/azure-sandbox-build/.dockerignore"
 
       - name: Build and push fabro-azure-sandbox-base
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -f docker/azure-sandbox-base.Dockerfile \
+            -f "$RUNNER_TEMP/azure-sandbox-build/docker/azure-sandbox-base.Dockerfile" \
             -t "$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID" \
-            --push tmp/azure-sandbox-base
+            --push "$RUNNER_TEMP/azure-sandbox-build"
 
       - name: Apply Terraform
         run: |
           terraform -chdir=terraform/environments/sandbox apply -auto-approve \
             -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
 
+      - name: Verify Terraform steady state
+        run: |
+          terraform -chdir=terraform/environments/sandbox plan -detailed-exitcode \
+            -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
+
       - name: Resolve live server URL
         run: echo "FABRO_SERVER_URL=$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)" >> "$GITHUB_ENV"
 
+      - name: Wait for Container App rollout
+        run: |
+          for attempt in $(seq 1 30); do
+            READY_REVISION=$(az containerapp show \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$TF_VAR_fabro_server_name" \
+              --query 'properties.latestReadyRevisionName' \
+              -o tsv)
+
+            LATEST_REVISION=$(az containerapp show \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$TF_VAR_fabro_server_name" \
+              --query 'properties.latestRevisionName' \
+              -o tsv)
+
+            if [ -n "$READY_REVISION" ] && [ "$READY_REVISION" = "$LATEST_REVISION" ]; then
+              echo "READY_REVISION=$READY_REVISION" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          printf 'Timed out waiting for an active healthy Container App revision\n' >&2
+          exit 1
+
       - name: Health check
-        run: curl -fsSL "$FABRO_SERVER_URL/health"
+        run: |
+          curl --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            -fsSL "$FABRO_SERVER_URL/health"
 
       # v1 expects the install wizard's GitHub step to use token auth so the
       # operator receives a reusable dev token for CI smoke checks.
       - name: Authenticated API check
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         env:
           FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
-          curl -fsSL \
+          curl --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            -fsSL \
             -H "Authorization: Bearer $FABRO_DEPLOY_DEV_TOKEN" \
             "$FABRO_SERVER_URL/api/v1/models"
 
       - name: Render smoke workflow with deployed sandbox image
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         run: |
           sed \
             "s|image = \".*\"|image = \"$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\"|" \
@@ -145,9 +232,27 @@ jobs:
             > "$RUNNER_TEMP/azure-deploy-smoke.toml"
 
       - name: Run Azure smoke workflow
+        if: ${{ env.HAS_FABRO_DEPLOY_DEV_TOKEN == 'true' }}
         env:
           FABRO_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
         run: |
           cargo run -p fabro-cli -- \
             run "$RUNNER_TEMP/azure-deploy-smoke.toml" \
             --server "$FABRO_SERVER_URL/api/v1"
+
+      - name: Deployment summary
+        run: |
+          {
+            echo "## Azure deploy summary"
+            echo
+            echo "- Ref: \`${{ inputs.ref }}\`"
+            echo "- Deploy ID: \`$DEPLOY_ID\`"
+            echo "- Server image: \`$ACR_SERVER/fabro-server:$DEPLOY_ID\`"
+            echo "- Sandbox image: \`$ACR_SERVER/fabro-azure-sandbox-base:$DEPLOY_ID\`"
+            echo "- Ready revision: \`${READY_REVISION:-unknown}\`"
+            if [ "$HAS_FABRO_DEPLOY_DEV_TOKEN" = "true" ]; then
+              echo "- Post-deploy authenticated checks: ran"
+            else
+              echo "- Post-deploy authenticated checks: skipped until \`FABRO_DEPLOY_DEV_TOKEN\` is set"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
