@@ -29,6 +29,8 @@ LLM provider probe failures are reported as errors. Use `--verbose` to see the u
 
 **"No API key configured"** — Set at least one provider key with `fabro provider login` or `fabro secret set`, or export it in the server process environment. Run `fabro doctor` to verify connectivity.
 
+**"Azure platform config is not configured"** — Azure runs now depend on the server's persisted Azure platform settings, not ad hoc `FABRO_AZURE_*` worker env vars. Re-run `fabro install` or the browser install wizard, complete the `Azure` step, and restart the server. If you manage config manually, write the non-secret values under `[server.sandbox.azure.platform]` and only set `FABRO_AZURE_ACR_USERNAME` / `FABRO_AZURE_ACR_PASSWORD` together when your ACR requires them.
+
 **Stall watchdog timeouts** — If runs are cancelled unexpectedly, the agent may be stuck or the LLM provider may be slow. Check `FABRO_LOG=debug` output for `Agent.LlmRetry` events. Increase `stall_timeout` in the graph if needed, or add [fallback providers](/core-concepts/models) to handle outages.
 
 **Sandbox creation failures** — For Docker: ensure the Docker daemon is running and the configured image exists. For Daytona: verify `DAYTONA_API_KEY` is set, includes `write:snapshots`, `delete:snapshots`, `write:sandboxes`, and `delete:sandboxes`, and that the `gh` CLI is authenticated. For Exe: verify your SSH keys are configured for `exe.dev` and that `ssh exe.dev` connects successfully.

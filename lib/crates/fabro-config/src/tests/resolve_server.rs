@@ -126,6 +126,39 @@ destination = "stdout"
 }
 
 #[test]
+fn resolve_server_keeps_structured_azure_platform_settings() {
+    let settings = ServerSettingsBuilder::from_toml(
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.sandbox.azure.platform]
+subscription_id = "sub-1"
+resource_group = "rg-1"
+location = "eastus"
+subnet_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci"
+acr_server = "fabro.azurecr.io"
+sandboxd_port = 7777
+"#,
+    )
+    .unwrap()
+    .server;
+
+    let platform = settings
+        .sandbox
+        .azure
+        .as_ref()
+        .and_then(|azure| azure.platform.as_ref())
+        .expect("azure platform settings should resolve");
+
+    assert_eq!(platform.subscription_id, "sub-1");
+    assert_eq!(platform.acr_server, "fabro.azurecr.io");
+    assert_eq!(platform.sandboxd_port, 7777);
+}
+
+#[test]
 fn parsing_rejects_invalid_server_log_filter() {
     let err = r#"
 _version = 1

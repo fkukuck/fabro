@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[allow(
     unused_imports,
@@ -27,6 +27,7 @@ use crate::sandbox_record::SandboxRecord;
 pub async fn reconnect(
     record: &SandboxRecord,
     daytona_api_key: Option<String>,
+    storage_root: Option<&Path>,
 ) -> Result<Box<dyn crate::Sandbox>> {
     match record.provider.as_str() {
         "local" => {
@@ -79,7 +80,11 @@ pub async fn reconnect(
                 .identifier
                 .as_deref()
                 .context("Azure sandbox record missing identifier (container group resource ID)")?;
-            let sandbox = AzureSandbox::reconnect(id).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let storage_root = storage_root.context(
+                "Azure reconnect requires the Fabro storage root to load platform config",
+            )?;
+            let sandbox =
+                AzureSandbox::reconnect(id, storage_root).map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok(Box::new(sandbox))
         }
         other => bail!("Unknown sandbox provider: {other}"),

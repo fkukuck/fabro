@@ -95,6 +95,8 @@ impl EnvVars {
     pub const DAYTONA_API_URL: &'static str = "DAYTONA_API_URL";
     pub const DAYTONA_ORGANIZATION_ID: &'static str = "DAYTONA_ORGANIZATION_ID";
     pub const DAYTONA_SERVER_URL: &'static str = "DAYTONA_SERVER_URL";
+    pub const FABRO_AZURE_ACR_PASSWORD: &'static str = "FABRO_AZURE_ACR_PASSWORD";
+    pub const FABRO_AZURE_ACR_USERNAME: &'static str = "FABRO_AZURE_ACR_USERNAME";
     pub const SESSION_SECRET: &'static str = "SESSION_SECRET";
 
     // Platform and test harness
@@ -140,6 +142,18 @@ mod tests {
         assert_eq!(EnvVars::FABRO_CONFIG, "FABRO_CONFIG");
         assert_eq!(EnvVars::FABRO_LOG, "FABRO_LOG");
         assert_eq!(EnvVars::FABRO_LOG_DESTINATION, "FABRO_LOG_DESTINATION");
+    }
+
+    #[test]
+    fn env_var_constants_include_azure_acr_secret_names() {
+        assert_eq!(
+            EnvVars::FABRO_AZURE_ACR_USERNAME,
+            "FABRO_AZURE_ACR_USERNAME"
+        );
+        assert_eq!(
+            EnvVars::FABRO_AZURE_ACR_PASSWORD,
+            "FABRO_AZURE_ACR_PASSWORD"
+        );
     }
 
     #[test]
@@ -224,6 +238,8 @@ mod tests {
             EnvVars::DAYTONA_API_URL,
             EnvVars::DAYTONA_ORGANIZATION_ID,
             EnvVars::DAYTONA_SERVER_URL,
+            EnvVars::FABRO_AZURE_ACR_PASSWORD,
+            EnvVars::FABRO_AZURE_ACR_USERNAME,
             EnvVars::SESSION_SECRET,
             EnvVars::CARGO_BIN_EXE_FABRO,
             EnvVars::CARGO_CFG_TARGET_OS,

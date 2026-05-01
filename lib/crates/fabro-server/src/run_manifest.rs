@@ -17,7 +17,6 @@ use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_llm::model_test::{ModelTestStatus, run_basic_model_probe};
 use fabro_model::Catalog;
-use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_sandbox::config::{
     AzureConfig, DaytonaNetwork, DaytonaSnapshotSettings,
     DockerfileSource as SandboxDockerfileSource,
@@ -44,6 +43,7 @@ use futures_util::stream::{self, StreamExt};
 use tokio::process::Command;
 use tokio::time;
 
+use crate::azure_platform::resolve_azure_platform_config;
 use crate::server::AppState;
 
 #[derive(Clone)]
@@ -507,6 +507,53 @@ async fn build_preflight_report(
     };
 
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
+    if sandbox_provider == SandboxProvider::Azure {
+        let server_settings = state.server_settings();
+        let azure_platform = resolve_azure_platform_config(&server_settings.server, &|name| {
+            state.vault_or_env_pub(name)
+        });
+        if let Err(err) = azure_platform {
+            checks.push(CheckResult {
+                name:        "Sandbox".into(),
+                status:      CheckStatus::Error,
+                summary:     "failed".into(),
+                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
+                remediation: Some(err),
+            });
+            return Ok((
+                CheckReport {
+                    title:    "Run Preflight".into(),
+                    sections: vec![CheckSection {
+                        title: String::new(),
+                        checks,
+                    }],
+                },
+                false,
+            ));
+        }
+        if azure_platform.unwrap().is_none() {
+            checks.push(CheckResult {
+                name:        "Sandbox".into(),
+                status:      CheckStatus::Error,
+                summary:     "failed".into(),
+                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
+                remediation: Some(
+                    "Azure platform config is not configured. Run fabro install to complete the Azure step."
+                        .to_string(),
+                ),
+            });
+            return Ok((
+                CheckReport {
+                    title:    "Run Preflight".into(),
+                    sections: vec![CheckSection {
+                        title: String::new(),
+                        checks,
+                    }],
+                },
+                false,
+            ));
+        }
+    }
     let sandbox_ok = run_sandbox_check(
         &mut checks,
         sandbox_provider,
@@ -851,19 +898,6 @@ async fn run_sandbox_check(
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
 ) -> bool {
-    if sandbox_provider == SandboxProvider::Azure {
-        if let Err(err) = AzurePlatformConfig::from_env() {
-            checks.push(CheckResult {
-                name:        "Sandbox".into(),
-                status:      CheckStatus::Error,
-                summary:     "failed".into(),
-                details:     vec![CheckDetail::new(format!("Provider: {sandbox_provider}"))],
-                remediation: Some(err),
-            });
-            return false;
-        }
-    }
-
     let spec = preflight_sandbox_spec(
         sandbox_provider,
         prepared,
@@ -2155,7 +2189,7 @@ digraph Demo {
     }
 
     #[tokio::test]
-    async fn preflight_azure_without_platform_env_returns_report() {
+    async fn preflight_azure_without_platform_config_returns_report() {
         let _guard = EnvGuard::clear(&[
             "FABRO_AZURE_SUBSCRIPTION_ID",
             "FABRO_AZURE_RESOURCE_GROUP",
@@ -2180,7 +2214,7 @@ digraph Demo {
             check
                 .remediation
                 .as_deref()
-                .is_some_and(|text| text.contains("FABRO_AZURE_SUBSCRIPTION_ID"))
+                .is_some_and(|text| text.contains("Azure platform config is not configured"))
         }));
     }
 }
