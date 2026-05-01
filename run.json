@@ -202,13 +202,64 @@
     "in_place": false
   },
   "graph_source": "digraph AzureDeploySmoke {\n    graph [goal=\"Verify that the deployed Azure server can launch an Azure sandbox\"]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    probe [\n        shape=parallelogram,\n        label=\"Probe\",\n        script=\"test \\\"$(pwd)\\\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace\"\n    ]\n\n    start -> probe -> exit\n}\n",
-  "start": null,
-  "status": {
-    "kind": "starting"
+  "start": {
+    "run_id": "01KQH4ZXME456MER0S094XX13C",
+    "start_time": "2026-05-01T06:55:08.200907697Z",
+    "run_branch": "fabro/run/01KQH4ZXME456MER0S094XX13C",
+    "base_sha": "71da8aeb2c6e53b3fc7a91410a0b4783870170e7"
   },
-  "status_updated_at": "2026-05-01T06:53:04.780403894Z",
+  "status": {
+    "kind": "running"
+  },
+  "status_updated_at": "2026-05-01T06:55:08.200953896Z",
   "pending_control": null,
-  "checkpoint": null,
+  "checkpoint": {
+    "timestamp": "2026-05-01T06:55:09.311350646Z",
+    "current_node": "probe",
+    "completed_nodes": [
+      "start",
+      "probe"
+    ],
+    "node_retries": {},
+    "context_values": {
+      "current_node": "probe",
+      "failure_signature": "",
+      "command.stderr": "",
+      "command.output": "Linux SandboxHost-639132151932440834 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n",
+      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+      "outcome": "success",
+      "internal.work_dir": "/workspace",
+      "internal.retry_count.probe": 0,
+      "internal.retry_count.start": 0,
+      "graph.rankdir": "LR",
+      "internal.fidelity": "compact",
+      "internal.node_visit_count": 1,
+      "internal.run_id": "01KQH4ZXME456MER0S094XX13C",
+      "internal.thread_id": "start",
+      "failure_class": "",
+      "thread.start.current_node": "probe"
+    },
+    "node_outcomes": {
+      "probe": {
+        "status": "success",
+        "context_updates": {
+          "command.stderr": "",
+          "command.output": "Linux SandboxHost-639132151932440834 6.1.146.1-microsoft-standard #1 SMP Mon Jul 21 20:38:16 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n/usr/local/bin/fabro-sandboxd\n"
+        },
+        "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "usage": null
+      },
+      "start": {
+        "status": "success",
+        "usage": null
+      }
+    },
+    "next_node_id": "exit",
+    "node_visits": {
+      "probe": 1,
+      "start": 1
+    }
+  },
   "checkpoints": [],
   "conclusion": null,
   "retro": null,
