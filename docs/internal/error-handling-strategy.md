@@ -10,7 +10,8 @@ Prefer:
 
 ```rust
 .map_err(anyhow::Error::new)?;
-.with_context(|| "failed to fetch GitHub metadata")?;
+.context("failed to fetch GitHub metadata")?;
+.with_context(|| format!("failed to fetch GitHub metadata for {repo}"))?;
 ?;
 ```
 
@@ -27,7 +28,7 @@ When adding context, use `context` / `with_context`; do not interpolate the sour
 
 CLI/miette output, logs, and telemetry may render the full cause chain.
 
-HTTP API responses must stay curated. Log the full internal chain, but return only a safe public message. Do not expose `format!("{err:#}")` in API JSON unless the endpoint explicitly chooses that surface.
+HTTP API responses must stay curated. Log the full internal chain, but return only a safe public message. Do not expose `format!("{err:#}")` in API JSON.
 
 ## Clone-bound storage
 
