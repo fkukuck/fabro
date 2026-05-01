@@ -28,6 +28,8 @@ import type { InstallAzureConfigInput } from '../models';
 // @ts-ignore
 import type { InstallFinishResponse } from '../models';
 // @ts-ignore
+import type { InstallGithubAppInput } from '../models';
+// @ts-ignore
 import type { InstallGithubAppManifestInput } from '../models';
 // @ts-ignore
 import type { InstallGithubAppManifestResponse } from '../models';
@@ -228,6 +230,41 @@ export const InstallApiAxiosParamCreator = function (configuration?: Configurati
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
             localVarRequestOptions.data = serializeDataIfNeeded(installAzureConfigInput, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Records a pre-existing GitHub App chosen for headless install. Requires the one-time install token.
+         * @summary Save install GitHub App
+         * @param {InstallGithubAppInput} installGithubAppInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        putInstallGithubApp: async (installGithubAppInput: InstallGithubAppInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'installGithubAppInput' is not null or undefined
+            assertParamExists('putInstallGithubApp', 'installGithubAppInput', installGithubAppInput)
+            const localVarPath = `/install/github/app`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(installGithubAppInput, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -623,6 +660,19 @@ export const InstallApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Records a pre-existing GitHub App chosen for headless install. Requires the one-time install token.
+         * @summary Save install GitHub App
+         * @param {InstallGithubAppInput} installGithubAppInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async putInstallGithubApp(installGithubAppInput: InstallGithubAppInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.putInstallGithubApp(installGithubAppInput, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['InstallApi.putInstallGithubApp']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Records the GitHub personal access token chosen during the browser install. Requires the one-time install token.
          * @summary Save install GitHub token
          * @param {InstallGithubTokenInput} installGithubTokenInput 
@@ -798,6 +848,16 @@ export const InstallApiFactory = function (configuration?: Configuration, basePa
             return localVarFp.putInstallAzure(installAzureConfigInput, options).then((request) => request(axios, basePath));
         },
         /**
+         * Records a pre-existing GitHub App chosen for headless install. Requires the one-time install token.
+         * @summary Save install GitHub App
+         * @param {InstallGithubAppInput} installGithubAppInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        putInstallGithubApp(installGithubAppInput: InstallGithubAppInput, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.putInstallGithubApp(installGithubAppInput, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Records the GitHub personal access token chosen during the browser install. Requires the one-time install token.
          * @summary Save install GitHub token
          * @param {InstallGithubTokenInput} installGithubTokenInput 
@@ -946,6 +1006,17 @@ export class InstallApi extends BaseAPI {
      */
     public putInstallAzure(installAzureConfigInput: InstallAzureConfigInput, options?: RawAxiosRequestConfig) {
         return InstallApiFp(this.configuration).putInstallAzure(installAzureConfigInput, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Records a pre-existing GitHub App chosen for headless install. Requires the one-time install token.
+     * @summary Save install GitHub App
+     * @param {InstallGithubAppInput} installGithubAppInput 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public putInstallGithubApp(installGithubAppInput: InstallGithubAppInput, options?: RawAxiosRequestConfig) {
+        return InstallApiFp(this.configuration).putInstallGithubApp(installGithubAppInput, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

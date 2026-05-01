@@ -543,6 +543,17 @@ struct GithubTokenInput {
     username: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct GithubAppInput {
+    app_id:           String,
+    client_id:        String,
+    client_secret:    String,
+    private_key:      String,
+    slug:             String,
+    allowed_username: String,
+    webhook_secret:   Option<String>,
+}
+
 #[derive(Clone, Debug)]
 enum GithubInstallState {
     Token(GithubTokenInput),
@@ -702,6 +713,7 @@ pub fn build_install_router(state: InstallAppState) -> Router {
             post(post_install_github_token_test),
         )
         .route("/install/github/token", put(put_install_github_token))
+        .route("/install/github/app", put(put_install_github_app))
         .route(
             "/install/github/app/manifest",
             post(post_install_github_app_manifest),
@@ -1539,6 +1551,47 @@ async fn put_install_github_token(
     StatusCode::NO_CONTENT.into_response()
 }
 
+async fn put_install_github_app(
+    State(state): State<InstallAppState>,
+    headers: HeaderMap,
+    Query(query): Query<InstallTokenQuery>,
+    Json(input): Json<GithubAppInput>,
+) -> Response {
+    if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
+        return response;
+    }
+    observe_operator(&state, &headers);
+
+    if input.app_id.trim().is_empty()
+        || input.client_id.trim().is_empty()
+        || input.client_secret.trim().is_empty()
+        || input.private_key.trim().is_empty()
+        || input.slug.trim().is_empty()
+        || input.allowed_username.trim().is_empty()
+    {
+        return install_error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "app_id, client_id, client_secret, private_key, slug, and allowed_username are required",
+        );
+    }
+
+    let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
+    pending_install.pending_github_app = None;
+    pending_install.github = Some(GithubInstallState::App(GithubAppInstall {
+        owner:            GitHubAppOwner::Personal,
+        app_name:         input.slug.trim().to_string(),
+        allowed_username: input.allowed_username.trim().to_string(),
+        app_id:           input.app_id.trim().to_string(),
+        slug:             input.slug.trim().to_string(),
+        client_id:        input.client_id.trim().to_string(),
+        client_secret:    input.client_secret,
+        webhook_secret:   input.webhook_secret,
+        pem:              input.private_key,
+    }));
+    info!(step = "github_app", "install step completed");
+    StatusCode::NO_CONTENT.into_response()
+}
+
 async fn post_install_github_app_manifest(
     State(state): State<InstallAppState>,
     headers: HeaderMap,
@@ -1771,8 +1824,7 @@ async fn post_install_finish(
     };
     let mut server_env_writes = object_store_env_plan.writes;
     let server_env_removals = object_store_env_plan.removals;
-    let mut dev_token: Option<String> = None;
-    match github {
+    let dev_token = match github {
         GithubInstallState::Token(github) => {
             if let Err(err) = write_token_settings(&mut settings_doc) {
                 return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
@@ -1795,7 +1847,7 @@ async fn post_install_finish(
                     );
                 }
             };
-            dev_token = Some(token);
+            Some(token)
         }
         GithubInstallState::App(github) => {
             if let Err(err) = write_github_app_settings(
@@ -1807,6 +1859,18 @@ async fn post_install_finish(
             ) {
                 return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
             }
+            let dev_token_path = Storage::new(state.storage_dir.as_ref())
+                .runtime_directory()
+                .dev_token_path();
+            let token = match dev_token::read_or_mint_dev_token_for_install(&dev_token_path) {
+                Ok(value) => value,
+                Err(err) => {
+                    return install_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        err.to_string(),
+                    );
+                }
+            };
             server_env_writes.push(make_env_write(
                 EnvVars::GITHUB_APP_PRIVATE_KEY,
                 BASE64_STANDARD.encode(github.pem.as_bytes()),
@@ -1818,8 +1882,9 @@ async fn post_install_finish(
             if let Some(secret) = github.webhook_secret {
                 server_env_writes.push(make_env_write(EnvVars::GITHUB_APP_WEBHOOK_SECRET, secret));
             }
+            Some(token)
         }
-    }
+    };
 
     let settings_toml = match toml::to_string_pretty(&settings_doc) {
         Ok(value) => value,

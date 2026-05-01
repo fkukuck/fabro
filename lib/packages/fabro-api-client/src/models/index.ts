@@ -82,6 +82,7 @@ export * from './idp-identity';
 export * from './install-azure-config-input';
 export * from './install-azure-summary';
 export * from './install-finish-response';
+export * from './install-github-app-input';
 export * from './install-github-app-manifest-input';
 export * from './install-github-app-manifest-response';
 export * from './install-github-app-owner';

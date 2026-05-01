@@ -244,10 +244,15 @@ pub fn write_github_app_settings(
         .or_insert_with(|| toml::Value::Array(Vec::new()))
         .as_array_mut()
         .context("settings.toml [server.auth].methods is not an array")?;
+    if !methods
+        .iter()
+        .any(|value| value.as_str() == Some("dev-token"))
+    {
+        methods.insert(0, toml::Value::String("dev-token".to_string()));
+    }
     if !methods.iter().any(|value| value.as_str() == Some("github")) {
         methods.push(toml::Value::String("github".to_string()));
     }
-    methods.retain(|value| value.as_str() != Some("dev-token"));
     let github_auth = ensure_table(auth, "github")?;
     github_auth.insert(
         "allowed_usernames".to_string(),
@@ -785,7 +790,7 @@ name = "custom"
                 .iter()
                 .map(|value| value.as_str().expect("auth method should be a string"))
                 .collect::<Vec<_>>(),
-            vec!["github"]
+            vec!["dev-token", "github"]
         );
     }
 
