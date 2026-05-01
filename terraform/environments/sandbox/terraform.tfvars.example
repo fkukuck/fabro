@@ -1,0 +1,26 @@
+subscription_id                         = "00000000-0000-0000-0000-000000000000"
+location                                = "northeurope"
+resource_group_name                     = "fabro-azure-sandbox"
+vnet_name                               = "fabro-vnet"
+vnet_cidr                               = "10.10.0.0/16"
+aca_subnet_name                         = "aca-subnet"
+aca_subnet_cidr                         = "10.10.0.0/23"
+aci_subnet_name                         = "aci-subnet"
+aci_subnet_cidr                         = "10.10.2.0/24"
+storage_account_name                    = "fabro1234567890"
+server_storage_share_name               = "fabro-storage"
+acr_name                                = "fabroacr1234567890"
+identity_name                           = "fabro-server-identity"
+container_apps_environment_name         = "fabro-env"
+container_apps_environment_storage_name = "fabrostorage"
+fabro_server_name                       = "fabro-server"
+fabro_server_enabled                    = true
+fabro_server_image                      = "ghcr.io/fabro-sh/fabro:2026-04-22-1"
+fabro_dev_token                         = "replace-me"
+session_secret                          = "replace-me"
+openai_api_key                          = "replace-me"
+
+tags = {
+  environment = "sandbox"
+  managed_by  = "terraform"
+}
