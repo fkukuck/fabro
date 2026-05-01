@@ -2,7 +2,7 @@ use fabro_agent::Sandbox;
 use fabro_sandbox::shell_quote;
 use tokio::sync::OnceCell;
 
-use crate::sandbox_git::GIT_REMOTE;
+use crate::sandbox_git::{GIT_REMOTE, exec_err};
 
 pub(crate) struct SandboxGitRuntime {
     probe: OnceCell<Result<(), String>>,
@@ -66,24 +66,5 @@ async fn exec_ok(sandbox: &dyn Sandbox, command: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(exec_err(command, &result))
-    }
-}
-
-fn exec_err(label: &str, result: &fabro_sandbox::ExecResult) -> String {
-    if result.is_timed_out() {
-        return format!("{label} timed out after {}ms", result.duration_ms);
-    }
-    if result.is_cancelled() {
-        return format!("{label} cancelled after {}ms", result.duration_ms);
-    }
-    let detail = format!("{}{}", result.stdout, result.stderr);
-    let detail = detail.trim();
-    if detail.is_empty() {
-        format!("{label} failed with exit {}", result.display_exit_code())
-    } else {
-        format!(
-            "{label} failed with exit {}: {detail}",
-            result.display_exit_code()
-        )
     }
 }

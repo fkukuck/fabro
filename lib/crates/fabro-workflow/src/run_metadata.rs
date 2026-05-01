@@ -1,12 +1,13 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use async_trait::async_trait;
+use fabro_checkpoint::git::{FileMode, Store, TreeEntries};
 use git2::{
-    Cred, Direction, ErrorClass, ErrorCode, FetchOptions, FileMode, Oid, PushOptions,
-    RemoteCallbacks, Repository, Signature,
+    Cred, Direction, ErrorClass, ErrorCode, FetchOptions, Oid, PushOptions, RemoteCallbacks,
+    Repository, Signature,
 };
 use tokio::task::{self, JoinError};
 
@@ -14,7 +15,12 @@ use crate::git::{GitAuthor, META_BRANCH_PREFIX};
 use crate::run_dump::RunDump;
 use crate::run_options::RunOptions;
 
-pub(crate) const METADATA_PERMISSIONS: &[(&str, &str)] = &[("contents", "write")];
+static METADATA_PERMISSIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    [("contents", "write")]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+});
 
 pub(crate) fn metadata_branch_name(run_id: &str) -> String {
     format!("{META_BRANCH_PREFIX}{run_id}")
@@ -85,29 +91,20 @@ pub(crate) trait AuthProvider: Send + Sync {
 }
 
 struct GitHubAuthProvider {
-    creds:       fabro_github::GitHubCredentials,
-    origin_url:  String,
-    permissions: HashMap<String, String>,
+    creds:      fabro_github::GitHubCredentials,
+    origin_url: String,
 }
 
 impl GitHubAuthProvider {
-    fn new(
-        creds: fabro_github::GitHubCredentials,
-        origin_url: String,
-        permissions: HashMap<String, String>,
-    ) -> Self {
-        Self {
-            creds,
-            origin_url,
-            permissions,
-        }
+    fn new(creds: fabro_github::GitHubCredentials, origin_url: String) -> Self {
+        Self { creds, origin_url }
     }
 }
 
 #[async_trait]
 impl AuthProvider for GitHubAuthProvider {
     async fn token(&self) -> Result<Option<String>, RunMetadataError> {
-        mint_token(&self.creds, &self.origin_url, &self.permissions)
+        mint_token(&self.creds, &self.origin_url, &METADATA_PERMISSIONS)
             .await
             .map(Some)
             .map_err(RunMetadataError::TokenMint)
@@ -157,6 +154,33 @@ impl RunMetadataWriterHandle {
     ) -> Result<Self, RunMetadataError> {
         let writer = RunMetadataWriter::new(remote_url, branch, author, fetch_depth)?;
         Ok(Self::new(writer, Arc::new(NoAuth)))
+    }
+
+    #[cfg(test)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "metadata event tests use synchronous git commands to set up temporary bare remotes"
+    )]
+    pub(crate) fn new_for_test_repo(repo: &Path, branch: &str) -> Self {
+        let remote = repo.with_extension("metadata-remote.git");
+        let init = std::process::Command::new("git")
+            .args(["init", "--bare"])
+            .current_dir(repo)
+            .arg(&remote)
+            .output()
+            .unwrap();
+        assert!(
+            init.status.success(),
+            "git init --bare failed: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        Self::new_for_test(
+            format!("file://{}", remote.display()),
+            branch.to_string(),
+            GitAuthor::default(),
+            None,
+        )
+        .unwrap()
     }
 
     pub(crate) async fn write_snapshot(
@@ -210,7 +234,6 @@ pub(crate) fn build_metadata_writer(
     let auth = Arc::new(GitHubAuthProvider::new(
         creds.clone(),
         normalized_url.clone(),
-        metadata_permissions(),
     ));
     let writer = RunMetadataWriter::new(
         normalized_url,
@@ -219,13 +242,6 @@ pub(crate) fn build_metadata_writer(
         Some(1),
     )?;
     Ok(Some(RunMetadataWriterHandle::new(writer, auth)))
-}
-
-fn metadata_permissions() -> HashMap<String, String> {
-    METADATA_PERMISSIONS
-        .iter()
-        .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-        .collect()
 }
 
 pub(crate) async fn mint_token(
@@ -259,7 +275,7 @@ pub(crate) async fn mint_token(
 }
 
 pub(crate) struct RunMetadataWriter {
-    repo:        Repository,
+    store:       Store,
     tempdir:     tempfile::TempDir,
     remote_url:  String,
     branch:      String,
@@ -285,7 +301,7 @@ impl RunMetadataWriter {
             .map_err(|err| RunMetadataError::Init(redact_metadata_error(&err, tempdir.path())))?;
 
         Ok(Self {
-            repo,
+            store: Store::new(repo),
             tempdir,
             remote_url,
             branch,
@@ -308,35 +324,30 @@ impl RunMetadataWriter {
         for (path, _) in entries {
             validate_metadata_path(path)?;
         }
-        let tree_oid = build_tree(&self.repo, entries)
-            .map_err(|err| RunMetadataError::Tree(self.redact_tree_error(err)))?;
-        let tree = self
-            .repo
-            .find_tree(tree_oid)
-            .map_err(|err| RunMetadataError::Tree(self.redact(&err)))?;
+        let mut tree_entries = TreeEntries::new();
+        for (path, bytes) in entries {
+            let oid = self
+                .store
+                .write_blob(bytes)
+                .map_err(|err| RunMetadataError::Tree(self.redact_checkpoint(err)))?;
+            tree_entries.set(path.clone(), oid, FileMode::Blob);
+        }
+        let tree_oid = self
+            .store
+            .write_tree(&tree_entries)
+            .map_err(|err| RunMetadataError::Tree(self.redact_checkpoint(err)))?;
         let sig = Signature::now(&self.author.name, &self.author.email)
             .map_err(|err| RunMetadataError::Commit(self.redact(&err)))?;
         let mut full_message = message.to_string();
         self.author.append_footer(&mut full_message);
-        let parents = self
-            .parent_oid
-            .iter()
-            .map(|oid| self.repo.find_commit(*oid))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| RunMetadataError::Commit(self.redact(&err)))?;
-        let parent_refs = parents.iter().collect::<Vec<_>>();
-        let full_ref = self.full_ref();
+        let parents: Vec<Oid> = self.parent_oid.iter().copied().collect();
         let commit_oid = self
-            .repo
-            .commit(
-                Some(&full_ref),
-                &sig,
-                &sig,
-                &full_message,
-                &tree,
-                &parent_refs,
-            )
-            .map_err(|err| RunMetadataError::Commit(self.redact(&err)))?;
+            .store
+            .write_commit(tree_oid, &parents, &full_message, &sig)
+            .map_err(|err| RunMetadataError::Commit(self.redact_checkpoint(err)))?;
+        self.store
+            .update_ref(&self.branch, commit_oid)
+            .map_err(|err| RunMetadataError::Commit(self.redact_checkpoint(err)))?;
         self.parent_oid = Some(commit_oid);
 
         let push_error = self.push(token).err();
@@ -368,7 +379,7 @@ impl RunMetadataWriter {
         }
 
         let head_match = (|| -> Result<Option<Oid>, git2::Error> {
-            let mut remote = self.repo.remote_anonymous(&self.remote_url)?;
+            let mut remote = self.store.repo().remote_anonymous(&self.remote_url)?;
             let connection =
                 remote.connect_auth(Direction::Fetch, Some(make_callbacks(token)), None)?;
             let head = connection
@@ -380,12 +391,9 @@ impl RunMetadataWriter {
         })()
         .map_err(|err| RunMetadataError::Discovery(self.redact(&err)))?;
 
-        let Some(_) = head_match else {
-            self.discovered = true;
-            return Ok(());
-        };
-
-        self.fetch_parent(token, &full_ref)?;
+        if head_match.is_some() {
+            self.fetch_parent(token, &full_ref)?;
+        }
         self.discovered = true;
         Ok(())
     }
@@ -396,7 +404,8 @@ impl RunMetadataWriter {
         full_ref: &str,
     ) -> Result<(), RunMetadataError> {
         (|| -> Result<(), git2::Error> {
-            let mut remote = self.repo.remote_anonymous(&self.remote_url)?;
+            let repo = self.store.repo();
+            let mut remote = repo.remote_anonymous(&self.remote_url)?;
             let mut fetch_opts = FetchOptions::new();
             if let Some(depth) = self.fetch_depth {
                 fetch_opts.depth(depth);
@@ -404,7 +413,7 @@ impl RunMetadataWriter {
             fetch_opts.remote_callbacks(make_callbacks(token));
             let refspec = format!("+{full_ref}:{full_ref}");
             remote.fetch(&[refspec.as_str()], Some(&mut fetch_opts), None)?;
-            let tip = self.repo.find_reference(full_ref)?.peel_to_commit()?.id();
+            let tip = repo.find_reference(full_ref)?.peel_to_commit()?.id();
             self.parent_oid = Some(tip);
             Ok(())
         })()
@@ -413,7 +422,7 @@ impl RunMetadataWriter {
 
     fn push(&self, token: Option<&str>) -> Result<(), String> {
         (|| -> Result<(), git2::Error> {
-            let mut remote = self.repo.remote_anonymous(&self.remote_url)?;
+            let mut remote = self.store.repo().remote_anonymous(&self.remote_url)?;
             let mut push_opts = PushOptions::new();
             push_opts.remote_callbacks(make_callbacks(token));
             let full_ref = self.full_ref();
@@ -431,10 +440,10 @@ impl RunMetadataWriter {
         redact_metadata_error(err, self.tempdir.path())
     }
 
-    fn redact_tree_error(&self, err: BuildTreeError) -> String {
+    fn redact_checkpoint(&self, err: fabro_checkpoint::Error) -> String {
         match err {
-            BuildTreeError::Git(err) => self.redact(&err),
-            BuildTreeError::Conflict(message) => message,
+            fabro_checkpoint::Error::Git(err) => self.redact(&err),
+            other => other.to_string(),
         }
     }
 }
@@ -467,82 +476,6 @@ fn validate_metadata_path(path: &str) -> Result<(), RunMetadataError> {
         return Err(RunMetadataError::InvalidPath(path.to_string()));
     }
     Ok(())
-}
-
-enum BuildTreeError {
-    Git(git2::Error),
-    Conflict(String),
-}
-
-impl From<git2::Error> for BuildTreeError {
-    fn from(value: git2::Error) -> Self {
-        Self::Git(value)
-    }
-}
-
-enum TreeNode {
-    File(Vec<u8>),
-    Dir(BTreeMap<String, Self>),
-}
-
-fn build_tree(repo: &Repository, entries: &[(String, Vec<u8>)]) -> Result<Oid, BuildTreeError> {
-    let mut root = BTreeMap::new();
-    for (path, bytes) in entries {
-        insert_tree_node(&mut root, path, bytes.clone())?;
-    }
-    write_tree_node(repo, &root)
-}
-
-fn insert_tree_node(
-    root: &mut BTreeMap<String, TreeNode>,
-    path: &str,
-    bytes: Vec<u8>,
-) -> Result<(), BuildTreeError> {
-    let segments = path.split('/').collect::<Vec<_>>();
-    let mut current = root;
-    for segment in &segments[..segments.len() - 1] {
-        let node = current
-            .entry((*segment).to_string())
-            .or_insert_with(|| TreeNode::Dir(BTreeMap::new()));
-        match node {
-            TreeNode::Dir(children) => current = children,
-            TreeNode::File(_) => {
-                return Err(BuildTreeError::Conflict(format!(
-                    "metadata path conflicts with file: {path}"
-                )));
-            }
-        }
-    }
-    let filename = segments
-        .last()
-        .expect("validated path should have a filename");
-    if matches!(current.get(*filename), Some(TreeNode::Dir(_))) {
-        return Err(BuildTreeError::Conflict(format!(
-            "metadata path conflicts with directory: {path}"
-        )));
-    }
-    current.insert((*filename).to_string(), TreeNode::File(bytes));
-    Ok(())
-}
-
-fn write_tree_node(
-    repo: &Repository,
-    children: &BTreeMap<String, TreeNode>,
-) -> Result<Oid, BuildTreeError> {
-    let mut builder = repo.treebuilder(None)?;
-    for (name, node) in children {
-        match node {
-            TreeNode::File(bytes) => {
-                let oid = repo.blob(bytes)?;
-                builder.insert(name, oid, i32::from(FileMode::Blob))?;
-            }
-            TreeNode::Dir(children) => {
-                let oid = write_tree_node(repo, children)?;
-                builder.insert(name, oid, i32::from(FileMode::Tree))?;
-            }
-        }
-    }
-    Ok(builder.write()?)
 }
 
 pub(crate) fn redact_metadata_error(err: &git2::Error, tempdir: &Path) -> String {

@@ -592,32 +592,6 @@ mod tests {
         events
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "metadata event tests use synchronous git commands to set up temporary bare remotes"
-    )]
-    fn metadata_writer_for_repo(repo: &Path, branch: &str) -> RunMetadataWriterHandle {
-        let remote = repo.with_extension("metadata-remote.git");
-        let init = std::process::Command::new("git")
-            .args(["init", "--bare"])
-            .current_dir(repo)
-            .arg(&remote)
-            .output()
-            .unwrap();
-        assert!(
-            init.status.success(),
-            "git init --bare failed: {}",
-            String::from_utf8_lossy(&init.stderr)
-        );
-        RunMetadataWriterHandle::new_for_test(
-            format!("file://{}", remote.display()),
-            branch.to_string(),
-            crate::git::GitAuthor::default(),
-            None,
-        )
-        .unwrap()
-    }
-
     fn git_lifecycle(
         repo: &Path,
         emitter: Arc<Emitter>,
@@ -629,7 +603,7 @@ mod tests {
             .git
             .as_ref()
             .and_then(|git| git.meta_branch.as_deref())
-            .map(|branch| metadata_writer_for_repo(repo, branch));
+            .map(|branch| RunMetadataWriterHandle::new_for_test_repo(repo, branch));
         git_lifecycle_with_writer(
             repo,
             emitter,

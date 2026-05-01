@@ -24,7 +24,7 @@ pub struct GitState {
 pub const GIT_REMOTE: &str =
     "git -c maintenance.auto=0 -c gc.auto=0 -c commit.gpgsign=false -c tag.gpgsign=false";
 
-fn exec_err(label: &str, r: &fabro_sandbox::ExecResult) -> String {
+pub(crate) fn exec_err(label: &str, r: &fabro_sandbox::ExecResult) -> String {
     if r.is_timed_out() {
         return format!("{label} timed out after {}ms", r.duration_ms);
     }

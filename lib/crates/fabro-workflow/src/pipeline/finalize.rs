@@ -640,32 +640,6 @@ mod tests {
         events
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "metadata event tests use synchronous git commands to set up temporary bare remotes"
-    )]
-    fn metadata_writer_for_repo(repo: &Path, branch: &str) -> RunMetadataWriterHandle {
-        let remote = repo.with_extension("metadata-remote.git");
-        let init = std::process::Command::new("git")
-            .args(["init", "--bare"])
-            .current_dir(repo)
-            .arg(&remote)
-            .output()
-            .unwrap();
-        assert!(
-            init.status.success(),
-            "git init --bare failed: {}",
-            String::from_utf8_lossy(&init.stderr)
-        );
-        RunMetadataWriterHandle::new_for_test(
-            format!("file://{}", remote.display()),
-            branch.to_string(),
-            crate::git::GitAuthor::default(),
-            None,
-        )
-        .unwrap()
-    }
-
     fn test_services(
         run_store: RunStoreHandle,
         emitter: Arc<Emitter>,
@@ -760,7 +734,10 @@ mod tests {
                 repo_dir.path().to_path_buf(),
             )),
             Arc::new(RunMetadataRuntime::new()),
-            Some(metadata_writer_for_repo(repo_dir.path(), branch)),
+            Some(RunMetadataWriterHandle::new_for_test_repo(
+                repo_dir.path(),
+                branch,
+            )),
         );
         let run_options = test_git_run_options(repo_dir.path(), branch);
 
@@ -794,7 +771,7 @@ mod tests {
                 repo_dir.path().to_path_buf(),
             )),
             Arc::new(RunMetadataRuntime::new()),
-            Some(metadata_writer_for_repo(
+            Some(RunMetadataWriterHandle::new_for_test_repo(
                 repo_dir.path(),
                 "fabro/metadata/run",
             )),
@@ -845,7 +822,7 @@ mod tests {
                 repo_dir.path().to_path_buf(),
             )),
             runtime,
-            Some(metadata_writer_for_repo(
+            Some(RunMetadataWriterHandle::new_for_test_repo(
                 repo_dir.path(),
                 "fabro/metadata/run",
             )),
@@ -881,7 +858,7 @@ mod tests {
                 repo_dir.path().to_path_buf(),
             )),
             Arc::new(RunMetadataRuntime::new()),
-            Some(metadata_writer_for_repo(
+            Some(RunMetadataWriterHandle::new_for_test_repo(
                 repo_dir.path(),
                 "fabro/metadata/run",
             )),
