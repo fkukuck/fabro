@@ -1038,7 +1038,7 @@ export const RunsApiAxiosParamCreator = function (configuration?: Configuration)
         /**
          * Validates workflow structure and diagnostics without runtime readiness checks.
          * @summary Validate Workflow Manifest
-         * @param {RunManifest} runManifest
+         * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -1396,7 +1396,7 @@ export const RunsApiFp = function(configuration?: Configuration) {
         /**
          * Validates workflow structure and diagnostics without runtime readiness checks.
          * @summary Validate Workflow Manifest
-         * @param {RunManifest} runManifest
+         * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -1657,7 +1657,7 @@ export const RunsApiFactory = function (configuration?: Configuration, basePath?
         /**
          * Validates workflow structure and diagnostics without runtime readiness checks.
          * @summary Validate Workflow Manifest
-         * @param {RunManifest} runManifest
+         * @param {RunManifest} runManifest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -1936,7 +1936,7 @@ export class RunsApi extends BaseAPI {
     /**
      * Validates workflow structure and diagnostics without runtime readiness checks.
      * @summary Validate Workflow Manifest
-     * @param {RunManifest} runManifest
+     * @param {RunManifest} runManifest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
