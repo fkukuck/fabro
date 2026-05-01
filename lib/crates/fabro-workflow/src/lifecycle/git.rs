@@ -117,6 +117,7 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                         None,
                         None,
                         None,
+                        None,
                     );
                     self.emit_metadata_warning("checkpoint_metadata_write_failed", message);
                 }
@@ -182,6 +183,7 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                             MetadataSnapshotFailureKind::LoadState,
                             message.clone(),
                             collect_causes(err.as_ref()),
+                            None,
                             None,
                             None,
                             None,
@@ -322,9 +324,11 @@ impl GitLifecycle {
         );
         match writer.write_snapshot(dump, message).await {
             Ok(snapshot) => {
-                if let Some(detail) = snapshot.push_error.as_deref() {
-                    let message =
-                        format!("failed to push metadata ref refs/heads/{meta_branch}: {detail}");
+                if let Some(push_error) = snapshot.push_error.as_ref() {
+                    let message = format!(
+                        "failed to push metadata ref refs/heads/{meta_branch}: {}",
+                        push_error.message
+                    );
                     self.emit_metadata_snapshot_failed(
                         phase,
                         meta_branch,
@@ -335,6 +339,7 @@ impl GitLifecycle {
                         Some(snapshot.commit_sha.clone()),
                         Some(snapshot.entry_count),
                         Some(snapshot.bytes),
+                        push_error.exec_output_tail.clone(),
                         scope,
                     );
                     self.emit_metadata_warning("checkpoint_metadata_push_failed", message);
@@ -361,6 +366,7 @@ impl GitLifecycle {
                     None,
                     None,
                     None,
+                    err.exec_output_tail(),
                     scope,
                 );
                 self.emit_metadata_warning("checkpoint_metadata_write_failed", message);
@@ -420,6 +426,7 @@ impl GitLifecycle {
         commit_sha: Option<String>,
         entry_count: Option<usize>,
         bytes: Option<u64>,
+        exec_output_tail: Option<fabro_types::ExecOutputTail>,
         scope: Option<&StageScope>,
     ) {
         self.emit_metadata_snapshot_event(
@@ -433,6 +440,7 @@ impl GitLifecycle {
                 commit_sha,
                 entry_count,
                 bytes,
+                exec_output_tail,
             },
             scope,
         );
@@ -755,6 +763,14 @@ mod tests {
                 assert!(props.commit_sha.as_ref().is_some_and(|sha| !sha.is_empty()));
                 assert_eq!(props.entry_count, Some(expected_entry_count));
                 assert_eq!(props.bytes, Some(expected_bytes));
+                assert!(
+                    props
+                        .exec_output_tail
+                        .as_ref()
+                        .and_then(|tail| tail.stderr.as_deref())
+                        .is_some_and(|stderr| stderr.contains("fatal:")),
+                    "expected push stderr tail in metadata failure props: {props:?}"
+                );
             }
             other => panic!("expected metadata failed event, got {other:?}"),
         }
