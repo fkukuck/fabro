@@ -89,7 +89,7 @@ fn resolves_server_defaults_from_empty_settings() {
                     .to_string_lossy()
             );
         }
-        ObjectStoreSettings::S3 { .. } => panic!("expected local artifact store by default"),
+        other => panic!("expected local artifact store by default, got {other:?}"),
     }
     assert_eq!(settings.artifacts.prefix.as_source(), "");
 
@@ -103,7 +103,7 @@ fn resolves_server_defaults_from_empty_settings() {
                     .to_string_lossy()
             );
         }
-        ObjectStoreSettings::S3 { .. } => panic!("expected local slatedb store by default"),
+        other => panic!("expected local slatedb store by default, got {other:?}"),
     }
 
     assert!(!settings.slatedb.disk_cache);
@@ -269,6 +269,71 @@ endpoint = "{{ env.S3_ENDPOINT }}"
 
     assert!(rendered.contains("server.artifacts.s3.bucket"));
     assert!(rendered.contains("server.artifacts.s3.region"));
+}
+
+#[test]
+fn resolves_azure_object_store_shape_for_artifacts_and_slatedb() {
+    let file = parse(
+        r#"
+_version = 1
+
+[server.artifacts]
+provider = "azure"
+prefix = "artifacts"
+
+[server.artifacts.azure]
+account = "fabrostorage"
+container = "fabro-data"
+
+[server.slatedb]
+provider = "azure"
+prefix = "slatedb"
+
+[server.slatedb.azure]
+account = "fabrostorage"
+container = "fabro-data"
+"#,
+    );
+
+    let settings = resolve_server(&file);
+
+    match settings.artifacts.store {
+        ObjectStoreSettings::Azure { account, container } => {
+            assert_eq!(account.as_source(), "fabrostorage");
+            assert_eq!(container.as_source(), "fabro-data");
+        }
+        other => panic!("expected azure artifacts store, got {other:?}"),
+    }
+
+    match settings.slatedb.store {
+        ObjectStoreSettings::Azure { account, container } => {
+            assert_eq!(account.as_source(), "fabrostorage");
+            assert_eq!(container.as_source(), "fabro-data");
+        }
+        other => panic!("expected azure slatedb store, got {other:?}"),
+    }
+}
+
+#[test]
+fn reports_azure_shape_errors() {
+    let file = parse(
+        r#"
+_version = 1
+
+[server.artifacts]
+provider = "azure"
+
+[server.artifacts.azure]
+account = "fabrostorage"
+"#,
+    );
+
+    let rendered = render_resolve_error_lines(
+        ServerSettingsBuilder::from_layer(&file)
+            .expect_err("azure config without a container should fail"),
+    );
+
+    assert!(rendered.contains("server.artifacts.azure.container"));
 }
 
 #[test]

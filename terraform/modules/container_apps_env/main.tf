@@ -1,10 +1,16 @@
 resource "azurerm_container_app_environment" "this" {
-  name                               = var.name
-  location                           = var.location
-  resource_group_name                = var.resource_group_name
-  infrastructure_subnet_id           = var.infrastructure_subnet_id
-  infrastructure_resource_group_name = null
-  tags                               = var.tags
+  name                     = var.name
+  location                 = var.location
+  resource_group_name      = var.resource_group_name
+  infrastructure_subnet_id = var.infrastructure_subnet_id
+  tags                     = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      infrastructure_resource_group_name,
+      workload_profile,
+    ]
+  }
 }
 
 resource "azurerm_container_app_environment_storage" "server" {

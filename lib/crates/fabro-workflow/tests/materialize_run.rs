@@ -6,8 +6,7 @@ use fabro_model::{Catalog, Provider};
 use fabro_types::WorkflowSettings;
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::{
-    PullRequestSettings, RunGoal, RunModelSettings, RunNamespace, RunScmSettings,
-    ScmGitHubSettings,
+    PullRequestSettings, RunGoal, RunModelSettings, RunNamespace, RunScmSettings, ScmGitHubSettings,
 };
 use fabro_workflow::run_materialization::materialize_run;
 

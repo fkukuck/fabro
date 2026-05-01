@@ -221,7 +221,9 @@ pub(crate) fn build_container_group_body(
     cpu: f64,
     memory_gb: f64,
 ) -> Value {
-    let mut properties = json!({
+    let identity_resource_id = &config.acr_identity_resource_id;
+
+    let properties = json!({
         "containers": [
             {
                 "name": name,
@@ -265,22 +267,24 @@ pub(crate) fn build_container_group_body(
                 "name": "workspace",
                 "emptyDir": {}
             }
-        ]
-    });
-
-    if let (Some(username), Some(password)) = (&config.acr_username, &config.acr_password) {
-        properties["imageRegistryCredentials"] = json!([
+        ],
+        "imageRegistryCredentials": [
             {
                 "server": config.acr_server,
-                "username": username,
-                "password": password,
+                "identity": identity_resource_id,
             }
-        ]);
-    }
+        ]
+    });
 
     json!({
         "name": name,
         "location": config.location,
+        "identity": {
+            "type": "UserAssigned",
+            "userAssignedIdentities": {
+                identity_resource_id: {}
+            }
+        },
         "properties": properties,
     })
 }
@@ -298,9 +302,8 @@ mod tests {
             location:        "eastus".to_string(),
             subnet_id:       "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet-1/subnets/aci".to_string(),
             acr_server:      "fabro.azurecr.io".to_string(),
+            acr_identity_resource_id: "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull".to_string(),
             sandboxd_port:   7777,
-            acr_username:    Some("user".to_string()),
-            acr_password:    Some("pass".to_string()),
         };
 
         let body = build_container_group_body(
@@ -322,5 +325,23 @@ mod tests {
             serde_json::json!({})
         );
         assert!(body["properties"]["volumes"][0]["azureFile"].is_null());
+        assert_eq!(
+            body["identity"],
+            serde_json::json!({
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull": {}
+                }
+            })
+        );
+        assert_eq!(
+            body["properties"]["imageRegistryCredentials"],
+            serde_json::json!([
+                {
+                    "server": "fabro.azurecr.io",
+                    "identity": "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull"
+                }
+            ])
+        );
     }
 }

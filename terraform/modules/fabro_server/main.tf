@@ -1,9 +1,5 @@
 locals {
-  image_registry_enabled = (
-    var.registry_server != null &&
-    var.registry_username != null &&
-    var.registry_password != null
-  )
+  image_registry_enabled = var.registry_server != null
 }
 
 resource "azurerm_container_app" "this" {
@@ -20,20 +16,11 @@ resource "azurerm_container_app" "this" {
     identity_ids = [var.identity_id]
   }
 
-  dynamic "secret" {
-    for_each = local.image_registry_enabled ? [1] : []
-    content {
-      name  = "image-registry-password"
-      value = var.registry_password
-    }
-  }
-
   dynamic "registry" {
     for_each = local.image_registry_enabled ? [1] : []
     content {
-      server               = var.registry_server
-      username             = var.registry_username
-      password_secret_name = "image-registry-password"
+      server   = var.registry_server
+      identity = var.identity_id
     }
   }
 
@@ -67,6 +54,16 @@ resource "azurerm_container_app" "this" {
       env {
         name  = "AZURE_CLIENT_ID"
         value = var.identity_client_id
+      }
+
+      env {
+        name  = "FABRO_SKIP_PRIV_DROP"
+        value = "1"
+      }
+
+      env {
+        name  = "FABRO_SERVER_RUNTIME_DIR"
+        value = "/tmp/fabro-runtime"
       }
 
       volume_mounts {

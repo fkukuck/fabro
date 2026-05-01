@@ -317,8 +317,19 @@ fn remove_optional_file(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(unix)]
+fn ignore_unsupported_metadata_error(err: io::Error) -> io::Result<()> {
+    if err.kind() == io::ErrorKind::Unsupported || matches!(err.raw_os_error(), Some(95) | Some(45))
+    {
+        return Ok(());
+    }
+    Err(err)
+}
+
+#[cfg(unix)]
 fn sync_parent_directory(path: &Path) -> io::Result<()> {
-    std::fs::File::open(path)?.sync_all()
+    std::fs::File::open(path)?
+        .sync_all()
+        .or_else(ignore_unsupported_metadata_error)
 }
 
 #[cfg(not(unix))]
@@ -330,8 +341,8 @@ fn sync_parent_directory(_path: &Path) -> io::Result<()> {
 fn set_private_permissions(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    Ok(())
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .or_else(ignore_unsupported_metadata_error)
 }
 
 #[cfg(not(unix))]
@@ -456,5 +467,24 @@ mod tests {
 
         assert_eq!(report.removed_keys, vec!["AWS_ACCESS_KEY_ID".to_string()]);
         assert_eq!(report.entries.get("KEEP_ME").map(String::as_str), Some("1"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ignore_unsupported_metadata_error_accepts_unsupported_errors() {
+        assert!(
+            ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::Unsupported)).is_ok()
+        );
+        assert!(ignore_unsupported_metadata_error(io::Error::from_raw_os_error(95)).is_ok());
+        assert!(ignore_unsupported_metadata_error(io::Error::from_raw_os_error(45)).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ignore_unsupported_metadata_error_preserves_other_failures() {
+        let err =
+            ignore_unsupported_metadata_error(io::Error::from(io::ErrorKind::PermissionDenied))
+                .expect_err("non-unsupported metadata errors should still fail");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
     }
 }

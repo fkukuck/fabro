@@ -24,6 +24,7 @@ impl EnvVars {
     pub const FABRO_NO_UPGRADE_CHECK: &'static str = "FABRO_NO_UPGRADE_CHECK";
     pub const FABRO_QUIET: &'static str = "FABRO_QUIET";
     pub const FABRO_SERVER: &'static str = "FABRO_SERVER";
+    pub const FABRO_SERVER_RUNTIME_DIR: &'static str = "FABRO_SERVER_RUNTIME_DIR";
     pub const FABRO_SERVER_MAX_CONCURRENT_RUNS: &'static str = "FABRO_SERVER_MAX_CONCURRENT_RUNS";
     pub const FABRO_SLACK_APP_TOKEN: &'static str = "FABRO_SLACK_APP_TOKEN";
     pub const FABRO_SLACK_BOT_TOKEN: &'static str = "FABRO_SLACK_BOT_TOKEN";
@@ -91,12 +92,15 @@ impl EnvVars {
     pub const AWS_SECRET_ACCESS_KEY: &'static str = "AWS_SECRET_ACCESS_KEY";
     pub const AWS_SESSION_TOKEN: &'static str = "AWS_SESSION_TOKEN";
     pub const AWS_WEB_IDENTITY_TOKEN_FILE: &'static str = "AWS_WEB_IDENTITY_TOKEN_FILE";
+    pub const AZURE_CLIENT_ID: &'static str = "AZURE_CLIENT_ID";
     pub const DAYTONA_API_KEY: &'static str = "DAYTONA_API_KEY";
     pub const DAYTONA_API_URL: &'static str = "DAYTONA_API_URL";
     pub const DAYTONA_ORGANIZATION_ID: &'static str = "DAYTONA_ORGANIZATION_ID";
     pub const DAYTONA_SERVER_URL: &'static str = "DAYTONA_SERVER_URL";
     pub const FABRO_AZURE_ACR_PASSWORD: &'static str = "FABRO_AZURE_ACR_PASSWORD";
     pub const FABRO_AZURE_ACR_USERNAME: &'static str = "FABRO_AZURE_ACR_USERNAME";
+    pub const IDENTITY_ENDPOINT: &'static str = "IDENTITY_ENDPOINT";
+    pub const IDENTITY_HEADER: &'static str = "IDENTITY_HEADER";
     pub const SESSION_SECRET: &'static str = "SESSION_SECRET";
 
     // Platform and test harness
@@ -176,6 +180,7 @@ mod tests {
             EnvVars::FABRO_NO_UPGRADE_CHECK,
             EnvVars::FABRO_QUIET,
             EnvVars::FABRO_SERVER,
+            EnvVars::FABRO_SERVER_RUNTIME_DIR,
             EnvVars::FABRO_SERVER_MAX_CONCURRENT_RUNS,
             EnvVars::FABRO_SLACK_APP_TOKEN,
             EnvVars::FABRO_SLACK_BOT_TOKEN,
@@ -234,12 +239,15 @@ mod tests {
             EnvVars::AWS_SECRET_ACCESS_KEY,
             EnvVars::AWS_SESSION_TOKEN,
             EnvVars::AWS_WEB_IDENTITY_TOKEN_FILE,
+            EnvVars::AZURE_CLIENT_ID,
             EnvVars::DAYTONA_API_KEY,
             EnvVars::DAYTONA_API_URL,
             EnvVars::DAYTONA_ORGANIZATION_ID,
             EnvVars::DAYTONA_SERVER_URL,
             EnvVars::FABRO_AZURE_ACR_PASSWORD,
             EnvVars::FABRO_AZURE_ACR_USERNAME,
+            EnvVars::IDENTITY_ENDPOINT,
+            EnvVars::IDENTITY_HEADER,
             EnvVars::SESSION_SECRET,
             EnvVars::CARGO_BIN_EXE_FABRO,
             EnvVars::CARGO_CFG_TARGET_OS,

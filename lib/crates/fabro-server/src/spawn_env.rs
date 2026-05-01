@@ -13,6 +13,9 @@ const WORKER_ENV_ALLOWLIST: &[&str] = &[
     EnvVars::FABRO_LOG,
     EnvVars::FABRO_HOME,
     EnvVars::FABRO_STORAGE_ROOT,
+    EnvVars::AZURE_CLIENT_ID,
+    EnvVars::IDENTITY_ENDPOINT,
+    EnvVars::IDENTITY_HEADER,
 ];
 
 const RENDER_GRAPH_ENV_ALLOWLIST: &[&str] = &[EnvVars::PATH, EnvVars::HOME, EnvVars::TMPDIR];
@@ -83,6 +86,15 @@ mod tests {
                 "FABRO_STORAGE_ROOT".to_string(),
                 "/tmp/fabro-storage".to_string(),
             ),
+            ("AZURE_CLIENT_ID".to_string(), "client-id-123".to_string()),
+            (
+                "IDENTITY_ENDPOINT".to_string(),
+                "http://127.0.0.1:42356/msi/token".to_string(),
+            ),
+            (
+                "IDENTITY_HEADER".to_string(),
+                "identity-header-123".to_string(),
+            ),
             ("SESSION_SECRET".to_string(), "leak".to_string()),
             ("FABRO_JWT_PRIVATE_KEY".to_string(), "leak".to_string()),
             ("FABRO_JWT_PUBLIC_KEY".to_string(), "leak".to_string()),
@@ -107,6 +119,18 @@ mod tests {
         assert_eq!(actual.get("HOME").map(String::as_str), Some("/tmp/home"));
         assert_eq!(actual.get("FABRO_LOG").map(String::as_str), Some("debug"));
         assert!(!actual.contains_key("FABRO_LOG_DESTINATION"));
+        assert_eq!(
+            actual.get("AZURE_CLIENT_ID").map(String::as_str),
+            Some("client-id-123")
+        );
+        assert_eq!(
+            actual.get("IDENTITY_ENDPOINT").map(String::as_str),
+            Some("http://127.0.0.1:42356/msi/token")
+        );
+        assert_eq!(
+            actual.get("IDENTITY_HEADER").map(String::as_str),
+            Some("identity-header-123")
+        );
         assert_eq!(
             actual.get("FABRO_DEV_TOKEN").map(String::as_str),
             Some("fabro_dev_abababababababababababababababababababababababababababababababab")

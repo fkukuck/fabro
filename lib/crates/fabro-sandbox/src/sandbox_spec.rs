@@ -12,10 +12,10 @@ use anyhow::anyhow;
 )]
 use fabro_types::RunId;
 
-#[cfg(any(feature = "docker", feature = "daytona"))]
-use crate::clone_source;
 #[cfg(feature = "azure")]
 use crate::azure::AzureSandbox;
+#[cfg(any(feature = "docker", feature = "daytona"))]
+use crate::clone_source;
 #[cfg(feature = "azure")]
 use crate::config::AzureConfig;
 #[cfg(feature = "daytona")]

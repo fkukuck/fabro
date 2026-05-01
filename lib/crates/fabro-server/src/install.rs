@@ -261,40 +261,38 @@ struct ServerConfigInput {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct InstallAzureInput {
-    subscription_id: String,
-    resource_group:  String,
-    location:        String,
-    subnet_id:       String,
-    acr_server:      String,
-    sandboxd_port:   Option<u16>,
-    acr_username:    Option<String>,
-    acr_password:    Option<String>,
+    subscription_id:          String,
+    resource_group:           String,
+    location:                 String,
+    subnet_id:                String,
+    acr_server:               String,
+    acr_identity_resource_id: String,
+    sandboxd_port:            Option<u16>,
 }
 
 #[derive(Clone, Debug)]
 struct InstallAzureState {
-    subscription_id: String,
-    resource_group:  String,
-    location:        String,
-    subnet_id:       String,
-    acr_server:      String,
-    sandboxd_port:   u16,
-    acr_username:    Option<String>,
-    acr_password:    Option<String>,
+    subscription_id:          String,
+    resource_group:           String,
+    location:                 String,
+    subnet_id:                String,
+    acr_server:               String,
+    acr_identity_resource_id: String,
+    sandboxd_port:            u16,
 }
 
 impl InstallAzureState {
     fn from_input(input: InstallAzureInput) -> Self {
         Self {
-            subscription_id: input.subscription_id,
-            resource_group:  input.resource_group,
-            location:        input.location,
-            subnet_id:       input.subnet_id,
-            acr_server:      input.acr_server,
-            sandboxd_port:   input.sandboxd_port.unwrap_or(7777),
-            acr_username:    input.acr_username,
-            acr_password:    input.acr_password,
+            subscription_id:          input.subscription_id,
+            resource_group:           input.resource_group,
+            location:                 input.location,
+            subnet_id:                input.subnet_id,
+            acr_server:               input.acr_server,
+            acr_identity_resource_id: input.acr_identity_resource_id,
+            sandboxd_port:            input.sandboxd_port.unwrap_or(7777),
         }
     }
 
@@ -305,19 +303,20 @@ impl InstallAzureState {
             "location": self.location,
             "subnet_id": self.subnet_id,
             "acr_server": self.acr_server,
+            "acr_identity_resource_id": self.acr_identity_resource_id,
             "sandboxd_port": self.sandboxd_port,
-            "acr_credentials_saved": self.acr_username.is_some() && self.acr_password.is_some(),
         })
     }
 
     fn to_platform_selection(&self) -> InstallAzurePlatformSelection {
         InstallAzurePlatformSelection {
-            subscription_id: self.subscription_id.clone(),
-            resource_group:  self.resource_group.clone(),
-            location:        self.location.clone(),
-            subnet_id:       self.subnet_id.clone(),
-            acr_server:      self.acr_server.clone(),
-            sandboxd_port:   self.sandboxd_port,
+            subscription_id:          self.subscription_id.clone(),
+            resource_group:           self.resource_group.clone(),
+            location:                 self.location.clone(),
+            subnet_id:                self.subnet_id.clone(),
+            acr_server:               self.acr_server.clone(),
+            acr_identity_resource_id: self.acr_identity_resource_id.clone(),
+            sandboxd_port:            self.sandboxd_port,
         }
     }
 }
@@ -328,6 +327,7 @@ impl InstallAzureState {
 enum InstallObjectStoreProvider {
     Local,
     S3,
+    Azure,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, strum::IntoStaticStr)]
@@ -344,6 +344,8 @@ struct InstallObjectStoreInput {
     root:              Option<String>,
     bucket:            Option<String>,
     region:            Option<String>,
+    account:           Option<String>,
+    container:         Option<String>,
     credential_mode:   Option<InstallObjectStoreCredentialMode>,
     access_key_id:     Option<String>,
     secret_access_key: Option<String>,
@@ -418,6 +420,10 @@ enum InstallObjectStoreState {
         credential_mode:    InstallObjectStoreCredentialMode,
         manual_credentials: Option<InstallAwsCredentialPair>,
     },
+    Azure {
+        account:   String,
+        container: String,
+    },
 }
 
 impl InstallObjectStoreState {
@@ -441,6 +447,11 @@ impl InstallObjectStoreState {
                     credential_mode,
                     InstallObjectStoreCredentialMode::AccessKey
                 ) && manual_credentials.is_some(),
+            }),
+            Self::Azure { account, container } => serde_json::json!({
+                "provider": "azure",
+                "account": account,
+                "container": container,
             }),
         }
     }
@@ -473,6 +484,12 @@ impl InstallObjectStoreState {
                     .as_ref()
                     .map(|credentials| credentials.secret_access_key.expose_secret().to_string()),
             },
+            Self::Azure { account, container } => {
+                fabro_install::InstallObjectStoreSelection::Azure {
+                    account:   account.clone(),
+                    container: container.clone(),
+                }
+            }
         }
     }
 }
@@ -483,6 +500,7 @@ impl InstallObjectStoreState {
 enum InstallSandboxProvider {
     Docker,
     Daytona,
+    Azure,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -495,6 +513,7 @@ struct InstallSandboxInput {
 enum InstallSandboxState {
     Docker,
     Daytona { api_key: InstallSecret },
+    Azure,
 }
 
 impl InstallSandboxState {
@@ -505,6 +524,7 @@ impl InstallSandboxState {
                 "provider": "daytona",
                 "api_key_saved": true,
             }),
+            Self::Azure => serde_json::json!({ "provider": "azure" }),
         }
     }
 
@@ -512,6 +532,7 @@ impl InstallSandboxState {
         match self {
             Self::Docker => InstallSandboxSelection::Docker,
             Self::Daytona { .. } => InstallSandboxSelection::Daytona,
+            Self::Azure => InstallSandboxSelection::Azure,
         }
     }
 }
@@ -959,19 +980,14 @@ async fn put_install_azure(
         ("location", &mut input.location),
         ("subnet_id", &mut input.subnet_id),
         ("acr_server", &mut input.acr_server),
+        (
+            "acr_identity_resource_id",
+            &mut input.acr_identity_resource_id,
+        ),
     ] {
         if let Err(err) = require_field(label, value) {
             return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err);
         }
-    }
-
-    input.acr_username = trim_install_field(input.acr_username);
-    input.acr_password = trim_install_field(input.acr_password);
-    if input.acr_username.is_some() ^ input.acr_password.is_some() {
-        return install_error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "acr_username and acr_password must be provided together",
-        );
     }
 
     lock_unpoisoned(&state.pending_install, "install session").azure =
@@ -1051,11 +1067,18 @@ async fn post_install_sandbox_test(
 
     let api_key = {
         let pending_install = lock_unpoisoned(&state.pending_install, "install session");
-        match resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input) {
+        match resolve_install_sandbox_state(
+            pending_install.sandbox.as_ref(),
+            pending_install.azure.as_ref(),
+            input,
+        ) {
             Ok(InstallSandboxState::Docker) => {
                 return Json(serde_json::json!({ "ok": true })).into_response();
             }
             Ok(InstallSandboxState::Daytona { api_key }) => api_key.expose_secret().to_string(),
+            Ok(InstallSandboxState::Azure) => {
+                return Json(serde_json::json!({ "ok": true })).into_response();
+            }
             Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
         }
     };
@@ -1105,7 +1128,11 @@ async fn put_install_sandbox(
     observe_operator(&state, &headers);
 
     let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
-    let selection = match resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input) {
+    let selection = match resolve_install_sandbox_state(
+        pending_install.sandbox.as_ref(),
+        pending_install.azure.as_ref(),
+        input,
+    ) {
         Ok(selection) => selection,
         Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
     };
@@ -1132,6 +1159,7 @@ fn default_local_object_store_root(state: &InstallAppState) -> String {
 
 fn resolve_install_sandbox_state(
     current: Option<&InstallSandboxState>,
+    azure: Option<&InstallAzureState>,
     input: InstallSandboxInput,
 ) -> Result<InstallSandboxState, String> {
     match input.provider {
@@ -1148,6 +1176,15 @@ fn resolve_install_sandbox_state(
             };
             Ok(InstallSandboxState::Daytona { api_key })
         }
+        InstallSandboxProvider::Azure => {
+            if azure.is_none() {
+                return Err(
+                    "Complete the Azure platform step before selecting the Azure sandbox runtime."
+                        .to_string(),
+                );
+            }
+            Ok(InstallSandboxState::Azure)
+        }
     }
 }
 
@@ -1159,6 +1196,8 @@ fn resolve_install_object_store_state(
     let root = trim_install_field(input.root);
     let bucket = trim_install_field(input.bucket);
     let region = trim_install_field(input.region);
+    let account = trim_install_field(input.account);
+    let container = trim_install_field(input.container);
     let access_key_id = trim_install_field(input.access_key_id);
     let secret_access_key = trim_install_field(input.secret_access_key);
 
@@ -1166,12 +1205,14 @@ fn resolve_install_object_store_state(
         InstallObjectStoreProvider::Local => {
             if bucket.is_some()
                 || region.is_some()
+                || account.is_some()
+                || container.is_some()
                 || input.credential_mode.is_some()
                 || access_key_id.is_some()
                 || secret_access_key.is_some()
             {
                 return Err(
-                    "Local disk does not accept S3 bucket, region, or AWS credential fields."
+                    "Local disk does not accept S3 bucket, region, Azure account/container, or AWS credential fields."
                         .to_string(),
                 );
             }
@@ -1184,6 +1225,9 @@ fn resolve_install_object_store_state(
             Ok(InstallObjectStoreState::Local { root })
         }
         InstallObjectStoreProvider::S3 => {
+            if account.is_some() || container.is_some() {
+                return Err("AWS S3 does not accept Azure account or container fields.".to_string());
+            }
             let bucket = bucket.ok_or_else(|| "Bucket is required.".to_string())?;
             let region = region
                 .ok_or_else(|| "Region is required. Use a value like us-east-1.".to_string())?;
@@ -1213,6 +1257,25 @@ fn resolve_install_object_store_state(
                 credential_mode,
                 manual_credentials,
             })
+        }
+        InstallObjectStoreProvider::Azure => {
+            if root.is_some()
+                || bucket.is_some()
+                || region.is_some()
+                || input.credential_mode.is_some()
+                || access_key_id.is_some()
+                || secret_access_key.is_some()
+            {
+                return Err(
+                    "Azure Blob does not accept local-root, S3 bucket, region, or AWS credential fields."
+                        .to_string(),
+                );
+            }
+
+            let account = account.ok_or_else(|| "Storage account is required.".to_string())?;
+            let container = container.ok_or_else(|| "Container is required.".to_string())?;
+
+            Ok(InstallObjectStoreState::Azure { account, container })
         }
     }
 }
@@ -1256,7 +1319,15 @@ fn object_store_validation_settings(
             endpoint:   None,
             path_style: false,
         }),
+        InstallObjectStoreState::Azure { account, container } => Some(ObjectStoreSettings::Azure {
+            account:   InterpString::parse(account),
+            container: InterpString::parse(container),
+        }),
     }
+}
+
+fn object_store_validation_prefixes() -> [&'static str; 3] {
+    ["artifacts", "slatedb", "run-logs"]
 }
 
 fn install_object_store_lookup<'a>(
@@ -1283,6 +1354,9 @@ async fn validate_install_object_store_selection(
         return Ok(());
     };
 
+    let client_options = ClientOptions::new()
+        .with_connect_timeout(VALIDATION_CONNECT_TIMEOUT)
+        .with_timeout(VALIDATION_TIMEOUT);
     let (bucket, region, manual_credentials) = match selection {
         InstallObjectStoreState::Local { .. } => return Ok(()),
         InstallObjectStoreState::S3 {
@@ -1290,38 +1364,38 @@ async fn validate_install_object_store_selection(
             region,
             credential_mode: _,
             manual_credentials,
-        } => (
-            bucket.as_str(),
-            region.as_str(),
-            manual_credentials.as_ref(),
-        ),
-    };
-
-    let client_options = ClientOptions::new()
-        .with_connect_timeout(VALIDATION_CONNECT_TIMEOUT)
-        .with_timeout(VALIDATION_TIMEOUT);
-    match timeout(
-        VALIDATION_TIMEOUT,
-        resolve_bucket_region(bucket, &client_options),
-    )
-    .await
-    {
-        Ok(Ok(actual_region)) if actual_region != region => {
-            bail!(
-                "Bucket {bucket} is in region {actual_region}, not {region}. Use the bucket's AWS region and try again."
-            );
-        }
-        Ok(Err(err)) => {
-            let rendered = err.to_string();
-            if rendered.contains("not found") {
-                bail!("Bucket {bucket} was not found.");
+        } => {
+            match timeout(
+                VALIDATION_TIMEOUT,
+                resolve_bucket_region(bucket, &client_options),
+            )
+            .await
+            {
+                Ok(Ok(actual_region)) if actual_region != *region => {
+                    bail!(
+                        "Bucket {bucket} is in region {actual_region}, not {region}. Use the bucket's AWS region and try again."
+                    );
+                }
+                Ok(Err(err)) => {
+                    let rendered = err.to_string();
+                    if rendered.contains("not found") {
+                        bail!("Bucket {bucket} was not found.");
+                    }
+                }
+                Err(_) => {
+                    bail!(VALIDATION_TIMEOUT_MSG);
+                }
+                Ok(Ok(_)) => {}
             }
+
+            (
+                Some(bucket.as_str()),
+                Some(region.as_str()),
+                manual_credentials.as_ref(),
+            )
         }
-        Err(_) => {
-            bail!(VALIDATION_TIMEOUT_MSG);
-        }
-        Ok(Ok(_)) => {}
-    }
+        InstallObjectStoreState::Azure { .. } => (None, None, None),
+    };
 
     let server_env_path = Storage::new(state.storage_dir.as_ref())
         .runtime_directory()
@@ -1355,20 +1429,28 @@ async fn validate_install_object_store_selection(
         }
     };
     let probe = async {
-        tokio::try_join!(probe_prefix(0, "artifacts"), probe_prefix(1, "slatedb")).map(|_| ())
+        tokio::try_join!(
+            probe_prefix(0, object_store_validation_prefixes()[0]),
+            probe_prefix(1, object_store_validation_prefixes()[1]),
+            probe_prefix(2, object_store_validation_prefixes()[2]),
+        )
+        .map(|_| ())
     };
 
     match timeout(VALIDATION_TIMEOUT, probe).await {
         Ok(Ok(())) => Ok(()),
         Err(_) => bail!(VALIDATION_TIMEOUT_MSG),
-        Ok(Err((index, err))) => bail!(
-            "{}",
-            classify_object_store_validation_error(bucket, region, index, &err)
-        ),
+        Ok(Err((index, err))) => match (bucket, region) {
+            (Some(bucket), Some(region)) => bail!(
+                "{}",
+                classify_object_store_validation_error(bucket, region, index, &err)
+            ),
+            _ => Err(anyhow!(err.to_string())),
+        },
     }
 }
 
-const PREFIX_ACCESS_ERROR_MSG: &str = "Fabro reached the bucket but could not verify access to slatedb/ and artifacts/. Validation requires bucket list access plus object access under both prefixes.";
+const PREFIX_ACCESS_ERROR_MSG: &str = "Fabro reached the bucket but could not verify access to artifacts/, slatedb/, and run-logs/. Validation requires bucket list access plus object access under all three prefixes.";
 const VALIDATION_TIMEOUT_MSG: &str = "Timed out while checking S3 access. Verify the bucket, region, and network path, then try again.";
 
 fn bucket_credentials_error(bucket: &str, region: &str) -> String {
@@ -1645,20 +1727,6 @@ async fn post_install_finish(
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
     let mut vault_secrets = Vec::new();
-    if let (Some(acr_username), Some(acr_password)) = (&azure.acr_username, &azure.acr_password) {
-        vault_secrets.push(VaultSecretWrite {
-            name:        EnvVars::FABRO_AZURE_ACR_USERNAME.to_string(),
-            value:       acr_username.clone(),
-            secret_type: VaultSecretType::Environment,
-            description: None,
-        });
-        vault_secrets.push(VaultSecretWrite {
-            name:        EnvVars::FABRO_AZURE_ACR_PASSWORD.to_string(),
-            value:       acr_password.clone(),
-            secret_type: VaultSecretType::Environment,
-            description: None,
-        });
-    }
     if let InstallSandboxState::Daytona { api_key } = &sandbox {
         vault_secrets.push(VaultSecretWrite {
             name:        EnvVars::DAYTONA_API_KEY.to_string(),
@@ -1667,6 +1735,10 @@ async fn post_install_finish(
             description: None,
         });
     }
+    let vault_secret_removals = vec![
+        EnvVars::FABRO_AZURE_ACR_USERNAME.to_string(),
+        EnvVars::FABRO_AZURE_ACR_PASSWORD.to_string(),
+    ];
     for provider in llm.providers {
         let credential = AuthCredential {
             provider: provider.provider,
@@ -1774,6 +1846,7 @@ async fn post_install_finish(
         &server_env_writes,
         &server_env_removals,
         &vault_secrets,
+        &vault_secret_removals,
         Some(&PendingSettingsWrite {
             path:              state.config_path.as_ref(),
             contents:          &settings_toml,
@@ -2534,6 +2607,8 @@ methods = ["dev-token"]
                 root:              Some("/srv/fabro/objects".to_string()),
                 bucket:            Some("fabro-data".to_string()),
                 region:            None,
+                account:           None,
+                container:         None,
                 credential_mode:   None,
                 access_key_id:     None,
                 secret_access_key: None,
@@ -2544,7 +2619,7 @@ methods = ["dev-token"]
 
         assert_eq!(
             err,
-            "Local disk does not accept S3 bucket, region, or AWS credential fields."
+            "Local disk does not accept S3 bucket, region, Azure account/container, or AWS credential fields."
         );
     }
 
@@ -2557,6 +2632,8 @@ methods = ["dev-token"]
                 root:              Some(" /srv/fabro/objects ".to_string()),
                 bucket:            None,
                 region:            None,
+                account:           None,
+                container:         None,
                 credential_mode:   None,
                 access_key_id:     None,
                 secret_access_key: None,
@@ -2580,6 +2657,8 @@ methods = ["dev-token"]
                 root:              None,
                 bucket:            Some("fabro-data".to_string()),
                 region:            Some("us-east-1".to_string()),
+                account:           None,
+                container:         None,
                 credential_mode:   Some(InstallObjectStoreCredentialMode::Runtime),
                 access_key_id:     Some("AKIA_FAKE_VALUE".to_string()),
                 secret_access_key: Some("fake-secret-value".to_string()),

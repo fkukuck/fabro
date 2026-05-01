@@ -633,8 +633,7 @@ mod tests {
         WorkerControlStreamEvent, WorkerTitlePhase, apply_worker_control_line,
         handle_worker_control_stream_events, initial_worker_title_phase, load_worker_vault,
         maybe_build_github_credentials, read_worker_control_stream_blocking, stamp_system_worker,
-        worker_title,
-        worker_title_phase_for_event,
+        worker_title, worker_title_phase_for_event,
     };
     use crate::args::RunWorkerMode;
 
