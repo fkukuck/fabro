@@ -37,7 +37,7 @@ mod tests {
             body:               EventBody::RunCompleted(RunCompletedProps {
                 duration_ms:          42,
                 artifact_count:       0,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,
@@ -80,7 +80,7 @@ mod tests {
             body:               EventBody::RunCompleted(RunCompletedProps {
                 duration_ms:          100,
                 artifact_count:       1,
-                status:               "success".to_string(),
+                status:               "succeeded".to_string(),
                 reason:               SuccessReason::Completed,
                 total_usd_micros:     None,
                 final_git_commit_sha: None,

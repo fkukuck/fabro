@@ -22,5 +22,16 @@ export interface HealthResponse {
      * Health status indicator.
      */
     'status': string;
+    /**
+     * Optional server mode indicator when extra operator action is required.
+     */
+    'mode'?: HealthResponseModeEnum;
 }
+
+export const HealthResponseModeEnum = {
+    INSTALL: 'install'
+} as const;
+
+export type HealthResponseModeEnum = typeof HealthResponseModeEnum[keyof typeof HealthResponseModeEnum];
+
 

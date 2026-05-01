@@ -9,14 +9,14 @@ use async_trait::async_trait;
 use fabro_config::Storage;
 use fabro_github::GitHubCredentials;
 use fabro_static::EnvVars;
-use fabro_types::RunId;
+use fabro_types::{CommandTermination, RunId};
 use tokio::sync::OnceCell;
 use tokio::{fs, time};
 use tokio_util::sync::CancellationToken;
 
 use crate::azure::arm::{AzureArmClient, ContainerGroupView};
 use crate::azure::config::AzurePlatformConfig;
-use crate::azure::protocol::ExecRequest;
+use crate::azure::protocol::{ExecRequest, ExecResponse};
 use crate::azure::resource_id::ContainerGroupResourceId;
 use crate::config::AzureConfig;
 use crate::repo::resolve_clone_source;
@@ -183,6 +183,22 @@ impl AzureSandbox {
         container_group_base_url(&view, self.platform.sandboxd_port)
     }
 
+    fn exec_result_from_response(response: ExecResponse) -> ExecResult {
+        let termination = if response.timed_out {
+            CommandTermination::TimedOut
+        } else {
+            CommandTermination::Exited
+        };
+
+        ExecResult {
+            stdout: response.stdout,
+            stderr: response.stderr,
+            exit_code: (termination == CommandTermination::Exited).then_some(response.exit_code),
+            termination,
+            duration_ms: response.duration_ms,
+        }
+    }
+
     async fn ensure_workspace_clone(&self) -> crate::Result<()> {
         if self
             .file_exists(&format!("{WORKING_DIRECTORY}/.git"))
@@ -199,10 +215,10 @@ impl AzureSandbox {
         ) else {
             let mkdir = format!("mkdir -p {}", shell_quote(WORKING_DIRECTORY));
             let result = self.exec_command(&mkdir, 10_000, None, None, None).await?;
-            if result.exit_code != 0 {
+            if !result.is_success() {
                 return Err(crate::Error::message(format!(
                     "failed to create working directory (exit {}): {}",
-                    result.exit_code, result.stderr
+                    result.display_exit_code(), result.stderr
                 )));
             }
             return Ok(());
@@ -245,10 +261,10 @@ impl AzureSandbox {
         let clone_result = self
             .exec_command(&clone_cmd, 120_000, None, None, None)
             .await?;
-        if clone_result.exit_code != 0 {
+        if !clone_result.is_success() {
             let err = format!(
                 "Failed to clone repo into Azure sandbox (exit {}): {}",
-                clone_result.exit_code, clone_result.stderr
+                clone_result.display_exit_code(), clone_result.stderr
             );
             self.emit(SandboxEvent::GitCloneFailed {
                 url,
@@ -291,13 +307,7 @@ impl AzureSandbox {
             client.exec(request).await?
         };
 
-        Ok(ExecResult {
-            stdout:      response.stdout,
-            stderr:      response.stderr,
-            exit_code:   response.exit_code,
-            timed_out:   response.timed_out,
-            duration_ms: response.duration_ms,
-        })
+        Ok(Self::exec_result_from_response(response))
     }
 }
 
@@ -346,12 +356,12 @@ impl Sandbox for AzureSandbox {
     async fn delete_file(&self, path: &str) -> crate::Result<()> {
         let cmd = format!("rm -rf {}", shell_quote(&Self::resolve_path(path)));
         let result = self.exec_command(&cmd, 10_000, None, None, None).await?;
-        if result.exit_code == 0 {
+        if result.is_success() {
             Ok(())
         } else {
             Err(crate::Error::message(format!(
                 "delete failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(), result.stderr
             )))
         }
     }
@@ -359,7 +369,7 @@ impl Sandbox for AzureSandbox {
     async fn file_exists(&self, path: &str) -> crate::Result<bool> {
         let cmd = format!("test -e {}", shell_quote(&Self::resolve_path(path)));
         let result = self.exec_command(&cmd, 10_000, None, None, None).await?;
-        Ok(result.exit_code == 0)
+        Ok(result.is_success())
     }
 
     async fn list_directory(
@@ -375,10 +385,10 @@ impl Sandbox for AzureSandbox {
             max_depth
         );
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "list_directory failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(), result.stderr
             )));
         }
 
@@ -443,13 +453,13 @@ impl Sandbox for AzureSandbox {
             shell_quote(&resolved)
         );
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
-        if result.exit_code == 1 {
+        if result.exit_code == Some(1) {
             return Ok(Vec::new());
         }
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(), result.stderr
             )));
         }
         Ok(result.stdout.lines().map(String::from).collect())
@@ -463,10 +473,10 @@ impl Sandbox for AzureSandbox {
             shell_quote(pattern)
         );
         let result = self.exec_command(&cmd, 30_000, None, None, None).await?;
-        if result.exit_code != 0 {
+        if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(), result.stderr
             )));
         }
         Ok(result
@@ -647,12 +657,12 @@ impl Sandbox for AzureSandbox {
             shell_quote(auth_url.as_raw_url().as_str())
         );
         let result = self.exec_command(&cmd, 10_000, None, None, None).await?;
-        if result.exit_code == 0 {
+        if result.is_success() {
             Ok(())
         } else {
             Err(crate::Error::message(format!(
                 "Failed to refresh push credentials (exit {}): {}",
-                result.exit_code, result.stderr
+                result.display_exit_code(), result.stderr
             )))
         }
     }
@@ -720,6 +730,7 @@ fn container_group_base_url(
 mod tests {
     use super::*;
     use crate::azure::arm::{ContainerGroupIpAddress, ContainerGroupPropertiesView};
+    use crate::azure::protocol::ExecResponse;
 
     #[test]
     fn exec_working_dir_defaults_to_workspace() {
@@ -781,6 +792,37 @@ mod tests {
         };
 
         assert_eq!(sandbox.sandbox_name(), "fabro-01kpjgm228cbvw27w2krje7np1");
+    }
+
+    #[test]
+    fn exec_response_maps_to_exited_exec_result() {
+        let result = AzureSandbox::exec_result_from_response(ExecResponse {
+            stdout: "ok".into(),
+            stderr: String::new(),
+            exit_code: 0,
+            timed_out: false,
+            duration_ms: 42,
+        });
+
+        assert_eq!(result.stdout, "ok");
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.termination, fabro_types::CommandTermination::Exited);
+        assert_eq!(result.duration_ms, 42);
+    }
+
+    #[test]
+    fn exec_response_maps_timeouts_to_missing_exit_code() {
+        let result = AzureSandbox::exec_result_from_response(ExecResponse {
+            stdout: String::new(),
+            stderr: "timed out".into(),
+            exit_code: 124,
+            timed_out: true,
+            duration_ms: 5000,
+        });
+
+        assert_eq!(result.exit_code, None);
+        assert_eq!(result.termination, fabro_types::CommandTermination::TimedOut);
+        assert_eq!(result.stderr, "timed out");
     }
 
     #[tokio::test]
