@@ -59,7 +59,7 @@ fn help() {
 }
 
 #[test]
-fn ps_explicit_local_tcp_server_target_requires_explicit_auth() {
+fn ps_explicit_local_tcp_server_target_ignores_env_dev_token() {
     let context = test_context!();
     let storage_root = tempfile::tempdir_in("/tmp").unwrap();
     let storage_dir = storage_root.path().join("storage");

@@ -1,5 +1,4 @@
 use fabro_test::{fabro_snapshot, test_context};
-use serde_json::Value;
 
 const DEV_TOKEN: &str =
     "fabro_dev_abababababababababababababababababababababababababababababababab";
@@ -152,15 +151,16 @@ fn status_help() {
 #[test]
 fn status_json_ignores_env_dev_token() {
     let context = test_context!();
-    let output = context
-        .command()
-        .env("FABRO_DEV_TOKEN", DEV_TOKEN)
-        .args(["auth", "status", "--json"])
-        .output()
-        .expect("auth status should run");
-
-    assert!(output.status.success());
-    let value: Value = serde_json::from_slice(&output.stdout).expect("status JSON should parse");
-    assert!(value["servers"].as_array().unwrap().is_empty());
-    assert!(value.get("env_dev_token").is_none());
+    let mut cmd = context.command();
+    cmd.args(["auth", "status", "--json"])
+        .env("FABRO_DEV_TOKEN", DEV_TOKEN);
+    fabro_snapshot!(context.filters(), cmd, @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "servers": []
+    }
+    ----- stderr -----
+    "#);
 }
