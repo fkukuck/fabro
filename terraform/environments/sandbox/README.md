@@ -11,6 +11,7 @@ This environment provisions the documented Fabro Azure topology using local Terr
 5. Build and push a `fabro-server` image to ACR or choose an immutable GHCR tag.
 6. Set `fabro_server_enabled = true` and update `fabro_server_image`.
 7. Run `terraform apply` again.
+8. Open the deployed server and finish the install flow, including the `Azure` step that saves the platform settings and optional ACR credentials.
 
 ## Steady-state deploy flow
 
@@ -40,4 +41,5 @@ For team or CI usage, move state to a shared remote backend later.
 - Keep the Container App at one replica.
 - ACR is provisioned even when `fabro-server` runs from GHCR because Azure sandbox images still use ACR.
 - Azure ACI sandboxes now use ephemeral `emptyDir` storage for `/workspace`; only the server's `/storage` share is persistent.
+- Azure sandbox startup now uses the server's persisted `[server.sandbox.azure.platform]` config plus optional vault-backed ACR credentials, rather than treating `FABRO_AZURE_*` worker env vars as the primary source of truth.
 - v1 is create-only. Attaching Terraform to pre-existing Azure resources is a future enhancement.

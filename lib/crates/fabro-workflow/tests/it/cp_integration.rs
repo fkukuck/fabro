@@ -38,7 +38,9 @@ async fn local_cp_upload_download_round_trip() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = local_record(sandbox_dir.path());
-    let sandbox = reconnect(&record, None).await.expect("reconnect local");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect local");
 
     // Upload a text file
     let content = b"hello from local cp test\n";
@@ -69,7 +71,9 @@ async fn local_cp_binary_round_trip() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = local_record(sandbox_dir.path());
-    let sandbox = reconnect(&record, None).await.expect("reconnect local");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect local");
 
     // All 256 byte values
     let binary: Vec<u8> = (0..=255).collect();
@@ -96,7 +100,9 @@ async fn local_cp_creates_parent_dirs() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = local_record(sandbox_dir.path());
-    let sandbox = reconnect(&record, None).await.expect("reconnect local");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect local");
 
     let content = b"nested file\n";
     let local_src = scratch.path().join("nested.txt");
@@ -143,7 +149,9 @@ async fn docker_cp_upload_download_round_trip() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = docker_record(&container_id);
-    let sandbox = reconnect(&record, None).await.expect("reconnect docker");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect docker");
 
     // Upload a text file
     let content = b"hello from docker cp test\n";
@@ -173,7 +181,9 @@ async fn docker_cp_binary_round_trip() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = docker_record(&container_id);
-    let sandbox = reconnect(&record, None).await.expect("reconnect docker");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect docker");
 
     let binary: Vec<u8> = (0..=255).collect();
     let local_src = scratch.path().join("binary.bin");
@@ -201,7 +211,9 @@ async fn docker_cp_creates_parent_dirs() {
     let scratch = tempfile::tempdir().unwrap();
 
     let record = docker_record(&container_id);
-    let sandbox = reconnect(&record, None).await.expect("reconnect docker");
+    let sandbox = reconnect(&record, None, None)
+        .await
+        .expect("reconnect docker");
 
     let content = b"nested docker file\n";
     let local_src = scratch.path().join("nested.txt");
