@@ -527,6 +527,17 @@ struct GithubTokenInput {
     username: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct GithubAppInput {
+    app_id:           String,
+    client_id:        String,
+    client_secret:    String,
+    private_key:      String,
+    slug:             String,
+    allowed_username: String,
+    webhook_secret:   Option<String>,
+}
+
 #[derive(Clone, Debug)]
 enum GithubInstallState {
     Token(GithubTokenInput),
@@ -686,6 +697,7 @@ pub fn build_install_router(state: InstallAppState) -> Router {
             post(post_install_github_token_test),
         )
         .route("/install/github/token", put(put_install_github_token))
+        .route("/install/github/app", put(put_install_github_app))
         .route(
             "/install/github/app/manifest",
             post(post_install_github_app_manifest),
@@ -1499,6 +1511,47 @@ async fn put_install_github_token(
     lock_unpoisoned(&state.pending_install, "install session").github =
         Some(GithubInstallState::Token(input));
     info!(step = "github_token", "install step completed");
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn put_install_github_app(
+    State(state): State<InstallAppState>,
+    headers: HeaderMap,
+    Query(query): Query<InstallTokenQuery>,
+    Json(input): Json<GithubAppInput>,
+) -> Response {
+    if let Some(response) = require_valid_token(&state, &headers, query.token.as_deref()) {
+        return response;
+    }
+    observe_operator(&state, &headers);
+
+    if input.app_id.trim().is_empty()
+        || input.client_id.trim().is_empty()
+        || input.client_secret.trim().is_empty()
+        || input.private_key.trim().is_empty()
+        || input.slug.trim().is_empty()
+        || input.allowed_username.trim().is_empty()
+    {
+        return install_error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "app_id, client_id, client_secret, private_key, slug, and allowed_username are required",
+        );
+    }
+
+    let mut pending_install = lock_unpoisoned(&state.pending_install, "install session");
+    pending_install.pending_github_app = None;
+    pending_install.github = Some(GithubInstallState::App(GithubAppInstall {
+        owner:            GitHubAppOwner::Personal,
+        app_name:         input.slug.trim().to_string(),
+        allowed_username: input.allowed_username.trim().to_string(),
+        app_id:           input.app_id.trim().to_string(),
+        slug:             input.slug.trim().to_string(),
+        client_id:        input.client_id.trim().to_string(),
+        client_secret:    input.client_secret,
+        webhook_secret:   input.webhook_secret,
+        pem:              input.private_key,
+    }));
+    info!(step = "github_app", "install step completed");
     StatusCode::NO_CONTENT.into_response()
 }
 
