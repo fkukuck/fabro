@@ -1,11 +1,6 @@
-# Cleanup Commit History Prompt
+We maintain a fork of `origin/main` on branch `ipt`.
 
-Use this prompt when you want an agent to rewrite a long-lived fork branch into a clean, durable commit series.
-
-```md
-We maintain a fork of `origin/main` on branch `<branch>`.
-
-Starting at the merge base with `origin/main`, analyze every commit on `<branch>` and rewrite the branch history into a small, readable sequence of durable commits.
+Starting at the merge base with `origin/main`, analyze every commit on `ipt` and rewrite the branch history into a small, readable sequence of durable commits.
 
 Goals:
 - Keep only meaningful fork-specific deltas that we still intentionally want to carry on top of upstream.
@@ -14,6 +9,7 @@ Goals:
 - Remove workflow/planning artifacts and similar non-product churn unless I explicitly say to keep them.
 - Preserve the actual behavior and files we still need at the branch tip.
 - Give every surviving commit a strong subject line and a body that explains why the change exists and why it should remain in the fork.
+- Do not keep merge commits.
 
 Process requirements:
 - Work in an isolated git worktree.
@@ -29,9 +25,10 @@ Verification requirements:
 - Run the relevant verification commands for the repo and report the actual results.
 - Do not claim success without fresh verification output.
 
+Perform the task.
+
 Return:
 1. The rewritten commit list in order.
 2. Any intentional content changes versus the original branch tip.
 3. Any remaining risk or uncertainty.
 4. The exact commands I should run to move the real branch and force-push it safely after approval.
-```
