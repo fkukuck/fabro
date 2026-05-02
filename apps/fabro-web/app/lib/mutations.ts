@@ -3,6 +3,7 @@ import { useSWRConfig } from "swr";
 import type {
   PreviewUrlResponse,
   RunStatusResponse,
+  SubmitAnswerRequest,
 } from "@qltysh/fabro-api-client";
 
 import { apiJsonMutation } from "./api-client";
@@ -88,6 +89,28 @@ function useLifecycleMutation(
         void mutate(queryKeys.runs.detail(id));
         void mutate(queryKeys.boards.runs());
         void mutate(queryKeys.runs.billing(id));
+      },
+    },
+  );
+}
+
+export type SubmitInterviewAnswerArg = SubmitAnswerRequest & { questionId: string };
+
+export function useSubmitInterviewAnswer(runId: string | undefined) {
+  const { mutate } = useSWRConfig();
+  return useSWRMutation(
+    runId ? `interview-answer:${runId}` : null,
+    async (_key: string, { arg }: { arg: SubmitInterviewAnswerArg }) => {
+      if (!runId) throw new Error("runId is required");
+      const { questionId, ...body } = arg;
+      const path = `/api/v1/runs/${encodeURIComponent(runId)}/questions/${encodeURIComponent(questionId)}/answer`;
+      await apiJsonMutation<void, SubmitAnswerRequest>(path, { arg: body });
+    },
+    {
+      onSuccess: () => {
+        if (!runId) return;
+        void mutate(queryKeys.runs.questions(runId, 25, 0));
+        void mutate(queryKeys.runs.detail(runId));
       },
     },
   );

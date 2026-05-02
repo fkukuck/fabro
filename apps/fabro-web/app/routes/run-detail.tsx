@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { ArrowPathIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link, Outlet, useLocation } from "react-router";
 
-import { BlockedRunNotice } from "../components/blocked-run-notice";
+import { InterviewDock } from "../components/interview-dock";
 import { ErrorState } from "../components/state";
 import { useToast } from "../components/toast";
 import { PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from "../components/ui";
@@ -22,7 +22,7 @@ import {
   type PreviewMutationResult,
 } from "../lib/mutations";
 import { useRunEvents } from "../lib/run-events";
-import { useRun, useRunQuestionText } from "../lib/queries";
+import { useRun, useRunQuestions } from "../lib/queries";
 import {
   canArchive,
   canCancel,
@@ -74,7 +74,6 @@ export function lifecycleActionVisibility(status: string | null | undefined) {
     showPrimaryCancel: canCancel(status),
     showArchive: canArchive(status),
     showUnarchive: canUnarchive(status),
-    showBlockedNotice: status === "blocked",
   };
 }
 
@@ -104,7 +103,9 @@ export default function RunDetail({ params }: { params: { id: string } }) {
   const runQuery = useRun(params.id);
   const run = runQuery.data ? buildRunDetailRun(runQuery.data) : null;
   const statusKind = runQuery.data?.status?.kind;
-  const blockedQuestion = useRunQuestionText(params.id, statusKind === "blocked");
+  const isBlocked = statusKind === "blocked";
+  const questionsQuery = useRunQuestions(params.id, isBlocked);
+  const pendingQuestions = questionsQuery.data ?? [];
   const { pathname } = useLocation();
   const basePath = `/runs/${params.id}`;
   const previewMutation = usePreviewRun(params.id);
@@ -264,14 +265,6 @@ export default function RunDetail({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {visibility.showBlockedNotice && (
-        <BlockedRunNotice
-          questionText={blockedQuestion.data ?? null}
-          cancelling={cancelPending}
-          onCancel={() => void cancelMutation.trigger()}
-        />
-      )}
-
       <div className="border-b border-line">
         <nav className="-mb-px flex gap-6">
           {tabs.map((tab) => {
@@ -306,6 +299,13 @@ export default function RunDetail({ params }: { params: { id: string } }) {
       <div className="mt-6">
         <Outlet />
       </div>
+
+      {isBlocked && pendingQuestions.length > 0 && (
+        <>
+          <div aria-hidden="true" className="h-72" />
+          <InterviewDock runId={params.id} questions={pendingQuestions} />
+        </>
+      )}
     </div>
   );
 }

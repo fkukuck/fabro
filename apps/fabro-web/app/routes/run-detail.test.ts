@@ -14,7 +14,7 @@ describe("lifecycleActionVisibility", () => {
     expect(lifecycleActionVisibility("starting").showPrimaryCancel).toBe(true);
     expect(lifecycleActionVisibility("running").showPrimaryCancel).toBe(true);
     expect(lifecycleActionVisibility("paused").showPrimaryCancel).toBe(true);
-    expect(lifecycleActionVisibility("blocked").showPrimaryCancel).toBe(false);
+    expect(lifecycleActionVisibility("blocked").showPrimaryCancel).toBe(true);
     expect(lifecycleActionVisibility("succeeded").showPrimaryCancel).toBe(false);
     expect(lifecycleActionVisibility("failed").showPrimaryCancel).toBe(false);
     expect(lifecycleActionVisibility("dead").showPrimaryCancel).toBe(false);
@@ -28,7 +28,6 @@ describe("lifecycleActionVisibility", () => {
     expect(lifecycleActionVisibility("archived").showArchive).toBe(false);
     expect(lifecycleActionVisibility("archived").showUnarchive).toBe(true);
     expect(lifecycleActionVisibility("running").showUnarchive).toBe(false);
-    expect(lifecycleActionVisibility("blocked").showBlockedNotice).toBe(true);
   });
 });
 

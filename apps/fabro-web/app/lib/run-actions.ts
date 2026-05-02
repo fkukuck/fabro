@@ -17,6 +17,7 @@ const CANCELABLE_STATUSES = new Set<RunStatus>([
   "starting",
   "running",
   "paused",
+  "blocked",
 ]);
 
 const ARCHIVABLE_STATUSES = new Set<RunStatus>([

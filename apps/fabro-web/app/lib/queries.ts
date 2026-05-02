@@ -1,5 +1,6 @@
 import useSWR, { type SWRConfiguration } from "swr";
 import type {
+  ApiQuestion,
   PaginatedBoardRunList,
   PaginatedEventList,
   PaginatedRunFileList,
@@ -130,12 +131,12 @@ export function useRunBilling(id: string | undefined) {
   return useSWR<RunBilling>(id ? queryKeys.runs.billing(id) : null, apiFetcher);
 }
 
-export function useRunQuestionText(id: string | undefined, enabled: boolean) {
-  return useSWR<string | null>(
-    id && enabled ? queryKeys.runs.questions(id, 1, 0) : null,
+export function useRunQuestions(id: string | undefined, enabled: boolean) {
+  return useSWR<ApiQuestion[]>(
+    id && enabled ? queryKeys.runs.questions(id, 25, 0) : null,
     async (key) => {
-      const payload = await apiNullableFetcher<{ data: { text?: string | null }[] }>(key);
-      return payload?.data[0]?.text ?? null;
+      const payload = await apiNullableFetcher<{ data: ApiQuestion[] }>(key);
+      return payload?.data ?? [];
     },
   );
 }

@@ -34,6 +34,12 @@ const RUN_SUMMARY_EVENTS = new Set([
 ]);
 const STAGE_EVENTS = new Set(["stage.started", "stage.completed", "stage.failed"]);
 const COMMAND_EVENTS = new Set(["command.started", "command.completed"]);
+const INTERVIEW_EVENTS = new Set([
+  "interview.started",
+  "interview.completed",
+  "interview.timeout",
+  "interview.interrupted",
+]);
 
 export function queryKeysForRunEvent(
   runId: string,
@@ -57,6 +63,13 @@ export function queryKeysForRunEvent(
 
   if (RUN_SUMMARY_EVENTS.has(event)) {
     return [queryKeys.runs.detail(runId)];
+  }
+
+  if (INTERVIEW_EVENTS.has(event)) {
+    return [
+      queryKeys.runs.questions(runId, 25, 0),
+      queryKeys.runs.detail(runId),
+    ];
   }
 
   if (STAGE_EVENTS.has(event)) {

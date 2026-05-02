@@ -150,7 +150,7 @@ describe("run lifecycle actions", () => {
     expect(canCancel("starting")).toBe(true);
     expect(canCancel("running")).toBe(true);
     expect(canCancel("paused")).toBe(true);
-    expect(canCancel("blocked")).toBe(false);
+    expect(canCancel("blocked")).toBe(true);
     expect(canCancel("archived")).toBe(false);
 
     expect(canArchive("succeeded")).toBe(true);
