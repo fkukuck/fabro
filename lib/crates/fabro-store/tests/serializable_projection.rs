@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::num::NonZeroU32;
 
 use chrono::{TimeZone, Utc};
 use fabro_store::{RunProjection, SerializableProjection, StageId};
@@ -7,13 +6,9 @@ use fabro_types::graph::Graph;
 use fabro_types::run::RunSpec;
 use fabro_types::{
     Checkpoint, RunStatus, SandboxRecord, StageCompletion, StageOutcome, StartRecord,
-    TerminalStatus, WorkflowSettings, fixtures,
+    TerminalStatus, WorkflowSettings, first_event_seq, fixtures,
 };
 use serde_json::json;
-
-fn nonzero(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).expect("test sequence must be non-zero")
-}
 
 fn sample_run_spec() -> RunSpec {
     RunSpec {
@@ -82,7 +77,7 @@ fn serializable_projection_round_trips_and_trims_bulky_node_fields() {
         clone_branch:      None,
     });
     projection.pending_interviews = BTreeMap::new();
-    let stage = projection.stage_entry(stage_id.node_id(), stage_id.visit(), nonzero(2));
+    let stage = projection.stage_entry(stage_id.node_id(), stage_id.visit(), first_event_seq(2));
     stage.prompt = Some("plan the work".to_string());
     stage.response = Some("done".to_string());
     stage.completion = Some(StageCompletion {
@@ -123,7 +118,7 @@ fn serializable_projection_round_trips_and_trims_bulky_node_fields() {
     assert_eq!(node.diff, None);
     assert_eq!(node.stdout, None);
     assert_eq!(node.stderr, None);
-    assert_eq!(node.first_event_seq, nonzero(2));
+    assert_eq!(node.first_event_seq, first_event_seq(2));
     assert_eq!(
         node.completion
             .as_ref()

@@ -10,15 +10,7 @@ impl Serialize for SerializableProjection<'_> {
         S: Serializer,
     {
         let mut projection = self.0.clone();
-        let stage_ids: Vec<_> = projection
-            .iter_stages()
-            .map(|(stage_id, _)| stage_id.clone())
-            .collect();
-
-        for stage_id in stage_ids {
-            let Some(stage) = projection.stage_mut(&stage_id) else {
-                continue;
-            };
+        for (_, stage) in projection.iter_stages_mut() {
             stage.prompt = None;
             stage.response = None;
             stage.diff = None;

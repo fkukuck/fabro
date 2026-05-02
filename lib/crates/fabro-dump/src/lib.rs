@@ -47,21 +47,14 @@ impl RunDump {
             entries.push(RunDumpEntry::text("graph.fabro", graph_source.clone()));
         }
 
-        let mut stage_ids: Vec<_> = state
-            .iter_stages()
-            .map(|(stage_id, stage)| (stage_id.clone(), stage.first_event_seq))
-            .collect();
-        stage_ids.sort_by(|(left_id, left_seq), (right_id, right_seq)| {
-            left_seq
-                .get()
-                .cmp(&right_seq.get())
+        let mut stages: Vec<_> = state.iter_stages().collect();
+        stages.sort_by(|(left_id, left), (right_id, right)| {
+            left.first_event_seq
+                .cmp(&right.first_event_seq)
                 .then_with(|| left_id.cmp(right_id))
         });
 
-        for (index, (stage_id, _)) in stage_ids.into_iter().enumerate() {
-            let Some(stage) = state.stage(&stage_id) else {
-                continue;
-            };
+        for (index, (stage_id, stage)) in stages.into_iter().enumerate() {
             let rank = index + 1;
             let base = PathBuf::from("stages").join(format!("{rank:03}-{stage_id}"));
 
@@ -431,7 +424,6 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::num::NonZeroU32;
 
     use chrono::{TimeZone, Utc};
     use fabro_store::{RunProjection, StageId};
@@ -439,15 +431,11 @@ mod tests {
     use fabro_types::run::RunSpec;
     use fabro_types::{
         Checkpoint, Conclusion, RunStatus, SandboxRecord, StageCompletion, StageOutcome,
-        StartRecord, SuccessReason, WorkflowSettings, fixtures,
+        StartRecord, SuccessReason, WorkflowSettings, first_event_seq, fixtures,
     };
     use futures::executor;
 
     use super::{RunDump, RunDumpContents, RunDumpEntry};
-
-    fn nonzero(value: u32) -> NonZeroU32 {
-        NonZeroU32::new(value).expect("test sequence must be non-zero")
-    }
 
     fn sample_run_spec() -> RunSpec {
         RunSpec {
@@ -533,7 +521,8 @@ mod tests {
         });
         projection.retro_prompt = Some("retro prompt".to_string());
         projection.retro_response = Some("retro response".to_string());
-        let stage = projection.stage_entry(stage_id.node_id(), stage_id.visit(), nonzero(2));
+        let stage =
+            projection.stage_entry(stage_id.node_id(), stage_id.visit(), first_event_seq(2));
         stage.prompt = Some("plan".to_string());
         stage.response = Some("done".to_string());
         stage.completion = Some(StageCompletion {
@@ -612,8 +601,12 @@ mod tests {
     #[test]
     fn from_projection_prefixes_stage_paths_but_not_artifact_paths() {
         let mut projection = RunProjection::default();
-        projection.stage_entry("zebra", 1, nonzero(1)).prompt = Some("first".to_string());
-        projection.stage_entry("apple", 1, nonzero(2)).prompt = Some("second".to_string());
+        projection
+            .stage_entry("zebra", 1, first_event_seq(1))
+            .prompt = Some("first".to_string());
+        projection
+            .stage_entry("apple", 1, first_event_seq(2))
+            .prompt = Some("second".to_string());
 
         let mut dump = RunDump::from_projection(&projection).unwrap();
         dump.add_artifact_bytes(&StageId::new("zebra", 1), "report.txt", b"z".to_vec())

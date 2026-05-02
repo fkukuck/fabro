@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -11,7 +10,7 @@ use fabro_types::{
     BilledModelUsage, Checkpoint, Conclusion, EventBody, FailureSignature, InterviewQuestionRecord,
     Outcome, PendingInterviewRecord, PullRequestRecord, RunControlAction, RunId, RunProjection,
     RunSpec, RunStatus, RunSummary, SandboxRecord, StageCompletion, StageOutcome, StartRecord,
-    TerminalStatus,
+    TerminalStatus, first_event_seq,
 };
 use fabro_util::error::render_with_causes;
 use serde_json::Value;
@@ -403,10 +402,6 @@ impl RunProjectionReducer for RunProjection {
     }
 }
 
-fn first_event_seq(seq: u32) -> NonZeroU32 {
-    NonZeroU32::new(seq).expect("event seq starts at 1")
-}
-
 pub(crate) fn build_summary(state: &RunProjection, run_id: &RunId) -> RunSummary {
     let workflow_name = state.spec.as_ref().map(|spec| {
         if spec.graph.name.is_empty() {
@@ -607,7 +602,6 @@ fn provider_used_from_agent_cli_started(props: &AgentCliStartedProps) -> Value {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
-    use std::num::NonZeroU32;
 
     use chrono::Utc;
     use fabro_types::run_event::run::RunFailedProps;
@@ -618,16 +612,12 @@ mod tests {
     use fabro_types::{
         BlockedReason, Checkpoint, EventBody, FailureReason, Outcome, QuestionType, RunBlobId,
         RunControlAction, RunEvent, RunStatus, StageOutcome, SuccessReason, TerminalStatus,
-        WorkflowSettings, fixtures,
+        WorkflowSettings, first_event_seq, fixtures,
     };
     use serde_json::json;
 
     use super::{RunProjection, RunProjectionReducer, build_summary};
     use crate::{Error, EventEnvelope, StageId};
-
-    fn nonzero(value: u32) -> NonZeroU32 {
-        NonZeroU32::new(value).expect("test sequence must be non-zero")
-    }
 
     fn test_event(seq: u32, body: EventBody, node_id: Option<&str>) -> EventEnvelope {
         let event = RunEvent {
@@ -751,7 +741,7 @@ mod tests {
 
         let stage_id = StageId::new("build", 2);
         let node = state.stage(&stage_id).unwrap();
-        assert_eq!(node.first_event_seq, nonzero(1));
+        assert_eq!(node.first_event_seq, first_event_seq(1));
         assert_eq!(node.diff.as_deref(), Some("diff --git a/file b/file"));
         assert_eq!(state.list_node_visits("build"), vec![2]);
         assert_eq!(state.pending_control, Some(RunControlAction::Cancel));
@@ -787,7 +777,7 @@ mod tests {
             restart_failure_signatures: HashMap::new(),
             node_visits:                HashMap::from([("build".to_string(), 2usize)]),
         })];
-        state.stage_entry("build", 2, nonzero(7)).stdout = Some("done".to_string());
+        state.stage_entry("build", 2, first_event_seq(7)).stdout = Some("done".to_string());
 
         let round_tripped: RunProjection =
             serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
@@ -826,7 +816,7 @@ mod tests {
             .unwrap();
 
         let stage = state.stage(&stage_id).unwrap();
-        assert_eq!(stage.first_event_seq, nonzero(3));
+        assert_eq!(stage.first_event_seq, first_event_seq(3));
     }
 
     #[test]
@@ -861,7 +851,7 @@ mod tests {
             .unwrap();
 
         let stage = state.stage(&stage_id).unwrap();
-        assert_eq!(stage.first_event_seq, nonzero(3));
+        assert_eq!(stage.first_event_seq, first_event_seq(3));
         assert_eq!(stage.prompt.as_deref(), Some("prompt"));
     }
 
@@ -895,7 +885,7 @@ mod tests {
             .unwrap();
 
         let stage = state.stage(&stage_id).unwrap();
-        assert_eq!(stage.first_event_seq, nonzero(5));
+        assert_eq!(stage.first_event_seq, first_event_seq(5));
         let completion = stage.completion.as_ref().unwrap();
         assert_eq!(completion.outcome, StageOutcome::Skipped);
         assert_eq!(completion.notes.as_deref(), Some("condition was false"));

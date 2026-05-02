@@ -63,6 +63,13 @@ pub struct StageProjection {
     pub termination:       Option<crate::CommandTermination>,
 }
 
+/// Convert a 1-based event sequence number into the `NonZeroU32` form used for
+/// `StageProjection::first_event_seq`. Run event seqs always start at 1.
+#[must_use]
+pub fn first_event_seq(seq: u32) -> NonZeroU32 {
+    NonZeroU32::new(seq).expect("event seq starts at 1")
+}
+
 impl StageProjection {
     #[must_use]
     pub fn new(first_event_seq: NonZeroU32) -> Self {
@@ -94,6 +101,10 @@ impl RunProjection {
 
     pub fn iter_stages(&self) -> impl Iterator<Item = (&StageId, &StageProjection)> {
         self.stages.iter()
+    }
+
+    pub fn iter_stages_mut(&mut self) -> impl Iterator<Item = (&StageId, &mut StageProjection)> {
+        self.stages.iter_mut()
     }
 
     pub fn is_empty(&self) -> bool {

@@ -593,7 +593,6 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::num::NonZeroU32;
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
@@ -604,7 +603,9 @@ mod tests {
     use fabro_graphviz::graph::Graph;
     use fabro_store::{Database, EventEnvelope, RunDatabase, RunProjection};
     use fabro_types::run_event::{MetadataSnapshotFailureKind, MetadataSnapshotPhase};
-    use fabro_types::{EventBody, RunBlobId, RunEvent, RunId, WorkflowSettings, fixtures};
+    use fabro_types::{
+        EventBody, RunBlobId, RunEvent, RunId, WorkflowSettings, first_event_seq, fixtures,
+    };
     use object_store::memory::InMemory;
 
     use super::*;
@@ -715,10 +716,6 @@ mod tests {
         events
     }
 
-    fn nonzero(value: u32) -> NonZeroU32 {
-        NonZeroU32::new(value).expect("test sequence must be non-zero")
-    }
-
     fn checkpoint_with(
         completed_nodes: Vec<&str>,
         node_outcomes: HashMap<String, Outcome>,
@@ -745,8 +742,8 @@ mod tests {
     #[test]
     fn conclusion_stage_order_follows_projection_first_event_order() {
         let mut projection = RunProjection::default();
-        projection.stage_entry("zebra", 1, nonzero(1));
-        projection.stage_entry("apple", 1, nonzero(2));
+        projection.stage_entry("zebra", 1, first_event_seq(1));
+        projection.stage_entry("apple", 1, first_event_seq(2));
         let projection_order = stage_projection_order(&projection);
         let checkpoint = checkpoint_with(
             vec!["apple", "zebra"],
@@ -777,8 +774,8 @@ mod tests {
     #[test]
     fn conclusion_includes_skipped_stage_from_projection_checkpoint_fallback() {
         let mut projection = RunProjection::default();
-        projection.stage_entry("skipped", 1, nonzero(4));
-        projection.stage_entry("finished", 1, nonzero(5));
+        projection.stage_entry("skipped", 1, first_event_seq(4));
+        projection.stage_entry("finished", 1, first_event_seq(5));
         let projection_order = stage_projection_order(&projection);
         let checkpoint = checkpoint_with(
             vec!["finished"],

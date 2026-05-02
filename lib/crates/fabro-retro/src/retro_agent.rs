@@ -330,20 +330,15 @@ async fn upload_data_files(
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU32;
     use std::sync::Arc;
 
     use chrono::{TimeZone, Utc};
     use fabro_agent::LocalSandbox;
     use fabro_store::StageId;
-    use fabro_types::{StageCompletion, StageOutcome};
+    use fabro_types::{StageCompletion, StageOutcome, first_event_seq};
     use tokio::fs;
 
     use super::*;
-
-    fn nonzero(value: u32) -> NonZeroU32 {
-        NonZeroU32::new(value).expect("test sequence must be non-zero")
-    }
 
     #[test]
     fn submit_retro_schema_is_valid_json() {
@@ -415,7 +410,7 @@ mod tests {
         let stage_id = StageId::new("build", 2);
         let mut state = RunProjection::default();
         state.graph_source = Some("digraph Ship {}".to_string());
-        let stage = state.stage_entry(stage_id.node_id(), stage_id.visit(), nonzero(2));
+        let stage = state.stage_entry(stage_id.node_id(), stage_id.visit(), first_event_seq(2));
         stage.prompt = Some("plan".to_string());
         stage.response = Some("done".to_string());
         stage.completion = Some(StageCompletion {
@@ -520,7 +515,7 @@ mod tests {
         let mut state = RunProjection::default();
         let stdout_ref = fabro_types::format_blob_ref(&stdout_id);
         let stderr_ref = fabro_types::format_blob_ref(&stderr_id);
-        let stage = state.stage_entry(stage_id.node_id(), stage_id.visit(), nonzero(1));
+        let stage = state.stage_entry(stage_id.node_id(), stage_id.visit(), first_event_seq(1));
         stage.script_invocation = Some(serde_json::json!({
             "command": "cargo test",
             "stdout": stdout_ref,

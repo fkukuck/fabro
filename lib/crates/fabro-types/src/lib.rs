@@ -70,7 +70,7 @@ pub use run_event::{
     MetadataSnapshotPhase, RunEvent, RunNoticeLevel,
 };
 pub use run_id::{RunId, fixtures};
-pub use run_projection::{PendingInterviewRecord, RunProjection, StageProjection};
+pub use run_projection::{PendingInterviewRecord, RunProjection, StageProjection, first_event_seq};
 pub use run_summary::RunSummary;
 pub use sandbox_record::SandboxRecord;
 pub use secret::{SecretMetadata, SecretType};
