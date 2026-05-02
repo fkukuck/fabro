@@ -214,7 +214,7 @@
   "status_updated_at": "2026-05-02T07:32:57.983473051Z",
   "pending_control": null,
   "checkpoint": {
-    "timestamp": "2026-05-02T07:32:59.716762051Z",
+    "timestamp": "2026-05-02T07:33:02.794621471Z",
     "current_node": "probe",
     "completed_nodes": [
       "start",
@@ -222,28 +222,24 @@
     ],
     "node_retries": {},
     "context_values": {
+      "internal.retry_count.probe": 0,
+      "internal.retry_count.start": 0,
       "graph.rankdir": "LR",
-      "current_node": "probe",
-      "internal.node_visit_count": 1,
-      "command.output": "blob://sha256/7ad37a4801885bc560004ebe599be62ca09d60833b9b89ace3a0891de45e2b1f",
+      "thread.start.current_node": "probe",
       "failure_signature": "",
-      "internal.run_id": "01KQKSMBBAM9B76R1HW2JPXTNR",
+      "internal.node_visit_count": 1,
+      "internal.fidelity": "compact",
+      "current_node": "probe",
       "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+      "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "internal.work_dir": "/workspace",
+      "command.output": "blob://sha256/7ad37a4801885bc560004ebe599be62ca09d60833b9b89ace3a0891de45e2b1f",
+      "internal.run_id": "01KQKSMBBAM9B76R1HW2JPXTNR",
       "internal.thread_id": "start",
       "failure_class": "",
-      "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
-      "outcome": "succeeded",
-      "internal.fidelity": "compact",
-      "thread.start.current_node": "probe",
-      "internal.work_dir": "/workspace",
-      "internal.retry_count.probe": 0,
-      "internal.retry_count.start": 0
+      "outcome": "succeeded"
     },
     "node_outcomes": {
-      "start": {
-        "status": "succeeded",
-        "usage": null
-      },
       "probe": {
         "status": "succeeded",
         "context_updates": {
@@ -252,12 +248,17 @@
         },
         "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
         "usage": null
+      },
+      "start": {
+        "status": "succeeded",
+        "usage": null
       }
     },
     "next_node_id": "exit",
+    "git_commit_sha": "17126a367b35ec05308db760c633306a93e54aa9",
     "node_visits": {
-      "start": 1,
-      "probe": 1
+      "probe": 1,
+      "start": 1
     }
   },
   "checkpoints": [
@@ -295,9 +296,80 @@
           "start": 1
         }
       }
+    ],
+    [
+      26,
+      {
+        "timestamp": "2026-05-02T07:33:02.794621471Z",
+        "current_node": "probe",
+        "completed_nodes": [
+          "start",
+          "probe"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.retry_count.probe": 0,
+          "internal.retry_count.start": 0,
+          "graph.rankdir": "LR",
+          "thread.start.current_node": "probe",
+          "failure_signature": "",
+          "internal.node_visit_count": 1,
+          "internal.fidelity": "compact",
+          "current_node": "probe",
+          "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+          "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+          "internal.work_dir": "/workspace",
+          "command.output": "blob://sha256/7ad37a4801885bc560004ebe599be62ca09d60833b9b89ace3a0891de45e2b1f",
+          "internal.run_id": "01KQKSMBBAM9B76R1HW2JPXTNR",
+          "internal.thread_id": "start",
+          "failure_class": "",
+          "outcome": "succeeded"
+        },
+        "node_outcomes": {
+          "probe": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/7ad37a4801885bc560004ebe599be62ca09d60833b9b89ace3a0891de45e2b1f",
+              "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+            },
+            "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+            "usage": null
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "exit",
+        "git_commit_sha": "17126a367b35ec05308db760c633306a93e54aa9",
+        "node_visits": {
+          "probe": 1,
+          "start": 1
+        }
+      }
     ]
   ],
-  "conclusion": null,
+  "conclusion": {
+    "timestamp": "2026-05-02T07:33:02.860030698Z",
+    "status": "succeeded",
+    "duration_ms": 4811,
+    "final_git_commit_sha": "17126a367b35ec05308db760c633306a93e54aa9",
+    "stages": [
+      {
+        "stage_id": "start",
+        "stage_label": "start",
+        "duration_ms": 0,
+        "retries": 0
+      },
+      {
+        "stage_id": "probe",
+        "stage_label": "probe",
+        "duration_ms": 221,
+        "retries": 0
+      }
+    ],
+    "total_retries": 0
+  },
   "retro": null,
   "retro_prompt": null,
   "retro_response": null,
@@ -331,7 +403,12 @@
     "probe@1": {
       "prompt": null,
       "response": null,
-      "status": null,
+      "status": {
+        "status": "succeeded",
+        "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "failure_reason": null,
+        "timestamp": "2026-05-02T07:32:59.714738363Z"
+      },
       "provider_used": null,
       "diff": null,
       "script_invocation": {
@@ -358,6 +435,23 @@
       "streams_separated": true,
       "live_streaming": false,
       "termination": "exited"
+    },
+    "exit@1": {
+      "prompt": null,
+      "response": null,
+      "status": {
+        "status": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-05-02T07:33:02.794778670Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
     }
   }
 }
