@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::extract::Request;
 use axum::http::{HeaderValue, header};
@@ -57,12 +57,13 @@ pub fn with_test_user(router: Router) -> Router {
 
 async fn inject_test_user_bearer(mut req: Request, next: Next) -> Response {
     if req.uri().path().starts_with("/api/") && !req.headers().contains_key(header::AUTHORIZATION) {
-        req.headers_mut().insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static(
-                "Bearer fabro_dev_abababababababababababababababababababababababababababababababab",
-            ),
-        );
+        static BEARER: OnceLock<HeaderValue> = OnceLock::new();
+        let bearer = BEARER.get_or_init(|| {
+            HeaderValue::from_str(&format!("Bearer {TEST_DEV_TOKEN}"))
+                .expect("dev token bearer header is valid")
+        });
+        req.headers_mut()
+            .insert(header::AUTHORIZATION, bearer.clone());
     }
     next.run(req).await
 }

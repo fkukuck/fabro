@@ -122,9 +122,8 @@ use crate::github_webhooks::{
 use crate::ip_allowlist::{IpAllowlistConfig, ip_allowlist_middleware};
 use crate::jwt_auth::{self, AuthMode};
 use crate::principal_middleware::{
-    AuthContextSlot, AuthStatus, RequestAuth, RequestAuthContext, RequireCommandLog,
-    RequireRunBlob, RequireRunScoped, RequireStageArtifact, RequiredUser, principal_middleware,
-    require_user,
+    AuthContextSlot, RequestAuth, RequestAuthContext, RequireCommandLog, RequireRunBlob,
+    RequireRunScoped, RequireStageArtifact, RequiredUser, principal_middleware, require_user,
 };
 use crate::request_id::{self, RequestId};
 use crate::run_files::{FilesInFlight, list_run_files, new_files_in_flight};
@@ -975,10 +974,7 @@ pub fn build_router_with_options(
         .clone()
         .unwrap_or_else(|| Arc::new(GithubEndpoints::production_defaults()));
     let webhook_secret = state.server_secret(WEBHOOK_SECRET_ENV);
-    let demo_principal_layer =
-        middleware::from_fn_with_state(Arc::clone(&state), principal_middleware);
-    let real_principal_layer =
-        middleware::from_fn_with_state(Arc::clone(&state), principal_middleware);
+    let principal_layer = middleware::from_fn_with_state(Arc::clone(&state), principal_middleware);
     let api_common = if web_enabled {
         Router::new()
             .route("/openapi.json", get(openapi_spec))
@@ -993,7 +989,7 @@ pub fn build_router_with_options(
             api_common
                 .clone()
                 .merge(demo_routes())
-                .layer(demo_principal_layer),
+                .layer(principal_layer.clone()),
         )
         .layer(axum::Extension(auth_mode.clone()))
         .layer(axum::Extension(Arc::clone(&github_endpoints)))
@@ -1001,7 +997,7 @@ pub fn build_router_with_options(
 
     let mut real_router = Router::new().nest(
         "/api/v1",
-        api_common.merge(real_routes()).layer(real_principal_layer),
+        api_common.merge(real_routes()).layer(principal_layer),
     );
     if web_enabled {
         real_router = real_router.nest("/auth", web_auth::routes().merge(auth::web_routes()));
@@ -1402,35 +1398,23 @@ async fn github_webhook(
         .get("x-hub-signature-256")
         .and_then(|value| value.to_str().ok())
     else {
-        auth_slot.replace(RequestAuthContext {
-            principal:       Principal::Anonymous,
-            auth_status:     AuthStatus::Invalid,
-            auth_error_code: Some("unauthorized"),
-            user_profile:    None,
-        });
+        auth_slot.replace(RequestAuthContext::invalid());
         warn!(delivery = %delivery_id, "Webhook missing X-Hub-Signature-256 header");
         return StatusCode::UNAUTHORIZED;
     };
 
     if !verify_signature(&secret, &body, signature) {
-        auth_slot.replace(RequestAuthContext {
-            principal:       Principal::Anonymous,
-            auth_status:     AuthStatus::Invalid,
-            auth_error_code: Some("unauthorized"),
-            user_profile:    None,
-        });
+        auth_slot.replace(RequestAuthContext::invalid());
         warn!(delivery = %delivery_id, "Webhook HMAC signature mismatch");
         return StatusCode::UNAUTHORIZED;
     }
 
-    auth_slot.replace(RequestAuthContext {
-        principal:       Principal::Webhook {
+    auth_slot.replace(RequestAuthContext::authenticated(
+        Principal::Webhook {
             delivery_id: delivery_id.to_string(),
         },
-        auth_status:     AuthStatus::Authenticated,
-        auth_error_code: None,
-        user_profile:    None,
-    });
+        None,
+    ));
 
     let event_type = headers
         .get("x-github-event")

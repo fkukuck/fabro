@@ -276,15 +276,7 @@ impl Error {
     }
 
     pub fn handler_with_anyhow(message: impl Into<String>, source: &anyhow::Error) -> Self {
-        let message = message.into();
-        let causes = source.chain().map(ToString::to_string).collect::<Vec<_>>();
-        let rendered = render_with_causes(&message, &causes);
-        let failure_class = classify_failure_reason(&rendered);
-        Self::Handler {
-            message,
-            failure_class,
-            causes,
-        }
+        Self::handler_with_source(message, source.as_ref())
     }
 
     /// Smart constructor for Engine errors. Classifies the failure reason
@@ -315,15 +307,7 @@ impl Error {
     }
 
     pub fn engine_with_anyhow(message: impl Into<String>, source: &anyhow::Error) -> Self {
-        let message = message.into();
-        let causes = source.chain().map(ToString::to_string).collect::<Vec<_>>();
-        let rendered = render_with_causes(&message, &causes);
-        let failure_class = classify_failure_reason(&rendered);
-        Self::Engine {
-            message,
-            failure_class,
-            causes,
-        }
+        Self::engine_with_source(message, source.as_ref())
     }
 
     #[must_use]

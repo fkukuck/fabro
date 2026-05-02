@@ -28,7 +28,7 @@ use url::{Host, Url};
 
 use crate::auth::browser_shell::browser_shell;
 use crate::auth::{self, AuthCode, ConsumeOutcome, JwtSubject, REFRESH_TOKEN_PREFIX, RefreshToken};
-use crate::jwt_auth::{AuthMode, ConfiguredAuth};
+use crate::jwt_auth::{AuthMode, ConfiguredAuth, bearer_token_from_headers};
 use crate::principal_middleware::{AuthContextSlot, AuthStatus, RequestAuth, RequestAuthContext};
 use crate::server::AppState;
 use crate::web_auth::{
@@ -946,18 +946,13 @@ enum RefreshCredential {
 }
 
 fn refresh_credential_from_headers(headers: &HeaderMap) -> RefreshCredential {
-    let Some(value) = headers.get(header::AUTHORIZATION) else {
-        return RefreshCredential::Missing;
-    };
-    let Ok(value) = value.to_str() else {
-        return RefreshCredential::Invalid;
-    };
-    let Some(bearer) = value.strip_prefix("Bearer ") else {
-        return RefreshCredential::Invalid;
-    };
-    match bearer.strip_prefix(REFRESH_TOKEN_PREFIX) {
-        Some(secret) => RefreshCredential::Present(secret.to_string()),
-        None => RefreshCredential::Invalid,
+    match bearer_token_from_headers(headers) {
+        None => RefreshCredential::Missing,
+        Some(Err(_)) => RefreshCredential::Invalid,
+        Some(Ok(bearer)) => match bearer.strip_prefix(REFRESH_TOKEN_PREFIX) {
+            Some(secret) => RefreshCredential::Present(secret.to_string()),
+            None => RefreshCredential::Invalid,
+        },
     }
 }
 
@@ -1688,11 +1683,14 @@ client_id = "github-client-id"
         assert_eq!(confirm.status(), StatusCode::SEE_OTHER);
 
         let contexts = captured.lock().expect("captured auth contexts").clone();
-        assert_eq!(contexts.len(), 3);
-        for context in contexts {
-            assert_eq!(context.auth_status, AuthStatus::Authenticated);
-            assert_eq!(context.principal.display(), "octocat");
-        }
+        let [first, second, third] = <[RequestAuthContext; 3]>::try_from(contexts)
+            .expect("expected three captured auth contexts");
+        assert_eq!(first.auth_status, AuthStatus::Authenticated);
+        assert_eq!(first.principal.display(), "octocat");
+        assert_eq!(second.auth_status, AuthStatus::Authenticated);
+        assert_eq!(second.principal.display(), "octocat");
+        assert_eq!(third.auth_status, AuthStatus::Authenticated);
+        assert_eq!(third.principal.display(), "octocat");
     }
 
     #[tokio::test]

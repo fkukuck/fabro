@@ -166,37 +166,64 @@ mod tests {
         );
     }
 
-    #[test]
-    fn round_trips_all_variants() {
-        let variants = [
-            Principal::user(identity(), "octocat".to_string(), AuthMethod::Github),
-            Principal::Worker {
-                run_id: fixtures::RUN_1,
-            },
-            Principal::Webhook {
-                delivery_id: "delivery-1".to_string(),
-            },
-            Principal::Slack {
-                team_id:   "T1".to_string(),
-                user_id:   "U1".to_string(),
-                user_name: Some("ada".to_string()),
-            },
-            Principal::Agent {
-                session_id:        Some("session".to_string()),
-                parent_session_id: Some("parent".to_string()),
-                model:             Some("gpt".to_string()),
-            },
-            Principal::System {
-                system_kind: SystemActorKind::Engine,
-            },
-            Principal::Anonymous,
-        ];
+    #[track_caller]
+    fn assert_round_trip(principal: &Principal) {
+        let value = serde_json::to_value(principal).unwrap();
+        let parsed: Principal = serde_json::from_value(value).unwrap();
+        assert_eq!(&parsed, principal);
+    }
 
-        for principal in variants {
-            let value = serde_json::to_value(&principal).unwrap();
-            let parsed: Principal = serde_json::from_value(value).unwrap();
-            assert_eq!(parsed, principal);
-        }
+    #[test]
+    fn round_trips_user_variant() {
+        assert_round_trip(&Principal::user(
+            identity(),
+            "octocat".to_string(),
+            AuthMethod::Github,
+        ));
+    }
+
+    #[test]
+    fn round_trips_worker_variant() {
+        assert_round_trip(&Principal::Worker {
+            run_id: fixtures::RUN_1,
+        });
+    }
+
+    #[test]
+    fn round_trips_webhook_variant() {
+        assert_round_trip(&Principal::Webhook {
+            delivery_id: "delivery-1".to_string(),
+        });
+    }
+
+    #[test]
+    fn round_trips_slack_variant() {
+        assert_round_trip(&Principal::Slack {
+            team_id:   "T1".to_string(),
+            user_id:   "U1".to_string(),
+            user_name: Some("ada".to_string()),
+        });
+    }
+
+    #[test]
+    fn round_trips_agent_variant() {
+        assert_round_trip(&Principal::Agent {
+            session_id:        Some("session".to_string()),
+            parent_session_id: Some("parent".to_string()),
+            model:             Some("gpt".to_string()),
+        });
+    }
+
+    #[test]
+    fn round_trips_system_variant() {
+        assert_round_trip(&Principal::System {
+            system_kind: SystemActorKind::Engine,
+        });
+    }
+
+    #[test]
+    fn round_trips_anonymous_variant() {
+        assert_round_trip(&Principal::Anonymous);
     }
 
     #[test]
