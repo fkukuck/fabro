@@ -36,13 +36,13 @@ pub async fn offload_large_values(
 ) -> Result<()> {
     for value in updates.values_mut() {
         let bytes = serde_json::to_vec(&*value)
-            .map_err(|e| Error::engine(format!("artifact serialize failed: {e}")))?;
+            .map_err(|e| Error::engine_with_source("artifact serialize failed", &e))?;
 
         if bytes.len() > BLOB_OFFLOAD_THRESHOLD {
             let blob_id = run_store
                 .write_blob(&bytes)
                 .await
-                .map_err(|e| Error::engine(format!("artifact blob write failed: {e}")))?;
+                .map_err(|e| Error::engine_with_anyhow("artifact blob write failed", &e))?;
             *value = Value::String(format_blob_ref(&blob_id));
         }
     }
@@ -171,10 +171,10 @@ pub async fn resolve_text_or_blob_ref_str(
     let bytes = run_store
         .read_blob(&blob_id)
         .await
-        .map_err(|e| Error::engine(format!("text blob read failed: {e}")))?
+        .map_err(|e| Error::engine_with_anyhow("text blob read failed", &e))?
         .ok_or_else(|| Error::engine(format!("text blob missing: {blob_id}")))?;
     serde_json::from_slice::<String>(&bytes)
-        .map_err(|e| Error::engine(format!("text blob was not a JSON string: {e}")))
+        .map_err(|e| Error::engine_with_source("text blob was not a JSON string", &e))
 }
 
 /// Sync artifact files to a remote sandbox.
@@ -202,14 +202,15 @@ pub async fn sync_artifacts_to_env(
             Ok(true) => continue,
             Ok(false) => {}
             Err(e) => {
-                return Err(Error::engine(format!(
-                    "failed to check artifact existence: {e}"
-                )));
+                return Err(Error::engine_with_source(
+                    "failed to check artifact existence",
+                    &e,
+                ));
             }
         }
 
         let content = fs::read_to_string(&local_path).await.map_err(|e| {
-            Error::engine(format!("failed to read local artifact {local_path}: {e}"))
+            Error::engine_with_source(format!("failed to read local artifact {local_path}"), &e)
         })?;
 
         let filename = std::path::Path::new(&local_path)
@@ -221,7 +222,7 @@ pub async fn sync_artifacts_to_env(
 
         env.write_file(&remote_path, &content)
             .await
-            .map_err(|e| Error::engine(format!("failed to write artifact to remote env: {e}")))?;
+            .map_err(|e| Error::engine_with_source("failed to write artifact to remote env", &e))?;
 
         *value = Value::String(format!("{ARTIFACT_POINTER_PREFIX}{remote_path}"));
     }
@@ -311,7 +312,7 @@ async fn materialize_blob_ref(
     let bytes = run_store
         .read_blob(blob_id)
         .await
-        .map_err(|e| Error::engine(format!("artifact blob read failed: {e}")))?
+        .map_err(|e| Error::engine_with_anyhow("artifact blob read failed", &e))?
         .ok_or_else(|| Error::engine(format!("artifact blob missing: {blob_id}")))?;
 
     if is_local_execution(env, run_dir).await? {
@@ -336,13 +337,13 @@ async fn materialize_blob_ref(
     if !env
         .file_exists(&remote_path)
         .await
-        .map_err(|e| Error::engine(format!("failed to check blob existence: {e}")))?
+        .map_err(|e| Error::engine_with_source("failed to check blob existence", &e))?
     {
         let content = String::from_utf8(bytes.to_vec())
-            .map_err(|e| Error::engine(format!("artifact blob was not valid UTF-8 JSON: {e}")))?;
-        env.write_file(&remote_path, &content)
-            .await
-            .map_err(|e| Error::engine(format!("failed to write artifact blob to sandbox: {e}")))?;
+            .map_err(|e| Error::engine_with_source("artifact blob was not valid UTF-8 JSON", &e))?;
+        env.write_file(&remote_path, &content).await.map_err(|e| {
+            Error::engine_with_source("failed to write artifact blob to sandbox", &e)
+        })?;
     }
 
     Ok(format!("{ARTIFACT_POINTER_PREFIX}{remote_path}"))
@@ -356,14 +357,14 @@ async fn resolve_explicit_file_ref(value: &str, env: &dyn Sandbox) -> Result<Str
     if env
         .file_exists(local_path)
         .await
-        .map_err(|e| Error::engine(format!("failed to check artifact existence: {e}")))?
+        .map_err(|e| Error::engine_with_source("failed to check artifact existence", &e))?
     {
         return Ok(value.to_string());
     }
 
-    let content = fs::read_to_string(local_path)
-        .await
-        .map_err(|e| Error::engine(format!("failed to read local artifact {local_path}: {e}")))?;
+    let content = fs::read_to_string(local_path).await.map_err(|e| {
+        Error::engine_with_source(format!("failed to read local artifact {local_path}"), &e)
+    })?;
     let filename = Path::new(local_path)
         .file_name()
         .and_then(|file| file.to_str())
@@ -373,11 +374,11 @@ async fn resolve_explicit_file_ref(value: &str, env: &dyn Sandbox) -> Result<Str
     if !env
         .file_exists(&remote_path)
         .await
-        .map_err(|e| Error::engine(format!("failed to check artifact existence: {e}")))?
+        .map_err(|e| Error::engine_with_source("failed to check artifact existence", &e))?
     {
         env.write_file(&remote_path, &content)
             .await
-            .map_err(|e| Error::engine(format!("failed to write artifact to remote env: {e}")))?;
+            .map_err(|e| Error::engine_with_source("failed to write artifact to remote env", &e))?;
     }
 
     Ok(format!("{ARTIFACT_POINTER_PREFIX}{remote_path}"))
@@ -386,7 +387,7 @@ async fn resolve_explicit_file_ref(value: &str, env: &dyn Sandbox) -> Result<Str
 async fn is_local_execution(env: &dyn Sandbox, run_dir: &Path) -> Result<bool> {
     env.file_exists(&run_dir.to_string_lossy())
         .await
-        .map_err(|e| Error::engine(format!("failed to inspect sandbox locality: {e}")))
+        .map_err(|e| Error::engine_with_source("failed to inspect sandbox locality", &e))
 }
 
 fn local_materialized_blob_path(run_dir: &Path, blob_id: &RunBlobId) -> PathBuf {

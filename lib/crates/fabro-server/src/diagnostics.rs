@@ -26,7 +26,7 @@ fn http_client_or_check(
         name: name.to_string(),
         status,
         summary: "client error".to_string(),
-        details: vec![CheckDetail::new(err.to_string())],
+        details: vec![CheckDetail::new(format!("{err:#}"))],
         remediation: Some(err.to_string()),
     })
 }
@@ -83,7 +83,7 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
                 name:        "LLM Providers".to_string(),
                 status:      CheckStatus::Error,
                 summary:     "failed to initialize".to_string(),
-                details:     vec![CheckDetail::new(err)],
+                details:     vec![CheckDetail::new(format!("{err:#}"))],
                 remediation: Some("Check configured provider credentials".to_string()),
             };
         }

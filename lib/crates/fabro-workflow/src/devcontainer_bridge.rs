@@ -187,7 +187,9 @@ async fn run_single_lifecycle_command(
     let result = sandbox
         .exec_command(command, timeout_ms, None, None, cancel_token.clone())
         .await
-        .map_err(|e| Error::engine(format!("Devcontainer {phase} command failed: {e}")))?;
+        .map_err(|e| {
+            Error::engine_with_source(format!("Devcontainer {phase} command failed"), &e)
+        })?;
     if let Some(token) = &cancel_token {
         if token.is_cancelled() {
             return Err(Error::Cancelled);

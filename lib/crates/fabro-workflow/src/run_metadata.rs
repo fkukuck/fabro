@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
+use anyhow::Context as _;
 use async_trait::async_trait;
 use fabro_checkpoint::git::{FileMode, Store, TreeEntries};
 use fabro_dump::RunDump;
@@ -30,22 +31,22 @@ pub(crate) fn metadata_branch_name(run_id: &str) -> String {
 pub(crate) enum RunMetadataError {
     #[error("metadata writer initialization failed: {0}")]
     Init(String),
-    #[error("metadata token mint failed: {0}")]
-    TokenMint(String),
+    #[error("metadata token mint failed")]
+    TokenMint(#[source] anyhow::Error),
     #[error("metadata remote discovery failed: {0}")]
     Discovery(String),
     #[error("metadata remote fetch failed: {0}")]
     Fetch(String),
     #[error("invalid metadata path: {0}")]
     InvalidPath(String),
-    #[error("metadata dump serialization failed: {0}")]
-    DumpSerialize(anyhow::Error),
+    #[error("metadata dump serialization failed")]
+    DumpSerialize(#[source] anyhow::Error),
     #[error("metadata tree build failed: {0}")]
     Tree(String),
     #[error("metadata commit failed: {0}")]
     Commit(String),
-    #[error("metadata writer task failed: {0}")]
-    Join(JoinError),
+    #[error("metadata writer task failed")]
+    Join(#[source] JoinError),
 }
 
 #[derive(Debug)]
@@ -246,12 +247,13 @@ pub(crate) async fn mint_token(
     creds: &fabro_github::GitHubCredentials,
     origin_url: &str,
     permissions: &HashMap<String, String>,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let normalized_url = fabro_github::normalize_repo_origin_url(origin_url);
     let (owner, repo) =
-        fabro_github::parse_github_owner_repo(&normalized_url).map_err(|err| format!("{err:#}"))?;
-    let client = fabro_http::http_client().map_err(|err| err.to_string())?;
-    let permissions = serde_json::to_value(permissions).map_err(|err| err.to_string())?;
+        fabro_github::parse_github_owner_repo(&normalized_url).context("parsing GitHub origin")?;
+    let client = fabro_http::http_client().map_err(anyhow::Error::new)?;
+    let permissions =
+        serde_json::to_value(permissions).context("serializing GitHub permissions")?;
     creds
         .resolve_bearer_token(
             &client,
@@ -261,7 +263,6 @@ pub(crate) async fn mint_token(
             permissions,
         )
         .await
-        .map_err(|err| format!("{err:#}"))
 }
 
 pub(crate) struct RunMetadataWriter {
@@ -917,6 +918,24 @@ mod tests {
         assert!(auth.starts_with("github authentication failed:"));
         assert!(non_fast_forward.starts_with("non-fast-forward push rejected:"));
         assert!(network.starts_with("network failure:"));
+    }
+
+    #[test]
+    fn token_mint_error_preserves_source_chain() {
+        let original =
+            anyhow::Error::new(std::io::Error::other("token leaf")).context("token context");
+        let err = RunMetadataError::TokenMint(original);
+        let wrapped = anyhow::Error::new(err);
+        let chain = wrapped.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert!(
+            chain.iter().any(|cause| cause == "token context"),
+            "expected context in chain, got {chain:#?}"
+        );
+        assert!(
+            chain.iter().any(|cause| cause == "token leaf"),
+            "expected source in chain, got {chain:#?}"
+        );
     }
 
     #[test]

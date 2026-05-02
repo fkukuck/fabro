@@ -319,11 +319,11 @@ async fn upload_data_files(
         let remote_path = format!("{target_dir}/{}", entry.path());
         let bytes = entry.to_bytes()?;
         let text = String::from_utf8(bytes)
-            .map_err(|err| anyhow::anyhow!("non-UTF8 retro entry {}: {err}", entry.path()))?;
+            .with_context(|| format!("non-UTF8 retro entry {}", entry.path()))?;
         sandbox
             .write_file(&remote_path, &text)
             .await
-            .map_err(|err| anyhow::anyhow!("Failed to upload {}: {err}", entry.path()))?;
+            .with_context(|| format!("Failed to upload {}", entry.path()))?;
     }
     Ok(())
 }

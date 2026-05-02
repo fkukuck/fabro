@@ -63,7 +63,7 @@ async fn resolve_worktree_base_sha(
             None,
         )
         .await
-        .map_err(|err| Error::engine(format!("git rev-parse HEAD failed: {err}")))?;
+        .map_err(|err| Error::engine_with_source("git rev-parse HEAD failed", &err))?;
     if !result.is_success() {
         let output = result.stderr.trim();
         let output = if output.is_empty() {
@@ -221,7 +221,7 @@ async fn mint_github_token(
 ) -> Result<String, Error> {
     mint_token(creds, origin_url, permissions)
         .await
-        .map_err(Error::engine)
+        .map_err(|err| Error::engine_with_anyhow("Failed to mint GitHub token", &err))
 }
 
 async fn build_sandbox_env(
@@ -347,7 +347,7 @@ async fn resolve_devcontainer(options: &mut InitOptions) -> Result<(), Error> {
 
     let config = fabro_devcontainer::DevcontainerResolver::resolve(&devcontainer.resolve_dir)
         .await
-        .map_err(|e| Error::engine(format!("Failed to resolve devcontainer: {e}")))?;
+        .map_err(|e| Error::engine_with_source("Failed to resolve devcontainer", &e))?;
 
     let lifecycle_command_count = config.on_create_commands.len()
         + config.post_create_commands.len()
@@ -382,9 +382,10 @@ async fn resolve_devcontainer(options: &mut InitOptions) -> Result<(), Error> {
                 ))
             })?
             .map_err(|e| {
-                Error::engine(format!(
-                    "Failed to execute devcontainer initializeCommand: {shell_command}: {e}"
-                ))
+                Error::engine_with_source(
+                    format!("Failed to execute devcontainer initializeCommand: {shell_command}"),
+                    &e,
+                )
             })?;
 
             if !output.status.success() {
@@ -473,12 +474,12 @@ pub async fn initialize(
             .sandbox
             .build(Some(Arc::clone(&sandbox_event_callback)))
             .await
-            .map_err(|e| Error::engine(e.to_string()))?;
+            .map_err(|e| Error::engine_with_anyhow("Failed to build sandbox", &e))?;
         if let Some(base_sha) = resolve_worktree_base_sha(&*inner, plan).await? {
             sandbox_git
                 .ensure_git_available(&*inner)
                 .await
-                .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
+                .map_err(|err| Error::engine_with_source("sandbox git unavailable", &err))?;
             options.run_options.display_base_sha = Some(base_sha.clone());
             options.run_options.git = Some(GitCheckpointOptions {
                 base_sha:    Some(base_sha.clone()),
@@ -499,7 +500,7 @@ pub async fn initialize(
                     Arc::new(ReadBeforeWriteSandbox::new(Arc::new(worktree)))
                 }
                 Err(e) => {
-                    return Err(Error::engine(format!("Git worktree setup failed: {e}")));
+                    return Err(Error::engine_with_source("Git worktree setup failed", &e));
                 }
             }
         } else {
@@ -511,7 +512,7 @@ pub async fn initialize(
                 .sandbox
                 .build(Some(Arc::clone(&sandbox_event_callback)))
                 .await
-                .map_err(|e| Error::engine(e.to_string()))?,
+                .map_err(|e| Error::engine_with_anyhow("Failed to build sandbox", &e))?,
         ))
     };
     if worktree_plan.is_some() && !worktree_created {
@@ -596,7 +597,7 @@ pub async fn initialize(
             sandbox_git
                 .ensure_git_available(&*sandbox)
                 .await
-                .map_err(|err| Error::engine(format!("sandbox git unavailable: {err}")))?;
+                .map_err(|err| Error::engine_with_source("sandbox git unavailable", &err))?;
         }
         match sandbox.setup_git(&intent).await {
             Ok(Some(info)) => {
@@ -620,7 +621,7 @@ pub async fn initialize(
             }
             Ok(None) => {}
             Err(e) => {
-                return Err(Error::engine(format!("Sandbox git setup failed: {e}")));
+                return Err(Error::engine_with_source("Sandbox git setup failed", &e));
             }
         }
     }
@@ -646,7 +647,7 @@ pub async fn initialize(
                     cancel_token.clone(),
                 )
                 .await
-                .map_err(|e| Error::engine(format!("Setup command failed: {e}")))?;
+                .map_err(|e| Error::engine_with_source("Setup command failed", &e))?;
             if let Some(token) = &cancel_token {
                 if token.is_cancelled() {
                     return Err(Error::Cancelled);

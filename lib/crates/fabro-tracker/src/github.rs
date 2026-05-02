@@ -1,3 +1,4 @@
+use anyhow::{Context as _, anyhow};
 use async_trait::async_trait;
 use fabro_github::{
     GitHubCredentials, create_installation_access_token_for_projects, sign_app_jwt,
@@ -13,7 +14,7 @@ async fn execute_github_graphql(
     endpoint: &str,
     query: &str,
     variables: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> anyhow::Result<serde_json::Value> {
     execute_graphql_request(
         client,
         endpoint,
@@ -62,11 +63,11 @@ impl GitHubTracker {
         format!("{}/graphql", self.base_url)
     }
 
-    async fn fresh_token(&self) -> Result<String, String> {
+    async fn fresh_token(&self) -> anyhow::Result<String> {
         match &self.creds {
             GitHubCredentials::App(creds) => {
                 let jwt = sign_app_jwt(&creds.app_id, &creds.private_key_pem)
-                    .map_err(|err| format!("{err:#}"))?;
+                    .context("signing GitHub App JWT")?;
                 create_installation_access_token_for_projects(
                     &self.client,
                     &jwt,
@@ -75,13 +76,13 @@ impl GitHubTracker {
                     &self.base_url,
                 )
                 .await
-                .map_err(|err| format!("{err:#}"))
+                .context("creating GitHub App installation token")
             }
             GitHubCredentials::Token(token) => Ok(token.clone()),
         }
     }
 
-    async fn resolve_project_node_id(&self, token: &str) -> Result<&str, String> {
+    async fn resolve_project_node_id(&self, token: &str) -> anyhow::Result<&str> {
         self.project_node_id
             .get_or_try_init(|| async {
                 tracing::debug!(
@@ -136,9 +137,10 @@ impl GitHubTracker {
                     .as_str()
                     .map(std::string::ToString::to_string)
                     .ok_or_else(|| {
-                        format!(
+                        anyhow!(
                             "Project #{} not found for owner '{}'",
-                            self.project_number, self.owner
+                            self.project_number,
+                            self.owner
                         )
                     })
             })
@@ -213,7 +215,7 @@ async fn fetch_project_items_page(
     graphql_url: &str,
     project_node_id: &str,
     cursor: Option<&str>,
-) -> Result<(Vec<serde_json::Value>, bool, Option<String>), String> {
+) -> anyhow::Result<(Vec<serde_json::Value>, bool, Option<String>)> {
     let query = r#"
         query($projectId: ID!, $cursor: String) {
             node(id: $projectId) {
@@ -273,7 +275,7 @@ async fn fetch_project_items_page(
 
 #[async_trait]
 impl Tracker for GitHubTracker {
-    async fn fetch_viewer_id(&self) -> Result<String, String> {
+    async fn fetch_viewer_id(&self) -> anyhow::Result<String> {
         tracing::debug!("Fetching viewer ID from GitHub");
         let token = self.fresh_token().await?;
         let query = "query { viewer { id } }";
@@ -289,10 +291,10 @@ impl Tracker for GitHubTracker {
         resp["data"]["viewer"]["id"]
             .as_str()
             .map(std::string::ToString::to_string)
-            .ok_or_else(|| "Missing viewer id in GitHub response".to_string())
+            .ok_or_else(|| anyhow!("Missing viewer id in GitHub response"))
     }
 
-    async fn create_comment(&self, issue: &Issue, body: &str) -> Result<(), String> {
+    async fn create_comment(&self, issue: &Issue, body: &str) -> anyhow::Result<()> {
         tracing::debug!(issue_id = %issue.id, "Creating comment on GitHub issue");
         let token = self.fresh_token().await?;
         let query = r"
@@ -310,11 +312,11 @@ impl Tracker for GitHubTracker {
         Ok(())
     }
 
-    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> Result<(), String> {
+    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> anyhow::Result<()> {
         let project_item_id = issue
             .project_item_id
             .as_deref()
-            .ok_or("update_issue_state requires project_item_id")?;
+            .ok_or_else(|| anyhow!("update_issue_state requires project_item_id"))?;
 
         tracing::debug!(
             project_item_id,
@@ -353,7 +355,7 @@ impl Tracker for GitHubTracker {
         let field = &field_resp["data"]["node"]["field"];
         let field_id = field["id"]
             .as_str()
-            .ok_or("Missing Status field id")?
+            .ok_or_else(|| anyhow!("Missing Status field id"))?
             .to_string();
 
         let option_id = field["options"]
@@ -366,7 +368,7 @@ impl Tracker for GitHubTracker {
                 })
             })
             .and_then(|o| o["id"].as_str())
-            .ok_or_else(|| format!("Status option '{state_name}' not found in project"))?
+            .ok_or_else(|| anyhow!("Status option '{state_name}' not found in project"))?
             .to_string();
 
         // Step 2: Update the field value
@@ -399,7 +401,7 @@ impl Tracker for GitHubTracker {
         Ok(())
     }
 
-    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> Result<Vec<Issue>, String> {
+    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> anyhow::Result<Vec<Issue>> {
         tracing::debug!(
             owner = %self.owner,
             project_number = self.project_number,
@@ -445,7 +447,7 @@ impl Tracker for GitHubTracker {
         Ok(all_issues)
     }
 
-    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> Result<Vec<Issue>, String> {
+    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> anyhow::Result<Vec<Issue>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -569,7 +571,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.contains("401"), "got: {err}");
+        assert!(err.to_string().contains("401"), "got: {err}");
     }
 
     #[tokio::test]
@@ -595,7 +597,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.contains("Not found"), "got: {err}");
+        assert!(err.to_string().contains("Not found"), "got: {err}");
     }
 
     #[tokio::test]
@@ -949,8 +951,8 @@ mod tests {
             .update_issue_state(&issue, "Nonexistent")
             .await
             .unwrap_err();
-        assert!(err.contains("Nonexistent"), "got: {err}");
-        assert!(err.contains("not found"), "got: {err}");
+        assert!(err.to_string().contains("Nonexistent"), "got: {err}");
+        assert!(err.to_string().contains("not found"), "got: {err}");
     }
 
     // -----------------------------------------------------------------------

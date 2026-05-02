@@ -144,7 +144,7 @@ impl Handler for CommandHandler {
             Ok(streaming) => streaming,
             Err(err) => {
                 recorder.discard().await?;
-                return Err(Error::handler(format!("Failed to spawn script: {err}")));
+                return Err(Error::handler_with_source("Failed to spawn script", &err));
             }
         };
         let result = streaming.result;

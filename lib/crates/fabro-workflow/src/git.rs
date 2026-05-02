@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use anyhow::Context as _;
 pub use fabro_checkpoint::META_BRANCH_PREFIX;
 pub use fabro_checkpoint::author::GitAuthor;
 use fabro_checkpoint::git::Store;
@@ -27,6 +28,13 @@ fn git_error(msg: impl Into<String>) -> Error {
     Error::engine(msg.into())
 }
 
+fn git_error_with_source(
+    msg: impl Into<String>,
+    source: &(dyn std::error::Error + 'static),
+) -> Error {
+    Error::engine_with_source(msg.into(), source)
+}
+
 /// Return a pre-configured `git` command with auto-maintenance disabled.
 #[expect(
     clippy::disallowed_methods,
@@ -45,7 +53,7 @@ pub fn ensure_clean(repo: &Path) -> Result<()> {
     let output = git_cmd(repo)
         .args(["status", "--porcelain"])
         .output()
-        .map_err(|e| git_error(format!("git status failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git status failed", &e))?;
 
     if !output.status.success() {
         return Err(git_error("not a git repository"));
@@ -64,7 +72,7 @@ pub fn head_sha(repo: &Path) -> Result<String> {
     let output = git_cmd(repo)
         .args(["rev-parse", "HEAD"])
         .output()
-        .map_err(|e| git_error(format!("git rev-parse failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git rev-parse failed", &e))?;
 
     if !output.status.success() {
         return Err(git_error("git rev-parse HEAD failed"));
@@ -78,7 +86,7 @@ pub fn create_branch(repo: &Path, name: &str) -> Result<()> {
     let output = git_cmd(repo)
         .args(["branch", "--force", name, "HEAD"])
         .output()
-        .map_err(|e| git_error(format!("git branch failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git branch failed", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -95,7 +103,7 @@ pub fn add_worktree(repo: &Path, path: &Path, branch: &str) -> Result<()> {
         .arg(path)
         .arg(branch)
         .output()
-        .map_err(|e| git_error(format!("git worktree add failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git worktree add failed", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -111,7 +119,7 @@ pub fn remove_worktree(repo: &Path, path: &Path) -> Result<()> {
         .args(["worktree", "remove", "--force"])
         .arg(path)
         .output()
-        .map_err(|e| git_error(format!("git worktree remove failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git worktree remove failed", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -131,7 +139,7 @@ pub fn replace_worktree(repo: &Path, path: &Path, branch: &str) -> Result<()> {
 fn run_git_push(cmd: &mut Command) -> Result<()> {
     let output = cmd
         .output()
-        .map_err(|e| git_error(format!("git push failed: {e}")))?;
+        .map_err(|e| git_error_with_source("git push failed", &e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(git_error(format!("git push failed: {stderr}")));
@@ -207,11 +215,9 @@ pub fn push_run_branches(
     }
     eprintln!("Pushing {label} branches to origin...");
     if let Some(refspec) = run_refspec {
-        push_branch(repo_path, "origin", refspec)
-            .map_err(|e| anyhow::anyhow!("failed to push run branch: {e}"))?;
+        push_branch(repo_path, "origin", refspec).context("failed to push run branch")?;
     }
-    push_branch(repo_path, "origin", meta_refspec)
-        .map_err(|e| anyhow::anyhow!("failed to push metadata branch: {e}"))?;
+    push_branch(repo_path, "origin", meta_refspec).context("failed to push metadata branch")?;
     eprintln!("Remote refs updated.");
     Ok(())
 }
@@ -609,6 +615,36 @@ mod tests {
         init_repo(dir.path());
         let result = push_branch(dir.path(), "nonexistent", "main");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn push_run_branches_preserves_push_error_causes() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        let repo = git2::Repository::open(dir.path()).unwrap();
+        let head = repo.head().unwrap().target().unwrap();
+        repo.reference("refs/remotes/origin/main", head, true, "test")
+            .unwrap();
+        let store = Store::new(repo);
+
+        let err = push_run_branches(&store, "main", Some("main"), "fabro/meta/test-run", "test")
+            .unwrap_err();
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert!(
+            chain
+                .iter()
+                .any(|cause| cause.contains("failed to push run branch")),
+            "expected push context in chain, got {chain:#?}"
+        );
+        assert!(
+            chain.len() >= 2,
+            "expected push source to be preserved, got {chain:#?}"
+        );
+        assert!(
+            chain.iter().any(|cause| cause.contains("git push failed")),
+            "expected git source in chain, got {chain:#?}"
+        );
     }
 
     #[test]

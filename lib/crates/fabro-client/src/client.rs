@@ -525,10 +525,7 @@ impl Client {
             )
             .await?;
         let status = response.into_inner();
-        status
-            .id
-            .parse()
-            .map_err(|err| anyhow!("invalid run ID from server: {err}"))
+        status.id.parse().context("invalid run ID from server")
     }
 
     pub async fn list_secrets(&self) -> Result<Vec<types::SecretMetadata>> {

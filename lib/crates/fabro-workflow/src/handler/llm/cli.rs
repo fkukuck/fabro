@@ -87,7 +87,9 @@ async fn ensure_cli(
             None,
         )
         .await
-        .map_err(|e| Error::handler(format!("Failed to check {cli_name} version: {e}")))?;
+        .map_err(|e| {
+            Error::handler_with_source(format!("Failed to check {cli_name} version"), &e)
+        })?;
 
     if version_check.is_success() {
         let duration_ms = elapsed_ms(start);
@@ -112,7 +114,7 @@ async fn ensure_cli(
     let install_result = sandbox
         .exec_command(&install_cmd, 180_000, None, None, None)
         .await
-        .map_err(|e| Error::handler(format!("Failed to install {cli_name}: {e}")))?;
+        .map_err(|e| Error::handler_with_source(format!("Failed to install {cli_name}"), &e))?;
 
     let node_installed = true;
     if !install_result.is_success() {
@@ -491,7 +493,7 @@ impl CodergenBackend for AgentCliBackend {
         sandbox
             .write_file(&prompt_path, prompt)
             .await
-            .map_err(|e| Error::handler(format!("Failed to write prompt file: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to write prompt file", &e))?;
 
         // 3. Build CLI command
         let model = node.model().unwrap_or(&self.model);
@@ -533,7 +535,7 @@ impl CodergenBackend for AgentCliBackend {
             let resolved = resolver
                 .resolve(provider, CredentialUsage::CliAgent(cli_agent))
                 .await
-                .map_err(|e| Error::handler(format!("Failed to resolve CLI credential: {e}")))?;
+                .map_err(|e| Error::handler_with_source("Failed to resolve CLI credential", &e))?;
             let ResolvedCredential::Cli(cli_credential) = resolved else {
                 return Err(Error::handler("Expected CLI credential".to_string()));
             };
@@ -541,7 +543,7 @@ impl CodergenBackend for AgentCliBackend {
                 let login_result = sandbox
                     .exec_command(login_cmd, 30_000, None, None, None)
                     .await
-                    .map_err(|e| Error::handler(format!("codex login failed: {e}")))?;
+                    .map_err(|e| Error::handler_with_source("codex login failed", &e))?;
                 if !login_result.is_success() {
                     tracing::warn!(
                         exit_code = login_result.display_exit_code(),
@@ -576,7 +578,7 @@ impl CodergenBackend for AgentCliBackend {
             sandbox
                 .write_file(&env_path, &env_lines.join("\n"))
                 .await
-                .map_err(|e| Error::handler(format!("Failed to write env file: {e}")))?;
+                .map_err(|e| Error::handler_with_source("Failed to write env file", &e))?;
         }
 
         // 3a. Disable auto-stop so the sandbox stays alive during long CLI runs
@@ -603,7 +605,7 @@ impl CodergenBackend for AgentCliBackend {
         let launch_result = sandbox
             .exec_command(&bg_command, 30_000, None, launch_env_ref, None)
             .await
-            .map_err(|e| Error::handler(format!("Failed to launch CLI command: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to launch CLI command", &e))?;
         let pid = launch_result.stdout.trim();
         tracing::info!(pid, "CLI process launched in background");
 
@@ -617,7 +619,7 @@ impl CodergenBackend for AgentCliBackend {
             let poll_result = sandbox
                 .exec_command(&poll_command, 30_000, None, None, None)
                 .await
-                .map_err(|e| Error::handler(format!("Failed to poll CLI command: {e}")))?;
+                .map_err(|e| Error::handler_with_source("Failed to poll CLI command", &e))?;
             let status = poll_result.stdout.trim();
 
             if status != "running" {
@@ -630,11 +632,11 @@ impl CodergenBackend for AgentCliBackend {
         let stdout_result = sandbox
             .exec_command(&format!("cat {stdout_path}"), 60_000, None, None, None)
             .await
-            .map_err(|e| Error::handler(format!("Failed to read stdout: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to read stdout", &e))?;
         let stderr_result = sandbox
             .exec_command(&format!("cat {stderr_path}"), 60_000, None, None, None)
             .await
-            .map_err(|e| Error::handler(format!("Failed to read stderr: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to read stderr", &e))?;
 
         let result = ExecResult {
             stdout: stdout_result.stdout,

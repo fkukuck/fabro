@@ -668,7 +668,8 @@ pub async fn run_browser_flow(
     let code = code_rx
         .await
         .map_err(|_| anyhow!("Did not receive authorization code"))?
-        .map_err(|e| anyhow!("Authorization failed: {e}"))?;
+        .map_err(anyhow::Error::msg)
+        .context("Authorization failed")?;
 
     let token_url = format!("{issuer}/oauth/token");
     exchange_code(

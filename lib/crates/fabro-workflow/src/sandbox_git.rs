@@ -5,6 +5,7 @@ use fabro_checkpoint::trailer as trailerlink;
 use fabro_checkpoint::trailer::Trailer;
 use fabro_sandbox::shell_quote;
 use fabro_types::RunId;
+use fabro_util::error::SharedError;
 
 use crate::artifact_snapshot;
 use crate::git::GitAuthor;
@@ -143,11 +144,10 @@ pub(crate) async fn checked_git_checkpoint(
     shadow_sha: Option<String>,
     exclude_globs: &[String],
     author: &GitAuthor,
-) -> std::result::Result<String, String> {
-    runtime
-        .ensure_git_available(sandbox)
-        .await
-        .map_err(|err| format!("sandbox git unavailable: {err}"))?;
+) -> std::result::Result<String, SharedError> {
+    runtime.ensure_git_available(sandbox).await.map_err(|err| {
+        SharedError::new(anyhow::Error::new(err).context("sandbox git unavailable"))
+    })?;
     git_checkpoint(
         sandbox,
         run_id,
@@ -159,6 +159,7 @@ pub(crate) async fn checked_git_checkpoint(
         author,
     )
     .await
+    .map_err(|err| SharedError::new(anyhow::anyhow!(err)))
 }
 
 /// Run a git diff via the sandbox (30 s default timeout).
@@ -1000,8 +1001,18 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.starts_with("sandbox git unavailable:"));
-        assert!(err.contains("git missing"));
+        let chain = anyhow::Error::new(err)
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert!(
+            chain.iter().any(|cause| cause == "sandbox git unavailable"),
+            "expected sandbox git context, got {chain:#?}"
+        );
+        assert!(
+            chain.iter().any(|cause| cause.contains("git missing")),
+            "expected probe stderr in chain, got {chain:#?}"
+        );
     }
 
     #[tokio::test]

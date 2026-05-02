@@ -1,11 +1,12 @@
 use fabro_agent::Sandbox;
 use fabro_sandbox::shell_quote;
+use fabro_util::error::SharedError;
 use tokio::sync::OnceCell;
 
 use crate::sandbox_git::{GIT_REMOTE, exec_err};
 
 pub(crate) struct SandboxGitRuntime {
-    probe: OnceCell<Result<(), String>>,
+    probe: OnceCell<Result<(), SharedError>>,
 }
 
 impl SandboxGitRuntime {
@@ -15,7 +16,10 @@ impl SandboxGitRuntime {
         }
     }
 
-    pub(crate) async fn ensure_git_available(&self, sandbox: &dyn Sandbox) -> Result<(), String> {
+    pub(crate) async fn ensure_git_available(
+        &self,
+        sandbox: &dyn Sandbox,
+    ) -> Result<(), SharedError> {
         self.probe
             .get_or_init(|| async { probe_sandbox_git(sandbox).await })
             .await
@@ -29,7 +33,7 @@ impl Default for SandboxGitRuntime {
     }
 }
 
-async fn probe_sandbox_git(sandbox: &dyn Sandbox) -> Result<(), String> {
+async fn probe_sandbox_git(sandbox: &dyn Sandbox) -> Result<(), SharedError> {
     let temp = sandbox_temp_dir(sandbox, "probe", "git");
     let index = format!("{temp}/index");
     let probe_file = format!("{temp}/probe.txt");
@@ -57,14 +61,18 @@ fn sandbox_temp_dir(sandbox: &dyn Sandbox, run_id: &str, label: &str) -> String 
     format!("{cwd}/.fabro/tmp/{label}-{run_id}-{id}")
 }
 
-async fn exec_ok(sandbox: &dyn Sandbox, command: &str) -> Result<(), String> {
+async fn exec_ok(sandbox: &dyn Sandbox, command: &str) -> Result<(), SharedError> {
     let result = sandbox
         .exec_command(command, 30_000, None, None, None)
         .await
-        .map_err(|err| err.display_with_causes())?;
+        .map_err(|err| {
+            SharedError::new(anyhow::Error::new(err).context("sandbox git probe command failed"))
+        })?;
     if result.is_success() {
         Ok(())
     } else {
-        Err(exec_err(command, &result))
+        Err(SharedError::new(anyhow::anyhow!(exec_err(
+            command, &result
+        ))))
     }
 }

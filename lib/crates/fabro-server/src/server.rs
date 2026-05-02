@@ -704,20 +704,8 @@ impl AppState {
         )
     }
 
-    pub(crate) async fn resolve_llm_client(&self) -> Result<LlmClientResult, String> {
-        let resolved = self
-            .llm_source
-            .resolve()
-            .await
-            .map_err(|err| err.to_string())?;
-        let client = LlmClient::from_credentials(resolved.credentials)
-            .await
-            .map_err(|err| err.to_string())?;
-
-        Ok(LlmClientResult {
-            client,
-            auth_issues: resolved.auth_issues,
-        })
+    pub(crate) async fn resolve_llm_client(&self) -> anyhow::Result<LlmClientResult> {
+        resolve_llm_client_from_source(self.llm_source.as_ref()).await
     }
 
     pub(crate) fn vault_or_env(&self, name: &str) -> Option<String> {
@@ -843,6 +831,23 @@ impl AppState {
             .expect("server settings lock poisoned") = server_settings;
         Ok(())
     }
+}
+
+async fn resolve_llm_client_from_source(
+    source: &dyn CredentialSource,
+) -> anyhow::Result<LlmClientResult> {
+    let resolved = source
+        .resolve()
+        .await
+        .context("resolving LLM credentials")?;
+    let client = LlmClient::from_credentials(resolved.credentials)
+        .await
+        .context("creating LLM client")?;
+
+    Ok(LlmClientResult {
+        client,
+        auth_issues: resolved.auth_issues,
+    })
 }
 
 fn decode_secret_pem(name: &str, raw: &str) -> Result<String, String> {
@@ -7823,6 +7828,7 @@ async fn test_model(
     let llm_result = match state.resolve_llm_client().await {
         Ok(result) => result,
         Err(err) => {
+            error!(error = ?err, "Failed to resolve LLM client");
             return ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to resolve LLM client: {err}"),
@@ -7998,6 +8004,7 @@ async fn create_completion(
     let llm_result = match state.resolve_llm_client().await {
         Ok(result) => result,
         Err(err) => {
+            error!(error = ?err, "Failed to create LLM client");
             return ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to create LLM client: {err}"),
@@ -9378,6 +9385,39 @@ provider = "invalid-provider"
 
         assert_eq!(llm_result.client.provider_names(), vec!["openai"]);
         assert!(llm_result.auth_issues.is_empty());
+    }
+
+    struct FailingCredentialSource;
+
+    #[async_trait::async_trait]
+    impl CredentialSource for FailingCredentialSource {
+        async fn resolve(&self) -> anyhow::Result<fabro_auth::ResolvedCredentials> {
+            Err(anyhow::Error::new(std::io::Error::other("credential leaf"))
+                .context("credential source context"))
+        }
+
+        async fn configured_providers(&self) -> Vec<Provider> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_llm_client_from_source_preserves_credential_source_chain() {
+        let Err(err) = resolve_llm_client_from_source(&FailingCredentialSource).await else {
+            panic!("expected credential resolution to fail");
+        };
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert!(
+            chain
+                .iter()
+                .any(|cause| cause == "credential source context"),
+            "expected context in chain, got {chain:#?}"
+        );
+        assert!(
+            chain.iter().any(|cause| cause == "credential leaf"),
+            "expected source in chain, got {chain:#?}"
+        );
     }
 
     #[tokio::test]
@@ -12682,7 +12722,7 @@ slug = "fabro"
     #[tokio::test]
     async fn stage_artifacts_keep_same_filename_per_retry() {
         let state = create_app_state();
-        let app = build_router(Arc::clone(&state), AuthMode::Disabled);
+        let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
         let stage_id = "code@2";

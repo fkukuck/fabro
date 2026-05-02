@@ -1,5 +1,7 @@
 use std::sync::LazyLock;
 
+use anyhow::Context as _;
+
 /// Dark mode CSS injected into SVG output (leading newline included for
 /// insertion).
 const DARK_MODE_STYLE: &str = r##"
@@ -69,7 +71,8 @@ pub fn postprocess_svg(raw: Vec<u8>) -> Vec<u8> {
 pub fn render_dot(source: &str) -> anyhow::Result<Vec<u8>> {
     let styled_source = inject_dot_style_defaults(source);
     let raw = graphviz_sys::render_dot_to_svg(&styled_source)
-        .map_err(|e| anyhow::anyhow!("Graphviz rendering failed: {e}"))?;
+        .map_err(anyhow::Error::msg)
+        .context("Graphviz rendering failed")?;
     Ok(postprocess_svg(raw))
 }
 

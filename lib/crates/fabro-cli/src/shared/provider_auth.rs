@@ -10,7 +10,7 @@
 use std::io::Read;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use dialoguer::console::Term;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Password};
@@ -77,13 +77,13 @@ pub(crate) enum ApiKeySource {
 // API key validation
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn validate_api_key(provider: Provider, api_key: &str) -> Result<(), String> {
+pub(crate) async fn validate_api_key(provider: Provider, api_key: &str) -> Result<()> {
     let client = LlmClient::from_credentials(vec![ApiCredential::from_api_key(
         provider,
         api_key.to_string(),
     )])
     .await
-    .map_err(|e| e.to_string())?;
+    .context("failed to create LLM client")?;
 
     let probe_model = Catalog::builtin()
         .probe_for_provider(provider)
@@ -94,11 +94,12 @@ pub(crate) async fn validate_api_key(provider: Provider, api_key: &str) -> Resul
         .prompt("Say OK")
         .max_tokens(16);
 
-    timeout(std::time::Duration::from_secs(30), generate(params))
+    let response = timeout(std::time::Duration::from_secs(30), generate(params))
         .await
-        .map_err(|_| "timeout (30s)".to_string())?
+        .context("API key validation timed out")?;
+    response
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .context("API key validation request failed")
 }
 
 fn normalize_api_key_input(raw: &str) -> Result<String> {
@@ -164,7 +165,7 @@ async fn read_and_validate_api_key(
                         return Ok(key);
                     }
                 } else {
-                    return Err(anyhow!("API key validation failed: {e}"));
+                    return Err(e).context("API key validation failed");
                 }
             }
         }

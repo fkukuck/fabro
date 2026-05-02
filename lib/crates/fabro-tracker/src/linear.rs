@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use serde_json::Value;
 
@@ -42,31 +43,37 @@ const ISSUE_FIELDS: &str = "
     updatedAt
 ";
 
-fn normalize_issue(node: &Value) -> Result<Issue, String> {
-    let id = node["id"].as_str().ok_or("Missing issue id")?.to_string();
+fn normalize_issue(node: &Value) -> anyhow::Result<Issue> {
+    let id = node["id"]
+        .as_str()
+        .ok_or_else(|| anyhow!("Missing issue id"))?
+        .to_string();
     let identifier = node["identifier"]
         .as_str()
-        .ok_or("Missing issue identifier")?
+        .ok_or_else(|| anyhow!("Missing issue identifier"))?
         .to_string();
     let title = node["title"]
         .as_str()
-        .ok_or("Missing issue title")?
+        .ok_or_else(|| anyhow!("Missing issue title"))?
         .to_string();
     let description = node["description"]
         .as_str()
         .map(std::string::ToString::to_string);
     let priority = match node["priority"].as_i64() {
         Some(0) | None => None,
-        Some(n) => Some(i32::try_from(n).map_err(|_| format!("Priority out of range: {n}"))?),
+        Some(n) => Some(i32::try_from(n).map_err(|_| anyhow!("Priority out of range: {n}"))?),
     };
     let state = node["state"]["name"]
         .as_str()
-        .ok_or("Missing issue state name")?
+        .ok_or_else(|| anyhow!("Missing issue state name"))?
         .to_string();
     let branch_name = node["branchName"]
         .as_str()
         .map(std::string::ToString::to_string);
-    let url = node["url"].as_str().ok_or("Missing issue url")?.to_string();
+    let url = node["url"]
+        .as_str()
+        .ok_or_else(|| anyhow!("Missing issue url"))?
+        .to_string();
     let assignee_id = node["assignee"]["id"]
         .as_str()
         .map(std::string::ToString::to_string);
@@ -132,7 +139,7 @@ async fn execute_graphql(
     config: &LinearOptions,
     query: &str,
     variables: Value,
-) -> Result<Value, String> {
+) -> anyhow::Result<Value> {
     execute_graphql_request(
         client,
         &config.endpoint,
@@ -144,10 +151,10 @@ async fn execute_graphql(
     .await
 }
 
-fn extract_issues(response: &Value) -> Result<Vec<Issue>, String> {
+fn extract_issues(response: &Value) -> anyhow::Result<Vec<Issue>> {
     let nodes = response["data"]["issues"]["nodes"]
         .as_array()
-        .ok_or("Missing issues nodes in response")?;
+        .ok_or_else(|| anyhow!("Missing issues nodes in response"))?;
 
     nodes.iter().map(normalize_issue).collect()
 }
@@ -175,7 +182,7 @@ impl LinearTracker {
 
 #[async_trait]
 impl Tracker for LinearTracker {
-    async fn fetch_viewer_id(&self) -> Result<String, String> {
+    async fn fetch_viewer_id(&self) -> anyhow::Result<String> {
         tracing::debug!("Fetching viewer ID from Linear");
         let query = "query { viewer { id } }";
         let response =
@@ -184,10 +191,10 @@ impl Tracker for LinearTracker {
         response["data"]["viewer"]["id"]
             .as_str()
             .map(std::string::ToString::to_string)
-            .ok_or_else(|| "Missing viewer id in response".to_string())
+            .ok_or_else(|| anyhow!("Missing viewer id in response"))
     }
 
-    async fn create_comment(&self, issue: &Issue, body: &str) -> Result<(), String> {
+    async fn create_comment(&self, issue: &Issue, body: &str) -> anyhow::Result<()> {
         tracing::debug!(issue_id = %issue.id, "Creating comment on Linear issue");
         let query = r"
             mutation($issueId: String!, $body: String!) {
@@ -208,13 +215,13 @@ impl Tracker for LinearTracker {
             .as_bool()
             .unwrap_or(false);
         if !success {
-            return Err("Linear commentCreate returned success: false".to_string());
+            bail!("Linear commentCreate returned success: false");
         }
 
         Ok(())
     }
 
-    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> Result<(), String> {
+    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> anyhow::Result<()> {
         tracing::debug!(issue_id = %issue.id, state_name, "Updating Linear issue state");
         // Step 1: Resolve state name to ID via the issue's team
         let resolve_query = r"
@@ -241,7 +248,7 @@ impl Tracker for LinearTracker {
             .as_array()
             .and_then(|arr| arr.first())
             .and_then(|node| node["id"].as_str())
-            .ok_or_else(|| format!("State '{state_name}' not found for issue {}", issue.id))?
+            .ok_or_else(|| anyhow!("State '{state_name}' not found for issue {}", issue.id))?
             .to_string();
 
         // Step 2: Update the issue
@@ -265,13 +272,13 @@ impl Tracker for LinearTracker {
             .as_bool()
             .unwrap_or(false);
         if !success {
-            return Err("Linear issueUpdate returned success: false".to_string());
+            bail!("Linear issueUpdate returned success: false");
         }
 
         Ok(())
     }
 
-    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> Result<Vec<Issue>, String> {
+    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> anyhow::Result<Vec<Issue>> {
         tracing::debug!(
             project_slug = %self.project_slug,
             ?state_names,
@@ -323,7 +330,7 @@ impl Tracker for LinearTracker {
         Ok(all_issues)
     }
 
-    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> Result<Vec<Issue>, String> {
+    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> anyhow::Result<Vec<Issue>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -634,7 +641,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.contains("401"), "got: {err}");
+        assert!(err.to_string().contains("401"), "got: {err}");
     }
 
     #[tokio::test]
@@ -659,7 +666,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.contains("500"), "got: {err}");
+        assert!(err.to_string().contains("500"), "got: {err}");
     }
 
     #[tokio::test]
@@ -680,7 +687,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.contains("Variable not found"), "got: {err}");
+        assert!(err.to_string().contains("Variable not found"), "got: {err}");
     }
 
     #[tokio::test]
@@ -747,7 +754,7 @@ mod tests {
 
         let tracker = LinearTracker::new(config, test_http_client(), "proj".to_string());
         let err = tracker.fetch_viewer_id().await.unwrap_err();
-        assert!(err.contains("401"), "got: {err}");
+        assert!(err.to_string().contains("401"), "got: {err}");
     }
 
     // -----------------------------------------------------------------------
@@ -788,7 +795,7 @@ mod tests {
         let tracker = LinearTracker::new(config, test_http_client(), "proj".to_string());
         let issue = make_test_issue();
         let err = tracker.create_comment(&issue, "Hello").await.unwrap_err();
-        assert!(err.contains("success: false"), "got: {err}");
+        assert!(err.to_string().contains("success: false"), "got: {err}");
     }
 
     // -----------------------------------------------------------------------
@@ -845,8 +852,8 @@ mod tests {
             .update_issue_state(&issue, "Nonexistent")
             .await
             .unwrap_err();
-        assert!(err.contains("Nonexistent"), "got: {err}");
-        assert!(err.contains("not found"), "got: {err}");
+        assert!(err.to_string().contains("Nonexistent"), "got: {err}");
+        assert!(err.to_string().contains("not found"), "got: {err}");
     }
 
     // -----------------------------------------------------------------------

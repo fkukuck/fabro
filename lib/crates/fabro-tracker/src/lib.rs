@@ -1,3 +1,4 @@
+use anyhow::{Context as _, bail};
 use async_trait::async_trait;
 
 pub mod github;
@@ -18,7 +19,7 @@ pub(crate) async fn execute_graphql_request(
     provider: &str,
     query: &str,
     variables: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> anyhow::Result<serde_json::Value> {
     let body = serde_json::json!({
         "query": query,
         "variables": variables,
@@ -33,21 +34,19 @@ pub(crate) async fn execute_graphql_request(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("{provider} GraphQL request failed: {e}"))?;
+        .with_context(|| format!("{provider} GraphQL request failed"))?;
 
     let status = resp.status();
     if !status.is_success() {
         let body_text = resp.text().await.unwrap_or_default();
         tracing::warn!(status = %status, provider, "GraphQL API error");
-        return Err(format!(
-            "{provider} GraphQL API returned HTTP {status}: {body_text}"
-        ));
+        bail!("{provider} GraphQL API returned HTTP {status}: {body_text}");
     }
 
     let response: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("Failed to parse {provider} GraphQL response: {e}"))?;
+        .with_context(|| format!("Failed to parse {provider} GraphQL response"))?;
 
     if let Some(errors) = response["errors"].as_array() {
         if !errors.is_empty() {
@@ -55,10 +54,7 @@ pub(crate) async fn execute_graphql_request(
                 .iter()
                 .filter_map(|e| e["message"].as_str())
                 .collect();
-            return Err(format!(
-                "{provider} GraphQL errors: {}",
-                messages.join("; ")
-            ));
+            bail!("{provider} GraphQL errors: {}", messages.join("; "));
         }
     }
 
@@ -104,19 +100,57 @@ pub struct Issue {
 #[async_trait]
 pub trait Tracker: Send + Sync {
     /// Return the authenticated user's ID in the provider's system.
-    async fn fetch_viewer_id(&self) -> Result<String, String>;
+    async fn fetch_viewer_id(&self) -> anyhow::Result<String>;
 
     /// Add a comment to an issue. Each impl extracts the appropriate ID.
-    async fn create_comment(&self, issue: &Issue, body: &str) -> Result<(), String>;
+    async fn create_comment(&self, issue: &Issue, body: &str) -> anyhow::Result<()>;
 
     /// Transition an issue to a new state by name.
     /// Each impl extracts the appropriate ID (issue ID or project item ID).
-    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> Result<(), String>;
+    async fn update_issue_state(&self, issue: &Issue, state_name: &str) -> anyhow::Result<()>;
 
     /// Fetch issues matching any of the given state names.
     /// Project identity is in the impl's config, not here.
-    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> Result<Vec<Issue>, String>;
+    async fn fetch_candidate_issues(&self, state_names: &[&str]) -> anyhow::Result<Vec<Issue>>;
 
     /// Fetch specific issues by their provider-native IDs (`Issue::id` values).
-    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> Result<Vec<Issue>, String>;
+    async fn fetch_issues_by_ids(&self, ids: &[&str]) -> anyhow::Result<Vec<Issue>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::net::TcpListener;
+
+    use super::execute_graphql_request;
+
+    #[tokio::test]
+    async fn execute_graphql_request_preserves_transport_source_chain() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/graphql", listener.local_addr().unwrap());
+        drop(listener);
+
+        let client = fabro_http::test_http_client().unwrap();
+        let err = execute_graphql_request(
+            &client,
+            &endpoint,
+            "Bearer test",
+            "Test",
+            "query { viewer { id } }",
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap_err();
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert!(
+            chain.len() >= 2,
+            "expected transport source chain, got {chain:#?}"
+        );
+        assert!(
+            chain
+                .iter()
+                .any(|cause| cause.contains("error sending request")),
+            "expected reqwest source in chain, got {chain:#?}"
+        );
+    }
 }

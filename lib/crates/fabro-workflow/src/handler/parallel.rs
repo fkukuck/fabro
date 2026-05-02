@@ -167,7 +167,7 @@ impl Handler for ParallelHandler {
             let run_id = context
                 .run_id()
                 .parse::<RunId>()
-                .map_err(|err| Error::handler(format!("invalid internal run_id: {err}")))?;
+                .map_err(|err| Error::handler_with_source("invalid internal run_id", &err))?;
             let mut hook_ctx =
                 HookContext::new(HookEvent::ParallelStart, run_id, graph.name.clone());
             set_hook_node(&mut hook_ctx, node);
@@ -199,8 +199,8 @@ impl Handler for ParallelHandler {
             .await;
             match result {
                 Ok(sha) => Some(sha),
-                Err(e) if e.starts_with("sandbox git unavailable:") => {
-                    return Err(Error::handler(e));
+                Err(e) if e.to_string() == "sandbox git unavailable" => {
+                    return Err(Error::handler_with_source("sandbox git unavailable", &e));
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "parallel base checkpoint failed");
@@ -268,7 +268,7 @@ impl Handler for ParallelHandler {
                 wt_sandbox
                     .initialize()
                     .await
-                    .map_err(|e| Error::handler(format!("worktree setup failed: {e}")))?;
+                    .map_err(|e| Error::handler_with_source("worktree setup failed", &e))?;
 
                 branch_context.set(keys::INTERNAL_WORK_DIR, serde_json::json!(&wt_path_str));
 
@@ -320,7 +320,7 @@ impl Handler for ParallelHandler {
                 let _permit = sem
                     .acquire()
                     .await
-                    .map_err(|e| Error::handler(format!("semaphore error: {e}")))?;
+                    .map_err(|e| Error::handler_with_source("semaphore error", &e))?;
 
                 parent_run.emitter.emit_scoped(
                     &Event::ParallelBranchStarted {
@@ -554,7 +554,7 @@ impl Handler for ParallelHandler {
             let run_id = context
                 .run_id()
                 .parse::<RunId>()
-                .map_err(|err| Error::handler(format!("invalid internal run_id: {err}")))?;
+                .map_err(|err| Error::handler_with_source("invalid internal run_id", &err))?;
             let mut hook_ctx =
                 HookContext::new(HookEvent::ParallelComplete, run_id, graph.name.clone());
             set_hook_node(&mut hook_ctx, node);

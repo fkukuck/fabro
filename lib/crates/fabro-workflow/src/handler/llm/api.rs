@@ -205,7 +205,7 @@ impl AgentApiBackend {
     ) -> Result<Session, Error> {
         let client = Client::from_source(source)
             .await
-            .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to create LLM client", &e))?;
 
         let mut profile = build_profile(model, provider);
 
@@ -288,7 +288,7 @@ impl CodergenBackend for AgentApiBackend {
     ) -> Result<CodergenResult, Error> {
         let client = Client::from_source(self.source.as_ref())
             .await
-            .map_err(|e| Error::handler(format!("Failed to create LLM client: {e}")))?;
+            .map_err(|e| Error::handler_with_source("Failed to create LLM client", &e))?;
 
         let model = node.model().unwrap_or(&self.model);
         let provider = node

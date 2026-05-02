@@ -2337,6 +2337,7 @@ dependencies = [
 name = "fabro-tracker"
 version = "0.221.0-nightly.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "fabro-github",
  "fabro-http",

@@ -10,7 +10,7 @@ use fabro_core::state::ExecutionState;
 use fabro_dump::RunDump;
 use fabro_types::RunId;
 use fabro_types::run_event::{MetadataSnapshotFailureKind, MetadataSnapshotPhase};
-use fabro_util::error::collect_causes;
+use fabro_util::error::{collect_causes, render_with_causes};
 use fabro_util::time::elapsed_ms;
 
 use crate::artifact;
@@ -317,17 +317,18 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                 *self.checkpoint_git_result.lock().unwrap() = Some(git_result);
             }
             Err(e) => {
+                let error = render_with_causes(&e.to_string(), &collect_causes(&e));
                 // Emit CheckpointFailed and return error
                 let scope = stage_scope_for(state, node_id);
                 self.emitter.emit_scoped(
                     &Event::CheckpointFailed {
                         node_id: node_id.to_string(),
-                        error:   e.clone(),
+                        error:   error.clone(),
                     },
                     &scope,
                 );
                 return Err(CoreError::Other(format!(
-                    "git checkpoint commit failed for node '{node_id}': {e}"
+                    "git checkpoint commit failed for node '{node_id}': {error}"
                 )));
             }
         }
