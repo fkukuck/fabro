@@ -1,0 +1,5 @@
+{
+  "script": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+  "command": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+  "language": "shell"
+}
