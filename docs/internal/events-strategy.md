@@ -19,7 +19,7 @@ Engine/Handler -> Event -> Emitter::emit()
                                              `- CLI / tests / metrics listeners
 ```
 
-The canonical `RunEvent` is built exactly once in `fabro-workflow/src/event.rs`.
+The canonical `RunEvent` is built exactly once in the `fabro-workflow::event` module.
 
 - `Event` (in `fabro-workflow`) is the internal typed event emitted by engine and handlers.
 - `Emitter` owns an immutable `run_id` and converts `Event` into `RunEvent` via `to_run_event_at()`.
@@ -94,7 +94,7 @@ The external event name is lowercase dot notation, for example:
 - `sandbox.ready`
 - `parallel.branch.completed`
 
-`event_name()` in `event.rs` is exhaustive. Do not use wildcard fallthroughs when adding new variants.
+`event_name()` in the `fabro-workflow::event` module is exhaustive. Do not use wildcard fallthroughs when adding new variants.
 
 ## Node And Session Metadata
 
@@ -138,7 +138,7 @@ Add a variant to `EventBody` in `fabro-types/src/run_event/mod.rs` with a corres
 
 ### 5. Map envelope fields and construct `EventBody`
 
-Update `stored_event_fields()` and `event_body_from_event()` in `fabro-workflow/src/event.rs`:
+Update `stored_event_fields()` and `event_body_from_event()` in the `fabro-workflow::event` module:
 
 - Move `node_id`, `node_label`, `session_id`, and `parent_session_id` into the envelope when appropriate.
 - Construct the `EventBody` variant directly from the `Event` fields.

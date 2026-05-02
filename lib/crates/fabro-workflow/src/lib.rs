@@ -152,6 +152,7 @@ pub mod runtime_store;
 pub mod sandbox_git;
 pub(crate) mod sandbox_git_runtime;
 pub mod services;
+mod stage_scope;
 #[doc(hidden)]
 pub mod test_support;
 #[doc(hidden)]
