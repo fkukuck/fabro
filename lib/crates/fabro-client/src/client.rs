@@ -1228,7 +1228,12 @@ impl Client {
         clippy::disallowed_types,
         reason = "Client builds raw server API request URLs for wire transit; logging redaction is handled at log boundaries."
     )]
-    fn stage_artifacts_url(&self, run_id: &RunId, stage_id: &StageId) -> Result<fabro_http::Url> {
+    fn stage_artifacts_url(
+        &self,
+        run_id: &RunId,
+        stage_id: &StageId,
+        retry: u32,
+    ) -> Result<fabro_http::Url> {
         let base_url = self.base_url();
         let mut url = fabro_http::Url::parse(&base_url)
             .with_context(|| format!("invalid server base URL {base_url}"))?;
@@ -1243,6 +1248,8 @@ impl Client {
                 &stage_id.to_string(),
                 "artifacts",
             ]);
+        url.query_pairs_mut()
+            .append_pair("retry", &retry.to_string());
         Ok(url)
     }
 
@@ -1255,10 +1262,8 @@ impl Client {
         path: &Path,
         bearer_token: &str,
     ) -> Result<()> {
-        let mut url = self.stage_artifacts_url(run_id, stage_id)?;
+        let mut url = self.stage_artifacts_url(run_id, stage_id, retry)?;
         url.query_pairs_mut().append_pair("filename", filename);
-        url.query_pairs_mut()
-            .append_pair("retry", &retry.to_string());
 
         let file = File::open(path)
             .await
@@ -1296,9 +1301,7 @@ impl Client {
         artifacts: &[ArtifactUpload],
         bearer_token: &str,
     ) -> Result<()> {
-        let mut url = self.stage_artifacts_url(run_id, stage_id)?;
-        url.query_pairs_mut()
-            .append_pair("retry", &retry.to_string());
+        let url = self.stage_artifacts_url(run_id, stage_id, retry)?;
         let mut manifest_entries = Vec::with_capacity(artifacts.len());
         let mut file_parts = Vec::with_capacity(artifacts.len());
 

@@ -63,8 +63,8 @@ use fabro_slack::threads::ThreadRegistry;
 use fabro_slack::{blocks as slack_blocks, connection as slack_connection};
 use fabro_static::EnvVars;
 use fabro_store::{
-    ArtifactKey, ArtifactStore, Database, EventEnvelope, EventPayload, PendingInterviewRecord,
-    StageId,
+    ArtifactKey, ArtifactStore, Database, EventEnvelope, EventPayload, NodeArtifact,
+    PendingInterviewRecord, StageArtifactEntry, StageId,
 };
 #[cfg(test)]
 use fabro_types::BlockedReason;
@@ -3353,24 +3353,12 @@ pub(crate) fn parse_blob_id_path(blob_id: &str) -> Result<RunBlobId, Response> {
 
 #[allow(
     clippy::result_large_err,
-    reason = "Missing filename validation returns HTTP 400 responses directly."
+    reason = "Missing query parameter validation returns HTTP 400 responses directly."
 )]
-fn required_filename(params: &ArtifactFilenameParams) -> Result<String, Response> {
-    match params.filename.as_ref() {
-        Some(filename) if !filename.is_empty() => Ok(filename.clone()),
-        _ => Err(ApiError::bad_request("Missing filename query parameter.").into_response()),
-    }
-}
-
-#[allow(
-    clippy::result_large_err,
-    reason = "Missing retry validation returns HTTP 400 responses directly."
-)]
-fn required_retry(params: &ArtifactFilenameParams) -> Result<u32, Response> {
-    match params.retry {
-        Some(retry) => Ok(retry),
-        None => Err(ApiError::bad_request("Missing retry query parameter.").into_response()),
-    }
+fn required_query_param<T: Clone>(value: Option<&T>, name: &str) -> Result<T, Response> {
+    value.cloned().ok_or_else(|| {
+        ApiError::bad_request(format!("Missing {name} query parameter.")).into_response()
+    })
 }
 
 #[allow(
@@ -6191,21 +6179,30 @@ async fn list_run_artifacts(
 
     match state.artifact_store.list_for_run(&id).await {
         Ok(entries) => Json(RunArtifactListResponse {
-            data: entries
-                .into_iter()
-                .map(|entry| RunArtifactEntry {
-                    stage_id:      entry.node.to_string(),
-                    node_slug:     entry.node.node_id().to_string(),
-                    retry:         entry.retry.cast_signed(),
-                    relative_path: entry.filename,
-                    size:          entry.size.cast_signed(),
-                })
-                .collect(),
+            data: entries.into_iter().map(run_artifact_entry_from).collect(),
         })
         .into_response(),
         Err(err) => {
             ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
+    }
+}
+
+fn run_artifact_entry_from(entry: NodeArtifact) -> RunArtifactEntry {
+    RunArtifactEntry {
+        stage_id:      entry.node.to_string(),
+        node_slug:     entry.node.node_id().to_string(),
+        retry:         entry.retry.cast_signed(),
+        relative_path: entry.filename,
+        size:          entry.size.cast_signed(),
+    }
+}
+
+fn artifact_entry_from(entry: StageArtifactEntry) -> ArtifactEntry {
+    ArtifactEntry {
+        filename: entry.filename,
+        retry:    entry.retry.cast_signed(),
+        size:     entry.size.cast_signed(),
     }
 }
 
@@ -6228,14 +6225,7 @@ async fn list_stage_artifacts(
 
     match state.artifact_store.list_for_node(&id, &stage_id).await {
         Ok(entries) => Json(ArtifactListResponse {
-            data: entries
-                .into_iter()
-                .map(|entry| ArtifactEntry {
-                    filename: entry.filename,
-                    retry:    entry.retry.cast_signed(),
-                    size:     entry.size.cast_signed(),
-                })
-                .collect(),
+            data: entries.into_iter().map(artifact_entry_from).collect(),
         })
         .into_response(),
         Err(err) => {
@@ -6614,7 +6604,7 @@ async fn put_stage_artifact(
     if let Err(response) = load_run_spec(state.as_ref(), &id).await.map(|_| ()) {
         return response;
     }
-    let retry = match required_retry(&params) {
+    let retry = match required_query_param(params.retry.as_ref(), "retry") {
         Ok(retry) => retry,
         Err(response) => return response,
     };
@@ -6625,7 +6615,7 @@ async fn put_stage_artifact(
     };
     match artifact_upload_content_type(&parts.headers) {
         Ok(ArtifactUploadContentType::OctetStream) => {
-            let filename = match required_filename(&params) {
+            let filename = match required_query_param(params.filename.as_ref(), "filename") {
                 Ok(filename) => filename,
                 Err(response) => return response,
             };
@@ -6667,11 +6657,11 @@ async fn get_stage_artifact(
         Ok(stage_id) => stage_id,
         Err(response) => return response,
     };
-    let filename = match required_filename(&params) {
+    let filename = match required_query_param(params.filename.as_ref(), "filename") {
         Ok(filename) => filename,
         Err(response) => return response,
     };
-    let retry = match required_retry(&params) {
+    let retry = match required_query_param(params.retry.as_ref(), "retry") {
         Ok(retry) => retry,
         Err(response) => return response,
     };
