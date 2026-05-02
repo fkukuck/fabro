@@ -8,8 +8,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 3: reachability (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

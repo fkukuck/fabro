@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 10: fidelity_valid (WARNING) ---
-
 struct Rule;
 
 impl Rule {

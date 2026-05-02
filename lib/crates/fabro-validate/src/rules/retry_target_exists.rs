@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 11: retry_target_exists (WARNING) ---
-
 struct Rule;
 
 impl LintRule for Rule {

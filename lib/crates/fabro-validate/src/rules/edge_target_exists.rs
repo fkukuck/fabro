@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 4: edge_target_exists (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

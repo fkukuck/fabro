@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 6: exit_no_outgoing (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

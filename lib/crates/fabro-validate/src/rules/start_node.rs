@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 1: start_node (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

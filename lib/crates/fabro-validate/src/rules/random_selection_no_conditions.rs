@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 24: random_selection_no_conditions (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

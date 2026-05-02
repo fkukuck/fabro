@@ -8,8 +8,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 20: stylesheet_model_known (WARNING) ---
-
 struct Rule;
 
 impl Rule {

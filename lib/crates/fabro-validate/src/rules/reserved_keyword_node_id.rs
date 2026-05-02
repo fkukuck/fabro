@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 16: reserved_keyword_node_id (WARNING) ---
-
 struct Rule;
 
 const DOT_RESERVED_KEYWORDS: &[&str] = &[

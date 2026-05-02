@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 15: direction_valid (WARNING) ---
-
 struct Rule;
 
 const VALID_DIRECTIONS: &[&str] = &["TB", "LR", "BT", "RL"];
@@ -82,6 +80,4 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].severity, Severity::Warning);
     }
-
-    // stylesheet_syntax with full parse tests
 }

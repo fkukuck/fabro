@@ -7,8 +7,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 7: condition_syntax (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

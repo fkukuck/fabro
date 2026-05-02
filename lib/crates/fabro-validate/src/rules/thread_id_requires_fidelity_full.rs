@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 24: thread_id_requires_fidelity_full (WARNING) ---
-
 struct Rule;
 
 impl Rule {

@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 23: selection_valid (WARNING) ---
-
 struct Rule;
 
 const VALID_SELECTIONS: &[&str] = &["deterministic", "random"];

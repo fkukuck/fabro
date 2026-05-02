@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 14: freeform_edge_count (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

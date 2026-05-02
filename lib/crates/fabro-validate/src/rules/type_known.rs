@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 9: type_known (WARNING) ---
-
 struct Rule;
 
 const KNOWN_HANDLER_TYPES: &[&str] = &[

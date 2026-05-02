@@ -7,8 +7,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 21: node_model_known (WARNING) ---
-
 struct Rule;
 
 impl LintRule for Rule {

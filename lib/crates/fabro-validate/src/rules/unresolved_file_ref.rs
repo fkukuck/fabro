@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 23: unresolved_file_ref (ERROR) ---
-
 struct Rule;
 
 impl LintRule for Rule {

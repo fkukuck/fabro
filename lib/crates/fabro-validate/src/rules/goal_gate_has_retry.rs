@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 12: goal_gate_has_retry (WARNING) ---
-
 struct Rule;
 
 impl LintRule for Rule {

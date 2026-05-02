@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 19: script_absolute_cd (WARNING) ---
-
 struct Rule;
 
 /// Returns true if `text` contains `cd` followed by whitespace and then `/`.

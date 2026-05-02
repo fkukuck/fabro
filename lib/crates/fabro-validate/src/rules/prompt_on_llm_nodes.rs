@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 13: prompt_on_llm_nodes (WARNING) ---
-
 struct Rule;
 
 impl LintRule for Rule {

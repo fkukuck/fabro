@@ -6,8 +6,6 @@ pub(super) fn rule() -> Box<dyn LintRule> {
     Box::new(Rule)
 }
 
-// --- Rule 18: orphan_custom_outcome (WARNING) ---
-
 struct Rule;
 
 impl LintRule for Rule {
