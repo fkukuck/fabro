@@ -6,9 +6,8 @@ use axum::http::{Request, StatusCode, header};
 use base64::Engine;
 use fabro_server::ip_allowlist::IpAllowlistConfig;
 use fabro_server::jwt_auth::resolve_auth_mode_with_lookup;
-use fabro_server::server::{
-    RouterOptions, build_router_with_options, create_app_state_with_store_and_runtime_settings,
-};
+use fabro_server::server::{RouterOptions, build_router_with_options};
+use fabro_server::test_support::test_app_state_with_store_and_runtime_settings;
 use fabro_store::{ArtifactStore, AuthCode, Database, RefreshToken};
 use object_store::memory::InMemory;
 use sha2::{Digest, Sha256};
@@ -35,7 +34,7 @@ fn test_app(source: &str) -> (axum::Router, Arc<Database>) {
         })
         .expect("auth mode should resolve");
     let app = build_router_with_options(
-        create_app_state_with_store_and_runtime_settings(
+        test_app_state_with_store_and_runtime_settings(
             settings.server_settings,
             settings.manifest_run_defaults,
             5,

@@ -972,7 +972,7 @@ client_id = "github-client-id"
         settings: fabro_types::ServerSettings,
         auth_mode: AuthMode,
     ) -> axum::Router {
-        let state = server::create_test_app_state_with_runtime_settings_and_session_key(
+        let state = crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             settings,
             RunLayer::default(),
             Some("web-auth-test-key-material-0123456789"),
@@ -1002,7 +1002,7 @@ client_id = "github-client-id"
         auth_mode: AuthMode,
     ) -> (axum::Router, Arc<Mutex<Vec<RequestAuthContext>>>) {
         let captured = Arc::new(Mutex::new(Vec::new()));
-        let state = server::create_test_app_state_with_runtime_settings_and_session_key(
+        let state = crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             settings,
             RunLayer::default(),
             Some("web-auth-test-key-material-0123456789"),
@@ -1242,7 +1242,7 @@ client_id = "github-client-id"
 
     #[tokio::test]
     async fn auth_config_returns_real_methods_when_demo_cookie_set() {
-        let state = server::create_test_app_state_with_runtime_settings_and_session_key(
+        let state = crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             github_settings("https://fabro.example"),
             RunLayer::default(),
             Some("web-auth-test-key-material-0123456789"),
@@ -1335,7 +1335,7 @@ client_id = "github-client-id"
 
     #[tokio::test]
     async fn login_github_uses_injected_github_endpoints() {
-        let state = server::create_test_app_state_with_runtime_settings_and_session_key(
+        let state = crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             github_settings("https://fabro.example"),
             RunLayer::default(),
             Some("web-auth-test-key-material-0123456789"),

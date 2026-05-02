@@ -14,8 +14,8 @@ use fabro_config::{RuntimeDirectory, ServerSettingsBuilder};
 use fabro_server::ip_allowlist::{IpAllowlist, IpAllowlistConfig};
 use fabro_server::jwt_auth::{AuthMode, resolve_auth_mode_with_lookup};
 use fabro_server::serve::{ServeArgs, serve_command};
-use fabro_server::server::{RouterOptions, build_router_with_options, create_app_state};
-use fabro_server::test_support::{TEST_DEV_TOKEN, TEST_SESSION_SECRET};
+use fabro_server::server::{RouterOptions, build_router_with_options};
+use fabro_server::test_support::{TEST_DEV_TOKEN, TEST_SESSION_SECRET, test_app_state};
 use fabro_util::terminal::Styles;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -32,7 +32,7 @@ async fn start_tcp_server(auth_mode: AuthMode, ip_allowlist: Arc<IpAllowlistConf
         .local_addr()
         .expect("test TCP listener should have a local address");
 
-    let state = create_app_state();
+    let state = test_app_state();
     let router =
         build_router_with_options(state, &auth_mode, ip_allowlist, RouterOptions::default());
 

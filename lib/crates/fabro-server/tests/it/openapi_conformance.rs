@@ -11,7 +11,7 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use fabro_server::install::{InstallAppState, build_install_router};
-use fabro_server::server::create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env;
+use fabro_server::test_support::test_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env;
 use serde_yaml::Value;
 use tower::ServiceExt;
 
@@ -146,7 +146,7 @@ async fn github_webhook_spec_route_is_routable_when_webhook_secret_is_present() 
     let secret = "test-webhook-secret".to_string();
     let settings = test_settings();
     let app = fabro_server::test_support::build_test_router(
-        create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
+        test_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
             settings.server_settings,
             settings.manifest_run_defaults,
             5,

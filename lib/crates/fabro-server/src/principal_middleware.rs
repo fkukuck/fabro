@@ -508,14 +508,14 @@ mod tests {
     }
 
     fn classify_token(token: Option<&str>) -> RequestAuthContext {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let request = request_with_bearer(token, auth_mode_for_state(state.as_ref()));
         classify_request(&request, state.as_ref())
     }
 
     #[test]
     fn classifies_valid_user_jwt_as_user_principal() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let token = issue_user_token(state.as_ref(), Duration::minutes(10));
         let request = request_with_bearer(Some(&token), auth_mode_for_state(state.as_ref()));
 
@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn classifies_expired_user_jwt_as_expired() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let token = issue_user_token(state.as_ref(), Duration::seconds(-60));
         let request = request_with_bearer(Some(&token), auth_mode_for_state(state.as_ref()));
 
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn routes_worker_kid_to_worker_verifier() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let run_id = RunId::new();
         let token = issue_worker_token(state.worker_token_keys(), &run_id).unwrap();
         let request = request_with_bearer(Some(&token), auth_mode_for_state(state.as_ref()));
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn classifies_expired_worker_jwt_as_expired_not_invalid() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let token = issue_worker_claims(state.as_ref(), RunId::new(), 2, WORKER_TOKEN_SCOPE);
         let request = request_with_bearer(Some(&token), auth_mode_for_state(state.as_ref()));
 
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn classifies_invalid_worker_jwt_signature_as_invalid() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let token = issue_worker_claims_with_secret(
             b"other-principal-middleware-secret-0001",
             RunId::new(),
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn classifies_wrong_scope_worker_jwt_as_invalid() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let token = issue_worker_claims(state.as_ref(), RunId::new(), u64::MAX / 2, "wrong:scope");
         let request = request_with_bearer(Some(&token), auth_mode_for_state(state.as_ref()));
 

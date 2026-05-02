@@ -38,6 +38,7 @@ mod server_secrets;
 mod spawn_env;
 mod startup;
 pub mod static_files;
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod web_auth;
 mod worker_token;

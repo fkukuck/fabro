@@ -3,9 +3,8 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use fabro_interview::Interviewer;
-use fabro_server::server::{
-    create_app_state_with_runtime_settings_and_registry_factory, spawn_scheduler,
-};
+use fabro_server::server::spawn_scheduler;
+use fabro_server::test_support::test_app_state_with_runtime_settings_and_registry_factory;
 use fabro_workflow::handler::HandlerRegistry;
 use fabro_workflow::handler::agent::AgentHandler;
 use fabro_workflow::handler::exit::ExitHandler;
@@ -119,7 +118,7 @@ const GATE_DOT: &str = r#"digraph GateTest {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_http_lifecycle_approve_and_complete() {
     let settings = test_settings();
-    let state = create_app_state_with_runtime_settings_and_registry_factory(
+    let state = test_app_state_with_runtime_settings_and_registry_factory(
         settings.server_settings,
         settings.manifest_run_defaults,
         gate_registry,
@@ -207,7 +206,7 @@ async fn full_http_lifecycle_approve_and_complete() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_http_lifecycle_cancel() {
     let settings = test_settings();
-    let state = create_app_state_with_runtime_settings_and_registry_factory(
+    let state = test_app_state_with_runtime_settings_and_registry_factory(
         settings.server_settings,
         settings.manifest_run_defaults,
         gate_registry,
@@ -278,7 +277,7 @@ async fn full_http_lifecycle_cancel() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_at_human_gate_persists_cancelled_terminal_event() {
     let settings = test_settings();
-    let state = create_app_state_with_runtime_settings_and_registry_factory(
+    let state = test_app_state_with_runtime_settings_and_registry_factory(
         settings.server_settings,
         settings.manifest_run_defaults,
         gate_registry,

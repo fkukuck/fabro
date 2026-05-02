@@ -1243,7 +1243,6 @@ mod tests {
     use crate::auth::{self, AuthCode, AuthErrorCode, RefreshToken};
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
     use crate::principal_middleware::{AuthStatus, RequestAuthContext};
-    use crate::server;
     use crate::web_auth::SessionCookie;
 
     fn test_cookie_key() -> Key {
@@ -1303,7 +1302,7 @@ client_id = "github-client-id"
         settings: fabro_types::ServerSettings,
         auth_mode: AuthMode,
     ) -> (axum::Router, Arc<crate::server::AppState>) {
-        let state = server::create_test_app_state_with_runtime_settings_and_session_key(
+        let state = crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             settings,
             RunLayer::default(),
             Some("cli-flow-test-key-material-0123456789"),

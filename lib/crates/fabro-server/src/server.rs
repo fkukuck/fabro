@@ -41,8 +41,10 @@ pub use fabro_api::types::{
 use fabro_auth::{
     CredentialSource, VaultCredentialSource, auth_issue_message, parse_credential_secret,
 };
+#[cfg(test)]
+use fabro_config::RunSettingsBuilder;
 use fabro_config::daemon::ServerDaemon;
-use fabro_config::{RunLayer, RunSettingsBuilder, ServerSettingsBuilder, Storage, envfile};
+use fabro_config::{RunLayer, Storage};
 use fabro_interview::{
     Answer, AnswerSubmission, ControlInterviewer, Interviewer, Question, WorkerControlEnvelope,
 };
@@ -94,7 +96,6 @@ use fabro_workflow::run_lookup::{
 };
 use fabro_workflow::run_status::{FailureReason, RunStatus, SuccessReason};
 use fabro_workflow::{Error as WorkflowError, operations, pull_request};
-use object_store::memory::InMemory as MemoryObjectStore;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use tokio::fs;
@@ -871,7 +872,7 @@ fn resolve_interp_string(value: &InterpString) -> anyhow::Result<String> {
     clippy::disallowed_methods,
     reason = "Server state owns process-env lookup facades for interpolation and vault fallbacks."
 )]
-fn process_env_var(name: &str) -> Option<String> {
+pub(crate) fn process_env_var(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
@@ -1801,23 +1802,12 @@ fn build_prune_plan(
     })
 }
 
+#[cfg(test)]
 fn resolve_manifest_run_settings(
     manifest_run_defaults: &RunLayer,
 ) -> std::result::Result<RunNamespace, SharedError> {
     RunSettingsBuilder::from_run_layer(manifest_run_defaults)
         .map_err(|err| SharedError::new(anyhow::Error::new(err)))
-}
-
-fn default_test_server_settings() -> ServerSettings {
-    ServerSettingsBuilder::from_toml(
-        r#"
-_version = 1
-
-[server.auth]
-methods = ["dev-token"]
-"#,
-    )
-    .expect("default test server settings should resolve")
 }
 
 fn system_sandbox_provider(
@@ -2536,342 +2526,6 @@ async fn get_run_billing(
     (StatusCode::OK, Json(response)).into_response()
 }
 
-/// Create an `AppState` with default settings.
-pub fn create_app_state() -> Arc<AppState> {
-    create_app_state_with_options(default_test_server_settings(), RunLayer::default(), 5)
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_registry_factory(
-    registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_settings_and_registry_factory(
-        default_test_server_settings(),
-        RunLayer::default(),
-        registry_factory_override,
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_settings_and_registry_factory(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_options_and_registry_factory(
-        server_settings,
-        manifest_run_defaults,
-        5,
-        registry_factory_override,
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_options_and_registry_factory(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_options_and_registry_factory(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        registry_factory_override,
-    )
-}
-
-/// Create an `AppState` with the given settings and concurrency limit.
-pub fn create_app_state_with_options(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_options(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-    )
-}
-
-fn resolved_runtime_settings_for_tests(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-) -> ResolvedAppStateSettings {
-    ResolvedAppStateSettings {
-        manifest_run_settings: resolve_manifest_run_settings(&manifest_run_defaults),
-        manifest_run_defaults,
-        server_settings,
-    }
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_runtime_settings_and_registry_factory(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_options_and_registry_factory(
-        server_settings,
-        manifest_run_defaults,
-        5,
-        registry_factory_override,
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_runtime_settings_and_options_and_registry_factory(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    registry_factory_override: impl Fn(Arc<dyn Interviewer>) -> HandlerRegistry + Send + Sync + 'static,
-) -> Arc<AppState> {
-    let (store, artifact_store) = test_store_bundle();
-    let vault_path = test_secret_store_path();
-    let server_env_path = vault_path.with_file_name("server.env");
-    let env_lookup = default_env_lookup();
-    let mut config = AppStateConfig {
-        resolved_settings: resolved_runtime_settings_for_tests(
-            server_settings,
-            manifest_run_defaults,
-        ),
-        registry_factory_override: None,
-        max_concurrent_runs,
-        store,
-        artifact_store,
-        vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-        env_lookup,
-        github_api_base_url: None,
-        http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
-    };
-    config.registry_factory_override = Some(Box::new(registry_factory_override));
-    build_app_state(config).expect("test app state should build")
-}
-
-/// Create an `AppState` with dense runtime settings and a concurrency limit.
-#[doc(hidden)]
-pub fn create_app_state_with_runtime_settings_and_options(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        process_env_var,
-        &HashMap::new(),
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_runtime_settings_and_env_lookup(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        env_lookup,
-        &HashMap::new(),
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
-    server_secret_env: &HashMap<String, String>,
-) -> Arc<AppState> {
-    let (store, artifact_store) = test_store_bundle();
-    let env_lookup: EnvLookup = Arc::new(env_lookup);
-    let vault_path = test_secret_store_path();
-    let server_env_path = vault_path.with_file_name("server.env");
-    build_app_state(AppStateConfig {
-        resolved_settings: resolved_runtime_settings_for_tests(
-            server_settings,
-            manifest_run_defaults,
-        ),
-        registry_factory_override: None,
-        max_concurrent_runs,
-        store,
-        artifact_store,
-        vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, server_secret_env.clone()),
-        env_lookup,
-        github_api_base_url: None,
-        http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
-    })
-    .expect("test app state should build")
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_env_lookup(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_env_lookup(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        env_lookup,
-    )
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_env_lookup_and_server_secret_env(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    env_lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
-    server_secret_env: &HashMap<String, String>,
-) -> Arc<AppState> {
-    create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        env_lookup,
-        server_secret_env,
-    )
-}
-
-#[cfg(test)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "test helper writes a fixture server.env with sync std::fs::write"
-)]
-pub(crate) fn create_test_app_state_with_runtime_settings_and_session_key(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    session_secret: Option<&str>,
-) -> Arc<AppState> {
-    let vault_path = test_secret_store_path();
-    let server_env_path = vault_path
-        .parent()
-        .expect("test secrets path should have parent")
-        .join("server.env");
-    if let Some(session_secret) = session_secret {
-        std::fs::write(
-            &server_env_path,
-            format!("SESSION_SECRET={session_secret}\n"),
-        )
-        .expect("test server env should be writable");
-    }
-    let (store, artifact_store) = test_store_bundle();
-    let env_lookup = default_env_lookup();
-    build_app_state(AppStateConfig {
-        resolved_settings: resolved_runtime_settings_for_tests(
-            server_settings,
-            manifest_run_defaults,
-        ),
-        registry_factory_override: None,
-        max_concurrent_runs: 5,
-        store,
-        artifact_store,
-        vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-        env_lookup,
-        github_api_base_url: None,
-        http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
-    })
-    .expect("test app state should build")
-}
-
-#[cfg(test)]
-pub(crate) fn create_test_app_state_with_session_key(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    session_secret: Option<&str>,
-) -> Arc<AppState> {
-    create_test_app_state_with_runtime_settings_and_session_key(
-        server_settings,
-        manifest_run_defaults,
-        session_secret,
-    )
-}
-
-pub fn create_app_state_with_store(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    store: Arc<Database>,
-    artifact_store: ArtifactStore,
-) -> Arc<AppState> {
-    create_app_state_with_store_and_runtime_settings(
-        server_settings,
-        manifest_run_defaults,
-        max_concurrent_runs,
-        store,
-        artifact_store,
-    )
-}
-
-fn test_store_bundle() -> (Arc<Database>, ArtifactStore) {
-    let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(MemoryObjectStore::new());
-    let store = Arc::new(fabro_store::Database::new(
-        Arc::clone(&object_store),
-        "",
-        Duration::from_millis(1),
-        None,
-    ));
-    let artifact_store = ArtifactStore::new(object_store, "artifacts");
-    (store, artifact_store)
-}
-
-#[doc(hidden)]
-pub fn create_app_state_with_store_and_runtime_settings(
-    server_settings: ServerSettings,
-    manifest_run_defaults: RunLayer,
-    max_concurrent_runs: usize,
-    store: Arc<Database>,
-    artifact_store: ArtifactStore,
-) -> Arc<AppState> {
-    let vault_path = test_secret_store_path();
-    let server_env_path = vault_path.with_file_name("server.env");
-    build_app_state(AppStateConfig {
-        resolved_settings: resolved_runtime_settings_for_tests(
-            server_settings,
-            manifest_run_defaults,
-        ),
-        registry_factory_override: None,
-        max_concurrent_runs,
-        store,
-        artifact_store,
-        vault_path,
-        server_secrets: load_test_server_secrets(server_env_path, HashMap::new()),
-        env_lookup: default_env_lookup(),
-        github_api_base_url: None,
-        http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
-    })
-    .expect("test app state should build")
-}
-
-fn default_env_lookup() -> EnvLookup {
-    Arc::new(process_env_var)
-}
-
-fn load_test_server_secrets(path: PathBuf, env: HashMap<String, String>) -> ServerSecrets {
-    let mut env = env;
-    let file_has_session_secret = envfile::read_env_file(&path)
-        .ok()
-        .is_some_and(|entries| entries.contains_key(EnvVars::SESSION_SECRET));
-    if !env.contains_key(EnvVars::SESSION_SECRET) && !file_has_session_secret {
-        env.insert(
-            EnvVars::SESSION_SECRET.to_string(),
-            "server-test-session-key-0123456789".to_string(),
-        );
-    }
-    ServerSecrets::load(path, env).expect("test server secrets should load")
-}
-
 fn worker_token_keys_from_server_secrets(
     server_secrets: &ServerSecrets,
 ) -> anyhow::Result<WorkerTokenKeys> {
@@ -2960,12 +2614,6 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         slack_service,
         slack_started: AtomicBool::new(false),
     }))
-}
-
-fn test_secret_store_path() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("fabro-test-{}", Ulid::new()));
-    std::fs::create_dir_all(&dir).expect("test temp dir should be creatable");
-    dir.join("secrets.json")
 }
 
 fn board_column(status: RunStatus) -> Option<&'static str> {
@@ -8381,6 +8029,7 @@ mod tests {
     use super::*;
     use crate::github_webhooks::compute_signature;
     use crate::jwt_auth::{AuthMode, ConfiguredAuth};
+    use crate::test_support::*;
 
     const MINIMAL_DOT: &str = r#"digraph Test {
         graph [goal="Test"]
@@ -8418,7 +8067,7 @@ mod tests {
     }
 
     fn test_app_with() -> Router {
-        let state = create_app_state();
+        let state = test_app_state();
         crate::test_support::build_test_router_with_options(
             state,
             Arc::new(IpAllowlistConfig::default()),
@@ -8438,7 +8087,7 @@ mod tests {
         crate::test_support::build_test_router(state)
     }
 
-    fn create_app_state_with_isolated_storage() -> Arc<AppState> {
+    fn test_app_state_with_isolated_storage() -> Arc<AppState> {
         let storage_dir = std::env::temp_dir().join(format!("fabro-server-test-{}", Ulid::new()));
         std::fs::create_dir_all(&storage_dir).expect("test storage dir should be creatable");
         let source = format!(
@@ -8454,7 +8103,7 @@ methods = ["dev-token"]
             storage_dir.display()
         );
 
-        create_app_state_with_options(
+        test_app_state_with_options(
             server_settings_from_toml(&source),
             manifest_run_defaults_from_toml(&source),
             5,
@@ -8739,7 +8388,7 @@ methods = ["dev-token"]
     )]
     fn webhook_test_app(auth_mode: AuthMode) -> Router {
         let secret = TEST_WEBHOOK_SECRET.to_string();
-        let state = create_app_state_with_env_lookup_and_server_secret_env(
+        let state = test_app_state_with_env_lookup_and_server_secret_env(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -8798,7 +8447,7 @@ methods = ["dev-token"]
     }
 
     fn jwt_auth_state() -> Arc<AppState> {
-        create_test_app_state_with_session_key(
+        test_app_state_with_session_key(
             default_test_server_settings(),
             RunLayer::default(),
             Some(TEST_SESSION_SECRET),
@@ -8882,7 +8531,7 @@ url = "{url}"
     }
 
     fn canonical_host_test_app() -> Router {
-        let state = create_app_state_with_options(
+        let state = test_app_state_with_options(
             canonical_origin_settings("http://127.0.0.1:32276"),
             RunLayer::default(),
             5,
@@ -8944,7 +8593,7 @@ url = "{url}"
             "ftp://fabro.example.com",
             "http://0.0.0.0:32276",
         ] {
-            let state = create_app_state_with_env_lookup(
+            let state = test_app_state_with_env_lookup(
                 canonical_origin_settings("http://valid.example.com"),
                 RunLayer::default(),
                 5,
@@ -8981,7 +8630,7 @@ url = "{{ env.FABRO_WEB_URL }}"
 
     #[test]
     fn replace_settings_updates_layer_and_typed_server_settings() {
-        let state = create_app_state_with_options(
+        let state = test_app_state_with_options(
             server_settings_from_toml(
                 r#"
 _version = 1
@@ -9058,7 +8707,7 @@ root = "/srv/new"
 
     #[test]
     fn replace_settings_caches_invalid_manifest_run_settings_tolerantly() {
-        let state = create_app_state_with_options(
+        let state = test_app_state_with_options(
             server_settings_from_toml(
                 r#"
 _version = 1
@@ -9198,7 +8847,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn create_secret_stores_file_secret_and_excludes_it_from_snapshot() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let req = Request::builder()
             .method("POST")
@@ -9299,7 +8948,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn create_secret_stores_valid_credential_entries() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let credential = fabro_auth::AuthCredential {
             provider: Provider::OpenAi,
@@ -9348,7 +8997,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn resolve_llm_client_reads_openai_codex_credential_from_vault() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -9407,7 +9056,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn llm_source_configured_providers_reads_openai_codex_from_vault() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -9445,7 +9094,7 @@ provider = "invalid-provider"
             })
             .await;
         let base_url = server.url("/v1");
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -9495,7 +9144,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn list_secrets_includes_credential_metadata() {
-        let state = create_app_state();
+        let state = test_app_state();
         {
             let mut vault = state.vault.write().await;
             vault
@@ -9534,7 +9183,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn create_secret_rejects_invalid_credential_json() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
 
         let req = Request::builder()
@@ -9557,7 +9206,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn create_secret_rejects_wrong_credential_name() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
 
         let req = Request::builder()
@@ -9597,7 +9246,7 @@ provider = "invalid-provider"
 
     #[tokio::test]
     async fn delete_secret_by_name_removes_file_secret() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let create_req = Request::builder()
@@ -10011,7 +9660,7 @@ allowed_usernames = ["octocat"]
         for (key, value) in extra_server_secrets {
             server_secret_env.insert((*key).to_string(), (*value).to_string());
         }
-        create_app_state_with_env_lookup_and_server_secret_env(
+        test_app_state_with_env_lookup_and_server_secret_env(
             server_settings_from_toml(&source),
             manifest_run_defaults_from_toml(&source),
             5,
@@ -10228,7 +9877,7 @@ allowed_usernames = ["octocat"]
 
     #[tokio::test]
     async fn list_run_stages_projects_retrying_until_completion() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
 
@@ -10645,7 +10294,7 @@ strategy = "token"
 
     #[tokio::test]
     async fn test_model_alias_returns_canonical_model_id() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -10668,7 +10317,7 @@ strategy = "token"
 
     #[tokio::test]
     async fn test_model_invalid_mode_returns_400() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -10735,7 +10384,7 @@ strategy = "token"
 
     #[tokio::test]
     async fn list_models_marks_configured_true_when_provider_has_credential_material() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -10771,7 +10420,7 @@ strategy = "token"
 
     #[tokio::test]
     async fn list_models_marks_configured_false_when_no_credential_material() {
-        let state = create_app_state_with_env_lookup(
+        let state = test_app_state_with_env_lookup(
             default_test_server_settings(),
             RunLayer::default(),
             5,
@@ -10832,7 +10481,7 @@ client_id = "Iv1.testclient"
 slug = "fabro"
 "#;
         let app = build_router(
-            create_test_app_state_with_session_key(
+            test_app_state_with_session_key(
                 server_settings_from_toml(source),
                 manifest_run_defaults_from_toml(source),
                 Some("github-redirect-test-key-0123456789"),
@@ -10947,7 +10596,7 @@ slug = "fabro"
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn get_run_status_returns_status() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = test_app_with_scheduler(state);
 
         let run_id = create_and_start_run(&app, MINIMAL_DOT).await;
@@ -11136,7 +10785,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_questions_returns_empty_list() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Start a run
@@ -11184,7 +10833,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn submit_pending_interview_answer_rejects_invalid_answer_shape() {
-        let state = create_app_state();
+        let state = test_app_state();
         let pending = LoadedPendingInterview {
             run_id:   fixtures::RUN_1,
             qid:      "q-1".to_string(),
@@ -11234,7 +10883,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_state_returns_projection() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -11261,7 +10910,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_logs_returns_per_run_log_file() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         create_durable_run_with_events(&state, run_id, &[workflow_event::Event::RunSubmitted {
@@ -11299,7 +10948,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_logs_returns_not_found_for_missing_run() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(state);
         let missing_run_id = RunId::new();
 
@@ -11315,7 +10964,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_logs_returns_not_found_when_log_file_is_missing() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         create_durable_run_with_events(&state, run_id, &[workflow_event::Event::RunSubmitted {
@@ -11335,7 +10984,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_stage_command_log_returns_scratch_slice() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         let stage_id = StageId::new("script_node", 1);
@@ -11396,7 +11045,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_stage_command_log_returns_cas_slice() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         let run_store = state.store.create_run(&run_id).await.unwrap();
@@ -11466,7 +11115,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_stage_command_log_prefers_scratch_when_cas_ref_exists() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         let stage_id = StageId::new("script_node", 1);
@@ -11547,7 +11196,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_stage_command_log_returns_not_found_for_missing_stage() {
-        let state = create_app_state_with_isolated_storage();
+        let state = test_app_state_with_isolated_storage();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = RunId::new();
         create_durable_run_with_events(&state, run_id, &[workflow_event::Event::RunSubmitted {
@@ -11631,7 +11280,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_pull_request_returns_not_found_when_record_missing() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = create_run(&app, MINIMAL_DOT).await;
 
@@ -12255,7 +11904,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_state_exposes_pending_interviews() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = fixtures::RUN_1;
 
@@ -12307,7 +11956,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_run_state_includes_provenance_from_user_agent() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -12357,7 +12006,7 @@ slug = "fabro"
         const DEV_TOKEN: &str =
             "fabro_dev_abababababababababababababababababababababababababababababababab";
 
-        let state = create_test_app_state_with_session_key(
+        let state = test_app_state_with_session_key(
             default_test_server_settings(),
             RunLayer::default(),
             Some("server-test-session-key-0123456789"),
@@ -12433,7 +12082,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn create_run_persists_manifest_and_definition_blobs_without_bundle_file() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let raw_manifest =
             serde_json::to_string_pretty(&minimal_manifest_json(MINIMAL_DOT)).unwrap();
@@ -12492,7 +12141,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn list_run_events_returns_paginated_json() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -12520,7 +12169,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn append_run_event_rejects_run_id_mismatch() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -12556,7 +12205,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn append_run_event_rejects_reserved_archive_event() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = create_run(&app, MINIMAL_DOT).await;
 
@@ -12590,7 +12239,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_checkpoint_returns_null_initially() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Start a run
@@ -12618,7 +12267,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn write_and_read_run_blob_round_trip() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -12654,7 +12303,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn stage_artifacts_round_trip() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
@@ -12706,7 +12355,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn stage_artifacts_keep_same_filename_per_retry() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
@@ -12751,7 +12400,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn create_run_persists_run_spec() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT)
@@ -12772,7 +12421,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn stage_artifact_upload_rejects_invalid_filename() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
@@ -13143,7 +12792,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn stage_artifacts_multipart_round_trip() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
@@ -13215,7 +12864,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn stage_artifacts_multipart_requires_manifest_first() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_run(&app, MINIMAL_DOT).await;
@@ -13241,7 +12890,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn create_run_returns_submitted() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13258,7 +12907,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn start_run_transitions_to_queued() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Create a run
@@ -13297,7 +12946,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn start_run_conflict_when_not_submitted() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Create a run
@@ -13331,7 +12980,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn cancel_run_succeeds() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_and_start_run(&app, MINIMAL_DOT)
@@ -13372,7 +13021,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_graph_returns_svg() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Start a run
@@ -13433,7 +13082,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_graph_source_returns_dot() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13619,7 +13268,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn list_runs_returns_started_run() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // List should be empty initially
@@ -13670,7 +13319,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn archive_and_unarchive_updates_listing_visibility() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = fixtures::RUN_1;
 
@@ -13809,7 +13458,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn delete_run_removes_durable_run() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13842,7 +13491,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn delete_active_run_requires_force() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13883,7 +13532,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn delete_active_run_force_succeeds() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13916,7 +13565,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn get_aggregate_billing_returns_zeros_initially() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let req = Request::builder()
@@ -13937,7 +13586,7 @@ slug = "fabro"
 
     #[tokio::test]
     async fn post_runs_returns_submitted_status() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
 
         let req = Request::builder()
@@ -14005,7 +13654,7 @@ url = "http://api.example.test"
 [server.logging]
 level = "debug"
 "#;
-        let state = create_app_state_with_options(
+        let state = test_app_state_with_options(
             server_settings_from_toml(source),
             manifest_run_defaults_from_toml(source),
             5,
@@ -14075,7 +13724,7 @@ level = "debug"
 
     #[tokio::test]
     async fn cancel_queued_run_succeeds() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let run_id = create_and_start_run(&app, MINIMAL_DOT)
@@ -14139,7 +13788,7 @@ level = "debug"
 
     #[tokio::test]
     async fn cancel_run_overwrites_pending_pause_request() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14169,7 +13818,7 @@ level = "debug"
 
     #[tokio::test]
     async fn pause_run_rejects_when_control_is_already_pending() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14198,7 +13847,7 @@ level = "debug"
 
     #[tokio::test]
     async fn pause_run_sets_pending_control_on_board_response() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14252,7 +13901,7 @@ level = "debug"
 
     #[tokio::test]
     async fn pause_run_immediately_pauses_blocked_run() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14317,7 +13966,7 @@ level = "debug"
 
     #[tokio::test]
     async fn unpause_run_sets_pending_control() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14346,7 +13995,7 @@ level = "debug"
 
     #[tokio::test]
     async fn unpause_run_returns_blocked_when_human_gate_is_still_unresolved() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id_str = create_and_start_run(&app, MINIMAL_DOT).await;
         let run_id = run_id_str.parse::<RunId>().unwrap();
@@ -14421,7 +14070,7 @@ level = "debug"
 
     #[tokio::test]
     async fn startup_reconciliation_marks_inflight_runs_terminal() {
-        let state = create_app_state();
+        let state = test_app_state();
 
         create_durable_run_with_events(&state, fixtures::RUN_1, &[
             workflow_event::Event::RunSubmitted {
@@ -14492,7 +14141,7 @@ level = "debug"
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn shutdown_active_workers_terminates_process_groups() {
-        let state = create_app_state();
+        let state = test_app_state();
         let run_id = fixtures::RUN_4;
 
         create_durable_run_with_events(&state, run_id, &[
@@ -14577,7 +14226,7 @@ timeout = "30s"
 [run.sandbox]
 provider = "local"
 "#;
-        let state = create_app_state_with_settings_and_registry_factory(
+        let state = test_app_state_with_settings_and_registry_factory(
             server_settings_from_toml(source),
             manifest_run_defaults_from_toml(source),
             |interviewer| fabro_workflow::handler::default_registry(interviewer, || None),
@@ -14677,7 +14326,7 @@ provider = "local"
         reason = "This test intentionally blocks inside a sync registry factory to simulate slow startup before cancellation."
     )]
     async fn cancel_before_run_transitions_to_running_returns_empty_attach_stream() {
-        let state = create_app_state_with_registry_factory(|interviewer| {
+        let state = test_app_state_with_registry_factory(|interviewer| {
             std::thread::sleep(std::time::Duration::from_millis(200));
             fabro_workflow::handler::default_registry(interviewer, || None)
         });
@@ -14714,7 +14363,7 @@ provider = "local"
 
     #[tokio::test]
     async fn queue_position_reported_for_queued_runs() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         // Create and start two runs (no scheduler, both stay queued)
@@ -14734,7 +14383,7 @@ provider = "local"
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn concurrency_limit_respected() {
         let state =
-            create_app_state_with_options(default_test_server_settings(), RunLayer::default(), 1);
+            test_app_state_with_options(default_test_server_settings(), RunLayer::default(), 1);
         let app = test_app_with_scheduler(Arc::clone(&state));
 
         // Create and start two runs with max_concurrent_runs=1
@@ -14767,7 +14416,7 @@ provider = "local"
 
     #[tokio::test]
     async fn submit_answer_to_queued_run_returns_conflict() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
 
         let req = Request::builder()
@@ -14812,7 +14461,7 @@ provider = "local"
 
     #[tokio::test]
     async fn demo_boards_runs_returns_run_list_items() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
         let req = Request::builder()
             .method("GET")
@@ -14838,7 +14487,7 @@ provider = "local"
 
     #[tokio::test]
     async fn demo_get_run_returns_run_summary_shape() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
         let run_id = RunId::with_timestamp(
             "2026-03-06T14:30:00Z"
@@ -14870,7 +14519,7 @@ provider = "local"
 
     #[tokio::test]
     async fn demo_get_run_returns_404_for_unknown_run() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(state);
         let req = Request::builder()
             .method("GET")
@@ -14884,7 +14533,7 @@ provider = "local"
 
     #[tokio::test]
     async fn boards_runs_returns_run_list_items_with_board_columns() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = create_and_start_run(&app, MINIMAL_DOT).await;
 
@@ -14924,7 +14573,7 @@ provider = "local"
 
     #[tokio::test]
     async fn boards_runs_excludes_removing_status() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = fixtures::RUN_1;
 
@@ -14955,7 +14604,7 @@ provider = "local"
 
     #[tokio::test]
     async fn get_run_exposes_canonical_operator_statuses() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let succeeded_id = fixtures::RUN_1;
@@ -15027,7 +14676,7 @@ provider = "local"
 
     #[tokio::test]
     async fn boards_runs_maps_statuses_to_columns() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let paused_id = fixtures::RUN_1;
@@ -15178,7 +14827,7 @@ provider = "local"
 
     #[tokio::test]
     async fn boards_runs_includes_live_board_metadata_from_run_state() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
         let run_id = create_and_start_run(&app, MINIMAL_DOT)
             .await
@@ -15246,7 +14895,7 @@ provider = "local"
 
     #[tokio::test]
     async fn boards_runs_page_limit_preserves_metadata_for_paged_items() {
-        let state = create_app_state();
+        let state = test_app_state();
         let app = crate::test_support::build_test_router(Arc::clone(&state));
 
         let first_run_id = create_and_start_run(&app, MINIMAL_DOT)

@@ -111,6 +111,7 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+fabro-server = { path = "../fabro-server", features = ["test-support"] }
 insta = { workspace = true, features = ["filters"] }
 paste = "1"
 predicates = "3"

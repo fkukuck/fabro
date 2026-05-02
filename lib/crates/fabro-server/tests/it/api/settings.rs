@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use fabro_server::server::create_app_state_with_runtime_settings_and_options;
+use fabro_server::test_support::test_app_state_with_runtime_settings_and_options;
 use tower::ServiceExt;
 
 use crate::helpers::{response_json, settings_from_toml};
@@ -32,7 +32,7 @@ client_id = "Iv1.abcdef"
 "#,
     );
     let app = fabro_server::test_support::build_test_router(
-        create_app_state_with_runtime_settings_and_options(
+        test_app_state_with_runtime_settings_and_options(
             settings.server_settings,
             settings.manifest_run_defaults,
             5,

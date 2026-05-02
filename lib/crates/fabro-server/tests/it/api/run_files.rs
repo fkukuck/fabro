@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use fabro_server::server::create_app_state_with_store;
+use fabro_server::test_support::test_app_state_with_store;
 use fabro_store::{ArtifactStore, Database};
 use fabro_types::RunId;
 use fabro_workflow::event as workflow_event;
@@ -224,7 +224,7 @@ async fn submitted_run_without_sandbox_returns_empty_envelope() {
 async fn degraded_run_returns_file_diff_shape_without_meta_patch() {
     let settings = test_settings();
     let (store, artifact_store) = store_bundle();
-    let state = create_app_state_with_store(
+    let state = test_app_state_with_store(
         settings.server_settings,
         settings.manifest_run_defaults,
         5,

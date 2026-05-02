@@ -23,10 +23,8 @@ use fabro_config::{RunLayer, ServerSettingsBuilder};
 use fabro_server::auth::GithubEndpoints;
 use fabro_server::ip_allowlist::IpAllowlistConfig;
 use fabro_server::jwt_auth::resolve_auth_mode_with_lookup;
-use fabro_server::server::{
-    RouterOptions, build_router_with_options,
-    create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env,
-};
+use fabro_server::server::{RouterOptions, build_router_with_options};
+use fabro_server::test_support::test_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env;
 use fabro_test::{GitHubAppState, TestContext, apply_test_isolation};
 use serde_json::Value;
 use tokio::net::TcpListener;
@@ -92,7 +90,7 @@ impl RealAuthHarness {
         if let Some(token) = dev_token.clone() {
             secrets.insert("FABRO_DEV_TOKEN".to_string(), token);
         }
-        let state = create_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
+        let state = test_app_state_with_runtime_settings_and_env_lookup_and_server_secret_env(
             settings,
             RunLayer::default(),
             5,

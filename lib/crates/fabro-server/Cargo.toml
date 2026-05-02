@@ -9,6 +9,14 @@ description = "HTTP server for Fabro pipelines"
 [lib]
 doctest = false
 
+[features]
+test-support = []
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+required-features = ["test-support"]
+
 [lints]
 workspace = true
 

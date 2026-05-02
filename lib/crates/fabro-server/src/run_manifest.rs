@@ -1722,7 +1722,7 @@ app_id = "fixture-app-id"
 
     #[tokio::test]
     async fn invalid_preflight_returns_diagnostics_without_runtime_checks() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let prepared = prepare_manifest(
             &manifest_run_defaults(Some(&default_settings_fixture())),
             &invalid_manifest(),
@@ -1746,7 +1746,7 @@ app_id = "fixture-app-id"
 
     #[tokio::test]
     async fn preflight_allows_pull_request_enabled_without_github_credentials() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),
@@ -1790,7 +1790,7 @@ provider = "local"
 
     #[tokio::test]
     async fn preflight_daytona_without_github_credentials_returns_report() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),

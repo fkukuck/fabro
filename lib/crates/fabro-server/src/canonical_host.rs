@@ -166,7 +166,7 @@ mod tests {
 
     use super::*;
     use crate::github_webhooks::WEBHOOK_ROUTE;
-    use crate::server::{self, AppState};
+    use crate::server::AppState;
 
     macro_rules! assert_status {
         ($response:expr, $expected:expr) => {
@@ -248,7 +248,7 @@ url = "{web_url}"
     }
 
     fn state_with_web_url(web_url: &str) -> Arc<AppState> {
-        server::create_app_state_with_options(
+        crate::test_support::test_app_state_with_options(
             settings_with_web_url(web_url),
             RunLayer::default(),
             5,
@@ -256,7 +256,7 @@ url = "{web_url}"
     }
 
     fn invalid_canonical_origin_state() -> Arc<AppState> {
-        server::create_app_state_with_env_lookup(
+        crate::test_support::test_app_state_with_env_lookup(
             settings_with_web_url("{{ env.FABRO_WEB_URL }}"),
             RunLayer::default(),
             5,

@@ -219,7 +219,7 @@ methods = ["dev-token"]
     }
 
     fn test_state() -> Arc<server::AppState> {
-        server::create_test_app_state_with_runtime_settings_and_session_key(
+        crate::test_support::test_app_state_with_runtime_settings_and_session_key(
             test_server_settings(),
             RunLayer::default(),
             Some(SESSION_SECRET),
