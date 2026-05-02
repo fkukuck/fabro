@@ -195,9 +195,6 @@ jobs:
           terraform -chdir=terraform/environments/sandbox plan -detailed-exitcode \
             -var="fabro_server_image=$ACR_SERVER/fabro-server:$DEPLOY_ID"
 
-      - name: Resolve live server URL
-        run: echo "FABRO_SERVER_URL=$(terraform -chdir=terraform/environments/sandbox output -raw fabro_server_url)" >> "$GITHUB_ENV"
-
       - name: Wait for Container App rollout
         run: |
           for attempt in $(seq 1 30); do
@@ -223,6 +220,21 @@ jobs:
 
           printf 'Timed out waiting for an active healthy Container App revision\n' >&2
           exit 1
+
+      - name: Resolve live server URL
+        run: |
+          INGRESS_FQDN=$(az containerapp show \
+            --resource-group "$TF_VAR_resource_group_name" \
+            --name "$TF_VAR_fabro_server_name" \
+            --query 'properties.configuration.ingress.fqdn' \
+            -o tsv)
+
+          if [ -z "$INGRESS_FQDN" ]; then
+            printf 'Failed to resolve Container App ingress FQDN\n' >&2
+            exit 1
+          fi
+
+          echo "FABRO_SERVER_URL=https://$INGRESS_FQDN" >> "$GITHUB_ENV"
 
       - name: Health check
         run: |
@@ -525,11 +537,12 @@ jobs:
 
       - name: Run Azure smoke workflow
         if: ${{ env.RUN_AUTHENTICATED_CHECKS == 'true' }}
+        working-directory: ${{ runner.temp }}/azure-deploy-smoke
         env:
           FABRO_DEV_TOKEN: ${{ env.FABRO_DEPLOY_RUNTIME_DEV_TOKEN }}
         run: |
-          cargo run -p fabro-cli -- \
-            run "$RUNNER_TEMP/azure-deploy-smoke/workflow.toml" \
+          cargo run --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p fabro-cli -- \
+            run workflow.toml \
             --server "$FABRO_SERVER_URL/api/v1"
 
       - name: Deployment summary
