@@ -248,7 +248,10 @@ include = ["assets/**"]
         "run export should hydrate blob refs\n{run_json}"
     );
     assert_eq!(
-        fs::read_to_string(output_dir.join("artifacts/big@1/assets/shared/report.txt")).unwrap(),
+        fs::read_to_string(
+            output_dir.join("artifacts/002-big@1/retry-0001/assets/shared/report.txt")
+        )
+        .unwrap(),
         "exported"
     );
 }

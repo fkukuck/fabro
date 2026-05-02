@@ -31,7 +31,7 @@ use fabro_interview::{
     QueueInterviewer, RecordingInterviewer,
 };
 use fabro_llm::provider::Provider;
-use fabro_store::{ArtifactStore, Database};
+use fabro_store::{ArtifactKey, ArtifactStore, Database};
 use fabro_types::{CommandTermination, RunEvent, RunId, StageId, WorkflowSettings, parse_blob_ref};
 use fabro_validate::{Severity, validate, validate_or_raise};
 use fabro_workflow::context::Context;
@@ -13015,8 +13015,11 @@ async fn asset_collection_local_sandbox_success() {
         artifact_store
             .get(
                 &run_options.run_id,
-                &StageId::new("create_assets", 1),
-                "test-results/report.xml",
+                &ArtifactKey::new(
+                    StageId::new("create_assets", 1),
+                    1,
+                    "test-results/report.xml",
+                ),
             )
             .await
             .unwrap()
@@ -13137,8 +13140,11 @@ async fn asset_collection_local_sandbox_on_failure() {
         test_artifact_store(run_dir.path())
             .get(
                 &run_options.run_id,
-                &StageId::new("create_assets", 1),
-                "test-results/report.xml",
+                &ArtifactKey::new(
+                    StageId::new("create_assets", 1),
+                    1,
+                    "test-results/report.xml",
+                ),
             )
             .await
             .unwrap()
@@ -13241,8 +13247,11 @@ async fn asset_collection_docker_sandbox() {
         test_artifact_store(run_dir.path())
             .get(
                 &run_options.run_id,
-                &StageId::new("create_assets", 1),
-                "test-results/report.xml",
+                &ArtifactKey::new(
+                    StageId::new("create_assets", 1),
+                    1,
+                    "test-results/report.xml",
+                ),
             )
             .await
             .unwrap()

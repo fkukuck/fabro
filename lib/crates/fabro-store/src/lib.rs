@@ -10,7 +10,10 @@ mod serializable_projection;
 mod slate;
 mod types;
 
-pub use artifact_store::{ArtifactStore, NodeArtifact, stage_storage_segment};
+pub use artifact_store::{
+    ArtifactKey, ArtifactStore, NodeArtifact, StageArtifactEntry, retry_storage_segment,
+    stage_storage_segment,
+};
 pub use error::{Error, Result};
 pub use fabro_types::{
     EventEnvelope, PendingInterviewRecord, RunBlobId, RunProjection, RunSummary, StageId,

@@ -13,15 +13,34 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
-use fabro_store::{EventEnvelope, RunProjection, SerializableProjection, StageId};
+use fabro_store::{
+    EventEnvelope, RunProjection, SerializableProjection, StageId, retry_storage_segment,
+};
 use fabro_types::{RunBlobId, parse_blob_ref};
 use futures::future::BoxFuture;
 
 pub type BlobReader = Box<dyn FnMut(RunBlobId) -> BoxFuture<'static, Result<Option<Bytes>>> + Send>;
 
+const STAGE_RANK_WIDTH: usize = 3;
+const MAX_STAGES_IN_DUMP: usize = {
+    let mut value = 1usize;
+    let mut i = 0usize;
+    while i < STAGE_RANK_WIDTH {
+        value *= 10;
+        i += 1;
+    }
+    value - 1
+};
+
+fn stage_dir_name(rank: u32, stage_id: &StageId) -> String {
+    format!("{rank:0>STAGE_RANK_WIDTH$}-{stage_id}")
+}
+
 #[derive(Debug, Clone)]
 pub struct RunDump {
-    entries: Vec<RunDumpEntry>,
+    entries:        Vec<RunDumpEntry>,
+    stage_ranks:    HashMap<StageId, u32>,
+    dump_log_index: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,15 +67,27 @@ impl RunDump {
         }
 
         let mut stages: Vec<_> = state.iter_stages().collect();
+        if stages.len() > MAX_STAGES_IN_DUMP {
+            bail!(
+                "run dump supports at most {MAX_STAGES_IN_DUMP} stages with the current path prefix width (got {})",
+                stages.len()
+            );
+        }
         stages.sort_by(|(left_id, left), (right_id, right)| {
             left.first_event_seq
                 .cmp(&right.first_event_seq)
                 .then_with(|| left_id.cmp(right_id))
         });
 
+        let mut stage_ranks = HashMap::new();
+        for (index, (stage_id, _)) in stages.iter().enumerate() {
+            let rank = u32::try_from(index + 1).context("stage rank should fit in u32")?;
+            stage_ranks.insert((*stage_id).clone(), rank);
+        }
+
         for (index, (stage_id, stage)) in stages.into_iter().enumerate() {
-            let rank = index + 1;
-            let base = PathBuf::from("stages").join(format!("{rank:03}-{stage_id}"));
+            let rank = u32::try_from(index + 1).context("stage rank should fit in u32")?;
+            let base = PathBuf::from("stages").join(stage_dir_name(rank, stage_id));
 
             if let Some(prompt) = stage.prompt.as_ref() {
                 entries.push(RunDumpEntry::text_path(
@@ -127,7 +158,11 @@ impl RunDump {
             ));
         }
 
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            stage_ranks,
+            dump_log_index: None,
+        })
     }
 
     pub fn from_store_state_and_events(
@@ -158,12 +193,30 @@ impl RunDump {
     pub fn add_artifact_bytes(
         &mut self,
         stage_id: &StageId,
+        retry: u32,
         filename: &str,
         data: Vec<u8>,
     ) -> Result<()> {
-        let path = artifact_dump_path(stage_id, filename)?;
+        let path = artifact_dump_path(&self.stage_ranks, stage_id, retry, filename)?;
+        if !self.stage_ranks.contains_key(stage_id) {
+            self.add_orphan_notice(stage_id);
+        }
         self.entries.push(RunDumpEntry::bytes_path(&path, data));
         Ok(())
+    }
+
+    fn add_orphan_notice(&mut self, stage_id: &StageId) {
+        let line = format!("notice: artifact stage {stage_id} was not present in run projection\n");
+        if let Some(index) = self.dump_log_index {
+            if let Some(RunDumpContents::Text(text)) =
+                self.entries.get_mut(index).map(|entry| &mut entry.contents)
+            {
+                text.push_str(&line);
+                return;
+            }
+        }
+        self.dump_log_index = Some(self.entries.len());
+        self.entries.push(RunDumpEntry::text("dump.log", line));
     }
 
     pub fn add_file_bytes(&mut self, path: impl Into<String>, contents: Vec<u8>) {
@@ -404,11 +457,21 @@ fn replace_blob_refs_in_value(
     Ok(())
 }
 
-fn artifact_dump_path(stage_id: &StageId, filename: &str) -> Result<PathBuf> {
+fn artifact_dump_path(
+    stage_ranks: &HashMap<StageId, u32>,
+    stage_id: &StageId,
+    retry: u32,
+    filename: &str,
+) -> Result<PathBuf> {
     validate_single_path_segment("node id", stage_id.node_id())?;
     let filename_path = validate_relative_path("artifact filename", filename)?;
+    let stage_dir = stage_ranks.get(stage_id).map_or_else(
+        || PathBuf::from("_orphans").join(stage_id.to_string()),
+        |rank| PathBuf::from(stage_dir_name(*rank, stage_id)),
+    );
     Ok(PathBuf::from("artifacts")
-        .join(stage_id.to_string())
+        .join(stage_dir)
+        .join(retry_storage_segment(retry))
         .join(filename_path))
 }
 
@@ -609,9 +672,9 @@ mod tests {
             .prompt = Some("second".to_string());
 
         let mut dump = RunDump::from_projection(&projection).unwrap();
-        dump.add_artifact_bytes(&StageId::new("zebra", 1), "report.txt", b"z".to_vec())
+        dump.add_artifact_bytes(&StageId::new("zebra", 1), 0, "report.txt", b"z".to_vec())
             .unwrap();
-        dump.add_artifact_bytes(&StageId::new("apple", 1), "report.txt", b"a".to_vec())
+        dump.add_artifact_bytes(&StageId::new("apple", 1), 0, "report.txt", b"a".to_vec())
             .unwrap();
 
         let paths: Vec<&str> = dump
@@ -622,8 +685,28 @@ mod tests {
 
         assert!(paths.contains(&"stages/001-zebra@1/prompt.md"));
         assert!(paths.contains(&"stages/002-apple@1/prompt.md"));
-        assert!(paths.contains(&"artifacts/zebra@1/report.txt"));
-        assert!(paths.contains(&"artifacts/apple@1/report.txt"));
+        assert!(paths.contains(&"artifacts/001-zebra@1/retry-0000/report.txt"));
+        assert!(paths.contains(&"artifacts/002-apple@1/retry-0000/report.txt"));
+    }
+
+    #[test]
+    fn add_artifact_bytes_places_orphans_under_sentinel() {
+        let mut projection = RunProjection::default();
+        projection
+            .stage_entry("known", 1, first_event_seq(1))
+            .prompt = Some("present".to_string());
+
+        let mut dump = RunDump::from_projection(&projection).unwrap();
+        dump.add_artifact_bytes(&StageId::new("missing", 1), 0, "report.txt", b"m".to_vec())
+            .unwrap();
+
+        let paths: Vec<&str> = dump
+            .entries()
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
+        assert!(paths.contains(&"artifacts/_orphans/missing@1/retry-0000/report.txt"));
+        assert!(paths.contains(&"dump.log"));
     }
 
     #[test]
@@ -632,10 +715,12 @@ mod tests {
         let blob_id = fabro_types::RunBlobId::new(&blob);
         let legacy_ref = format!("file:///sandbox/.fabro/artifacts/{blob_id}.json");
         let mut dump = RunDump {
-            entries: vec![RunDumpEntry::json(
+            entries:        vec![RunDumpEntry::json(
                 "run.json",
                 serde_json::json!({ "stdout": legacy_ref }),
             )],
+            stage_ranks:    HashMap::new(),
+            dump_log_index: None,
         };
 
         executor::block_on(async {

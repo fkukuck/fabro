@@ -68,7 +68,8 @@ pub(crate) async fn build_conclusion_from_store(
     run_duration_ms: u64,
     final_git_commit_sha: Option<String>,
 ) -> Conclusion {
-    let projection = run_store.state().await.ok();
+    let (state_result, events_result) = tokio::join!(run_store.state(), run_store.list_events());
+    let projection = state_result.ok();
     let projection_order = projection
         .as_ref()
         .map(stage_projection_order)
@@ -76,9 +77,7 @@ pub(crate) async fn build_conclusion_from_store(
     let checkpoint = projection
         .as_ref()
         .and_then(|state| state.checkpoint.as_ref());
-    let stage_durations = run_store
-        .list_events()
-        .await
+    let stage_durations = events_result
         .map(|events| crate::extract_stage_durations_from_events(&events))
         .unwrap_or_default();
 
