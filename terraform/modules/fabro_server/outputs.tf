@@ -11,9 +11,9 @@ output "latest_revision_name" {
 }
 
 output "fqdn" {
-  value = var.enabled ? azurerm_container_app.this[0].latest_revision_fqdn : null
+  value = var.enabled ? azurerm_container_app.this[0].ingress[0].fqdn : null
 }
 
 output "url" {
-  value = var.enabled ? format("https://%s", azurerm_container_app.this[0].latest_revision_fqdn) : null
+  value = var.enabled ? format("https://%s", azurerm_container_app.this[0].ingress[0].fqdn) : null
 }
