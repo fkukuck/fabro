@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -23,6 +22,7 @@ import {
   useSubmitInterviewAnswer,
   type SubmitInterviewAnswerArg,
 } from "../lib/mutations";
+import { ErrorMessage } from "./ui";
 
 const PRIMARY_BUTTON =
   "inline-flex items-center justify-center gap-1.5 rounded-lg bg-teal-500 px-3.5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-teal-500";
@@ -50,12 +50,6 @@ export function InterviewDock({ runId, questions }: InterviewDockProps) {
     setError(null);
     submitMutation.reset();
   }, [question?.id, submitMutation.reset]);
-
-  useEffect(() => {
-    if (safeIndex !== activeIndex) {
-      setActiveIndex(safeIndex);
-    }
-  }, [activeIndex, safeIndex]);
 
   const submit = useCallback(
     async (arg: Omit<SubmitInterviewAnswerArg, "questionId">) => {
@@ -113,14 +107,7 @@ export function InterviewDock({ runId, questions }: InterviewDockProps) {
                 onSubmit={submit}
               />
 
-              {error && (
-                <p
-                  role="alert"
-                  className="rounded-md bg-coral/10 px-3 py-2 text-sm/5 text-fg-2 outline-1 -outline-offset-1 outline-coral/40"
-                >
-                  {error}
-                </p>
-              )}
+              {error && <ErrorMessage message={error} />}
             </div>
           </div>
         </div>
@@ -351,10 +338,7 @@ function MultiSelectBody({
     });
   }
 
-  const selectedKeys = useMemo(
-    () => options.map((o) => o.key).filter((key) => selected.has(key)),
-    [options, selected],
-  );
+  const selectedKeys = options.map((o) => o.key).filter((key) => selected.has(key));
 
   return (
     <div className="space-y-3">
