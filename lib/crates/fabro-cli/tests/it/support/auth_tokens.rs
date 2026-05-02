@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use chrono::{Duration as ChronoDuration, Utc};
+use fabro_config::{Storage, envfile};
 use fabro_types::AuthMethod;
 use hkdf::Hkdf;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
@@ -9,6 +12,10 @@ pub(crate) const TEST_SESSION_SECRET: &str =
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const JWT_AUDIENCE: &str = "fabro-cli";
+const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
+const WORKER_TOKEN_KID: &str = "fabro-worker";
+const WORKER_TOKEN_SCOPE: &str = "run:worker";
+const WORKER_TOKEN_TTL_SECS: u64 = 72 * 60 * 60;
 
 #[derive(Clone)]
 pub(crate) struct TestGithubJwtSubject {
@@ -51,6 +58,16 @@ struct TestJwtClaims {
     avatar_url:  String,
     user_url:    String,
     auth_method: AuthMethod,
+}
+
+#[derive(serde::Serialize)]
+struct WorkerTokenClaims {
+    iss:    String,
+    iat:    u64,
+    exp:    u64,
+    run_id: String,
+    scope:  String,
+    jti:    String,
 }
 
 pub(crate) fn issue_test_github_jwt(issuer: &str) -> String {
@@ -119,4 +136,42 @@ fn derived_jwt_key() -> [u8; 32] {
     hkdf.expand(b"fabro-jwt-hs256-v1", &mut key)
         .expect("HKDF should derive the fixed-size JWT key");
     key
+}
+
+pub(crate) fn issue_test_worker_jwt(storage_dir: &Path, run_id: &str) -> String {
+    let runtime_directory = Storage::new(storage_dir).runtime_directory();
+    let session_secret = envfile::read_env_file(&runtime_directory.env_path())
+        .expect("server env should load")
+        .get("SESSION_SECRET")
+        .cloned()
+        .expect("server env should include SESSION_SECRET");
+    let hkdf = Hkdf::<Sha256>::new(None, session_secret.as_bytes());
+    let mut key = [0_u8; 32];
+    hkdf.expand(b"fabro-worker-jwt-v1", &mut key)
+        .expect("worker jwt hkdf output should fit");
+    let now = Utc::now()
+        .timestamp()
+        .try_into()
+        .expect("current timestamp should be positive");
+    let claims = WorkerTokenClaims {
+        iss:    WORKER_TOKEN_ISSUER.to_string(),
+        iat:    now,
+        exp:    now + WORKER_TOKEN_TTL_SECS,
+        run_id: run_id.to_string(),
+        scope:  WORKER_TOKEN_SCOPE.to_string(),
+        jti:    format!("{:032x}", rand::random::<u128>()),
+    };
+
+    jsonwebtoken::encode(
+        &worker_token_header(),
+        &claims,
+        &EncodingKey::from_secret(&key),
+    )
+    .expect("worker token should encode")
+}
+
+fn worker_token_header() -> Header {
+    let mut header = Header::new(Algorithm::HS256);
+    header.kid = Some(WORKER_TOKEN_KID.to_string());
+    header
 }

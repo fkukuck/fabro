@@ -21,20 +21,15 @@ use fabro_client::{AuthEntry, AuthStore, OAuthEntry, ServerTarget, StoredSubject
 use fabro_config::{Storage, envfile};
 use fabro_store::EventEnvelope;
 use fabro_test::{apply_test_isolation, expect_reqwest_json, isolated_storage_dir, test_context};
-use hkdf::Hkdf;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use sha2::Sha256;
 
 use super::support::{find_run_dir, output_stderr, output_stdout};
 use crate::support::{
-    TEST_SESSION_SECRET, issue_test_github_jwt, parse_event_envelopes, unique_run_id,
+    TEST_SESSION_SECRET, issue_test_github_jwt, issue_test_worker_jwt, parse_event_envelopes,
+    unique_run_id,
 };
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const TEST_GITHUB_CLIENT_SECRET: &str = "github-client-secret";
-const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
-const WORKER_TOKEN_SCOPE: &str = "run:worker";
-const WORKER_TOKEN_TTL_SECS: u64 = 72 * 60 * 60;
 
 struct RunningGithubOnlyServer {
     child:         Option<Child>,
@@ -157,16 +152,6 @@ impl Drop for RunningGithubOnlyServer {
     }
 }
 
-#[derive(serde::Serialize)]
-struct WorkerTokenClaims {
-    iss:    String,
-    iat:    u64,
-    exp:    u64,
-    run_id: String,
-    scope:  String,
-    jti:    String,
-}
-
 fn reserve_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -213,38 +198,6 @@ fn write_probe_workflow(path: &Path) {
 "#,
     )
     .unwrap();
-}
-
-fn issue_worker_token_for_run(storage_dir: &Path, run_id: &str) -> String {
-    let runtime_directory = Storage::new(storage_dir).runtime_directory();
-    let session_secret = envfile::read_env_file(&runtime_directory.env_path())
-        .expect("server env should load")
-        .get("SESSION_SECRET")
-        .cloned()
-        .expect("server env should include SESSION_SECRET");
-    let hkdf = Hkdf::<Sha256>::new(None, session_secret.as_bytes());
-    let mut key = [0_u8; 32];
-    hkdf.expand(b"fabro-worker-jwt-v1", &mut key)
-        .expect("worker jwt hkdf output should fit");
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let claims = WorkerTokenClaims {
-        iss:    WORKER_TOKEN_ISSUER.to_string(),
-        iat:    now,
-        exp:    now + WORKER_TOKEN_TTL_SECS,
-        run_id: run_id.to_string(),
-        scope:  WORKER_TOKEN_SCOPE.to_string(),
-        jti:    format!("{:032x}", rand::random::<u128>()),
-    };
-
-    jsonwebtoken::encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(&key),
-    )
-    .expect("worker token should encode")
 }
 
 fn wait_for_run_dir(storage_dir: &Path, run_id: &str) -> PathBuf {
@@ -427,7 +380,7 @@ fn runner_rejects_bogus_worker_token_against_github_only_server() {
         let worker_home = worker_root.path().join("fabro-home");
         std::fs::create_dir_all(&worker_home).unwrap();
         let auth_file = worker_root.path().join("missing").join("auth.json");
-        let bogus_token = issue_worker_token_for_run(&server.storage_dir, &unique_run_id());
+        let bogus_token = issue_test_worker_jwt(&server.storage_dir, &unique_run_id());
 
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_fabro"));
         apply_test_isolation(&mut cmd, worker_root.path());

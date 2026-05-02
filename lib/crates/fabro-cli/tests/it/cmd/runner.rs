@@ -8,34 +8,26 @@
 )]
 
 use std::io::Read;
-use std::path::Path;
 use std::process::{Child, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use fabro_client::ServerTarget;
-use fabro_config::{Storage, envfile};
 use fabro_store::EventEnvelope;
 use fabro_test::{
     assert_reqwest_status, expect_reqwest_json, fabro_json_snapshot, fabro_snapshot, test_context,
 };
 use fabro_types::{CommandOutputStream, EventBody, FailureReason, RunEvent, StageId};
-use hkdf::Hkdf;
 use httpmock::MockServer;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use sha2::Sha256;
 
 use super::support::{
     command_log_text, find_run_dir, local_dev_token, output_stderr, run_events, run_state,
     server_endpoint, server_target, wait_for_event_names, wait_for_status, write_gated_workflow,
 };
-use crate::support::{seed_dev_token_auth, unique_run_id};
+use crate::support::{issue_test_worker_jwt, seed_dev_token_auth, unique_run_id};
 
 const SHARED_DAEMON_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const LEAKED_WORKER_PARENT_TOKEN: &str = "leak-worker-parent-token";
 const LEAKED_NEW_RELIC_LICENSE: &str = "leak-new-relic-license";
-const WORKER_TOKEN_ISSUER: &str = "fabro-server-worker";
-const WORKER_TOKEN_SCOPE: &str = "run:worker";
-const WORKER_TOKEN_TTL_SECS: u64 = 72 * 60 * 60;
 
 fn auth_context() -> fabro_test::TestContext {
     let context = test_context!();
@@ -63,48 +55,6 @@ fn assert_worker_succeeded(run_dir: &std::path::Path, stdout: &[u8]) {
     )));
 }
 
-#[derive(serde::Serialize)]
-struct WorkerTokenClaims {
-    iss:    String,
-    iat:    u64,
-    exp:    u64,
-    run_id: String,
-    scope:  String,
-    jti:    String,
-}
-
-fn worker_token_for_run(storage_dir: &Path, run_id: &str) -> String {
-    let runtime_directory = Storage::new(storage_dir).runtime_directory();
-    let session_secret = envfile::read_env_file(&runtime_directory.env_path())
-        .expect("server env should load")
-        .get("SESSION_SECRET")
-        .cloned()
-        .expect("server env should include SESSION_SECRET");
-    let hkdf = Hkdf::<Sha256>::new(None, session_secret.as_bytes());
-    let mut key = [0_u8; 32];
-    hkdf.expand(b"fabro-worker-jwt-v1", &mut key)
-        .expect("worker jwt hkdf output should fit");
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let claims = WorkerTokenClaims {
-        iss:    WORKER_TOKEN_ISSUER.to_string(),
-        iat:    now,
-        exp:    now + WORKER_TOKEN_TTL_SECS,
-        run_id: run_id.to_string(),
-        scope:  WORKER_TOKEN_SCOPE.to_string(),
-        jti:    format!("{:032x}", rand::random::<u128>()),
-    };
-
-    jsonwebtoken::encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(&key),
-    )
-    .expect("worker token should encode")
-}
-
 fn spawn_worker_process(
     context: &fabro_test::TestContext,
     server: &str,
@@ -117,7 +67,7 @@ fn spawn_worker_process(
     cmd.current_dir(&context.temp_dir);
     cmd.env(
         "FABRO_WORKER_TOKEN",
-        worker_token_for_run(&context.storage_dir, run_id),
+        issue_test_worker_jwt(&context.storage_dir, run_id),
     );
     cmd.args([
         "__run-worker",
@@ -178,7 +128,7 @@ fn worker_command(context: &fabro_test::TestContext, run_id: &str) -> assert_cmd
     let mut cmd = context.command();
     cmd.env(
         "FABRO_WORKER_TOKEN",
-        worker_token_for_run(&context.storage_dir, run_id),
+        issue_test_worker_jwt(&context.storage_dir, run_id),
     );
     cmd
 }

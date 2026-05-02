@@ -6,7 +6,7 @@ pub(crate) use auth_harness::{
     RealAuthHarness, TEST_DEV_TOKEN, complete_login_via_browser, expire_saved_access_token,
     no_redirect_browser_client, run_detached, saved_auth_entry, seed_dev_token_auth,
 };
-pub(crate) use auth_tokens::{TEST_SESSION_SECRET, issue_test_github_jwt};
+pub(crate) use auth_tokens::{TEST_SESSION_SECRET, issue_test_github_jwt, issue_test_worker_jwt};
 use fabro_store::EventEnvelope;
 use fabro_test::{EnvVars, TestContext, preserve_coverage_env};
 use fabro_types::RunId;
