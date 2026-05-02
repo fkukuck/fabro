@@ -212,13 +212,13 @@ The deploy workflow does seven things:
 2. Builds and pushes `fabro-server:<deploy-id>` and `fabro-azure-sandbox-base:<deploy-id>` to ACR.
 3. Runs `terraform apply` with the exact immutable `fabro-server` image ref.
 4. Runs a follow-up `terraform plan -detailed-exitcode` to prove the apply reached steady state.
-5. Waits for the new Container App revision to report ready before hitting the live URL.
+5. Waits for the new Container App revision to report ready and then resolves the stable Container App ingress URL for all remaining live checks.
 6. Reads `/health`, auto-completes install when the server reports install mode and the GitHub App values are present, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured auth state after install, and then runs the authenticated checks in the same run. When `/health` already returns plain `{"status":"ok"}`, install is skipped and the workflow continues directly, but authenticated validation still runs only if a dev token is already available.
 7. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, and whether the authenticated checks ran.
 
 Deploy IDs use `<utc-timestamp>-<short-sha>`, for example `20260428T193500Z-a1b2c3d`.
 
-Treat the `/health` response as the source of truth for what happens next in CI. The same `deploy-azure.yml` run is intentionally idempotent across first deploys and later redeploys.
+Treat the `/health` response as the source of truth for what happens next in CI after the workflow resolves the stable Container App ingress URL. The same `deploy-azure.yml` run is intentionally idempotent across first deploys and later redeploys.
 
 If `/health` returns `{"status":"ok","mode":"install"}` and the GitHub App values are present, the workflow completes install headlessly, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured state, and continues with authenticated validation in the same run.
 
@@ -228,7 +228,7 @@ If `/health` returns plain `{"status":"ok"}`, the workflow skips install and con
 
 ## 5. Install completion
 
-Once the Container App is reachable, let the deploy workflow handle install when `/health` reports install mode. In the supported path, CI can complete install headlessly with the pre-existing GitHub App values, persist `FABRO_DEPLOY_DEV_TOKEN`, wait for the configured state, and continue with the authenticated checks in the same run.
+Once the Container App is reachable, let the deploy workflow handle install when `/health` reports install mode. In the supported path, CI uses the stable Container App ingress URL for install completion and post-deploy validation, completes install headlessly with the pre-existing GitHub App values, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured state, and continues with the authenticated checks in the same run.
 
 If the deploy workflow already observed `/health` return `{"status":"ok","mode":"install"}`, treat that as a
 signal to finish install immediately before attempting any authenticated checks. If `/health` already returns plain
@@ -236,6 +236,8 @@ signal to finish install immediately before attempting any authenticated checks.
 validation only runs when a dev token is already available; otherwise those authenticated checks remain skipped.
 
 For day-two deploys after bootstrap, rerunning `.github/workflows/deploy-azure.yml` from the current Azure-ready branch or ref is the normal way to ship a new version. The workflow stays on the same idempotent path: `/health` decides whether install still needs to run, and healthy configured deployments go straight to validation.
+
+The first successful workflow run should leave the deployment reachable at the stable hostname without manual settings repair.
 
 The important runtime model is:
 
@@ -285,13 +287,13 @@ The checked-in smoke workflow uses a placeholder image ref:
 image = "example.azurecr.io/fabro-azure-sandbox-base:example"
 ```
 
-CI replaces that placeholder with the just-built immutable image before running the smoke workflow.
+CI replaces that placeholder with the just-built immutable image before running the smoke workflow from the staged temp bundle directory. That isolated temp-directory execution keeps the smoke validation focused on Azure sandbox startup rather than repository clone metadata.
 
 Workflow-specific sandbox images still live in the workflow repositories that use them. Those refs are updated manually by workflow owners.
 
 ## 7. Post-deploy validation
 
-Steady-state production deploys should validate all three of these checks:
+Steady-state production deploys should validate all three of these checks using the stable Container App ingress URL after rollout:
 
 1. `GET /health`
 2. authenticated `GET /api/v1/models`
@@ -320,8 +322,11 @@ rm -f /tmp/azure-deploy-smoke/workflow.toml.bak
 export FABRO_DEV_TOKEN="$FABRO_DEPLOY_DEV_TOKEN"
 # or run `fabro auth login --server "$FABRO_SERVER_URL/api/v1"` first
 
-fabro run /tmp/azure-deploy-smoke/workflow.toml \
-  --server "$FABRO_SERVER_URL/api/v1"
+(
+  cd /tmp/azure-deploy-smoke
+  fabro run workflow.toml \
+    --server "$FABRO_SERVER_URL/api/v1"
+)
 ```
 
 If the smoke workflow succeeds, the deployed server has proven that it can launch an Azure sandbox using the shared base image.
