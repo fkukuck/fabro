@@ -15,6 +15,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   TF_IN_AUTOMATION: "true"
+  LIBZ_SYS_STATIC: "1"
 
 jobs:
   deploy:
@@ -31,7 +32,31 @@ jobs:
         with:
           no-cache: true
 
+      - name: Install bun deps
+        run: bun install --frozen-lockfile
+
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev
+
+      - name: Set up zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@773334c0e05d7e699e4d78234494308223f3a2cf # v2
+        with:
+          tool: cargo-zigbuild
+
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
 
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
 
@@ -146,24 +171,25 @@ jobs:
       - name: Login to ACR
         run: az acr login --name "$ACR_NAME"
 
-      - name: Install bun deps
-        run: bun install --frozen-lockfile
+      - name: Refresh embedded SPA
+        run: cargo dev spa refresh
+
+      - name: Build fabro server binary
+        run: cargo zigbuild --target x86_64-unknown-linux-musl --release -p fabro-cli
 
       - name: Stage server Docker context
-        run: cargo dev docker-build --arch amd64 --compile-only
-
-      - name: Build and push fabro-server
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -f Dockerfile \
-            -t "$ACR_SERVER/fabro-server:$DEPLOY_ID" \
-            --push .
+          install -D -m 0755 \
+            target/x86_64-unknown-linux-musl/release/fabro \
+            tmp/docker-context/amd64/fabro
+
+      - name: Build fabro-sandboxd binary
+        run: cargo build --release -p fabro-sandboxd
 
       - name: Stage sandbox base Docker context
         run: |
           rm -rf "$RUNNER_TEMP/azure-sandbox-build"
-          mkdir -p "$RUNNER_TEMP/azure-sandbox-build"
+          mkdir -p "$RUNNER_TEMP/azure-sandbox-build/out"
           rsync -a --delete \
             --exclude '.git' \
             --exclude '.terraform' \
@@ -174,7 +200,18 @@ jobs:
             --exclude 'apps/fabro-web/node_modules' \
             --exclude 'apps/marketing/node_modules' \
             ./ "$RUNNER_TEMP/azure-sandbox-build/"
+          install -D -m 0755 \
+            target/release/fabro-sandboxd \
+            "$RUNNER_TEMP/azure-sandbox-build/out/fabro-sandboxd"
           rm -f "$RUNNER_TEMP/azure-sandbox-build/.dockerignore"
+
+      - name: Build and push fabro-server
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -f Dockerfile \
+            -t "$ACR_SERVER/fabro-server:$DEPLOY_ID" \
+            --push .
 
       - name: Build and push fabro-azure-sandbox-base
         run: |
