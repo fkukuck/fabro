@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::time::SystemTime;
 
 use fabro_auth::CredentialSource;
@@ -764,6 +765,7 @@ impl Session {
                 let mut accumulator = StreamAccumulator::new();
                 let mut emitted_text = String::new();
                 let mut emitted_reasoning = String::new();
+                let mut stream_error = None;
 
                 while let Some(event_result) = event_stream.next().await {
                     match event_result {
@@ -792,7 +794,8 @@ impl Session {
                             accumulator.process(&event);
                         }
                         Err(err) => {
-                            return Err(self.emit_llm_error(err));
+                            stream_error = Some(err);
+                            break;
                         }
                     }
 
@@ -813,6 +816,42 @@ impl Session {
                 if let Some(resp) = accumulator.response().cloned() {
                     response = Some(resp);
                     break;
+                }
+
+                if let Some(err) = stream_error {
+                    if stream_attempt < STREAM_CONSUME_RETRIES && err.retryable() {
+                        let delay = if let Some(retry_after) = err.retry_after() {
+                            Duration::from_secs_f64(retry_after)
+                        } else {
+                            retry_policy.backoff.delay_for_attempt(stream_attempt as u32 + 1)
+                        };
+                        tracing::warn!(
+                            attempt = stream_attempt + 1,
+                            max = STREAM_CONSUME_RETRIES,
+                            delay_secs = delay.as_secs_f64(),
+                            error = %err,
+                            "Stream yielded retryable error, replaying turn"
+                        );
+                        if !emitted_text.is_empty() || !emitted_reasoning.is_empty() {
+                            self.event_emitter.emit(
+                                self.id.clone(),
+                                AgentEvent::AssistantOutputReplace {
+                                    text:      String::new(),
+                                    reasoning: None,
+                                },
+                            );
+                        }
+                        if let Some(ref on_retry) = retry_policy.on_retry {
+                            on_retry(&err, stream_attempt as u32, delay);
+                        }
+                        time::sleep(delay).await;
+                        event_stream = self
+                            .open_stream_with_retry(&client, &request, &retry_policy)
+                            .await?;
+                        continue;
+                    }
+
+                    return Err(self.emit_llm_error(err));
                 }
 
                 // No Finish event — retry if we have attempts left
@@ -2223,6 +2262,61 @@ mod tests {
             "start".to_string(),
             "delta:Hel".to_string(),
             "replace::None".to_string(),
+            "delta:Hello".to_string(),
+            "message:Hello".to_string(),
+        ]);
+    }
+
+    #[tokio::test]
+    async fn stream_retries_on_retryable_mid_stream_error_after_partial_text() {
+        let provider = Arc::new(ScriptedStreamProvider::new(vec![
+            ScriptedStreamCall::Events(vec![
+                Ok(StreamEvent::text_delta("Hel", None)),
+                Err(LlmError::Stream {
+                    message: "error decoding response body".into(),
+                    source:  None,
+                }),
+            ]),
+            ScriptedStreamCall::Response(Box::new(text_response("Hello"))),
+        ]));
+        let mut session = make_session_with_provider(provider.clone()).await;
+        let mut rx = session.subscribe();
+
+        session.process_input("Hello").await.unwrap();
+
+        assert_eq!(provider.call_index.load(Ordering::SeqCst), 2);
+        let turns = session.history().turns();
+        assert!(matches!(
+            turns.last(),
+            Some(Turn::Assistant { content, .. }) if content == "Hello"
+        ));
+
+        let mut observed = Vec::new();
+        let mut retry_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            match event.event {
+                AgentEvent::AssistantTextStart => observed.push("start".to_string()),
+                AgentEvent::TextDelta { delta } => observed.push(format!("delta:{delta}")),
+                AgentEvent::AssistantOutputReplace { text, reasoning } => {
+                    observed.push(format!("replace:{text}:{reasoning:?}"));
+                }
+                AgentEvent::LlmRetry { .. } => {
+                    retry_count += 1;
+                    observed.push("retry".to_string());
+                }
+                AgentEvent::AssistantMessage { text, .. } => {
+                    observed.push(format!("message:{text}"));
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(retry_count, 1);
+        assert_eq!(observed, vec![
+            "start".to_string(),
+            "delta:Hel".to_string(),
+            "replace::None".to_string(),
+            "retry".to_string(),
             "delta:Hello".to_string(),
             "message:Hello".to_string(),
         ]);
