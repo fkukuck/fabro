@@ -19,6 +19,7 @@ use fabro_server::install::{
 };
 use fabro_util::{Home, dev_token};
 use fabro_vault::Vault;
+use httpmock::Method::GET;
 use httpmock::MockServer;
 use tokio::time::sleep;
 use tower::ServiceExt;
@@ -31,6 +32,49 @@ use crate::helpers::{checked_response, response_json, response_status, response_
 
 fn spa_fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/spa")
+}
+
+async fn mock_daytona_auth_probe(server: &MockServer) -> httpmock::Mock<'_> {
+    server
+        .mock_async(|when, then| {
+            when.method(GET)
+                .path("/sandbox/paginated")
+                .query_param("page", "1")
+                .query_param("limit", "1");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "totalPages": 0
+                }));
+        })
+        .await
+}
+
+async fn mock_daytona_current_key<'a>(
+    server: &'a MockServer,
+    permissions: Vec<&'static str>,
+) -> httpmock::Mock<'a> {
+    server
+        .mock_async(move |when, then| {
+            when.method(GET)
+                .path("/api-keys/current")
+                .header("authorization", "Bearer dtn_test");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "name": "delete-only",
+                    "value": "dtn_****",
+                    "createdAt": "2026-05-01T00:00:00Z",
+                    "permissions": permissions,
+                    "lastUsedAt": null,
+                    "expiresAt": null,
+                    "userId": "user_123"
+                }));
+        })
+        .await
 }
 
 #[derive(Default)]
@@ -2432,6 +2476,50 @@ async fn daytona_install_finish_writes_settings_and_vault_secret() {
 
     let vault = Vault::load(Storage::new(temp_dir.path()).secrets_path()).unwrap();
     assert_eq!(vault.get("DAYTONA_API_KEY"), Some(api_key));
+}
+
+#[tokio::test]
+async fn sandbox_daytona_test_endpoint_rejects_under_scoped_api_key() {
+    let server = MockServer::start_async().await;
+    let auth = mock_daytona_auth_probe(&server).await;
+    let current_key = mock_daytona_current_key(&server, vec![
+        "delete:snapshots",
+        "delete:sandboxes",
+        "delete:volumes",
+    ])
+    .await;
+    let app = build_install_router(
+        InstallAppState::for_test("test-install-token")
+            .with_daytona_api_base_url(server.base_url()),
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/sandbox/test")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"provider":"daytona","api_key":"dtn_test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = response_json(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "POST /install/sandbox/test under-scoped daytona",
+    )
+    .await;
+
+    assert_eq!(
+        body["errors"][0]["detail"],
+        "API key 'delete-only' is missing required Daytona scopes: \
+         write:snapshots, write:sandboxes. Regenerate the key with all \
+         snapshot and sandbox scopes."
+    );
+    auth.assert_async().await;
+    current_key.assert_async().await;
 }
 
 #[fabro_macros::e2e_test(live("DAYTONA_API_KEY"))]

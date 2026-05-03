@@ -21,7 +21,8 @@ use fabro_types::{
     InterviewQuestionRecord, Outcome, QuestionType, RunBlobId, RunId, RunSpec, StageOutcome,
     SystemActorKind, fixtures,
 };
-use httpmock::Method::POST;
+use fabro_util::check_report::CheckStatus;
+use httpmock::Method::{GET, POST};
 use httpmock::MockServer;
 use serde_json::json;
 use tokio_stream::StreamExt as _;
@@ -119,6 +120,49 @@ methods = ["dev-token"]
 async fn body_json(body: Body) -> serde_json::Value {
     let bytes = to_bytes(body, usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+async fn mock_daytona_auth_probe(server: &MockServer) -> httpmock::Mock<'_> {
+    server
+        .mock_async(|when, then| {
+            when.method(GET)
+                .path("/sandbox/paginated")
+                .query_param("page", "1")
+                .query_param("limit", "1");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "totalPages": 0
+                }));
+        })
+        .await
+}
+
+async fn mock_daytona_current_key<'a>(
+    server: &'a MockServer,
+    permissions: Vec<&'static str>,
+) -> httpmock::Mock<'a> {
+    server
+        .mock_async(move |when, then| {
+            when.method(GET)
+                .path("/api-keys/current")
+                .header("authorization", "Bearer dtn_test");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "name": "delete-only",
+                    "value": "dtn_****",
+                    "createdAt": "2026-05-01T00:00:00Z",
+                    "permissions": permissions,
+                    "lastUsedAt": null,
+                    "expiresAt": null,
+                    "userId": "user_123"
+                }));
+        })
+        .await
 }
 
 fn openai_api_key_credential(key: &str) -> AuthCredential {
@@ -999,6 +1043,131 @@ async fn create_secret_stores_valid_credential_entries() {
     assert_eq!(listed[0].name, "openai_codex");
     assert_eq!(listed[0].secret_type, SecretType::Credential);
     assert!(state.vault.read().await.get("openai_codex").is_some());
+}
+
+#[tokio::test]
+async fn create_secret_rejects_under_scoped_daytona_api_key_and_leaves_vault_unchanged() {
+    let server = MockServer::start_async().await;
+    let auth = mock_daytona_auth_probe(&server).await;
+    let current_key = mock_daytona_current_key(&server, vec![
+        "delete:snapshots",
+        "delete:sandboxes",
+        "delete:volumes",
+    ])
+    .await;
+    let base_url = server.base_url();
+    let state = test_app_state_with_env_lookup(
+        default_test_server_settings(),
+        fabro_config::RunLayer::default(),
+        5,
+        move |name| match name {
+            EnvVars::DAYTONA_API_URL => Some(base_url.clone()),
+            _ => None,
+        },
+    );
+    state
+        .vault
+        .write()
+        .await
+        .set(
+            EnvVars::DAYTONA_API_KEY,
+            "existing",
+            SecretType::Environment,
+            None,
+        )
+        .unwrap();
+    let app = crate::test_support::build_test_router(Arc::clone(&state));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(api("/secrets"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&serde_json::json!({
+                "name": EnvVars::DAYTONA_API_KEY,
+                "value": "dtn_test",
+                "type": "environment"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    let body = response_json!(response, StatusCode::UNPROCESSABLE_ENTITY).await;
+
+    assert_eq!(
+        body["errors"][0]["detail"],
+        "API key 'delete-only' is missing required Daytona scopes: \
+         write:snapshots, write:sandboxes. Regenerate the key with all \
+         snapshot and sandbox scopes."
+    );
+    assert_eq!(
+        state.vault.read().await.get(EnvVars::DAYTONA_API_KEY),
+        Some("existing")
+    );
+    auth.assert_async().await;
+    current_key.assert_async().await;
+}
+
+#[tokio::test]
+async fn diagnostics_reports_under_scoped_daytona_api_key() {
+    let server = MockServer::start_async().await;
+    let auth = mock_daytona_auth_probe(&server).await;
+    let current_key = mock_daytona_current_key(&server, vec![
+        "delete:snapshots",
+        "delete:sandboxes",
+        "delete:volumes",
+    ])
+    .await;
+    let base_url = server.base_url();
+    let state = test_app_state_with_env_lookup(
+        default_test_server_settings(),
+        fabro_config::RunLayer::default(),
+        5,
+        move |name| match name {
+            EnvVars::DAYTONA_API_URL => Some(base_url.clone()),
+            _ => None,
+        },
+    );
+    state
+        .vault
+        .write()
+        .await
+        .set(
+            EnvVars::DAYTONA_API_KEY,
+            "dtn_test",
+            SecretType::Environment,
+            None,
+        )
+        .unwrap();
+
+    let report = crate::diagnostics::run_all(&state).await;
+    let sandbox = report
+        .sections
+        .iter()
+        .flat_map(|section| &section.checks)
+        .find(|check| check.name == "Sandbox")
+        .expect("sandbox check should be present");
+
+    assert_eq!(sandbox.status, CheckStatus::Error);
+    assert_eq!(
+        sandbox.summary,
+        "Daytona API key is missing required scopes"
+    );
+    assert_eq!(
+        sandbox.details[0].text,
+        "missing: write:snapshots, write:sandboxes"
+    );
+    assert_eq!(
+        sandbox.remediation.as_deref(),
+        Some(
+            "Regenerate the Daytona API key with scopes: write:snapshots, \
+             delete:snapshots, write:sandboxes, delete:sandboxes, then \
+             `fabro secret set DAYTONA_API_KEY`."
+        )
+    );
+    auth.assert_async().await;
+    current_key.assert_async().await;
 }
 
 #[tokio::test]

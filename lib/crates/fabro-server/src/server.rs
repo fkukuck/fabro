@@ -56,7 +56,7 @@ use fabro_llm::types::{
 };
 use fabro_model::{BilledModelUsage, BilledTokenCounts, Catalog, ModelTestMode, Provider};
 use fabro_redact::redact_jsonl_line;
-use fabro_sandbox::daytona::DaytonaSandbox;
+use fabro_sandbox::daytona::{self, DaytonaSandbox};
 use fabro_sandbox::reconnect::reconnect;
 use fabro_sandbox::{Sandbox, SandboxProvider};
 use fabro_slack::client::{PostedMessage as SlackPostedMessage, SlackClient};
@@ -601,6 +601,23 @@ impl AppState {
                 .ok()
                 .and_then(|vault| vault.get(name).map(str::to_string))
         })
+    }
+
+    fn env_lookup_or_vault_or_env(&self, name: &str) -> Option<String> {
+        (self.env_lookup)(name).or_else(|| self.vault_or_env(name))
+    }
+
+    pub(crate) async fn check_daytona_api_key(
+        &self,
+        api_key: String,
+    ) -> anyhow::Result<daytona::DaytonaKeyCheck> {
+        let base_url = self
+            .env_lookup_or_vault_or_env(EnvVars::DAYTONA_API_URL)
+            .or_else(|| self.env_lookup_or_vault_or_env(EnvVars::DAYTONA_SERVER_URL))
+            .unwrap_or_else(|| daytona::DEFAULT_DAYTONA_API_URL.to_string());
+        let org_id = self.env_lookup_or_vault_or_env(EnvVars::DAYTONA_ORGANIZATION_ID);
+
+        daytona::check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key).await
     }
 
     /// Public accessor used by `run_files` — mirrors `vault_or_env` without

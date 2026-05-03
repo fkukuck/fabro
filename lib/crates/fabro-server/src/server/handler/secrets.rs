@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use fabro_static::EnvVars;
+
 use super::super::{
     ApiError, AppState, CreateSecretRequest, DeleteSecretRequest, IntoResponse, Json, RequiredUser,
     Response, Router, SecretType, State, StatusCode, VaultError, get, parse_credential_secret,
@@ -32,6 +34,22 @@ async fn create_secret(
     if secret_type == SecretType::Credential {
         if let Err(err) = parse_credential_secret(&name, &value) {
             return ApiError::bad_request(err).into_response();
+        }
+    }
+    if secret_type == SecretType::Environment && name == EnvVars::DAYTONA_API_KEY {
+        match state.check_daytona_api_key(value.clone()).await {
+            Ok(check) if check.ok() => {}
+            Ok(check) => {
+                return ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, check.missing_message())
+                    .into_response();
+            }
+            Err(err) => {
+                return ApiError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("daytona credential validation failed: {err}"),
+                )
+                .into_response();
+            }
         }
     }
     let state_for_write = Arc::clone(&state);

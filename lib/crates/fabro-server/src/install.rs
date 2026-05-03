@@ -75,8 +75,10 @@ pub type InstallFinishHook = Arc<dyn Fn(&InstallFinishInfo) -> anyhow::Result<()
 
 #[derive(Clone, Debug, Default)]
 struct InstallUpstreamConfig {
-    provider_base_urls:  HashMap<Provider, String>,
-    github_api_base_url: Option<String>,
+    provider_base_urls:      HashMap<Provider, String>,
+    github_api_base_url:     Option<String>,
+    daytona_api_base_url:    Option<String>,
+    daytona_organization_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -200,6 +202,18 @@ impl InstallAppState {
     #[must_use]
     pub fn with_github_api_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.upstreams.github_api_base_url = Some(base_url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_daytona_api_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.upstreams.daytona_api_base_url = Some(base_url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_daytona_organization_id(mut self, organization_id: impl Into<String>) -> Self {
+        self.upstreams.daytona_organization_id = Some(organization_id.into());
         self
     }
 
@@ -928,8 +942,15 @@ async fn post_install_sandbox_test(
         }
     };
 
-    match daytona::validate_daytona_api_key(api_key).await {
-        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+    match check_install_daytona_api_key(&state, api_key).await {
+        Ok(check) if check.ok() => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(check) => {
+            warn!(
+                missing = %check.missing_display(),
+                "install sandbox scopes insufficient"
+            );
+            install_error_response(StatusCode::UNPROCESSABLE_ENTITY, check.missing_message())
+        }
         Err(err) => {
             warn!(error = %err, "install sandbox validation failed");
             install_error_response(
@@ -938,6 +959,19 @@ async fn post_install_sandbox_test(
             )
         }
     }
+}
+
+async fn check_install_daytona_api_key(
+    state: &InstallAppState,
+    api_key: String,
+) -> anyhow::Result<daytona::DaytonaKeyCheck> {
+    let base_url = state
+        .upstreams
+        .daytona_api_base_url
+        .as_deref()
+        .unwrap_or(daytona::DEFAULT_DAYTONA_API_URL);
+    let organization_id = state.upstreams.daytona_organization_id.as_deref();
+    daytona::check_daytona_api_key_with(base_url, organization_id, api_key).await
 }
 
 async fn put_install_sandbox(

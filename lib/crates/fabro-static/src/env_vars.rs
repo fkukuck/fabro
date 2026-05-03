@@ -93,6 +93,7 @@ impl EnvVars {
     pub const AWS_WEB_IDENTITY_TOKEN_FILE: &'static str = "AWS_WEB_IDENTITY_TOKEN_FILE";
     pub const DAYTONA_API_KEY: &'static str = "DAYTONA_API_KEY";
     pub const DAYTONA_API_URL: &'static str = "DAYTONA_API_URL";
+    pub const DAYTONA_ORGANIZATION_ID: &'static str = "DAYTONA_ORGANIZATION_ID";
     pub const DAYTONA_SERVER_URL: &'static str = "DAYTONA_SERVER_URL";
     pub const SESSION_SECRET: &'static str = "SESSION_SECRET";
 
@@ -221,6 +222,7 @@ mod tests {
             EnvVars::AWS_WEB_IDENTITY_TOKEN_FILE,
             EnvVars::DAYTONA_API_KEY,
             EnvVars::DAYTONA_API_URL,
+            EnvVars::DAYTONA_ORGANIZATION_ID,
             EnvVars::DAYTONA_SERVER_URL,
             EnvVars::SESSION_SECRET,
             EnvVars::CARGO_BIN_EXE_FABRO,

@@ -5,11 +5,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use anyhow::Context as _;
 use async_trait::async_trait;
+use daytona_api_client::apis::api_keys_api;
+use daytona_api_client::apis::configuration::Configuration;
+use daytona_api_client::models::api_key_list::Permissions;
 use daytona_sdk::api_types::SignedPortPreviewUrl;
 use daytona_sdk::toolbox_types::Command as SessionCommandResult;
 use daytona_sdk::{DaytonaError, SessionCommandLogsResult};
 use fabro_github::GitHubCredentials;
+use fabro_static::EnvVars;
 use fabro_types::{CommandOutputStream, CommandTermination, RunId};
 use fabro_util::time::elapsed_ms;
 use rand::Rng;
@@ -29,11 +34,70 @@ use crate::{
 
 const WORKING_DIRECTORY: &str = "/home/daytona/workspace";
 const DEFAULT_SNAPSHOT: &str = "daytona-medium";
+pub const DEFAULT_DAYTONA_API_URL: &str = "https://app.daytona.io/api";
+const FABRO_SANDBOX_USER_AGENT: &str = concat!("fabro-sandbox/", env!("CARGO_PKG_VERSION"));
+const DAYTONA_PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Permissions a Daytona API key needs for Fabro's snapshot and sandbox flow.
+pub const REQUIRED_DAYTONA_PERMISSIONS: &[Permissions] = &[
+    Permissions::WriteColonSnapshots,
+    Permissions::DeleteColonSnapshots,
+    Permissions::WriteColonSandboxes,
+    Permissions::DeleteColonSandboxes,
+];
 
 pub use crate::config::{
     DaytonaNetwork, DaytonaSettings as DaytonaConfig,
     DaytonaSnapshotSettings as DaytonaSnapshotConfig, DockerfileSource,
 };
+
+#[derive(Debug)]
+pub struct DaytonaKeyCheck {
+    pub key_name: String,
+    pub missing:  Vec<Permissions>,
+}
+
+impl DaytonaKeyCheck {
+    pub fn ok(&self) -> bool {
+        self.missing.is_empty()
+    }
+
+    pub fn missing_display(&self) -> String {
+        join_perms(&self.missing)
+    }
+
+    pub fn missing_message(&self) -> String {
+        format!(
+            "API key '{}' is missing required Daytona scopes: {}. \
+             Regenerate the key with all snapshot and sandbox scopes.",
+            self.key_name,
+            self.missing_display()
+        )
+    }
+}
+
+pub fn required_perms_display() -> String {
+    join_perms(REQUIRED_DAYTONA_PERMISSIONS)
+}
+
+fn join_perms(perms: &[Permissions]) -> String {
+    perms
+        .iter()
+        .copied()
+        .map(perm_wire_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn perm_wire_str(permission: Permissions) -> &'static str {
+    match permission {
+        Permissions::WriteColonSnapshots => "write:snapshots",
+        Permissions::DeleteColonSnapshots => "delete:snapshots",
+        Permissions::WriteColonSandboxes => "write:sandboxes",
+        Permissions::DeleteColonSandboxes => "delete:sandboxes",
+        _ => "unknown",
+    }
+}
 
 /// Build a [`daytona_sdk::Client`], forwarding an optional API key from the
 /// vault so the SDK doesn't have to rely on `DAYTONA_API_KEY` being in the
@@ -41,21 +105,87 @@ pub use crate::config::{
 async fn build_daytona_client(
     api_key: Option<String>,
 ) -> Result<daytona_sdk::Client, daytona_sdk::DaytonaError> {
+    build_daytona_client_with(api_key, None, None).await
+}
+
+async fn build_daytona_client_with(
+    api_key: Option<String>,
+    api_url: Option<String>,
+    organization_id: Option<String>,
+) -> Result<daytona_sdk::Client, daytona_sdk::DaytonaError> {
     let sdk_config = daytona_sdk::DaytonaConfig {
         api_key,
+        api_url,
+        organization_id,
         ..Default::default()
     };
     daytona_sdk::Client::new_with_config(sdk_config).await
 }
 
-/// Validate a Daytona API key by performing a single authenticated call. Used
-/// at install time to confirm the operator-provided credential is accepted by
-/// the Daytona control plane before persisting it. The call requests a single
-/// sandbox listing entry to keep latency and quota impact minimal.
-pub async fn validate_daytona_api_key(api_key: String) -> Result<(), daytona_sdk::DaytonaError> {
-    let client = build_daytona_client(Some(api_key)).await?;
-    client.list(None, Some(1), Some(1)).await?;
-    Ok(())
+#[expect(
+    clippy::disallowed_methods,
+    reason = "This is the production env-resolving Daytona credential probe facade."
+)]
+pub async fn check_daytona_api_key(api_key: String) -> anyhow::Result<DaytonaKeyCheck> {
+    let base_url = std::env::var(EnvVars::DAYTONA_API_URL)
+        .or_else(|_| std::env::var(EnvVars::DAYTONA_SERVER_URL))
+        .unwrap_or_else(|_| DEFAULT_DAYTONA_API_URL.to_string());
+    let org_id = std::env::var(EnvVars::DAYTONA_ORGANIZATION_ID).ok();
+    check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key).await
+}
+
+pub async fn check_daytona_api_key_with(
+    base_url: &str,
+    org_id: Option<&str>,
+    api_key: String,
+) -> anyhow::Result<DaytonaKeyCheck> {
+    let work = async {
+        let client = build_daytona_client_with(
+            Some(api_key.clone()),
+            Some(base_url.to_string()),
+            org_id.map(str::to_string),
+        )
+        .await
+        .map_err(anyhow::Error::new)
+        .context("failed to construct Daytona client")?;
+        client
+            .list(None, Some(1), Some(1))
+            .await
+            .map_err(anyhow::Error::new)
+            .context("failed to authenticate with Daytona")?;
+
+        let api_config = build_api_keys_configuration(base_url, &api_key);
+        let info = api_keys_api::get_current_api_key(&api_config, org_id)
+            .await
+            .map_err(anyhow::Error::new)
+            .context("failed to read current Daytona API key")?;
+        let missing = REQUIRED_DAYTONA_PERMISSIONS
+            .iter()
+            .copied()
+            .filter(|permission| !info.permissions.contains(permission))
+            .collect();
+
+        Ok::<_, anyhow::Error>(DaytonaKeyCheck {
+            key_name: info.name,
+            missing,
+        })
+    };
+
+    match time::timeout(DAYTONA_PROBE_TIMEOUT, work).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "Daytona credential probe timed out after {}s",
+            DAYTONA_PROBE_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+fn build_api_keys_configuration(base_url: &str, api_key: &str) -> Configuration {
+    let mut cfg = Configuration::new();
+    cfg.base_path = base_url.to_string();
+    cfg.bearer_access_token = Some(api_key.to_string());
+    cfg.user_agent = Some(FABRO_SANDBOX_USER_AGENT.to_string());
+    cfg
 }
 
 fn command_kind(command: &str) -> &'static str {
@@ -1738,7 +1868,58 @@ fn wrap_bash_command(command: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use daytona_api_client::models::api_key_list::Permissions;
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
     use super::*;
+
+    fn api_key_body(permissions: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "name": "delete-only",
+            "value": "dtn_****",
+            "createdAt": "2026-05-01T00:00:00Z",
+            "permissions": permissions,
+            "lastUsedAt": null,
+            "expiresAt": null,
+            "userId": "user_123"
+        })
+    }
+
+    async fn mock_auth_probe(server: &MockServer, status: usize) -> httpmock::Mock<'_> {
+        server
+            .mock_async(move |when, then| {
+                when.method(GET)
+                    .path("/sandbox/paginated")
+                    .query_param("page", "1")
+                    .query_param("limit", "1");
+                then.status(status)
+                    .header("content-type", "application/json")
+                    .json_body(serde_json::json!({
+                        "items": [],
+                        "total": 0,
+                        "page": 1,
+                        "totalPages": 0
+                    }));
+            })
+            .await
+    }
+
+    async fn mock_current_key<'a>(
+        server: &'a MockServer,
+        permissions: Vec<&'static str>,
+    ) -> httpmock::Mock<'a> {
+        server
+            .mock_async(move |when, then| {
+                when.method(GET)
+                    .path("/api-keys/current")
+                    .header("authorization", "Bearer dtn_test");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(api_key_body(&permissions));
+            })
+            .await
+    }
 
     #[test]
     fn daytona_config_defaults() {
@@ -1764,6 +1945,92 @@ mod tests {
             command_kind("https://x-access-token:ghs_FAKE@github.com/owner/repo.git"),
             "other"
         );
+    }
+
+    #[test]
+    fn missing_display_uses_daytona_wire_scope_names() {
+        let check = DaytonaKeyCheck {
+            key_name: "delete-only".to_string(),
+            missing:  vec![
+                Permissions::WriteColonSnapshots,
+                Permissions::WriteColonSandboxes,
+            ],
+        };
+
+        assert_eq!(check.missing_display(), "write:snapshots, write:sandboxes");
+        assert_eq!(
+            check.missing_message(),
+            "API key 'delete-only' is missing required Daytona scopes: \
+             write:snapshots, write:sandboxes. Regenerate the key with all \
+             snapshot and sandbox scopes."
+        );
+        assert_eq!(
+            required_perms_display(),
+            "write:snapshots, delete:snapshots, write:sandboxes, delete:sandboxes"
+        );
+    }
+
+    #[tokio::test]
+    async fn check_daytona_api_key_with_reports_missing_scopes() {
+        let server = MockServer::start_async().await;
+        let auth = mock_auth_probe(&server, 200).await;
+        let current_key = mock_current_key(&server, vec![
+            "delete:snapshots",
+            "delete:sandboxes",
+            "delete:volumes",
+        ])
+        .await;
+
+        let check = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
+            .await
+            .expect("probe should succeed");
+
+        assert!(!check.ok());
+        assert_eq!(check.key_name, "delete-only");
+        assert_eq!(check.missing_display(), "write:snapshots, write:sandboxes");
+        auth.assert_async().await;
+        current_key.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn check_daytona_api_key_with_accepts_full_scopes() {
+        let server = MockServer::start_async().await;
+        let auth = mock_auth_probe(&server, 200).await;
+        let current_key = mock_current_key(&server, vec![
+            "write:snapshots",
+            "delete:snapshots",
+            "write:sandboxes",
+            "delete:sandboxes",
+        ])
+        .await;
+
+        let check = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
+            .await
+            .expect("probe should succeed");
+
+        assert!(check.ok());
+        assert!(check.missing.is_empty());
+        auth.assert_async().await;
+        current_key.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn check_daytona_api_key_with_preserves_auth_failure_context() {
+        let server = MockServer::start_async().await;
+        let auth = mock_auth_probe(&server, 401).await;
+
+        let err = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
+            .await
+            .expect_err("auth probe should fail");
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+
+        assert!(
+            chain
+                .iter()
+                .any(|cause| cause == "failed to authenticate with Daytona"),
+            "expected auth context in chain, got {chain:#?}"
+        );
+        auth.assert_async().await;
     }
 
     #[test]

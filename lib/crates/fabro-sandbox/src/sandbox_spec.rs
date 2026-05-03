@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(any(feature = "docker", feature = "daytona"))]
+#[cfg(feature = "docker")]
 use anyhow::Context as _;
 #[cfg(any(feature = "docker", feature = "daytona"))]
 use fabro_github::GitHubCredentials;

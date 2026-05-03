@@ -6,6 +6,7 @@ use fabro_auth::auth_issue_message;
 use fabro_llm::client::Client as LlmClient;
 use fabro_llm::types::{Message, Request};
 use fabro_model::{Catalog, Provider};
+use fabro_sandbox::daytona;
 use fabro_static::EnvVars;
 use fabro_types::settings::server::GithubIntegrationStrategy;
 use fabro_types::settings::{InterpString, ServerAuthMethod};
@@ -52,12 +53,12 @@ fn validate_session_secret(value: &str) -> Result<(), String> {
 }
 
 pub async fn run_all(state: &AppState) -> DiagnosticsReport {
-    let (llm, github, brave) = tokio::join!(
+    let (llm, github, sandbox, brave) = tokio::join!(
         check_llm_providers(state),
         check_github_app(state),
+        check_sandbox(state),
         check_brave_search(state),
     );
-    let sandbox = check_sandbox(state);
     let crypto = check_crypto(state);
 
     DiagnosticsReport {
@@ -381,17 +382,9 @@ async fn check_github_app(state: &AppState) -> CheckResult {
     }
 }
 
-fn check_sandbox(state: &AppState) -> CheckResult {
-    if state.vault_or_env(EnvVars::DAYTONA_API_KEY).is_some() {
-        CheckResult {
-            name:        "Sandbox".to_string(),
-            status:      CheckStatus::Pass,
-            summary:     "Daytona configured".to_string(),
-            details:     Vec::new(),
-            remediation: None,
-        }
-    } else {
-        CheckResult {
+async fn check_sandbox(state: &AppState) -> CheckResult {
+    let Some(api_key) = state.vault_or_env(EnvVars::DAYTONA_API_KEY) else {
+        return CheckResult {
             name:        "Sandbox".to_string(),
             status:      CheckStatus::Warning,
             summary:     "recommended, not configured".to_string(),
@@ -400,7 +393,38 @@ fn check_sandbox(state: &AppState) -> CheckResult {
                 "Run `fabro secret set DAYTONA_API_KEY` to enable cloud sandbox execution"
                     .to_string(),
             ),
-        }
+        };
+    };
+
+    match state.check_daytona_api_key(api_key).await {
+        Ok(check) if check.ok() => CheckResult {
+            name:        "Sandbox".to_string(),
+            status:      CheckStatus::Pass,
+            summary:     format!("Daytona configured ({})", check.key_name),
+            details:     Vec::new(),
+            remediation: None,
+        },
+        Ok(check) => CheckResult {
+            name:        "Sandbox".to_string(),
+            status:      CheckStatus::Error,
+            summary:     "Daytona API key is missing required scopes".to_string(),
+            details:     vec![CheckDetail::new(format!(
+                "missing: {}",
+                check.missing_display()
+            ))],
+            remediation: Some(format!(
+                "Regenerate the Daytona API key with scopes: {}, then \
+                 `fabro secret set DAYTONA_API_KEY`.",
+                daytona::required_perms_display()
+            )),
+        },
+        Err(err) => CheckResult {
+            name:        "Sandbox".to_string(),
+            status:      CheckStatus::Error,
+            summary:     "Daytona credential rejected".to_string(),
+            details:     vec![CheckDetail::new(format!("{err:#}"))],
+            remediation: Some("Verify DAYTONA_API_KEY value and Daytona reachability".to_string()),
+        },
     }
 }
 
