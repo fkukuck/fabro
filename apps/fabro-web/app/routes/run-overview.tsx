@@ -31,7 +31,15 @@ export default function RunOverview() {
     [stagesQuery.data],
   );
   const graphSvg = graphQuery.data;
-  const runStatus = runQuery.data?.status?.kind ?? null;
+  const apiStatus = runQuery.data?.status;
+  const terminalOutcome: "succeeded" | "failed" | "dead" | null =
+    apiStatus?.kind === "archived"
+      ? apiStatus.prior.kind
+      : apiStatus?.kind === "succeeded" ||
+          apiStatus?.kind === "failed" ||
+          apiStatus?.kind === "dead"
+        ? apiStatus.kind
+        : null;
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -80,8 +88,8 @@ export default function RunOverview() {
       }
 
       // Color exit node based on run outcome
-      if (nodeId === "exit" && (runStatus === "succeeded" || runStatus === "failed" || runStatus === "dead")) {
-        const isSuccess = runStatus === "succeeded";
+      if (nodeId === "exit" && terminalOutcome) {
+        const isSuccess = terminalOutcome === "succeeded";
         const fill = isSuccess ? gt.completedFill : gt.failedFill;
         const border = isSuccess ? gt.completedBorder : gt.failedBorder;
         const text = isSuccess ? gt.completedText : gt.failedText;
@@ -142,7 +150,7 @@ export default function RunOverview() {
     }
     })();
     return () => { cancelled = true; };
-  }, [stages, graphSvg, id, navigate, runStatus]);
+  }, [stages, graphSvg, id, navigate, terminalOutcome]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
