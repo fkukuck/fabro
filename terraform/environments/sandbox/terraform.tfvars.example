@@ -14,7 +14,6 @@ identity_name                           = "fabro-server-identity"
 container_apps_environment_name         = "fabro-env"
 container_apps_environment_storage_name = "fabrostorage"
 fabro_server_name                       = "fabro-server"
-fabro_server_enabled                    = false
 fabro_server_image                      = "example.azurecr.io/fabro-server:bootstrap"
 fabro_server_cpu                        = 2
 fabro_server_memory                     = "4Gi"

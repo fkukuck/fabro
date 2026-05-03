@@ -109,7 +109,6 @@ jobs:
             echo "TF_VAR_identity_name=${{ vars.AZURE_IDENTITY_NAME }}"
             echo "TF_VAR_container_apps_environment_name=${{ vars.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME }}"
             echo "TF_VAR_fabro_server_name=${{ vars.AZURE_FABRO_SERVER_NAME }}"
-            echo "TF_VAR_fabro_server_enabled=true"
             echo "TF_VAR_github_actions_principal_id=${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
             echo 'TF_VAR_tags={ environment = "sandbox", managed_by = "terraform" }'
           } >> "$GITHUB_ENV"
