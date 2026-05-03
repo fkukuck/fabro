@@ -44,7 +44,7 @@ This guide documents the supported production path for this repo:
 - copy bootstrap outputs into that environment
 - add the environment-specific Azure naming variables
 - create the GitHub App manually and store its values in the GitHub `production` environment before the first browser-login-ready deploy
-- run the first `terraform/environments/sandbox` apply with `fabro_server_enabled = false`
+- run the first `terraform/environments/sandbox` apply with `-var='fabro_server_enabled=false'`
 - trigger `.github/workflows/deploy-azure.yml`
 - let CI complete install, persist `FABRO_DEPLOY_DEV_TOKEN`, and continue authenticated checks in the same run when `/health` reports install mode and the GitHub App values are present
 - use the manual fallback only when the GitHub App values are missing
@@ -118,17 +118,18 @@ Create the GitHub `production` environment before continuing if it does not alre
 exist. Then add the bootstrap outputs as environment variables, followed by the
 environment-specific Azure naming variables used by `.github/workflows/deploy-azure.yml`.
 
-For the first apply, keep `fabro_server_enabled = false` and set `github_actions_principal_id` to the bootstrap-created GitHub Actions managed identity principal ID so Terraform can grant CI access during greenfield bring-up. Run a normal apply with no `-target` flags:
+For the first apply, set `github_actions_principal_id` to the bootstrap-created GitHub Actions managed identity principal ID so Terraform can grant CI access during greenfield bring-up, and disable the server only for that one command. Run a normal apply with no `-target` flags.
 
 ```bash
-terraform -chdir=terraform/environments/sandbox apply
+terraform -chdir=terraform/environments/sandbox apply \
+  -var='fabro_server_enabled=false'
 ```
 
 The first `terraform/environments/sandbox apply` is a required operator step even in the
 managed-identity model. It creates the CI role assignments in the sandbox environment before
 GitHub Actions takes over the steady-state deploy path.
 
-Keep that first manual apply disabled. The server turns on later in CI: `.github/workflows/deploy-azure.yml` exports `TF_VAR_fabro_server_enabled=true` and runs `terraform apply` with the real immutable `fabro-server` image for the Azure-ready ref being deployed.
+That first manual apply must keep the server disabled so Terraform creates the shared Azure infrastructure without trying to launch `fabro-server` from the checked-in placeholder image. After that, the steady-state configuration keeps the server enabled by default and `.github/workflows/deploy-azure.yml` simply passes the real immutable `fabro-server` image for the Azure-ready ref being deployed.
 
 That apply provisions the resource group, networking, storage, ACR, a privileged server identity for `fabro-server`, a separate low-privilege sandbox-pull identity for Azure sandbox image pulls, the role assignment that lets the server attach that sandbox-pull identity to ACI groups, the Container Apps environment, and the GitHub Actions access needed for steady-state CI deploys.
 
@@ -356,7 +357,7 @@ regressions, not for reverting install-wizard state changes.
 Before relying on CI deploys, verify all of the following:
 
 - the bootstrap root has already created the GitHub Actions OIDC identity and remote backend
-- `terraform/environments/sandbox` has been applied once manually with `fabro_server_enabled = false`
+- `terraform/environments/sandbox` has been applied once manually with `-var='fabro_server_enabled=false'`
 - the GitHub `production` environment contains every Azure and Terraform variable listed in this guide
 - the GitHub App values are present for headless bootstrap, or manual GitHub App linkage has already completed
 - `FABRO_DEPLOY_DEV_TOKEN` is stored in the GitHub `production` environment

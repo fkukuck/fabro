@@ -9,7 +9,7 @@ This Terraform root is the steady-state Azure environment for Fabro production d
    GitHub environment handoff is for the deploy workflow; it does not replace setting this
    root's Terraform inputs for the first operator-run apply.
 3. Initialize this root with the Azure Blob backend created by bootstrap.
-4. Run one normal `terraform apply` with `fabro_server_enabled = false`. Do not use `-target`.
+4. Run the first manual `terraform apply` with `-var='fabro_server_enabled=false'`. Do not use `-target`.
 5. Create the GitHub App manually before the first browser-login-ready deploy.
 6. Store the required GitHub App variables `FABRO_DEPLOY_GITHUB_APP_ID`, `FABRO_DEPLOY_GITHUB_APP_CLIENT_ID`, `FABRO_DEPLOY_GITHUB_APP_SLUG`, and `FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME`, the required GitHub App secrets `FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET` and `FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY`, the optional secret `FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET`, and the workflow GitHub token `FABRO_DEPLOY_GITHUB_TOKEN` in the GitHub `production` environment.
 7. Trigger `.github/workflows/deploy-azure.yml`. If the app values are present, the workflow completes install and persists `FABRO_DEPLOY_DEV_TOKEN`. If they are missing, the workflow stops after pre-filling the non-GitHub install steps so you can complete GitHub App linkage manually, store the emitted `FABRO_DEPLOY_DEV_TOKEN` in the GitHub `production` environment, and rerun the workflow for authenticated validation.
@@ -23,7 +23,8 @@ Local Terraform state is no longer the supported production path for this enviro
 - Set the Azure naming and network variables in `terraform.tfvars`.
 - Set `github_actions_principal_id` to the same bootstrap-created GitHub Actions managed identity principal ID that you copied into the GitHub `production` environment as `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` before the first manual apply.
 - The first manual apply must happen before GitHub Actions takes over so Terraform can create the `github_actions_access` role assignments with the higher-privilege operator identity.
-- Keep `fabro_server_enabled = false` until the first CI deploy is ready to publish a real immutable server image.
+- The first manual apply must pass `-var='fabro_server_enabled=false'` so Terraform creates the shared infrastructure without trying to launch `fabro-server` from the placeholder image.
+- The checked-in `fabro_server_image` placeholder exists only to satisfy Terraform while that first manual apply keeps the server disabled. CI always passes the real immutable image for steady-state deploys.
 - The validated `fabro-server` shape for this Azure environment is `fabro_server_cpu = 2` and `fabro_server_memory = "4Gi"`.
 
 ## Runtime model
