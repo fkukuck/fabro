@@ -231,17 +231,16 @@ export class CrossTabSseCoordinator {
       this.sourceFactoryLocked = true;
     }
 
-    if (this.coordinationUnavailable) {
-      return options.fallbackSubscribe();
-    }
-
-    if (!this.initialized && !this.initialize()) {
-      this.coordinationUnavailable = true;
-      return options.fallbackSubscribe();
-    }
-
     const subscription = this.addLocalSubscription(options);
-    if (this.fallbackMode) {
+
+    if (this.coordinationUnavailable) {
+      this.fallbackMode = true;
+      this.startFallbacksFor(subscription);
+    } else if (!this.initialized && !this.initialize()) {
+      this.coordinationUnavailable = true;
+      this.fallbackMode = true;
+      this.startFallbacksFor(subscription);
+    } else if (this.fallbackMode) {
       this.startFallbacksFor(subscription);
     } else {
       this.ensureLeadershipProgress();
@@ -262,8 +261,10 @@ export class CrossTabSseCoordinator {
     this.shutdownTimersAndChannel();
     this.closeFallbacks();
     this.subscriptions.clear();
+    this.candidates.clear();
     this.leader = null;
     this.initialized = false;
+    this.coordinationUnavailable = false;
     this.fallbackMode = false;
     this.sourceFactoryLocked = false;
   }
@@ -453,6 +454,7 @@ export class CrossTabSseCoordinator {
     this.leader = incoming;
     this.clearNoLeaderTimer();
     this.generation = Math.max(this.generation, incoming.generation);
+    this.pruneStaleCandidates();
     if (this.ownCandidate && incoming.generation >= this.ownCandidate.candidateGeneration) {
       this.clearCandidate();
     }
@@ -473,6 +475,7 @@ export class CrossTabSseCoordinator {
 
   private handleCandidate(message: CandidateMessage) {
     this.candidates.set(candidateKey(message), message);
+    this.pruneStaleCandidates();
 
     if (
       this.isLeader &&
@@ -500,6 +503,7 @@ export class CrossTabSseCoordinator {
     ) {
       this.leader = null;
       this.generation = Math.max(this.generation, message.generation);
+      this.pruneStaleCandidates();
       this.enterCandidacy("release", {
         leaderId: message.leaderId,
         generation: message.generation,
@@ -546,6 +550,7 @@ export class CrossTabSseCoordinator {
     if (this.now() - current.lastSeen > this.timing.leaderStaleMs) {
       this.leader = null;
       this.generation = Math.max(this.generation, current.generation);
+      this.pruneStaleCandidates();
       this.resyncAll();
       this.enterCandidacy("stale-leader", current);
       return;
@@ -638,6 +643,7 @@ export class CrossTabSseCoordinator {
     this.closeSource();
     this.isLeader = true;
     this.generation = generation;
+    this.pruneStaleCandidates();
     this.leader = {
       leaderId: this.tabId,
       generation,
@@ -841,6 +847,14 @@ export class CrossTabSseCoordinator {
       this.candidateTimer = null;
     }
     this.ownCandidate = null;
+  }
+
+  private pruneStaleCandidates() {
+    for (const [key, candidate] of this.candidates) {
+      if (candidate.candidateGeneration < this.generation) {
+        this.candidates.delete(key);
+      }
+    }
   }
 
   private scheduleNoLeaderCandidacy() {

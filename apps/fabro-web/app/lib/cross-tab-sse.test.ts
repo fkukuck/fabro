@@ -339,6 +339,32 @@ describe("subscribeToCrossTabSse", () => {
     expect(harness.openSources().map((source) => source.owner)).toEqual(["z"]);
   });
 
+  test("prunes candidate records from older generations", async () => {
+    const harness = newHarness();
+    subscribeForRunEvent(harness.createTab("z", "hidden"), []);
+    await waitFor(() => harness.openSources().length === 1 && harness.openSources()[0].owner === "z");
+
+    const coordinator = harness.createTab("a", "visible");
+    subscribeForRunEvent(coordinator, []);
+    await waitFor(() => harness.openSources().length === 1 && harness.openSources()[0].owner === "a");
+
+    FakeBroadcastChannel.broadcastExternal({
+      type: "candidate",
+      version: 1,
+      tabId: "old-candidate",
+      sentAt: harness.now,
+      candidateId: "old-candidate",
+      candidateGeneration: 1,
+      visibility: "visible",
+      observedLeaderId: "previous-leader",
+      observedGeneration: 0,
+      reason: "stale-leader",
+    });
+    await sleep(TEST_TIMING.electionJitterMs * 2);
+
+    expect(candidateGenerations(coordinator)).not.toContain(1);
+  });
+
   test("same-generation split brain converges to the higher-priority visible leader", async () => {
     const harness = newHarness();
     FakeBroadcastChannel.muted = true;
@@ -467,6 +493,89 @@ describe("subscribeToCrossTabSse", () => {
     cleanup();
     expect(fallbackStopped).toBe(1);
   });
+
+  test("close resets coordination availability after an initial channel failure", async () => {
+    let channelUnavailable = true;
+    const sources: FakeEventSource[] = [];
+    const coordinator = createCrossTabSseCoordinator({
+      tabId: "recovering",
+      channelFactory: (name) => {
+        if (channelUnavailable) throw new Error("channel unavailable");
+        return new FakeBroadcastChannel(name);
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url, "recovering");
+        sources.push(source);
+        return source;
+      },
+      addVisibilityChangeListener: () => () => {},
+      addPagehideListener: () => () => {},
+      timing: TEST_TIMING,
+    });
+    let firstFallbackStarted = 0;
+    let secondFallbackStarted = 0;
+
+    const firstCleanup = subscribeWithFallback(coordinator, {
+      fallbackSubscribe: () => {
+        firstFallbackStarted += 1;
+        return () => {};
+      },
+    });
+    firstCleanup();
+    coordinator.close();
+
+    channelUnavailable = false;
+    const secondCleanup = subscribeWithFallback(coordinator, {
+      fallbackSubscribe: () => {
+        secondFallbackStarted += 1;
+        return () => {};
+      },
+    });
+
+    await waitFor(() => sources.some((source) => !source.closed));
+
+    expect(firstFallbackStarted).toBe(1);
+    expect(secondFallbackStarted).toBe(0);
+    expect(sources.filter((source) => !source.closed).map((source) => source.url)).toEqual(["/api/v1/attach"]);
+
+    secondCleanup();
+    coordinator.close();
+  });
+
+  test("close stops fallback subscriptions added after degradation", async () => {
+    const harness = newHarness();
+    const coordinator = harness.createTab("a");
+    let fallbackStarted = 0;
+    let fallbackStopped = 0;
+
+    FakeBroadcastChannel.throwOnTypes.add("leader-changed");
+    subscribeWithFallback(coordinator, {
+      subscriptionKey: "before-degrade",
+      fallbackSubscribe: () => {
+        fallbackStarted += 1;
+        return () => {
+          fallbackStopped += 1;
+        };
+      },
+    });
+    await waitFor(() => fallbackStarted === 1);
+
+    FakeBroadcastChannel.throwOnTypes.clear();
+    subscribeWithFallback(coordinator, {
+      subscriptionKey: "after-degrade",
+      fallbackSubscribe: () => {
+        fallbackStarted += 1;
+        return () => {
+          fallbackStopped += 1;
+        };
+      },
+    });
+    expect(fallbackStarted).toBe(2);
+
+    coordinator.close();
+
+    expect(fallbackStopped).toBe(2);
+  });
 });
 
 function newHarness() {
@@ -514,6 +623,34 @@ function subscribeForEvent(
     },
     debounceMs: 0,
   });
+}
+
+function subscribeWithFallback(
+  coordinator: CrossTabSseCoordinator,
+  {
+    subscriptionKey = "fallback-test",
+    fallbackSubscribe,
+  }: {
+    subscriptionKey?: string;
+    fallbackSubscribe: () => () => void;
+  },
+) {
+  return subscribeToCrossTabSse<EventPayload>({
+    coordinator,
+    subscriptionKey,
+    mutate: (() => Promise.resolve()) as MutateFn,
+    resolveInvalidation: () => ({ keys: [] }),
+    resyncKeys: () => [],
+    fallbackSubscribe,
+    debounceMs: 0,
+  });
+}
+
+function candidateGenerations(coordinator: CrossTabSseCoordinator): number[] {
+  const inspectable = coordinator as unknown as {
+    candidates: Map<string, { candidateGeneration: number }>;
+  };
+  return [...inspectable.candidates.values()].map((candidate) => candidate.candidateGeneration);
 }
 
 function runEvent({
