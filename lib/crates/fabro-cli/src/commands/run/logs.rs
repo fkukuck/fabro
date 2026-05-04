@@ -642,6 +642,43 @@ fn format_event_pretty_value(envelope: &serde_json::Value, styles: &Styles) -> O
                 styles.dim.apply_to(&duration),
             ))
         }
+        "sandbox.snapshot.pulling" => {
+            let name = prop_str_field(envelope, "name").unwrap_or("?");
+            Some(format!(
+                "{}   Sandbox: pulling {}",
+                styles.dim.apply_to(&ts),
+                name,
+            ))
+        }
+        "sandbox.snapshot.creating" => {
+            let name = prop_str_field(envelope, "name").unwrap_or("?");
+            Some(format!(
+                "{}   Sandbox: building {}",
+                styles.dim.apply_to(&ts),
+                name,
+            ))
+        }
+        "sandbox.snapshot.ready" => {
+            let name = prop_str_field(envelope, "name").unwrap_or("?");
+            let duration = format_duration_ms(prop_field(envelope, "duration_ms"));
+            Some(format!(
+                "{}   Sandbox snapshot: {}  {}",
+                styles.dim.apply_to(&ts),
+                name,
+                styles.dim.apply_to(&duration),
+            ))
+        }
+        "sandbox.snapshot.failed" => {
+            let name = prop_str_field(envelope, "name").unwrap_or("?");
+            let error = prop_str_field(envelope, "error").unwrap_or("unknown error");
+            Some(format!(
+                "{} {} Sandbox snapshot {} failed: {}",
+                styles.dim.apply_to(&ts),
+                styles.bold_red.apply_to("\u{2717}"),
+                name,
+                styles.red.apply_to(error),
+            ))
+        }
         "setup.completed" => {
             let count = prop_field(envelope, "command_count").and_then(serde_json::Value::as_u64);
             let duration = format_duration_ms(prop_field(envelope, "duration_ms"));
@@ -1153,6 +1190,45 @@ mod tests {
             "got: {result}"
         );
         assert!(result.contains("[push]"), "got: {result}");
+    }
+
+    #[test]
+    fn pretty_sandbox_snapshot_pulling() {
+        let styles = no_color_styles();
+        let line = r#"{"ts":"2026-01-01T14:25:00Z","event":"sandbox.snapshot.pulling","properties":{"name":"buildpack-deps:noble"}}"#;
+        let result = format_event_pretty(line, &styles).unwrap();
+        assert!(result.contains("Sandbox: pulling"), "got: {result}");
+        assert!(result.contains("buildpack-deps:noble"), "got: {result}");
+    }
+
+    #[test]
+    fn pretty_sandbox_snapshot_creating() {
+        let styles = no_color_styles();
+        let line = r#"{"ts":"2026-01-01T14:25:00Z","event":"sandbox.snapshot.creating","properties":{"name":"fabro-v9-test"}}"#;
+        let result = format_event_pretty(line, &styles).unwrap();
+        assert!(result.contains("Sandbox: building"), "got: {result}");
+        assert!(result.contains("fabro-v9-test"), "got: {result}");
+    }
+
+    #[test]
+    fn pretty_sandbox_snapshot_ready() {
+        let styles = no_color_styles();
+        let line = r#"{"ts":"2026-01-01T14:25:00Z","event":"sandbox.snapshot.ready","properties":{"name":"buildpack-deps:noble","duration_ms":8200}}"#;
+        let result = format_event_pretty(line, &styles).unwrap();
+        assert!(result.contains("Sandbox snapshot:"), "got: {result}");
+        assert!(result.contains("buildpack-deps:noble"), "got: {result}");
+        assert!(result.contains("8s"), "got: {result}");
+    }
+
+    #[test]
+    fn pretty_sandbox_snapshot_failed() {
+        let styles = no_color_styles();
+        let line = r#"{"ts":"2026-01-01T14:25:00Z","event":"sandbox.snapshot.failed","properties":{"name":"buildpack-deps:noble","error":"pull failed"}}"#;
+        let result = format_event_pretty(line, &styles).unwrap();
+        assert!(
+            result.contains("Sandbox snapshot buildpack-deps:noble failed: pull failed"),
+            "got: {result}"
+        );
     }
 
     #[test]

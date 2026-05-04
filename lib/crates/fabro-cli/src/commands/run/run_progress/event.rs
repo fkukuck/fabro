@@ -55,6 +55,24 @@ pub(super) enum ProgressEvent {
         memory:      Option<f64>,
         url:         Option<String>,
     },
+    SandboxFailed {
+        provider: String,
+        error:    String,
+    },
+    SnapshotPulling {
+        name: String,
+    },
+    SnapshotCreating {
+        name: String,
+    },
+    SnapshotReady {
+        name:        String,
+        duration_ms: u64,
+    },
+    SnapshotFailed {
+        name:  String,
+        error: String,
+    },
     SshAccessReady {
         ssh_command: String,
     },
@@ -251,6 +269,24 @@ pub(super) fn from_run_event(stored: &RunEvent) -> Option<ProgressEvent> {
             cpu:         props.cpu,
             memory:      props.memory,
             url:         props.url.clone(),
+        }),
+        EventBody::SandboxFailed(props) => Some(ProgressEvent::SandboxFailed {
+            provider: props.provider.clone(),
+            error:    props.error.clone(),
+        }),
+        EventBody::SnapshotPulling(props) => Some(ProgressEvent::SnapshotPulling {
+            name: props.name.clone(),
+        }),
+        EventBody::SnapshotCreating(props) => Some(ProgressEvent::SnapshotCreating {
+            name: props.name.clone(),
+        }),
+        EventBody::SnapshotReady(props) => Some(ProgressEvent::SnapshotReady {
+            name:        props.name.clone(),
+            duration_ms: props.duration_ms,
+        }),
+        EventBody::SnapshotFailed(props) => Some(ProgressEvent::SnapshotFailed {
+            name:  props.name.clone(),
+            error: props.error.clone(),
         }),
         EventBody::SshAccessReady(props) => Some(ProgressEvent::SshAccessReady {
             ssh_command: props.ssh_command.clone(),
@@ -695,6 +731,72 @@ mod tests {
                 name,
                 ..
             } if provider == "daytona" && duration_ms == 2500 && name.as_deref() == Some("sandbox-1")
+        ));
+    }
+
+    #[test]
+    fn round_trip_sandbox_failed() {
+        let event = Event::Sandbox {
+            event: fabro_agent::SandboxEvent::InitializeFailed {
+                provider:    "docker".into(),
+                error:       "pull failed".into(),
+                causes:      Vec::new(),
+                duration_ms: 900,
+            },
+        };
+
+        let stored = to_run_event(&fixtures::RUN_1, &event);
+        let parsed = from_run_event(&stored).unwrap();
+        assert!(matches!(
+            parsed,
+            ProgressEvent::SandboxFailed { provider, error }
+                if provider == "docker" && error == "pull failed"
+        ));
+    }
+
+    #[test]
+    fn round_trip_snapshot_lifecycle_events() {
+        let pulling = to_run_event(&fixtures::RUN_1, &Event::Sandbox {
+            event: fabro_agent::SandboxEvent::SnapshotPulling {
+                name: "buildpack-deps:noble".into(),
+            },
+        });
+        let creating = to_run_event(&fixtures::RUN_1, &Event::Sandbox {
+            event: fabro_agent::SandboxEvent::SnapshotCreating {
+                name: "fabro-v9".into(),
+            },
+        });
+        let ready = to_run_event(&fixtures::RUN_1, &Event::Sandbox {
+            event: fabro_agent::SandboxEvent::SnapshotReady {
+                name:        "buildpack-deps:noble".into(),
+                duration_ms: 1200,
+            },
+        });
+        let failed = to_run_event(&fixtures::RUN_1, &Event::Sandbox {
+            event: fabro_agent::SandboxEvent::SnapshotFailed {
+                name:   "fabro-v9".into(),
+                error:  "build failed".into(),
+                causes: Vec::new(),
+            },
+        });
+
+        assert!(matches!(
+            from_run_event(&pulling).unwrap(),
+            ProgressEvent::SnapshotPulling { name } if name == "buildpack-deps:noble"
+        ));
+        assert!(matches!(
+            from_run_event(&creating).unwrap(),
+            ProgressEvent::SnapshotCreating { name } if name == "fabro-v9"
+        ));
+        assert!(matches!(
+            from_run_event(&ready).unwrap(),
+            ProgressEvent::SnapshotReady { name, duration_ms }
+                if name == "buildpack-deps:noble" && duration_ms == 1200
+        ));
+        assert!(matches!(
+            from_run_event(&failed).unwrap(),
+            ProgressEvent::SnapshotFailed { name, error }
+                if name == "fabro-v9" && error == "build failed"
         ));
     }
 

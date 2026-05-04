@@ -206,10 +206,6 @@ pub enum EventBody {
     SandboxCleanupFailed(SandboxCleanupFailedProps),
     #[serde(rename = "sandbox.snapshot.pulling")]
     SnapshotPulling(SnapshotNameProps),
-    #[serde(rename = "sandbox.snapshot.pulled")]
-    SnapshotPulled(SnapshotCompletedProps),
-    #[serde(rename = "sandbox.snapshot.ensuring")]
-    SnapshotEnsuring(SnapshotNameProps),
     #[serde(rename = "sandbox.snapshot.creating")]
     SnapshotCreating(SnapshotNameProps),
     #[serde(rename = "sandbox.snapshot.ready")]
@@ -414,8 +410,6 @@ impl EventBody {
             Self::SandboxCleanupCompleted(_) => "sandbox.cleanup.completed",
             Self::SandboxCleanupFailed(_) => "sandbox.cleanup.failed",
             Self::SnapshotPulling(_) => "sandbox.snapshot.pulling",
-            Self::SnapshotPulled(_) => "sandbox.snapshot.pulled",
-            Self::SnapshotEnsuring(_) => "sandbox.snapshot.ensuring",
             Self::SnapshotCreating(_) => "sandbox.snapshot.creating",
             Self::SnapshotReady(_) => "sandbox.snapshot.ready",
             Self::SnapshotFailed(_) => "sandbox.snapshot.failed",
@@ -548,8 +542,6 @@ fn is_known_event_name(event: &str) -> bool {
             | "sandbox.cleanup.completed"
             | "sandbox.cleanup.failed"
             | "sandbox.snapshot.pulling"
-            | "sandbox.snapshot.pulled"
-            | "sandbox.snapshot.ensuring"
             | "sandbox.snapshot.creating"
             | "sandbox.snapshot.ready"
             | "sandbox.snapshot.failed"
@@ -1240,6 +1232,34 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn retired_sandbox_snapshot_events_deserialize_as_unknown() {
+        for (event_name, expected_properties) in [
+            (
+                "sandbox.snapshot.pulled",
+                json!({"name": "buildpack-deps:noble", "duration_ms": 5000}),
+            ),
+            ("sandbox.snapshot.ensuring", json!({"name": "fabro-v8"})),
+        ] {
+            let value = json!({
+                "id": "evt_retired_snapshot",
+                "ts": "2026-04-29T12:00:00.000Z",
+                "run_id": fixtures::RUN_1,
+                "event": event_name,
+                "properties": expected_properties
+            });
+
+            let parsed = RunEvent::from_value(value).unwrap();
+            match parsed.body {
+                EventBody::Unknown { name, properties } => {
+                    assert_eq!(name, event_name);
+                    assert_eq!(properties, expected_properties);
+                }
+                other => panic!("expected Unknown body, got {other:?}"),
+            }
+        }
     }
 
     #[test]

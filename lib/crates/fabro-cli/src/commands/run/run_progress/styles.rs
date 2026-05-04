@@ -21,6 +21,7 @@ cached_style!(
     "    {spinner:.dim} {wide_msg} {elapsed:.dim}"
 );
 cached_style!(style_header_done, "    {wide_msg:.dim} {prefix:.dim}");
+cached_style!(style_header_failed, "    {wide_msg:.red} {prefix:.dim}");
 cached_style!(
     style_stage_running,
     "    {spinner:.cyan} {wide_msg} {elapsed:.dim}"

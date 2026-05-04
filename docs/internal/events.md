@@ -1652,6 +1652,8 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 
 ### `sandbox.snapshot.pulling`
 
+Emitted only when the Docker image cache misses and Fabro starts pulling the image.
+
 ```json
 {
   "id": "...", "ts": "...", "run_id": "...",
@@ -1666,41 +1668,9 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 |----------|------|-------------|
 | `name` | string | Image/snapshot name |
 
-### `sandbox.snapshot.pulled`
-
-```json
-{
-  "id": "...", "ts": "...", "run_id": "...",
-  "event": "sandbox.snapshot.pulled",
-  "properties": {
-    "name": "my-image:latest",
-    "duration_ms": 15000
-  }
-}
-```
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | string | Image/snapshot name |
-| `duration_ms` | number | Pull duration |
-
-### `sandbox.snapshot.ensuring`
-
-```json
-{
-  "id": "...", "ts": "...", "run_id": "...",
-  "event": "sandbox.snapshot.ensuring",
-  "properties": {
-    "name": "my-snapshot"
-  }
-}
-```
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | string | Snapshot name |
-
 ### `sandbox.snapshot.creating`
+
+Emitted only when a Daytona snapshot cache miss or inactive snapshot requires Fabro to create or wait for the snapshot.
 
 ```json
 {
@@ -1718,6 +1688,8 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 
 ### `sandbox.snapshot.ready`
 
+Emitted when an image or snapshot ensure step succeeds. Cache hits still emit this event with a near-zero `duration_ms`; explicit no-op paths such as Docker `auto_pull = false` and the Daytona default snapshot path do not.
+
 ```json
 {
   "id": "...", "ts": "...", "run_id": "...",
@@ -1732,9 +1704,11 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 | Property | Type | Description |
 |----------|------|-------------|
 | `name` | string | Snapshot name |
-| `duration_ms` | number | Creation duration |
+| `duration_ms` | number | Ensure duration |
 
 ### `sandbox.snapshot.failed`
+
+Emitted when an image or snapshot ensure step fails.
 
 ```json
 {
@@ -1751,6 +1725,7 @@ Emitted after the engine completes sandbox initialization (distinct from `sandbo
 |----------|------|-------------|
 | `name` | string | Snapshot name |
 | `error` | string | Error message |
+| `causes` | string[] | Optional error cause chain |
 
 ### `sandbox.git.started`
 

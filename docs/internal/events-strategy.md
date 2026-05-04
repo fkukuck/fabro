@@ -151,6 +151,8 @@ Prefer `Emitter::emit(&Event::...)`.
 
 Use `to_run_event()` only for true bypass paths.
 
+For cache-backed lifecycle work, emit slow-path start events only when the operation actually misses cache or waits on remote state. Completion events should represent a real ensure step (inspect, build, pull, or poll), not a configured no-op.
+
 ### 7. Update consumers
 
 Check:

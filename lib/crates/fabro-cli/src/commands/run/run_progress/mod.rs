@@ -122,6 +122,21 @@ impl ProgressUI {
             ProgressEvent::SandboxInitializing { provider } => {
                 self.setup.on_sandbox_initializing(renderer, &provider);
             }
+            ProgressEvent::SandboxFailed { provider, error } => {
+                self.setup.on_sandbox_failed(renderer, &provider, &error);
+            }
+            ProgressEvent::SnapshotPulling { name } => {
+                self.setup.on_snapshot_pulling(renderer, &name);
+            }
+            ProgressEvent::SnapshotCreating { name } => {
+                self.setup.on_snapshot_creating(renderer, &name);
+            }
+            ProgressEvent::SnapshotReady { name, duration_ms } => {
+                self.setup.on_snapshot_ready(renderer, &name, duration_ms);
+            }
+            ProgressEvent::SnapshotFailed { name, error } => {
+                self.setup.on_snapshot_failed(renderer, &name, &error);
+            }
             ProgressEvent::SandboxReady {
                 provider,
                 duration_ms,
@@ -880,6 +895,189 @@ mod tests {
             Running devcontainer postCreate (2 commands)...
             Devcontainer: postCreate (1s)
         ");
+    }
+
+    #[test]
+    fn plain_daytona_snapshot_creation_snapshot() {
+        let (mut ui, buffer) = capture_ui(false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "daytona".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotCreating {
+                name: "fabro-v9-test".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotReady {
+                name:        "fabro-v9-test".into(),
+                duration_ms: 210_000,
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Ready {
+                provider:    "daytona".into(),
+                duration_ms: 212_000,
+                name:        Some("sandbox-1".into()),
+                cpu:         Some(4.0),
+                memory:      Some(8.0),
+                url:         None,
+            },
+        });
+
+        insta::assert_snapshot!(rendered(&buffer), @r"
+            Sandbox: building fabro-v9-test...
+            Sandbox: daytona (ready in 3m32s)
+                     sandbox-1 (4 cpu, 8 GB)
+        ");
+    }
+
+    #[test]
+    fn plain_docker_snapshot_pull_snapshot() {
+        let (mut ui, buffer) = capture_ui(false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotPulling {
+                name: "buildpack-deps:noble".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotReady {
+                name:        "buildpack-deps:noble".into(),
+                duration_ms: 8_200,
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Ready {
+                provider:    "docker".into(),
+                duration_ms: 9_000,
+                name:        None,
+                cpu:         None,
+                memory:      None,
+                url:         None,
+            },
+        });
+
+        insta::assert_snapshot!(rendered(&buffer), @r"
+            Sandbox: pulling buildpack-deps:noble...
+            Sandbox: docker (ready in 9s)
+        ");
+    }
+
+    #[test]
+    fn plain_docker_skipped_snapshot_phase_snapshot() {
+        let (mut ui, buffer) = capture_ui(false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Ready {
+                provider:    "docker".into(),
+                duration_ms: 20,
+                name:        None,
+                cpu:         None,
+                memory:      None,
+                url:         None,
+            },
+        });
+
+        insta::assert_snapshot!(rendered(&buffer), @"    Sandbox: docker (ready in 20ms)");
+    }
+
+    #[test]
+    fn plain_snapshot_failure_snapshot() {
+        let (mut ui, buffer) = capture_ui(false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotFailed {
+                name:   "buildpack-deps:noble".into(),
+                error:  "pull failed".into(),
+                causes: Vec::new(),
+            },
+        });
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::InitializeFailed {
+                provider:    "docker".into(),
+                error:       "pull failed".into(),
+                causes:      Vec::new(),
+                duration_ms: 900,
+            },
+        });
+
+        insta::assert_snapshot!(rendered(&buffer), @r"
+            Sandbox: Snapshot buildpack-deps:noble failed: pull failed
+            Sandbox: docker failed: pull failed
+        ");
+    }
+
+    #[test]
+    fn tty_snapshot_ready_keeps_sandbox_bar_until_sandbox_ready() {
+        let mut ui = ProgressUI::new(true, false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
+            },
+        });
+        assert!(ui.setup.sandbox_bar.is_some());
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::SnapshotReady {
+                name:        "buildpack-deps:noble".into(),
+                duration_ms: 10,
+            },
+        });
+        assert!(ui.setup.sandbox_bar.is_some());
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Ready {
+                provider:    "docker".into(),
+                duration_ms: 20,
+                name:        None,
+                cpu:         None,
+                memory:      None,
+                url:         None,
+            },
+        });
+        assert!(ui.setup.sandbox_bar.is_none());
+    }
+
+    #[test]
+    fn tty_sandbox_failed_finishes_sandbox_bar() {
+        let mut ui = ProgressUI::new(true, false);
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::Initializing {
+                provider: "docker".into(),
+            },
+        });
+        assert!(ui.setup.sandbox_bar.is_some());
+
+        emit(&mut ui, Event::Sandbox {
+            event: SandboxEvent::InitializeFailed {
+                provider:    "docker".into(),
+                error:       "pull failed".into(),
+                causes:      Vec::new(),
+                duration_ms: 900,
+            },
+        });
+        assert!(ui.setup.sandbox_bar.is_none());
     }
 
     #[test]

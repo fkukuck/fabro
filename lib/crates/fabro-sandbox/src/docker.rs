@@ -93,6 +93,12 @@ pub struct DockerSandbox {
     event_callback:    Option<SandboxEventCallback>,
 }
 
+enum EnsureImageOutcome {
+    Skipped,
+    AlreadyLocal,
+    Pulled,
+}
+
 impl DockerSandbox {
     pub fn new(
         config: DockerSandboxOptions,
@@ -441,13 +447,13 @@ impl DockerSandbox {
         Ok(())
     }
 
-    async fn ensure_image(&self) -> crate::Result<()> {
+    async fn ensure_image(&self) -> crate::Result<EnsureImageOutcome> {
         if !self.config.auto_pull {
-            return Ok(());
+            return Ok(EnsureImageOutcome::Skipped);
         }
 
         match self.docker.inspect_image(&self.config.image).await {
-            Ok(_) => return Ok(()),
+            Ok(_) => return Ok(EnsureImageOutcome::AlreadyLocal),
             Err(e) if docker_not_found(&e) => {}
             Err(e) => {
                 return Err(crate::Error::docker_image_inspect(
@@ -469,12 +475,15 @@ impl DockerSandbox {
             ..Default::default()
         };
 
+        self.emit(SandboxEvent::SnapshotPulling {
+            name: self.config.image.clone(),
+        });
         let mut stream = self.docker.create_image(Some(opts), None, None);
         while let Some(result) = stream.next().await {
             result.map_err(|e| crate::Error::docker_image_pull(self.config.image.clone(), e))?;
         }
 
-        Ok(())
+        Ok(EnsureImageOutcome::Pulled)
     }
 
     async fn create_workspace(&self) -> crate::Result<()> {
@@ -972,18 +981,26 @@ impl Sandbox for DockerSandbox {
         });
         let init_start = Instant::now();
 
-        self.emit(SandboxEvent::SnapshotPulling {
-            name: self.config.image.clone(),
-        });
         let pull_start = Instant::now();
-        if let Err(e) = self.ensure_image().await {
-            return Err(self.fail_init(init_start, e));
+        match self.ensure_image().await {
+            Ok(EnsureImageOutcome::Skipped) => {}
+            Ok(EnsureImageOutcome::AlreadyLocal | EnsureImageOutcome::Pulled) => {
+                let pull_duration =
+                    u64::try_from(pull_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.emit(SandboxEvent::SnapshotReady {
+                    name:        self.config.image.clone(),
+                    duration_ms: pull_duration,
+                });
+            }
+            Err(e) => {
+                self.emit(SandboxEvent::SnapshotFailed {
+                    name:   self.config.image.clone(),
+                    error:  e.to_string(),
+                    causes: e.causes(),
+                });
+                return Err(self.fail_init(init_start, e));
+            }
         }
-        let pull_duration = u64::try_from(pull_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.emit(SandboxEvent::SnapshotPulled {
-            name:        self.config.image.clone(),
-            duration_ms: pull_duration,
-        });
 
         let container_name = self
             .ensure_name_available()

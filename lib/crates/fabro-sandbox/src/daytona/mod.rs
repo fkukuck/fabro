@@ -437,6 +437,9 @@ impl DaytonaSandbox {
                     }
                     _ => {
                         // Building/Pending/Pulling — fall through to poll
+                        self.emit(SandboxEvent::SnapshotCreating {
+                            name: snap_cfg.name.clone(),
+                        });
                     }
                 }
             }
@@ -456,6 +459,10 @@ impl DaytonaSandbox {
                         )));
                     }
                 };
+
+                self.emit(SandboxEvent::SnapshotCreating {
+                    name: snap_cfg.name.clone(),
+                });
 
                 let params = daytona_sdk::CreateSnapshotParams {
                     name:       snap_cfg.name.clone(),
@@ -627,9 +634,6 @@ impl Sandbox for DaytonaSandbox {
         let init_start = Instant::now();
 
         let params = if let Some(ref snap_cfg) = self.config.snapshot {
-            self.emit(SandboxEvent::SnapshotEnsuring {
-                name: snap_cfg.name.clone(),
-            });
             let snap_start = Instant::now();
             if let Err(e) = self.ensure_snapshot(snap_cfg).await {
                 self.emit(SandboxEvent::SnapshotFailed {

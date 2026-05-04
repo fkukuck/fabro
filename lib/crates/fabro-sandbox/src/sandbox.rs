@@ -254,17 +254,8 @@ pub enum SandboxEvent {
         causes:   Vec<String>,
     },
 
-    // -- Docker --
+    // -- Snapshot lifecycle --
     SnapshotPulling {
-        name: String,
-    },
-    SnapshotPulled {
-        name:        String,
-        duration_ms: u64,
-    },
-
-    // -- Daytona snapshots --
-    SnapshotEnsuring {
         name: String,
     },
     SnapshotCreating {
@@ -338,12 +329,6 @@ impl SandboxEvent {
             }
             Self::SnapshotPulling { name } => {
                 debug!(name, "Snapshot pulling");
-            }
-            Self::SnapshotPulled { name, duration_ms } => {
-                debug!(name, duration_ms, "Snapshot pulled");
-            }
-            Self::SnapshotEnsuring { name } => {
-                debug!(name, "Snapshot ensuring");
             }
             Self::SnapshotCreating { name } => {
                 debug!(name, "Snapshot creating");
@@ -1168,13 +1153,6 @@ mod tests {
             SandboxEvent::SnapshotPulling {
                 name: "ubuntu:22.04".into(),
             },
-            SandboxEvent::SnapshotPulled {
-                name:        "ubuntu:22.04".into(),
-                duration_ms: 5000,
-            },
-            SandboxEvent::SnapshotEnsuring {
-                name: "my-snap".into(),
-            },
             SandboxEvent::SnapshotCreating {
                 name: "my-snap".into(),
             },
@@ -1202,7 +1180,7 @@ mod tests {
             },
         ];
 
-        assert_eq!(events.len(), 15, "should test all 15 variants");
+        assert_eq!(events.len(), 13, "should test all 13 variants");
 
         for event in &events {
             let json = serde_json::to_string(event).unwrap();

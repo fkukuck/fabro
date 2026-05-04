@@ -769,15 +769,6 @@ fn event_body_from_event(event: &Event) -> EventBody {
             SandboxEvent::SnapshotPulling { name } => {
                 EventBody::SnapshotPulling(fabro_types::SnapshotNameProps { name: name.clone() })
             }
-            SandboxEvent::SnapshotPulled { name, duration_ms } => {
-                EventBody::SnapshotPulled(fabro_types::SnapshotCompletedProps {
-                    name:        name.clone(),
-                    duration_ms: *duration_ms,
-                })
-            }
-            SandboxEvent::SnapshotEnsuring { name } => {
-                EventBody::SnapshotEnsuring(fabro_types::SnapshotNameProps { name: name.clone() })
-            }
             SandboxEvent::SnapshotCreating { name } => {
                 EventBody::SnapshotCreating(fabro_types::SnapshotNameProps { name: name.clone() })
             }

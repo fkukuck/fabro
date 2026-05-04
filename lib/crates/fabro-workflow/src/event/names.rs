@@ -92,8 +92,6 @@ pub fn event_name(event: &Event) -> &'static str {
             SandboxEvent::CleanupCompleted { .. } => "sandbox.cleanup.completed",
             SandboxEvent::CleanupFailed { .. } => "sandbox.cleanup.failed",
             SandboxEvent::SnapshotPulling { .. } => "sandbox.snapshot.pulling",
-            SandboxEvent::SnapshotPulled { .. } => "sandbox.snapshot.pulled",
-            SandboxEvent::SnapshotEnsuring { .. } => "sandbox.snapshot.ensuring",
             SandboxEvent::SnapshotCreating { .. } => "sandbox.snapshot.creating",
             SandboxEvent::SnapshotReady { .. } => "sandbox.snapshot.ready",
             SandboxEvent::SnapshotFailed { .. } => "sandbox.snapshot.failed",
