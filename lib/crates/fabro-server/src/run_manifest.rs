@@ -15,7 +15,8 @@ use fabro_config::{
 use fabro_graphviz::graph::{Graph, is_llm_handler_type};
 use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
-use fabro_model::Catalog;
+use fabro_llm::model_test::{ModelTestMode, ModelTestStatus, run_model_test};
+use fabro_model::{Catalog, Model, ModelCosts, ModelFeatures, ModelLimits};
 use fabro_sandbox::config::{
     DaytonaNetwork, DaytonaSnapshotSettings, DockerfileSource as SandboxDockerfileSource,
 };
@@ -930,6 +931,7 @@ async fn run_llm_check(
                 .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>();
             let auth_issues = result.auth_issues;
+            let client = Arc::new(result.client);
             let mut model_providers = std::collections::BTreeSet::new();
             let mut has_llm_nodes = false;
 
@@ -985,13 +987,34 @@ async fn run_llm_check(
                             all_ok = false;
                             Some(format!("Provider \"{provider_name}\" is not configured"))
                         } else {
-                            None
+                            let probe_model = preflight_probe_model(model_id, provider);
+                            let outcome = run_model_test(
+                                &probe_model,
+                                ModelTestMode::Basic,
+                                Arc::clone(&client),
+                            )
+                            .await;
+                            if outcome.status == ModelTestStatus::Ok {
+                                None
+                            } else {
+                                status = CheckStatus::Error;
+                                all_ok = false;
+                                Some(format!(
+                                    "Model availability probe failed: {}",
+                                    outcome
+                                        .error_message
+                                        .unwrap_or_else(|| "unknown error".to_string())
+                                ))
+                            }
                         };
                         checks.push(CheckResult {
                             name: "LLM".into(),
                             status,
                             summary: model_id.clone(),
-                            details: vec![CheckDetail::new(format!("Provider: {provider_name}"))],
+                            details: vec![
+                                CheckDetail::new(format!("Provider: {provider_name}")),
+                                CheckDetail::new("Probe: basic generation"),
+                            ],
                             remediation,
                         });
                     }
@@ -1023,6 +1046,42 @@ async fn run_llm_check(
             });
             false
         }
+    }
+}
+
+fn preflight_probe_model(model_id: &str, provider: Provider) -> Model {
+    if let Some(info) = Catalog::builtin().get(model_id) {
+        let mut model = info.clone();
+        model.provider = provider;
+        return model;
+    }
+
+    Model {
+        id:                   model_id.to_string(),
+        provider,
+        family:               "custom".to_string(),
+        display_name:         model_id.to_string(),
+        limits:               ModelLimits {
+            context_window: 0,
+            max_output:     None,
+        },
+        training:             None,
+        knowledge_cutoff:     None,
+        features:             ModelFeatures {
+            tools:     false,
+            vision:    false,
+            reasoning: false,
+            effort:    false,
+        },
+        costs:                ModelCosts {
+            input_cost_per_mtok:       None,
+            output_cost_per_mtok:      None,
+            cache_input_cost_per_mtok: None,
+        },
+        estimated_output_tps: None,
+        aliases:              Vec::new(),
+        default:              false,
+        configured:           true,
     }
 }
 
@@ -1826,5 +1885,86 @@ provider = "daytona"
                 .iter()
                 .any(|check| check.name == "Sandbox")
         );
+    }
+
+    #[tokio::test]
+    async fn preflight_probes_configured_llm_model_availability() {
+        let server = httpmock::MockServer::start_async().await;
+        let response_mock = server
+            .mock_async(|when, then| {
+                when.method(httpmock::Method::POST)
+                    .path("/v1/responses")
+                    .header("authorization", "Bearer test-openai-key");
+                then.status(429)
+                    .header("content-type", "application/json")
+                    .json_body(serde_json::json!({
+                        "error": {
+                            "message": "quota limited",
+                            "type": "rate_limit_error"
+                        }
+                    }));
+            })
+            .await;
+        let base_url = server.url("/v1");
+        let state = crate::test_support::test_app_state_with_env_lookup(
+            crate::test_support::default_test_server_settings(),
+            RunLayer::default(),
+            5,
+            move |name| (name == "OPENAI_BASE_URL").then(|| base_url.clone()),
+        );
+        state
+            .vault
+            .write()
+            .await
+            .set(
+                "openai",
+                &serde_json::to_string(&fabro_auth::AuthCredential {
+                    provider: Provider::OpenAi,
+                    details:  fabro_auth::AuthDetails::ApiKey {
+                        key: "test-openai-key".to_string(),
+                    },
+                })
+                .unwrap(),
+                fabro_vault::SecretType::Credential,
+                None,
+            )
+            .unwrap();
+
+        let mut manifest = minimal_manifest();
+        manifest.workflows.get_mut("workflow.fabro").unwrap().source = r#"
+digraph Demo {
+    start [shape=Mdiamond]
+    exit  [shape=Msquare]
+    work  [prompt="Do work", model="gpt-54"]
+    start -> work -> exit
+}
+"#
+        .to_string();
+        let prepared = prepare_manifest(
+            &manifest_run_defaults(Some(&default_settings_fixture())),
+            &manifest,
+        )
+        .unwrap();
+        let validated = validate_prepared_manifest(&prepared).unwrap();
+
+        let (response, ok) = run_preflight(state.as_ref(), &prepared, &validated)
+            .await
+            .unwrap();
+
+        assert!(!ok);
+        let llm_check = response.checks.sections[0]
+            .checks
+            .iter()
+            .find(|check| check.name == "LLM" && check.summary == "gpt-5.4")
+            .expect("preflight should include the configured LLM model");
+        assert_eq!(llm_check.status, types::PreflightCheckResultStatus::Error);
+        assert!(
+            llm_check
+                .remediation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Rate limited by openai: quota limited")
+        );
+        response_mock.assert_async().await;
     }
 }

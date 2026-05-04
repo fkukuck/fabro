@@ -116,7 +116,7 @@ pub async fn git_checkpoint(
     let mut message = trailerlink::format_message(&subject, "", &trailers);
     author.append_footer(&mut message);
 
-    let msg_path = format!("/tmp/fabro-commit-msg-{run_id}-{node_id}");
+    let msg_path = format!("/tmp/fabro-commit-msg-{}", uuid::Uuid::new_v4());
     if let Err(e) = sandbox.write_file(&msg_path, &message).await {
         return Err(GitCommandError {
             message: "failed to write commit message file".to_string(),
@@ -124,14 +124,16 @@ pub async fn git_checkpoint(
         });
     }
 
+    let msg_path_q = shell_quote(&msg_path);
     let commit_cmd = format!(
-        "{GIT_REMOTE} -c user.name={name} -c user.email={email} commit --allow-empty -F {msg_path}",
+        "{GIT_REMOTE} -c user.name={name} -c user.email={email} commit --allow-empty -F {msg_path_q}",
         name = shell_quote(&author.name),
         email = shell_quote(&author.email),
     );
     let commit_result = sandbox
         .exec_command(&commit_cmd, 30_000, None, None, None)
         .await;
+    let _ = sandbox.delete_file(&msg_path).await;
     match commit_result {
         Ok(r) if r.is_success() => {}
         Ok(r) => return Err(exec_err("git commit", r)),
@@ -848,13 +850,40 @@ mod tests {
 
     struct ScriptedSandbox {
         exec_results: Mutex<VecDeque<ExecResult>>,
+        commands:     Mutex<Vec<String>>,
+        write_paths:  Mutex<Vec<String>>,
+        delete_paths: Mutex<Vec<String>>,
     }
 
     impl ScriptedSandbox {
         fn new(exec_results: Vec<ExecResult>) -> Self {
             Self {
                 exec_results: Mutex::new(exec_results.into()),
+                commands:     Mutex::new(Vec::new()),
+                write_paths:  Mutex::new(Vec::new()),
+                delete_paths: Mutex::new(Vec::new()),
             }
+        }
+
+        fn commands(&self) -> Vec<String> {
+            self.commands
+                .lock()
+                .expect("commands lock poisoned")
+                .clone()
+        }
+
+        fn write_paths(&self) -> Vec<String> {
+            self.write_paths
+                .lock()
+                .expect("write_paths lock poisoned")
+                .clone()
+        }
+
+        fn delete_paths(&self) -> Vec<String> {
+            self.delete_paths
+                .lock()
+                .expect("delete_paths lock poisoned")
+                .clone()
         }
     }
 
@@ -869,11 +898,19 @@ mod tests {
             Err("read_file not implemented for ScriptedSandbox".into())
         }
 
-        async fn write_file(&self, _path: &str, _content: &str) -> fabro_sandbox::Result<()> {
+        async fn write_file(&self, path: &str, _content: &str) -> fabro_sandbox::Result<()> {
+            self.write_paths
+                .lock()
+                .expect("write_paths lock poisoned")
+                .push(path.to_string());
             Ok(())
         }
 
-        async fn delete_file(&self, _path: &str) -> fabro_sandbox::Result<()> {
+        async fn delete_file(&self, path: &str) -> fabro_sandbox::Result<()> {
+            self.delete_paths
+                .lock()
+                .expect("delete_paths lock poisoned")
+                .push(path.to_string());
             Ok(())
         }
 
@@ -891,12 +928,16 @@ mod tests {
 
         async fn exec_command(
             &self,
-            _command: &str,
+            command: &str,
             _timeout_ms: u64,
             _working_dir: Option<&str>,
             _env_vars: Option<&std::collections::HashMap<String, String>>,
             _cancel_token: Option<CancellationToken>,
         ) -> fabro_sandbox::Result<ExecResult> {
+            self.commands
+                .lock()
+                .expect("commands lock poisoned")
+                .push(command.to_string());
             self.exec_results
                 .lock()
                 .expect("exec_results lock poisoned")
@@ -1086,6 +1127,57 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.to_string(), "git rev-parse HEAD failed (exit -1)");
+    }
+
+    #[tokio::test]
+    async fn git_checkpoint_uses_unique_commit_message_paths_for_same_run_and_node() {
+        let sandbox = ScriptedSandbox::new(vec![
+            exec_ok(),
+            exec_ok(),
+            exec_ok(),
+            exec_ok(),
+            exec_ok(),
+            exec_ok(),
+        ]);
+        let author = crate::git::GitAuthor::default();
+
+        let first =
+            git_checkpoint(&sandbox, "run1", "work", "success", 1, None, &[], &author).await;
+        let second =
+            git_checkpoint(&sandbox, "run1", "work", "success", 1, None, &[], &author).await;
+
+        assert!(first.is_ok(), "first checkpoint failed: {:?}", first.err());
+        assert!(
+            second.is_ok(),
+            "second checkpoint failed: {:?}",
+            second.err()
+        );
+
+        let write_paths = sandbox.write_paths();
+        assert_eq!(write_paths.len(), 2);
+        assert!(
+            write_paths
+                .iter()
+                .all(|path| path.starts_with("/tmp/fabro-commit-msg-")),
+            "unexpected commit message paths: {write_paths:?}"
+        );
+        assert_ne!(write_paths[0], write_paths[1]);
+
+        let delete_paths = sandbox.delete_paths();
+        assert_eq!(delete_paths, write_paths);
+
+        let commands = sandbox.commands();
+        let commit_commands = commands
+            .iter()
+            .filter(|command| command.contains(" commit "))
+            .collect::<Vec<_>>();
+        assert_eq!(commit_commands.len(), 2);
+        for (command, path) in commit_commands.iter().zip(write_paths.iter()) {
+            assert!(
+                command.contains(&format!("-F {}", shell_quote(path))),
+                "expected commit command to use {path:?}, got {command:?}"
+            );
+        }
     }
 
     #[tokio::test]
