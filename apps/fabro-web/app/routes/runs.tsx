@@ -64,6 +64,28 @@ type Column = {
   items: RunItem[];
 };
 
+const SKELETON_STATUSES: ColumnStatus[] = [
+  "initializing",
+  "running",
+  "blocked",
+  "succeeded",
+  "failed",
+];
+
+function buildSkeletonColumns(): Column[] {
+  return SKELETON_STATUSES.map((id) => {
+    const colors = columnStatusDisplay[id];
+    return {
+      id,
+      name: colors.label,
+      dot: colors.dot,
+      text: colors.text,
+      ...(columnStyles[id] ?? defaultColumnStyle),
+      items: [],
+    };
+  });
+}
+
 export function buildBoardColumns(response: BoardRunsResponse): Column[] {
   const grouped = new Map<string, RunItem[]>();
   for (const col of response.columns) {
@@ -668,8 +690,12 @@ export default function Runs() {
   const boardRuns = useBoardsRuns();
   const authConfig = useAuthConfig();
   const systemInfo = useSystemInfo();
+  const isLandingReady =
+    boardRuns.data !== undefined &&
+    authConfig.data !== undefined &&
+    systemInfo.data !== undefined;
   const initialColumns = useMemo(
-    () => boardRuns.data ? buildBoardColumns(boardRuns.data) : [],
+    () => boardRuns.data ? buildBoardColumns(boardRuns.data) : buildSkeletonColumns(),
     [boardRuns.data],
   );
   const hasGitHubAuth = authConfig.data?.methods.includes("github") === true;
@@ -795,12 +821,12 @@ export default function Runs() {
                 </div>
               ))}
             </div>
-            {totalRuns === 0 ? (
+            {isLandingReady && totalRuns === 0 ? (
               <RunsLandingEmpty
                 hasGitHubAuth={hasGitHubAuth}
                 serverUrl={serverUrl}
               />
-            ) : filteredRuns === 0 ? (
+            ) : totalRuns > 0 && filteredRuns === 0 ? (
               <div className="py-8">
                 <EmptyState
                   title="No matching runs"
@@ -850,12 +876,12 @@ export default function Runs() {
                 );
               })}
             </div>
-            {totalRuns === 0 ? (
+            {isLandingReady && totalRuns === 0 ? (
               <RunsLandingEmpty
                 hasGitHubAuth={hasGitHubAuth}
                 serverUrl={serverUrl}
               />
-            ) : filteredRuns === 0 ? (
+            ) : totalRuns > 0 && filteredRuns === 0 ? (
               <div className="py-8">
                 <EmptyState
                   title="No matching runs"
