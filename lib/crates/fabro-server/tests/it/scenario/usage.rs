@@ -116,17 +116,25 @@ fn assert_non_llm_billing(billing: &serde_json::Value, expected_stage_ids: &[&st
     stage_ids.sort();
     assert_eq!(stage_ids, expected_stage_ids);
 
-    let mut runtime_secs = 0.0;
-    for stage in stages {
-        assert!(stage["model"].is_null());
-        assert_eq!(stage["billing"]["input_tokens"], 0);
-        assert_eq!(stage["billing"]["output_tokens"], 0);
-        assert_eq!(stage["billing"]["reasoning_tokens"], 0);
-        assert!(stage["billing"]["total_usd_micros"].is_null());
-        runtime_secs += stage["runtime_secs"]
-            .as_f64()
-            .expect("stage should include runtime_secs");
-    }
+    assert!(
+        stages.iter().all(|stage| {
+            stage["model"].is_null()
+                && stage["billing"]["input_tokens"] == 0
+                && stage["billing"]["output_tokens"] == 0
+                && stage["billing"]["reasoning_tokens"] == 0
+                && stage["billing"]["total_usd_micros"].is_null()
+        }),
+        "every non-LLM stage should have null model and zero token counts: {stages:?}"
+    );
+
+    let runtime_secs: f64 = stages
+        .iter()
+        .map(|stage| {
+            stage["runtime_secs"]
+                .as_f64()
+                .expect("stage should include runtime_secs")
+        })
+        .sum();
 
     assert_eq!(
         billing["by_model"]
@@ -142,8 +150,5 @@ fn assert_non_llm_billing(billing: &serde_json::Value, expected_stage_ids: &[&st
     let total_runtime_secs = billing["totals"]["runtime_secs"]
         .as_f64()
         .expect("totals should include runtime_secs");
-    assert!(
-        (total_runtime_secs - runtime_secs).abs() < f64::EPSILON,
-        "expected total runtime {total_runtime_secs} to equal stage runtime sum {runtime_secs}"
-    );
+    assert_eq!(total_runtime_secs, runtime_secs);
 }

@@ -20,23 +20,32 @@ function mapBilling(billing: RunBilling | undefined) {
       stages: [],
       totalRuntime: formatDurationSecs(0),
       totalUsdMicros: undefined,
-      totalInput: 0,
-      totalOutput: 0,
+      totalInput: null,
+      totalOutput: null,
       modelBreakdown: [],
+      modelStageCount: 0,
     };
   }
 
-  const stages = billing.stages.map((stage) => ({
-    stage: stage.stage.name,
-    model: stage.model?.id ?? null,
-    inputTokens: stage.model ? stage.billing.input_tokens : null,
-    outputTokens: stage.model ? stage.billing.output_tokens + stage.billing.reasoning_tokens : null,
-    runtime: formatDurationSecs(stage.runtime_secs),
-    totalUsdMicros: stage.billing.total_usd_micros,
-  }));
+  const stages = billing.stages.map((stage) => {
+    const hasModel = stage.model != null;
+    return {
+      stage: stage.stage.name,
+      model: stage.model?.id ?? null,
+      inputTokens: hasModel ? stage.billing.input_tokens : null,
+      outputTokens: hasModel
+        ? stage.billing.output_tokens + stage.billing.reasoning_tokens
+        : null,
+      runtime: formatDurationSecs(stage.runtime_secs),
+      totalUsdMicros: stage.billing.total_usd_micros,
+    };
+  });
   const totalRuntime = formatDurationSecs(billing.totals.runtime_secs);
-  const totalInput = billing.totals.input_tokens;
-  const totalOutput = billing.totals.output_tokens + billing.totals.reasoning_tokens;
+  const hasLlmStages = billing.by_model.length > 0;
+  const totalInput = hasLlmStages ? billing.totals.input_tokens : null;
+  const totalOutput = hasLlmStages
+    ? billing.totals.output_tokens + billing.totals.reasoning_tokens
+    : null;
   const totalUsdMicros = billing.totals.total_usd_micros;
   const modelBreakdown = billing.by_model
     .map((entry) => ({
@@ -47,14 +56,29 @@ function mapBilling(billing: RunBilling | undefined) {
       totalUsdMicros: entry.billing.total_usd_micros,
     }))
     .sort((a, b) => (b.totalUsdMicros ?? -1) - (a.totalUsdMicros ?? -1));
-  return { stages, totalRuntime, totalUsdMicros, totalInput, totalOutput, modelBreakdown };
+  const modelStageCount = modelBreakdown.reduce((sum, row) => sum + row.stages, 0);
+  return {
+    stages,
+    totalRuntime,
+    totalUsdMicros,
+    totalInput,
+    totalOutput,
+    modelBreakdown,
+    modelStageCount,
+  };
 }
 
 export default function RunBilling({ params }: { params: { id: string } }) {
   const billingQuery = useRunBilling(params.id);
-  const loaderData = mapBilling(billingQuery.data);
-  const { stages, totalRuntime, totalUsdMicros, totalInput, totalOutput, modelBreakdown } =
-    loaderData;
+  const {
+    stages,
+    totalRuntime,
+    totalUsdMicros,
+    totalInput,
+    totalOutput,
+    modelBreakdown,
+    modelStageCount,
+  } = mapBilling(billingQuery.data);
 
   if (!stages.length) {
     return (
@@ -103,9 +127,8 @@ export default function RunBilling({ params }: { params: { id: string } }) {
               <td className="px-4 py-3 font-medium text-fg">Total</td>
               <td />
               <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
-                {formatTokens(modelBreakdown.length ? totalInput : null)}{" "}
-                <span className="text-fg-muted">/</span>{" "}
-                {formatTokens(modelBreakdown.length ? totalOutput : null)}
+                {formatTokens(totalInput)} <span className="text-fg-muted">/</span>{" "}
+                {formatTokens(totalOutput)}
               </td>
               <td className="px-4 py-3 text-right font-mono text-xs font-medium text-fg">
                 {totalRuntime}
@@ -152,7 +175,7 @@ export default function RunBilling({ params }: { params: { id: string } }) {
                 <tr className="border-t border-line-strong bg-overlay">
                   <td className="px-4 py-3 font-medium text-fg">Total</td>
                   <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
-                    {modelBreakdown.reduce((sum, row) => sum + row.stages, 0)}
+                    {modelStageCount}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs tabular-nums font-medium text-fg">
                     {formatTokens(totalInput)} <span className="text-fg-muted">/</span>{" "}

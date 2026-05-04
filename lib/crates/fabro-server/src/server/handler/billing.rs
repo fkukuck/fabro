@@ -201,18 +201,7 @@ async fn get_run_billing(
             accumulate_model_billing(by_model_totals.entry(model_id.clone()).or_default(), usage);
             (billing, Some(ModelReference { id: model_id }))
         } else {
-            (
-                BilledTokenCounts {
-                    cache_read_tokens:  0,
-                    cache_write_tokens: 0,
-                    input_tokens:       0,
-                    output_tokens:      0,
-                    reasoning_tokens:   0,
-                    total_tokens:       0,
-                    total_usd_micros:   None,
-                },
-                None,
-            )
+            (BilledTokenCounts::default(), None)
         };
 
         stages.push(RunBillingStage {
