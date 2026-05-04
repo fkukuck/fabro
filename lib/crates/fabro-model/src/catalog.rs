@@ -226,7 +226,7 @@ mod tests {
         let m = Catalog::builtin()
             .default_for_provider(Provider::Anthropic)
             .unwrap();
-        assert_eq!(m.id, "claude-sonnet-4-6");
+        assert_eq!(m.id, "claude-opus-4-7");
         assert!(m.default);
 
         let m = Catalog::builtin()
@@ -253,7 +253,7 @@ mod tests {
         let m = Catalog::builtin()
             .probe_for_provider(Provider::Anthropic)
             .unwrap();
-        assert_eq!(m.id, "claude-sonnet-4-6");
+        assert_eq!(m.id, "claude-opus-4-7");
     }
 
     #[test]
