@@ -971,7 +971,8 @@ async fn check_install_daytona_api_key(
         .as_deref()
         .unwrap_or(daytona::DEFAULT_DAYTONA_API_URL);
     let organization_id = state.upstreams.daytona_organization_id.as_deref();
-    daytona::check_daytona_api_key_with(base_url, organization_id, api_key).await
+    let http_client = fabro_http::http_client().context("failed to build HTTP client")?;
+    daytona::check_daytona_api_key_with(base_url, organization_id, api_key, http_client).await
 }
 
 async fn put_install_sandbox(

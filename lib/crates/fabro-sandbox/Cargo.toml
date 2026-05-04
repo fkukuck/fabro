@@ -10,7 +10,7 @@ description = "Sandbox trait and implementations for Fabro agent execution envir
 default = ["local"]
 local = []
 docker = ["dep:bollard", "dep:tar", "dep:futures", "dep:fabro-github"]
-daytona = ["dep:daytona-sdk", "dep:daytona-api-client", "dep:git2", "dep:fabro-github", "dep:fabro-config", "dep:chrono", "dep:rand"]
+daytona = ["dep:daytona-sdk", "dep:daytona-api-client", "dep:git2", "dep:fabro-github", "dep:fabro-config", "dep:fabro-http", "dep:reqwest-middleware", "dep:chrono", "dep:rand"]
 test-support = []
 
 [lib]
@@ -55,6 +55,8 @@ rand = { workspace = true, optional = true }
 daytona-sdk = { workspace = true, optional = true }
 daytona-api-client = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
+fabro-http = { workspace = true, optional = true }
+reqwest-middleware = { version = "0.5", features = ["json", "multipart", "form", "query"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
@@ -63,3 +65,4 @@ uuid.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 httpmock = "0.8"
+fabro-test.workspace = true

@@ -105,18 +105,20 @@ fn perm_wire_str(permission: Permissions) -> &'static str {
 async fn build_daytona_client(
     api_key: Option<String>,
 ) -> Result<daytona_sdk::Client, daytona_sdk::DaytonaError> {
-    build_daytona_client_with(api_key, None, None).await
+    build_daytona_client_with(api_key, None, None, None).await
 }
 
 async fn build_daytona_client_with(
     api_key: Option<String>,
     api_url: Option<String>,
     organization_id: Option<String>,
+    http_client: Option<fabro_http::HttpClient>,
 ) -> Result<daytona_sdk::Client, daytona_sdk::DaytonaError> {
     let sdk_config = daytona_sdk::DaytonaConfig {
         api_key,
         api_url,
         organization_id,
+        http_client,
         ..Default::default()
     };
     daytona_sdk::Client::new_with_config(sdk_config).await
@@ -131,19 +133,22 @@ pub async fn check_daytona_api_key(api_key: String) -> anyhow::Result<DaytonaKey
         .or_else(|_| std::env::var(EnvVars::DAYTONA_SERVER_URL))
         .unwrap_or_else(|_| DEFAULT_DAYTONA_API_URL.to_string());
     let org_id = std::env::var(EnvVars::DAYTONA_ORGANIZATION_ID).ok();
-    check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key).await
+    let http_client = fabro_http::http_client().context("failed to build HTTP client")?;
+    check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key, http_client).await
 }
 
 pub async fn check_daytona_api_key_with(
     base_url: &str,
     org_id: Option<&str>,
     api_key: String,
+    http_client: fabro_http::HttpClient,
 ) -> anyhow::Result<DaytonaKeyCheck> {
     let work = async {
         let client = build_daytona_client_with(
             Some(api_key.clone()),
             Some(base_url.to_string()),
             org_id.map(str::to_string),
+            Some(http_client.clone()),
         )
         .await
         .map_err(anyhow::Error::new)
@@ -154,7 +159,7 @@ pub async fn check_daytona_api_key_with(
             .map_err(anyhow::Error::new)
             .context("failed to authenticate with Daytona")?;
 
-        let api_config = build_api_keys_configuration(base_url, &api_key);
+        let api_config = build_api_keys_configuration(base_url, &api_key, http_client);
         let info = api_keys_api::get_current_api_key(&api_config, org_id)
             .await
             .map_err(anyhow::Error::new)
@@ -180,11 +185,16 @@ pub async fn check_daytona_api_key_with(
     }
 }
 
-fn build_api_keys_configuration(base_url: &str, api_key: &str) -> Configuration {
+fn build_api_keys_configuration(
+    base_url: &str,
+    api_key: &str,
+    http_client: fabro_http::HttpClient,
+) -> Configuration {
     let mut cfg = Configuration::new();
     cfg.base_path = base_url.to_string();
     cfg.bearer_access_token = Some(api_key.to_string());
     cfg.user_agent = Some(FABRO_SANDBOX_USER_AGENT.to_string());
+    cfg.client = reqwest_middleware::ClientBuilder::new(http_client).build();
     cfg
 }
 
@@ -1985,9 +1995,14 @@ mod tests {
         ])
         .await;
 
-        let check = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
-            .await
-            .expect("probe should succeed");
+        let check = check_daytona_api_key_with(
+            &server.base_url(),
+            None,
+            "dtn_test".to_string(),
+            fabro_test::test_http_client(),
+        )
+        .await
+        .expect("probe should succeed");
 
         assert!(!check.ok());
         assert_eq!(check.key_name, "delete-only");
@@ -2008,9 +2023,14 @@ mod tests {
         ])
         .await;
 
-        let check = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
-            .await
-            .expect("probe should succeed");
+        let check = check_daytona_api_key_with(
+            &server.base_url(),
+            None,
+            "dtn_test".to_string(),
+            fabro_test::test_http_client(),
+        )
+        .await
+        .expect("probe should succeed");
 
         assert!(check.ok());
         assert!(check.missing.is_empty());
@@ -2023,9 +2043,14 @@ mod tests {
         let server = MockServer::start_async().await;
         let auth = mock_auth_probe(&server, 401).await;
 
-        let err = check_daytona_api_key_with(&server.base_url(), None, "dtn_test".to_string())
-            .await
-            .expect_err("auth probe should fail");
+        let err = check_daytona_api_key_with(
+            &server.base_url(),
+            None,
+            "dtn_test".to_string(),
+            fabro_test::test_http_client(),
+        )
+        .await
+        .expect_err("auth probe should fail");
         let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
 
         assert!(

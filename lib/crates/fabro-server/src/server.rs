@@ -628,7 +628,9 @@ impl AppState {
             .unwrap_or_else(|| daytona::DEFAULT_DAYTONA_API_URL.to_string());
         let org_id = self.env_lookup_or_vault_or_env(EnvVars::DAYTONA_ORGANIZATION_ID);
 
-        daytona::check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key).await
+        let http_client = fabro_http::http_client().context("failed to build HTTP client")?;
+        daytona::check_daytona_api_key_with(&base_url, org_id.as_deref(), api_key, http_client)
+            .await
     }
 
     /// Public accessor used by `run_files` — mirrors `vault_or_env` without
