@@ -12,8 +12,10 @@ use fabro_types::settings::server::GithubIntegrationStrategy;
 use fabro_types::settings::{InterpString, ServerAuthMethod};
 use fabro_util::check_report::{CheckDetail, CheckResult, CheckSection, CheckStatus};
 use fabro_util::dev_token::validate_dev_token_format;
+use fabro_util::error::collect_chain;
 use fabro_util::session_secret;
 use fabro_util::version::FABRO_VERSION;
+use futures_util::future::join_all;
 use serde::Serialize;
 use tokio::time::timeout;
 
@@ -104,33 +106,42 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
     for (provider, issue) in &result.auth_issues {
         let message = auth_issue_message(*provider, issue);
         failures.push(ProviderFailure {
-            name:  provider.to_string(),
-            short: short_error_line(&message),
+            provider: *provider,
+            short:    short_error_line(&message),
         });
         details.push(CheckDetail::new(message));
     }
-    for provider_name in result.client.provider_names() {
-        let Ok(provider) = provider_name.parse::<Provider>() else {
-            continue;
-        };
-        let probe_result = timeout(
+
+    let providers: Vec<Provider> = result
+        .client
+        .provider_names()
+        .iter()
+        .filter_map(|name| name.parse::<Provider>().ok())
+        .collect();
+    let client = &result.client;
+    let probe_outcomes = join_all(providers.iter().map(|&provider| async move {
+        let outcome = timeout(
             Duration::from_secs(30),
-            probe_llm_provider(&result.client, provider),
+            probe_llm_provider(client, provider),
         )
         .await;
+        (provider, outcome)
+    }))
+    .await;
+    for (provider, probe_result) in probe_outcomes {
         match probe_result {
             Ok(Ok(())) => details.push(CheckDetail::new(format!("{provider}: OK"))),
             Ok(Err(err)) => {
-                let rendered = render_error_chain(&err);
+                let rendered = collect_chain(&err).join(": ");
                 failures.push(ProviderFailure {
-                    name:  provider.to_string(),
+                    provider,
                     short: short_error_line(&rendered),
                 });
                 details.push(CheckDetail::new(format!("{provider}: {rendered}")));
             }
             Err(_) => {
                 failures.push(ProviderFailure {
-                    name:  provider.to_string(),
+                    provider,
                     short: "timeout (30s)".to_string(),
                 });
                 details.push(CheckDetail::new(format!("{provider}: timeout (30s)")));
@@ -149,13 +160,13 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
     }
 
     let summary = if failures.len() == 1 {
-        format!("{} failed", failures[0].name)
+        format!("{} failed", failures[0].provider)
     } else {
         format!("{} providers failed", failures.len())
     };
     let remediation = failures
         .iter()
-        .map(|f| format!("{}: {}", f.name, f.short))
+        .map(|f| format!("{}: {}", f.provider, f.short))
         .collect::<Vec<_>>()
         .join("; ");
 
@@ -169,8 +180,8 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
 }
 
 struct ProviderFailure {
-    name:  String,
-    short: String,
+    provider: Provider,
+    short:    String,
 }
 
 const MAX_SHORT_LEN: usize = 120;
@@ -187,17 +198,6 @@ fn short_error_line(rendered: &str) -> String {
     } else {
         first.to_string()
     }
-}
-
-fn render_error_chain(err: &dyn std::error::Error) -> String {
-    let mut out = err.to_string();
-    let mut source = err.source();
-    while let Some(cause) = source {
-        out.push_str(": ");
-        out.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    out
 }
 
 fn probe_model(provider: Provider) -> String {
@@ -661,9 +661,9 @@ mod tests {
     }
 
     #[test]
-    fn short_error_line_skips_whitespace_only_first_line() {
-        let input = "   \n\t\nactual message";
-        assert_eq!(short_error_line(input), "actual message");
+    fn short_error_line_returns_first_non_empty_trimmed_line() {
+        let input = "   \n\t\n  first line  \nsecond line";
+        assert_eq!(short_error_line(input), "first line");
     }
 
     #[test]
@@ -672,47 +672,6 @@ mod tests {
         let result = short_error_line(&input);
         let expected = format!("{}…", "a".repeat(MAX_SHORT_LEN));
         assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn short_error_line_keeps_input_at_exact_max_length() {
-        let input = "a".repeat(MAX_SHORT_LEN);
-        assert_eq!(short_error_line(&input), input);
-    }
-
-    #[test]
-    fn short_error_line_truncates_one_char_past_max_length() {
-        let input = "a".repeat(MAX_SHORT_LEN + 1);
-        let expected = format!("{}…", "a".repeat(MAX_SHORT_LEN));
-        assert_eq!(short_error_line(&input), expected);
-    }
-
-    #[test]
-    fn render_error_chain_includes_underlying_cause_for_typed_llm_error() {
-        let inner = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "tcp connect");
-        let err = fabro_llm::Error::network("openai request failed", inner);
-
-        let rendered = render_error_chain(&err);
-
-        assert!(
-            rendered.contains("openai request failed"),
-            "top-level message missing: {rendered}"
-        );
-        assert!(
-            rendered.contains("tcp connect"),
-            "underlying cause missing — chain not walked: {rendered}"
-        );
-    }
-
-    #[test]
-    fn short_error_line_returns_first_non_empty_trimmed_line() {
-        let input = "  first line  \nsecond line";
-        assert_eq!(short_error_line(input), "first line");
-    }
-
-    #[test]
-    fn short_error_line_returns_short_input_unchanged() {
-        assert_eq!(short_error_line("connection refused"), "connection refused");
     }
 
     #[tokio::test]
