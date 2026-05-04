@@ -56,7 +56,6 @@ export function subscribeToBoardEvents(
     coordinator,
     subscriptionKey: BOARD_SUBSCRIPTION_KEY,
     mutate,
-    eventSourceFactory,
     debounceMs,
     resyncKeys: () => [queryKeys.boards.runs()],
     resolveInvalidation: boardInvalidation,

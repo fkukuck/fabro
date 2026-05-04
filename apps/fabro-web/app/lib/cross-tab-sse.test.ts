@@ -542,6 +542,51 @@ describe("subscribeToCrossTabSse", () => {
     coordinator.close();
   });
 
+  test("last unsubscribe retries coordination after an initial channel failure", async () => {
+    let channelUnavailable = true;
+    const sources: FakeEventSource[] = [];
+    const coordinator = createCrossTabSseCoordinator({
+      tabId: "retry-after-unsubscribe",
+      channelFactory: (name) => {
+        if (channelUnavailable) throw new Error("channel unavailable");
+        return new FakeBroadcastChannel(name);
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url, "retry-after-unsubscribe");
+        sources.push(source);
+        return source;
+      },
+      addVisibilityChangeListener: () => () => {},
+      addPagehideListener: () => () => {},
+      timing: TEST_TIMING,
+    });
+    let fallbackStarted = 0;
+
+    const firstCleanup = subscribeWithFallback(coordinator, {
+      fallbackSubscribe: () => {
+        fallbackStarted += 1;
+        return () => {};
+      },
+    });
+    firstCleanup();
+
+    channelUnavailable = false;
+    const secondCleanup = subscribeWithFallback(coordinator, {
+      fallbackSubscribe: () => {
+        fallbackStarted += 1;
+        return () => {};
+      },
+    });
+
+    await waitFor(() => sources.some((source) => !source.closed));
+
+    expect(fallbackStarted).toBe(1);
+    expect(sources.filter((source) => !source.closed).map((source) => source.url)).toEqual(["/api/v1/attach"]);
+
+    secondCleanup();
+    coordinator.close();
+  });
+
   test("close stops fallback subscriptions added after degradation", async () => {
     const harness = newHarness();
     const coordinator = harness.createTab("a");

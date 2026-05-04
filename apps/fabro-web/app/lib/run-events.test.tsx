@@ -9,6 +9,7 @@ import {
   type BroadcastChannelLike,
 } from "./cross-tab-sse";
 import { queryKeys } from "./query-keys";
+import type { EventSourceLike } from "./sse";
 
 type MessageHandler = ((event: { data: string }) => void) | null;
 
@@ -55,7 +56,10 @@ describe("subscribeToRunEvents", () => {
     const source = new FakeEventSource();
     const created: string[] = [];
     const keys: string[] = [];
-    const coordinator = createCoordinator();
+    const coordinator = createCoordinator((url) => {
+      created.push(url);
+      return source;
+    });
 
     const cleanup = subscribeToRunEvents(
       "run-coordinated",
@@ -63,9 +67,8 @@ describe("subscribeToRunEvents", () => {
         keys.push(key);
         return Promise.resolve();
       },
-      (url) => {
-        created.push(url);
-        return source;
+      () => {
+        throw new Error("source should be created by coordinator");
       },
       { debounceMs: 0, coordinator },
     );
@@ -86,7 +89,7 @@ describe("subscribeToRunEvents", () => {
   test("coordinated terminal events invalidate without closing the global stream", async () => {
     const source = new FakeEventSource();
     const keys: string[] = [];
-    const coordinator = createCoordinator();
+    const coordinator = createCoordinator(() => source);
     const cleanup = subscribeToRunEvents(
       "run-terminal",
       (key) => {
@@ -206,10 +209,11 @@ describe("subscribeToRunEvents", () => {
   });
 });
 
-function createCoordinator() {
+function createCoordinator(eventSourceFactory: (url: string) => EventSourceLike) {
   return createCrossTabSseCoordinator({
     tabId: "run-test",
     channelFactory: () => new FakeBroadcastChannel(),
+    eventSourceFactory,
     addVisibilityChangeListener: () => () => {},
     addPagehideListener: () => () => {},
     timing: {

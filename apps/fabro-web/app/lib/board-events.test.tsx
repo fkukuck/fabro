@@ -9,6 +9,7 @@ import {
   type BroadcastChannelLike,
 } from "./cross-tab-sse";
 import { queryKeys } from "./query-keys";
+import type { EventSourceLike } from "./sse";
 
 type MessageHandler = ((event: { data: string }) => void) | null;
 
@@ -47,15 +48,17 @@ describe("subscribeToBoardEvents", () => {
     const source = new FakeEventSource();
     const created: string[] = [];
     const keys: string[] = [];
-    const coordinator = createCoordinator();
+    const coordinator = createCoordinator((url) => {
+      created.push(url);
+      return source;
+    });
     const mutate = (key: string) => {
       keys.push(key);
       return Promise.resolve();
     };
 
-    const firstCleanup = subscribeToBoardEvents(mutate, (url) => {
-      created.push(url);
-      return source;
+    const firstCleanup = subscribeToBoardEvents(mutate, () => {
+      throw new Error("source should be created by coordinator");
     }, { debounceMs: 0, coordinator });
     const secondCleanup = subscribeToBoardEvents(mutate, () => {
       throw new Error("source should be reused");
@@ -107,10 +110,11 @@ describe("subscribeToBoardEvents", () => {
   });
 });
 
-function createCoordinator() {
+function createCoordinator(eventSourceFactory: (url: string) => EventSourceLike) {
   return createCrossTabSseCoordinator({
     tabId: "board-test",
     channelFactory: () => new FakeBroadcastChannel(),
+    eventSourceFactory,
     addVisibilityChangeListener: () => () => {},
     addPagehideListener: () => () => {},
     timing: {

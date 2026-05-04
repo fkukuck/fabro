@@ -113,7 +113,6 @@ interface SubscribeOptions<TPayload extends EventPayload> {
   resolveInvalidation: (payload: TPayload) => EventInvalidation;
   resyncKeys: () => string[];
   fallbackSubscribe: () => () => void;
-  eventSourceFactory?: (url: string) => EventSourceLike;
   debounceMs?: number;
 }
 
@@ -206,7 +205,6 @@ export class CrossTabSseCoordinator {
   private leaderCheckTimer: ReturnType<typeof setInterval> | null = null;
   private removeVisibilityListener: (() => void) | null = null;
   private removePagehideListener: (() => void) | null = null;
-  private sourceFactoryLocked = false;
 
   constructor(options: CrossTabSseCoordinatorOptions = {}) {
     this.tabId = options.tabId ?? createTabId();
@@ -225,11 +223,6 @@ export class CrossTabSseCoordinator {
   }
 
   subscribe<TPayload extends EventPayload>(options: SubscribeOptions<TPayload>): () => void {
-    if (options.eventSourceFactory && !this.source && !this.sourceFactoryLocked) {
-      this.sourceFactory = options.eventSourceFactory;
-      this.sourceFactoryLocked = true;
-    }
-
     const subscription = this.addLocalSubscription(options);
 
     if (this.coordinationUnavailable) {
@@ -259,13 +252,10 @@ export class CrossTabSseCoordinator {
     this.clearNoLeaderTimer();
     this.shutdownTimersAndChannel();
     this.closeFallbacks();
+    this.clearSubscriptionTimers();
     this.subscriptions.clear();
     this.candidates.clear();
-    this.leader = null;
-    this.initialized = false;
-    this.coordinationUnavailable = false;
-    this.fallbackMode = false;
-    this.sourceFactoryLocked = false;
+    this.resetIdleState();
   }
 
   private initialize(): boolean {
@@ -356,9 +346,7 @@ export class CrossTabSseCoordinator {
 
     subscription.refcount -= 1;
     if (subscription.refcount <= 0) {
-      if (subscription.debounceTimer) {
-        clearTimeout(subscription.debounceTimer);
-      }
+      this.clearSubscriptionTimer(subscription);
       this.subscriptions.delete(subscriptionKey);
     }
 
@@ -367,9 +355,7 @@ export class CrossTabSseCoordinator {
       this.clearCandidate();
       this.clearNoLeaderTimer();
       this.shutdownTimersAndChannel();
-      this.initialized = false;
-      this.fallbackMode = false;
-      this.sourceFactoryLocked = false;
+      this.resetIdleState();
     }
   }
 
@@ -943,6 +929,25 @@ export class CrossTabSseCoordinator {
         fallback.cleanup = undefined;
       }
     }
+  }
+
+  private clearSubscriptionTimers() {
+    for (const subscription of this.subscriptions.values()) {
+      this.clearSubscriptionTimer(subscription);
+    }
+  }
+
+  private clearSubscriptionTimer(subscription: LocalSubscription) {
+    if (!subscription.debounceTimer) return;
+    clearTimeout(subscription.debounceTimer);
+    subscription.debounceTimer = null;
+  }
+
+  private resetIdleState() {
+    this.leader = null;
+    this.initialized = false;
+    this.coordinationUnavailable = false;
+    this.fallbackMode = false;
   }
 
   private shouldAcceptLeader(incoming: LeaderState): boolean {

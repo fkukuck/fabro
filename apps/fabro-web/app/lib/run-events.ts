@@ -120,7 +120,6 @@ export function subscribeToRunEvents(
     coordinator,
     subscriptionKey: `run:${runId}`,
     mutate,
-    eventSourceFactory,
     debounceMs,
     resyncKeys: () => resyncKeysForRun(runId),
     resolveInvalidation: (payload) => {
