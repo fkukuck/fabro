@@ -232,7 +232,7 @@ mod tests {
         let m = Catalog::builtin()
             .default_for_provider(Provider::OpenAi)
             .unwrap();
-        assert_eq!(m.id, "gpt-5.4");
+        assert_eq!(m.id, "gpt-5.5");
 
         let m = Catalog::builtin()
             .default_for_provider(Provider::Gemini)
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(chain[0].provider, "gemini");
         assert_eq!(chain[0].model, "gemini-3.1-pro-preview");
         assert_eq!(chain[1].provider, "openai");
-        assert_eq!(chain[1].model, "gpt-5.4");
+        assert_eq!(chain[1].model, "gpt-5.5");
     }
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
                 "gpt54",
                 "gpt-54",
             ],
-            default: true,
+            default: false,
             configured: false,
         }
         "#);

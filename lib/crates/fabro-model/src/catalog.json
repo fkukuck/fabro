@@ -185,8 +185,42 @@
       "cache_input_cost_per_mtok": 0.25
     },
     "estimated_output_tps": 70,
-    "aliases": ["gpt54", "gpt-54"],
+    "aliases": ["gpt54", "gpt-54"]
+  },
+  {
+    "id": "gpt-5.5",
+    "provider": "openai",
+    "family": "gpt-5",
+    "display_name": "GPT-5.5",
+    "limits": { "context_window": 1050000, "max_output": 128000 },
+    "training": "2025-12-01",
+    "knowledge_cutoff": "December 2025",
+    "features": { "tools": true, "vision": true, "reasoning": true, "effort": true },
+    "costs": {
+      "input_cost_per_mtok": 5.0,
+      "output_cost_per_mtok": 30.0,
+      "cache_input_cost_per_mtok": 0.50
+    },
+    "estimated_output_tps": 70,
+    "aliases": ["gpt55", "gpt-55"],
     "default": true
+  },
+  {
+    "id": "gpt-5.5-pro",
+    "provider": "openai",
+    "family": "gpt-5",
+    "display_name": "GPT-5.5 Pro",
+    "limits": { "context_window": 1050000, "max_output": 128000 },
+    "training": "2025-12-01",
+    "knowledge_cutoff": "December 2025",
+    "features": { "tools": true, "vision": true, "reasoning": true, "effort": true },
+    "costs": {
+      "input_cost_per_mtok": 30.0,
+      "output_cost_per_mtok": 180.0,
+      "cache_input_cost_per_mtok": 3.0
+    },
+    "estimated_output_tps": 20,
+    "aliases": ["gpt55-pro", "gpt-55-pro"]
   },
   {
     "id": "gpt-5.4-pro",

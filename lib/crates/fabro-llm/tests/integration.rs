@@ -78,6 +78,44 @@ async fn openai_gpt_5_3_codex_complete() {
     assert_eq!(response.provider, "openai");
 }
 
+#[fabro_macros::e2e_test(live("OPENAI_API_KEY"))]
+async fn openai_gpt_5_5_complete() {
+    let api_key = std::env::var(EnvVars::OPENAI_API_KEY).expect("OPENAI_API_KEY must be set");
+    let adapter = OpenAiAdapter::new(api_key);
+    let request = Request {
+        temperature: None,
+        ..make_request("gpt-5.5")
+    };
+    let response = adapter.complete(&request).await.unwrap();
+
+    assert!(
+        !response.text().is_empty(),
+        "response text should not be empty"
+    );
+    assert!(response.usage.input_tokens > 0);
+    assert!(response.usage.output_tokens > 0);
+    assert_eq!(response.provider, "openai");
+}
+
+#[fabro_macros::e2e_test(live("OPENAI_API_KEY"))]
+async fn openai_gpt_5_5_pro_complete() {
+    let api_key = std::env::var(EnvVars::OPENAI_API_KEY).expect("OPENAI_API_KEY must be set");
+    let adapter = OpenAiAdapter::new(api_key);
+    let request = Request {
+        temperature: None,
+        ..make_request("gpt-5.5-pro")
+    };
+    let response = adapter.complete(&request).await.unwrap();
+
+    assert!(
+        !response.text().is_empty(),
+        "response text should not be empty"
+    );
+    assert!(response.usage.input_tokens > 0);
+    assert!(response.usage.output_tokens > 0);
+    assert_eq!(response.provider, "openai");
+}
+
 #[fabro_macros::e2e_test(twin)]
 async fn openai_server_error() {
     let (base_url, api_key) = fabro_test::e2e_openai!();

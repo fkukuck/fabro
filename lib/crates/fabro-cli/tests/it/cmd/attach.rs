@@ -622,7 +622,7 @@ fn attach_json_errors_without_prompting_for_human_input() {
               "metadata": {},
               "model": {
                 "fallbacks": [],
-                "name": "gpt-5.4",
+                "name": "gpt-5.5",
                 "provider": "openai"
               },
               "notifications": {},

@@ -54,6 +54,8 @@ fn bare() {
      gpt-5.3-codex                       openai     codex                         1m    $1.8 / $14.0   100 tok/s 
      gpt-5.3-codex-spark                 openai     codex-spark                 131k           - / -  1000 tok/s 
      gpt-5.4                             openai     gpt54, gpt-54                 1m    $2.5 / $15.0    70 tok/s 
+     gpt-5.5                             openai     gpt55, gpt-55                 1m    $5.0 / $30.0    70 tok/s 
+     gpt-5.5-pro                         openai     gpt55-pro, gpt-55-pro         1m  $30.0 / $180.0    20 tok/s 
      gpt-5.4-pro                         openai     gpt54-pro, gpt-54-pro         1m  $30.0 / $180.0    20 tok/s 
      gpt-5.4-mini                        openai     gpt54-mini, gpt-54-mini     400k     $0.8 / $4.5   140 tok/s 
      gemini-3.1-pro-preview              gemini     gemini-pro                    1m    $2.0 / $12.0    85 tok/s 
@@ -89,6 +91,8 @@ fn list() {
      gpt-5.3-codex                       openai     codex                         1m    $1.8 / $14.0   100 tok/s 
      gpt-5.3-codex-spark                 openai     codex-spark                 131k           - / -  1000 tok/s 
      gpt-5.4                             openai     gpt54, gpt-54                 1m    $2.5 / $15.0    70 tok/s 
+     gpt-5.5                             openai     gpt55, gpt-55                 1m    $5.0 / $30.0    70 tok/s 
+     gpt-5.5-pro                         openai     gpt55-pro, gpt-55-pro         1m  $30.0 / $180.0    20 tok/s 
      gpt-5.4-pro                         openai     gpt54-pro, gpt-54-pro         1m  $30.0 / $180.0    20 tok/s 
      gpt-5.4-mini                        openai     gpt54-mini, gpt-54-mini     400k     $0.8 / $4.5   140 tok/s 
      gemini-3.1-pro-preview              gemini     gemini-pro                    1m    $2.0 / $12.0    85 tok/s 
