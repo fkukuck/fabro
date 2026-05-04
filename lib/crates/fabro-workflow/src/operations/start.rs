@@ -948,9 +948,10 @@ impl Drop for DetachedRunCompletionGuard {
                 })
                 .await;
                 let _ = append_event_to_sink(&event_sink, &run_id, &Event::RunNotice {
-                    level:   RunNoticeLevel::Error,
-                    code:    code.to_string(),
-                    message: message.to_string(),
+                    level:            RunNoticeLevel::Error,
+                    code:             code.to_string(),
+                    message:          message.to_string(),
+                    exec_output_tail: None,
                 })
                 .await;
             });
@@ -981,9 +982,10 @@ async fn persist_detached_failure(
     }
 
     let event = Event::RunNotice {
-        level:   RunNoticeLevel::Error,
-        code:    format!("{phase}_failed"),
-        message: message.clone(),
+        level:            RunNoticeLevel::Error,
+        code:             format!("{phase}_failed"),
+        message:          message.clone(),
+        exec_output_tail: None,
     };
     if let Err(err) = append_event_to_sink(event_sink, &run_id, &event).await {
         tracing::warn!(error = %err, "Failed to append detached failure notice");

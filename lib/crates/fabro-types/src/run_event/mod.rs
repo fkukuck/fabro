@@ -1353,4 +1353,82 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn exec_output_tail_fields_are_additive_on_failure_props() {
+        let tail = ExecOutputTail {
+            stdout:           Some("last stdout line".to_string()),
+            stderr:           Some("last stderr line".to_string()),
+            stdout_truncated: false,
+            stderr_truncated: true,
+        };
+
+        for body in [
+            EventBody::RunNotice(RunNoticeProps {
+                level:            RunNoticeLevel::Warn,
+                code:             "git_diff_failed".to_string(),
+                message:          "git diff failed".to_string(),
+                exec_output_tail: Some(tail.clone()),
+            }),
+            EventBody::CheckpointFailed(CheckpointFailedProps {
+                error:            "git commit failed".to_string(),
+                exec_output_tail: Some(tail.clone()),
+            }),
+            EventBody::GitPush(GitPushProps {
+                branch:           "refs/heads/run:refs/heads/run".to_string(),
+                success:          false,
+                exec_output_tail: Some(tail.clone()),
+            }),
+            EventBody::RetroFailed(RetroFailedProps {
+                error:            "state unavailable".to_string(),
+                duration_ms:      10,
+                exec_output_tail: Some(tail.clone()),
+            }),
+        ] {
+            let value = serde_json::to_value(&body).unwrap();
+            assert_eq!(
+                value["properties"]["exec_output_tail"]["stderr"],
+                "last stderr line"
+            );
+            assert_eq!(
+                value["properties"]["exec_output_tail"]["stderr_truncated"],
+                true
+            );
+        }
+    }
+
+    #[test]
+    fn absent_exec_output_tail_is_omitted_from_new_failure_props() {
+        for body in [
+            EventBody::RunNotice(RunNoticeProps {
+                level:            RunNoticeLevel::Warn,
+                code:             "git_diff_failed".to_string(),
+                message:          "git diff failed".to_string(),
+                exec_output_tail: None,
+            }),
+            EventBody::CheckpointFailed(CheckpointFailedProps {
+                error:            "git commit failed".to_string(),
+                exec_output_tail: None,
+            }),
+            EventBody::GitPush(GitPushProps {
+                branch:           "refs/heads/run:refs/heads/run".to_string(),
+                success:          false,
+                exec_output_tail: None,
+            }),
+            EventBody::RetroFailed(RetroFailedProps {
+                error:            "state unavailable".to_string(),
+                duration_ms:      10,
+                exec_output_tail: None,
+            }),
+        ] {
+            let value = serde_json::to_value(&body).unwrap();
+            assert!(
+                value["properties"]
+                    .as_object()
+                    .expect("properties object")
+                    .get("exec_output_tail")
+                    .is_none()
+            );
+        }
+    }
 }

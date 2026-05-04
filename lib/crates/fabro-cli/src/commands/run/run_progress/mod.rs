@@ -1207,9 +1207,10 @@ mod tests {
         let (mut ui, buffer) = capture_ui(false);
 
         emit(&mut ui, Event::RunNotice {
-            level:   RunNoticeLevel::Warn,
-            code:    "sandbox_cleanup_failed".into(),
-            message: "sandbox cleanup failed".into(),
+            level:            RunNoticeLevel::Warn,
+            code:             "sandbox_cleanup_failed".into(),
+            message:          "sandbox cleanup failed".into(),
+            exec_output_tail: None,
         });
         emit(&mut ui, Event::PullRequestCreated {
             pr_url:      "https://github.com/fabro-sh/fabro/pull/42".into(),
@@ -1277,14 +1278,16 @@ mod tests {
             exec_output_tail: None,
         });
         emit(&mut ui, Event::RunNotice {
-            level:   RunNoticeLevel::Warn,
-            code:    "checkpoint_metadata_write_failed".into(),
-            message: "legacy metadata warning".into(),
+            level:            RunNoticeLevel::Warn,
+            code:             "checkpoint_metadata_write_failed".into(),
+            message:          "legacy metadata warning".into(),
+            exec_output_tail: None,
         });
         emit(&mut ui, Event::RunNotice {
-            level:   RunNoticeLevel::Warn,
-            code:    "checkpoint_metadata_degraded".into(),
-            message: "metadata snapshots are disabled for this run".into(),
+            level:            RunNoticeLevel::Warn,
+            code:             "checkpoint_metadata_degraded".into(),
+            message:          "metadata snapshots are disabled for this run".into(),
+            exec_output_tail: None,
         });
 
         insta::assert_snapshot!(rendered(&buffer), @r"

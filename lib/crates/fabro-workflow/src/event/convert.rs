@@ -182,10 +182,12 @@ fn event_body_from_event(event: &Event) -> EventBody {
             level,
             code,
             message,
+            exec_output_tail,
         } => EventBody::RunNotice(fabro_types::RunNoticeProps {
-            level:   *level,
-            code:    code.clone(),
-            message: message.clone(),
+            level:            *level,
+            code:             code.clone(),
+            message:          message.clone(),
+            exec_output_tail: exec_output_tail.clone(),
         }),
         Event::MetadataSnapshotStarted { phase, branch } => {
             EventBody::MetadataSnapshotStarted(fabro_types::MetadataSnapshotStartedProps {
@@ -433,17 +435,25 @@ fn event_body_from_event(event: &Event) -> EventBody {
             node_visits: node_visits.clone(),
             diff: diff.clone(),
         }),
-        Event::CheckpointFailed { error, .. } => {
-            EventBody::CheckpointFailed(fabro_types::CheckpointFailedProps {
-                error: error.clone(),
-            })
-        }
+        Event::CheckpointFailed {
+            error,
+            exec_output_tail,
+            ..
+        } => EventBody::CheckpointFailed(fabro_types::CheckpointFailedProps {
+            error:            error.clone(),
+            exec_output_tail: exec_output_tail.clone(),
+        }),
         Event::GitCommit { sha, .. } => {
             EventBody::GitCommit(fabro_types::GitCommitProps { sha: sha.clone() })
         }
-        Event::GitPush { branch, success } => EventBody::GitPush(fabro_types::GitPushProps {
-            branch:  branch.clone(),
-            success: *success,
+        Event::GitPush {
+            branch,
+            success,
+            exec_output_tail,
+        } => EventBody::GitPush(fabro_types::GitPushProps {
+            branch:           branch.clone(),
+            success:          *success,
+            exec_output_tail: exec_output_tail.clone(),
         }),
         Event::GitBranch { branch, sha } => EventBody::GitBranch(fabro_types::GitBranchProps {
             branch: branch.clone(),
@@ -1109,12 +1119,15 @@ fn event_body_from_event(event: &Event) -> EventBody {
             response:    response.clone(),
             retro:       retro.clone(),
         }),
-        Event::RetroFailed { error, duration_ms } => {
-            EventBody::RetroFailed(fabro_types::RetroFailedProps {
-                error:       error.clone(),
-                duration_ms: *duration_ms,
-            })
-        }
+        Event::RetroFailed {
+            error,
+            duration_ms,
+            exec_output_tail,
+        } => EventBody::RetroFailed(fabro_types::RetroFailedProps {
+            error:            error.clone(),
+            duration_ms:      *duration_ms,
+            exec_output_tail: exec_output_tail.clone(),
+        }),
     }
 }
 
@@ -1154,8 +1167,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use ::fabro_types::{
-        EventBody, FailureReason, ParallelBranchId, Principal, RunProvenance, StageId,
-        SystemActorKind, fixtures, run_event as fabro_types,
+        EventBody, FailureReason, ParallelBranchId, Principal, RunNoticeLevel, RunProvenance,
+        StageId, SystemActorKind, fixtures, run_event as fabro_types,
     };
     use chrono::Utc;
     use fabro_agent::{AgentEvent, SandboxEvent};
@@ -1177,6 +1190,15 @@ mod tests {
     }
 
     impl std::error::Error for EventTestCause {}
+
+    fn exec_tail() -> fabro_types::ExecOutputTail {
+        fabro_types::ExecOutputTail {
+            stdout:           Some("last stdout line".to_string()),
+            stderr:           Some("last stderr line".to_string()),
+            stdout_truncated: false,
+            stderr_truncated: true,
+        }
+    }
 
     #[test]
     fn run_event_stage_completed_places_node_fields_in_header() {
@@ -1587,6 +1609,79 @@ mod tests {
         match &unarchived.body {
             EventBody::RunUnarchived(_) => {}
             other => panic!("expected RunUnarchived body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_notice_maps_exec_output_tail_to_props() {
+        let stored = to_run_event(&fixtures::RUN_1, &Event::RunNotice {
+            level:            RunNoticeLevel::Warn,
+            code:             "git_diff_failed".to_string(),
+            message:          "git diff failed".to_string(),
+            exec_output_tail: Some(exec_tail()),
+        });
+
+        match stored.body {
+            EventBody::RunNotice(props) => {
+                let tail = props.exec_output_tail.expect("exec output tail");
+                assert_eq!(tail.stderr.as_deref(), Some("last stderr line"));
+                assert!(tail.stderr_truncated);
+            }
+            other => panic!("expected RunNotice body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn checkpoint_failed_maps_exec_output_tail_to_props() {
+        let stored = to_run_event(&fixtures::RUN_1, &Event::CheckpointFailed {
+            node_id:          "build".to_string(),
+            error:            "git commit failed".to_string(),
+            exec_output_tail: Some(exec_tail()),
+        });
+
+        match stored.body {
+            EventBody::CheckpointFailed(props) => {
+                let tail = props.exec_output_tail.expect("exec output tail");
+                assert_eq!(tail.stdout.as_deref(), Some("last stdout line"));
+                assert!(!tail.stdout_truncated);
+            }
+            other => panic!("expected CheckpointFailed body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn git_push_maps_exec_output_tail_to_props() {
+        let stored = to_run_event(&fixtures::RUN_1, &Event::GitPush {
+            branch:           "refs/heads/run:refs/heads/run".to_string(),
+            success:          false,
+            exec_output_tail: Some(exec_tail()),
+        });
+
+        match stored.body {
+            EventBody::GitPush(props) => {
+                assert!(!props.success);
+                let tail = props.exec_output_tail.expect("exec output tail");
+                assert_eq!(tail.stderr.as_deref(), Some("last stderr line"));
+            }
+            other => panic!("expected GitPush body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn retro_failed_maps_exec_output_tail_to_props() {
+        let stored = to_run_event(&fixtures::RUN_1, &Event::RetroFailed {
+            error:            "state load failed".to_string(),
+            duration_ms:      12,
+            exec_output_tail: Some(exec_tail()),
+        });
+
+        match stored.body {
+            EventBody::RetroFailed(props) => {
+                assert_eq!(props.duration_ms, 12);
+                let tail = props.exec_output_tail.expect("exec output tail");
+                assert_eq!(tail.stdout.as_deref(), Some("last stdout line"));
+            }
+            other => panic!("expected RetroFailed body, got {other:?}"),
         }
     }
 

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{BilledTokenCounts, RunNoticeLevel};
+use super::{BilledTokenCounts, ExecOutputTail, RunNoticeLevel};
 use crate::status::{BlockedReason, FailureReason, SuccessReason};
 use crate::{
     ForkSourceRef, GitContext, Graph, RunBlobId, RunControlAction, RunId, RunProvenance,
@@ -147,7 +147,9 @@ pub struct RunFailedProps {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunNoticeProps {
-    pub level:   RunNoticeLevel,
-    pub code:    String,
-    pub message: String,
+    pub level:            RunNoticeLevel,
+    pub code:             String,
+    pub message:          String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec_output_tail: Option<ExecOutputTail>,
 }

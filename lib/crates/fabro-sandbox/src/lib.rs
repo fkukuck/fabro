@@ -32,7 +32,7 @@ pub mod test_support;
 
 #[cfg(feature = "docker")]
 pub use docker::{DockerSandbox, DockerSandboxOptions};
-pub use error::{Error, Result};
+pub use error::{Error, Result, default_redacted_output_tail, display_for_log};
 pub use local::LocalSandbox;
 pub use read_guard::ReadBeforeWriteSandbox;
 pub use sandbox::{

@@ -803,9 +803,10 @@ mod tests {
     #[test]
     fn round_trip_run_notice() {
         let event = Event::RunNotice {
-            level:   RunNoticeLevel::Warn,
-            code:    "sandbox_cleanup_failed".into(),
-            message: "sandbox cleanup failed".into(),
+            level:            RunNoticeLevel::Warn,
+            code:             "sandbox_cleanup_failed".into(),
+            message:          "sandbox cleanup failed".into(),
+            exec_output_tail: None,
         };
 
         let stored = to_run_event(&fixtures::RUN_1, &event);

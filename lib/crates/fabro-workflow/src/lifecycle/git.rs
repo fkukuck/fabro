@@ -10,7 +10,7 @@ use fabro_core::state::ExecutionState;
 use fabro_dump::RunDump;
 use fabro_types::RunId;
 use fabro_types::run_event::{MetadataSnapshotFailureKind, MetadataSnapshotPhase};
-use fabro_util::error::{collect_causes, render_with_causes};
+use fabro_util::error::collect_causes;
 use fabro_util::time::elapsed_ms;
 
 use crate::artifact;
@@ -59,8 +59,15 @@ fn build_checkpoint(
 #[derive(Debug, Clone)]
 pub(crate) struct GitCheckpointResult {
     pub commit_sha:   Option<String>,
-    pub push_results: Vec<(String, bool)>,
+    pub push_results: Vec<PushResult>,
     pub diff:         Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PushResult {
+    pub refspec:          String,
+    pub success:          bool,
+    pub exec_output_tail: Option<fabro_types::ExecOutputTail>,
 }
 
 /// Sub-lifecycle responsible for git operations (checkpoint commits, pushes,
@@ -274,18 +281,25 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                         .and_then(|g| g.run_branch.as_ref())
                     {
                         let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
-                        let push_ok = match self.sandbox.git_push_ref(&refspec).await {
-                            Ok(()) => true,
-                            Err(err) => {
-                                tracing::warn!(
-                                    refspec = %refspec,
-                                    error = %err,
-                                    "git push from run lifecycle failed"
-                                );
-                                false
-                            }
-                        };
-                        git_result.push_results.push((refspec, push_ok));
+                        let (push_ok, exec_output_tail) =
+                            match self.sandbox.git_push_ref(&refspec).await {
+                                Ok(()) => (true, None),
+                                Err(err) => {
+                                    let exec_output_tail =
+                                        fabro_sandbox::default_redacted_output_tail(&err);
+                                    tracing::warn!(
+                                        refspec = %refspec,
+                                        error = %fabro_sandbox::display_for_log(&err),
+                                        "git push from run lifecycle failed"
+                                    );
+                                    (false, exec_output_tail)
+                                }
+                            };
+                        git_result.push_results.push(PushResult {
+                            refspec,
+                            success: push_ok,
+                            exec_output_tail,
+                        });
                     }
                 }
 
@@ -303,11 +317,14 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                         }
                         Ok(_) => {}
                         Err(err) => {
-                            self.emitter.emit(&Event::RunNotice {
-                                level:   RunNoticeLevel::Warn,
-                                code:    "git_diff_failed".to_string(),
-                                message: format!("[node: {node_id}] git diff failed: {err}"),
-                            });
+                            let exec_output_tail =
+                                fabro_sandbox::default_redacted_output_tail(&err);
+                            self.emitter.notice_with_tail(
+                                RunNoticeLevel::Warn,
+                                "git_diff_failed",
+                                format!("[node: {node_id}] git diff failed: {err}"),
+                                exec_output_tail,
+                            );
                         }
                     }
                 }
@@ -317,13 +334,15 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
                 *self.checkpoint_git_result.lock().unwrap() = Some(git_result);
             }
             Err(e) => {
-                let error = render_with_causes(&e.to_string(), &collect_causes(&e));
+                let exec_output_tail = fabro_sandbox::default_redacted_output_tail(&e);
+                let error = e.to_string();
                 // Emit CheckpointFailed and return error
                 let scope = stage_scope_for(state, node_id);
                 self.emitter.emit_scoped(
                     &Event::CheckpointFailed {
                         node_id: node_id.to_string(),
-                        error:   error.clone(),
+                        error: error.clone(),
+                        exec_output_tail,
                     },
                     &scope,
                 );
@@ -472,6 +491,7 @@ impl GitLifecycle {
                 commit_sha,
                 entry_count,
                 bytes,
+                // TODO: thread exec_output_tail when an exec-backed metadata path lands.
                 exec_output_tail: None,
             },
             scope,
@@ -492,6 +512,7 @@ impl GitLifecycle {
                 level: RunNoticeLevel::Warn,
                 code: code.to_string(),
                 message,
+                exec_output_tail: None,
             });
         }
     }

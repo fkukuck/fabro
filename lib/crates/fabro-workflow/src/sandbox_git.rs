@@ -11,6 +11,14 @@ use crate::artifact_snapshot;
 use crate::git::GitAuthor;
 use crate::sandbox_git_runtime::SandboxGitRuntime;
 
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct GitCommandError {
+    pub message: String,
+    #[source]
+    pub source:  fabro_sandbox::Error,
+}
+
 /// Captured git state for a workflow run, shared with handlers.
 #[derive(Debug, Clone)]
 pub struct GitState {
@@ -25,20 +33,24 @@ pub struct GitState {
 pub const GIT_REMOTE: &str =
     "git -c maintenance.auto=0 -c gc.auto=0 -c commit.gpgsign=false -c tag.gpgsign=false";
 
-pub(crate) fn exec_err(label: &str, r: &fabro_sandbox::ExecResult) -> String {
+pub(crate) fn exec_err(label: &str, r: fabro_sandbox::ExecResult) -> GitCommandError {
     if r.is_timed_out() {
-        return format!("{label} timed out after {}ms", r.duration_ms);
+        return GitCommandError {
+            message: format!("{label} timed out after {}ms", r.duration_ms),
+            source:  fabro_sandbox::Error::exec(label, r),
+        };
     }
     if r.is_cancelled() {
-        return format!("{label} cancelled after {}ms", r.duration_ms);
+        return GitCommandError {
+            message: format!("{label} cancelled after {}ms", r.duration_ms),
+            source:  fabro_sandbox::Error::exec(label, r),
+        };
     }
 
-    let detail = format!("{}{}", r.stdout, r.stderr);
-    let detail = detail.trim();
-    if detail.is_empty() {
-        format!("{label} killed (exit {}, no output)", r.display_exit_code())
-    } else {
-        format!("{label} failed (exit {}): {detail}", r.display_exit_code())
+    let exit = r.display_exit_code();
+    GitCommandError {
+        message: format!("{label} failed (exit {exit})"),
+        source:  fabro_sandbox::Error::exec(label, r),
     }
 }
 
@@ -56,7 +68,7 @@ pub async fn git_checkpoint(
     shadow_sha: Option<String>,
     exclude_globs: &[String],
     author: &GitAuthor,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<String, GitCommandError> {
     let mut all_excludes: Vec<String> = artifact_snapshot::EXCLUDE_DIRS
         .iter()
         .map(|d| format!("**/{d}/**"))
@@ -71,10 +83,15 @@ pub async fn git_checkpoint(
     let add_result = sandbox
         .exec_command(&add_cmd, 30_000, None, None, None)
         .await;
-    match &add_result {
+    match add_result {
         Ok(r) if r.is_success() => {}
         Ok(r) => return Err(exec_err("git add", r)),
-        Err(e) => return Err(format!("git add failed: {e}")),
+        Err(e) => {
+            return Err(GitCommandError {
+                message: "git add failed".to_string(),
+                source:  e,
+            });
+        }
     }
 
     let subject = format!("fabro({run_id}): {node_id} ({status})");
@@ -101,7 +118,10 @@ pub async fn git_checkpoint(
 
     let msg_path = format!("/tmp/fabro-commit-msg-{run_id}-{node_id}");
     if let Err(e) = sandbox.write_file(&msg_path, &message).await {
-        return Err(format!("failed to write commit message file: {e}"));
+        return Err(GitCommandError {
+            message: "failed to write commit message file".to_string(),
+            source:  e,
+        });
     }
 
     let commit_cmd = format!(
@@ -112,10 +132,15 @@ pub async fn git_checkpoint(
     let commit_result = sandbox
         .exec_command(&commit_cmd, 30_000, None, None, None)
         .await;
-    match &commit_result {
+    match commit_result {
         Ok(r) if r.is_success() => {}
         Ok(r) => return Err(exec_err("git commit", r)),
-        Err(e) => return Err(format!("git commit failed: {e}")),
+        Err(e) => {
+            return Err(GitCommandError {
+                message: "git commit failed".to_string(),
+                source:  e,
+            });
+        }
     }
 
     let sha_cmd = format!("{GIT_REMOTE} rev-parse HEAD");
@@ -124,8 +149,11 @@ pub async fn git_checkpoint(
         .await;
     match sha_result {
         Ok(r) if r.is_success() => Ok(r.stdout.trim().to_string()),
-        Ok(r) => Err(exec_err("git rev-parse HEAD", &r)),
-        Err(e) => Err(format!("git rev-parse HEAD failed: {e}")),
+        Ok(r) => Err(exec_err("git rev-parse HEAD", r)),
+        Err(e) => Err(GitCommandError {
+            message: "git rev-parse HEAD failed".to_string(),
+            source:  e,
+        }),
     }
 }
 
@@ -159,14 +187,14 @@ pub(crate) async fn checked_git_checkpoint(
         author,
     )
     .await
-    .map_err(|err| SharedError::new(anyhow::anyhow!(err)))
+    .map_err(|err| SharedError::new(anyhow::Error::new(err)))
 }
 
 /// Run a git diff via the sandbox (30 s default timeout).
 pub(crate) async fn git_diff(
     sandbox: &dyn Sandbox,
     base: &str,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<String, GitCommandError> {
     git_diff_with_timeout(sandbox, base, 30_000).await
 }
 
@@ -180,7 +208,7 @@ pub(crate) async fn git_diff_with_timeout(
     sandbox: &dyn Sandbox,
     base: &str,
     timeout_ms: u64,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<String, GitCommandError> {
     // `-c core.quotePath=false` forces paths with non-ASCII, tabs, quotes,
     // or backslashes to emit unquoted. The Run Files Changed endpoint's
     // `strip_denylisted_sections` parser only recognizes unquoted
@@ -193,8 +221,11 @@ pub(crate) async fn git_diff_with_timeout(
         .await
     {
         Ok(r) if r.is_success() => Ok(r.stdout),
-        Ok(r) => Err(exec_err("git diff", &r)),
-        Err(e) => Err(e.display_with_causes()),
+        Ok(r) => Err(exec_err("git diff", r)),
+        Err(e) => Err(GitCommandError {
+            message: "git diff failed".to_string(),
+            source:  e,
+        }),
     }
 }
 
@@ -979,7 +1010,11 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert_eq!(err, "git add timed out after 77ms");
+        assert_eq!(err.to_string(), "git add timed out after 77ms");
+        assert!(
+            fabro_sandbox::default_redacted_output_tail(&err).is_none(),
+            "empty exec streams should not produce a tail"
+        );
     }
 
     #[tokio::test]
@@ -1001,7 +1036,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        let chain = anyhow::Error::new(err)
+        let chain = anyhow::Error::new(err.clone())
             .chain()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
@@ -1010,8 +1045,8 @@ mod tests {
             "expected sandbox git context, got {chain:#?}"
         );
         assert!(
-            chain.iter().any(|cause| cause.contains("git missing")),
-            "expected probe stderr in chain, got {chain:#?}"
+            fabro_sandbox::default_redacted_output_tail(&err).is_some(),
+            "expected probe exec output tail to survive SharedError wrapping"
         );
     }
 
@@ -1031,7 +1066,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert_eq!(err, "git commit timed out after 88ms");
+        assert_eq!(err.to_string(), "git commit timed out after 88ms");
     }
 
     #[tokio::test]
@@ -1050,7 +1085,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert_eq!(err, "git rev-parse HEAD killed (exit -1, no output)");
+        assert_eq!(err.to_string(), "git rev-parse HEAD failed (exit -1)");
     }
 
     #[tokio::test]
@@ -1060,7 +1095,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(err, "git diff timed out after 99ms");
+        assert_eq!(err.to_string(), "git diff timed out after 99ms");
     }
 
     #[tokio::test]
@@ -1070,7 +1105,11 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(err, "git diff failed (exit 128): fatal: bad revision");
+        assert_eq!(err.to_string(), "git diff failed (exit 128)");
+        assert!(!err.to_string().contains("fatal: bad revision"));
+
+        let tail = fabro_sandbox::default_redacted_output_tail(&err).expect("tail present");
+        assert_eq!(tail.stderr.as_deref(), Some("fatal: bad revision\n"));
     }
 
     #[tokio::test]

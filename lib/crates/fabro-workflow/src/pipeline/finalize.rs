@@ -468,7 +468,7 @@ async fn cleanup_sandbox(
     run_id: &fabro_types::RunId,
     workflow_name: &str,
     preserve: bool,
-) -> std::result::Result<(), String> {
+) -> fabro_sandbox::Result<()> {
     let hook_ctx = HookContext::new(
         HookEvent::SandboxCleanup,
         *run_id,
@@ -476,11 +476,7 @@ async fn cleanup_sandbox(
     );
     let _ = services.run_hooks(&hook_ctx).await;
     if !preserve {
-        services
-            .sandbox
-            .cleanup()
-            .await
-            .map_err(|e| e.display_with_causes())?;
+        services.sandbox.cleanup().await?;
     }
     Ok(())
 }
@@ -572,11 +568,13 @@ pub async fn finalize(retroed: Retroed, options: &FinalizeOptions) -> Result<Con
     )
     .await
     {
-        tracing::warn!(error = %e, "Sandbox cleanup failed");
-        services.emitter.notice(
+        tracing::warn!(error = %fabro_sandbox::display_for_log(&e), "Sandbox cleanup failed");
+        let exec_output_tail = fabro_sandbox::default_redacted_output_tail(&e);
+        services.emitter.notice_with_tail(
             RunNoticeLevel::Warn,
             "sandbox_cleanup_failed",
-            format!("sandbox cleanup failed: {e}"),
+            format!("sandbox cleanup failed: {}", e.display_with_causes()),
+            exec_output_tail,
         );
     }
 

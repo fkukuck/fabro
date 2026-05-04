@@ -71,8 +71,8 @@ async fn exec_ok(sandbox: &dyn Sandbox, command: &str) -> Result<(), SharedError
     if result.is_success() {
         Ok(())
     } else {
-        Err(SharedError::new(anyhow::anyhow!(exec_err(
-            command, &result
+        Err(SharedError::new(anyhow::Error::new(exec_err(
+            command, result,
         ))))
     }
 }

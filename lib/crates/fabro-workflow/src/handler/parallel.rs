@@ -203,7 +203,10 @@ impl Handler for ParallelHandler {
                     return Err(Error::handler_with_source("sandbox git unavailable", &e));
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "parallel base checkpoint failed");
+                    tracing::warn!(
+                        error = %fabro_sandbox::display_for_log(&e),
+                        "parallel base checkpoint failed"
+                    );
                     None
                 }
             }

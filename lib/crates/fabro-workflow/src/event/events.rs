@@ -126,9 +126,11 @@ pub enum Event {
         final_patch:    Option<String>,
     },
     RunNotice {
-        level:   RunNoticeLevel,
-        code:    String,
-        message: String,
+        level:            RunNoticeLevel,
+        code:             String,
+        message:          String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exec_output_tail: Option<fabro_types::ExecOutputTail>,
     },
     MetadataSnapshotStarted {
         phase:  fabro_types::MetadataSnapshotPhase,
@@ -311,8 +313,10 @@ pub enum Event {
         diff: Option<String>,
     },
     CheckpointFailed {
-        node_id: String,
-        error:   String,
+        node_id:          String,
+        error:            String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exec_output_tail: Option<fabro_types::ExecOutputTail>,
     },
     GitCommit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -320,8 +324,10 @@ pub enum Event {
         sha:     String,
     },
     GitPush {
-        branch:  String,
-        success: bool,
+        branch:           String,
+        success:          bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exec_output_tail: Option<fabro_types::ExecOutputTail>,
     },
     GitBranch {
         branch: String,
@@ -588,8 +594,10 @@ pub enum Event {
         retro:       Option<serde_json::Value>,
     },
     RetroFailed {
-        error:       String,
-        duration_ms: u64,
+        error:            String,
+        duration_ms:      u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exec_output_tail: Option<fabro_types::ExecOutputTail>,
     },
 }
 
@@ -699,15 +707,49 @@ impl Event {
                 level,
                 code,
                 message,
+                exec_output_tail,
             } => match level {
                 RunNoticeLevel::Info => {
-                    info!(code, message, "Run notice");
+                    let tail =
+                        fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                    info!(
+                        code,
+                        message,
+                        exec_output_tail_present = tail.present,
+                        exec_stdout_tail_bytes = tail.stdout_bytes,
+                        exec_stderr_tail_bytes = tail.stderr_bytes,
+                        exec_stdout_truncated = tail.stdout_truncated,
+                        exec_stderr_truncated = tail.stderr_truncated,
+                        "Run notice"
+                    );
                 }
                 RunNoticeLevel::Warn => {
-                    warn!(code, message, "Run notice");
+                    let tail =
+                        fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                    warn!(
+                        code,
+                        message,
+                        exec_output_tail_present = tail.present,
+                        exec_stdout_tail_bytes = tail.stdout_bytes,
+                        exec_stderr_tail_bytes = tail.stderr_bytes,
+                        exec_stdout_truncated = tail.stdout_truncated,
+                        exec_stderr_truncated = tail.stderr_truncated,
+                        "Run notice"
+                    );
                 }
                 RunNoticeLevel::Error => {
-                    error!(code, message, "Run notice");
+                    let tail =
+                        fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                    error!(
+                        code,
+                        message,
+                        exec_output_tail_present = tail.present,
+                        exec_stdout_tail_bytes = tail.stdout_bytes,
+                        exec_stderr_tail_bytes = tail.stderr_bytes,
+                        exec_stdout_truncated = tail.stdout_truncated,
+                        exec_stderr_truncated = tail.stderr_truncated,
+                        "Run notice"
+                    );
                 }
             },
             Self::MetadataSnapshotStarted { phase, branch } => {
@@ -906,8 +948,22 @@ impl Event {
                     "Checkpoint completed"
                 );
             }
-            Self::CheckpointFailed { node_id, error } => {
-                error!(node_id, error, "Checkpoint failed");
+            Self::CheckpointFailed {
+                node_id,
+                error,
+                exec_output_tail,
+            } => {
+                let tail = fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                error!(
+                    node_id,
+                    error,
+                    exec_output_tail_present = tail.present,
+                    exec_stdout_tail_bytes = tail.stdout_bytes,
+                    exec_stderr_tail_bytes = tail.stderr_bytes,
+                    exec_stdout_truncated = tail.stdout_truncated,
+                    exec_stderr_truncated = tail.stderr_truncated,
+                    "Checkpoint failed"
+                );
             }
             Self::GitCommit { node_id, sha } => {
                 debug!(
@@ -915,11 +971,25 @@ impl Event {
                     sha, "Git commit"
                 );
             }
-            Self::GitPush { branch, success } => {
+            Self::GitPush {
+                branch,
+                success,
+                exec_output_tail,
+            } => {
                 if *success {
                     debug!(branch, "Git push succeeded");
                 } else {
-                    warn!(branch, "Git push failed");
+                    let tail =
+                        fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                    warn!(
+                        branch,
+                        exec_output_tail_present = tail.present,
+                        exec_stdout_tail_bytes = tail.stdout_bytes,
+                        exec_stderr_tail_bytes = tail.stderr_bytes,
+                        exec_stdout_truncated = tail.stdout_truncated,
+                        exec_stderr_truncated = tail.stderr_truncated,
+                        "Git push failed"
+                    );
                 }
             }
             Self::GitBranch { branch, sha } => {
@@ -1275,8 +1345,22 @@ impl Event {
             Self::RetroCompleted { duration_ms, .. } => {
                 info!(duration_ms, "Retro completed");
             }
-            Self::RetroFailed { error, duration_ms } => {
-                error!(error = %error, duration_ms, "Retro failed");
+            Self::RetroFailed {
+                error,
+                duration_ms,
+                exec_output_tail,
+            } => {
+                let tail = fabro_types::ExecOutputTail::trace_summary(exec_output_tail.as_ref());
+                error!(
+                    error = %error,
+                    duration_ms,
+                    exec_output_tail_present = tail.present,
+                    exec_stdout_tail_bytes = tail.stdout_bytes,
+                    exec_stderr_tail_bytes = tail.stderr_bytes,
+                    exec_stdout_truncated = tail.stdout_truncated,
+                    exec_stderr_truncated = tail.stderr_truncated,
+                    "Retro failed"
+                );
             }
         }
     }

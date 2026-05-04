@@ -808,7 +808,7 @@ impl Sandbox for DaytonaSandbox {
                                                     },
                                                 );
                                                 tracing::warn!(
-                                                    error = %err,
+                                                    error = %crate::display_for_log(&err),
                                                     "Failed to set Daytona sandbox push credentials \
                                                      on origin — subsequent git push from this \
                                                      sandbox will fail"

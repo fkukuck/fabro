@@ -1,6 +1,10 @@
+use std::fmt::Write as _;
+
 #[cfg(feature = "docker")]
 use bollard::errors::Error as BollardError;
 use fabro_util::error::{collect_causes, render_with_causes};
+
+use crate::ExecResult;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -46,10 +50,7 @@ pub enum Error {
             .or_else(|| classify_exec_failure(&result.stdout))
             .unwrap_or("unclassified")
     )]
-    Exec {
-        label:  String,
-        result: crate::ExecResult,
-    },
+    Exec { label: String, result: ExecResult },
 }
 
 impl Error {
@@ -67,7 +68,7 @@ impl Error {
         }
     }
 
-    pub fn exec(label: impl Into<String>, result: crate::ExecResult) -> Self {
+    pub fn exec(label: impl Into<String>, result: ExecResult) -> Self {
         Self::Exec {
             label: label.into(),
             result,
@@ -75,10 +76,7 @@ impl Error {
     }
 
     pub fn default_redacted_output_tail(&self) -> Option<fabro_types::ExecOutputTail> {
-        match self {
-            Self::Exec { result, .. } => result.default_redacted_output_tail(),
-            _ => None,
-        }
+        default_redacted_output_tail(self)
     }
 
     #[cfg(feature = "docker")]
@@ -163,6 +161,47 @@ fn format_exit_code(exit_code: Option<i32>) -> String {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub fn default_redacted_output_tail(
+    err: &(dyn std::error::Error + 'static),
+) -> Option<fabro_types::ExecOutputTail> {
+    let mut current = Some(err);
+    while let Some(err) = current {
+        if let Some(Error::Exec { result, .. }) = err.downcast_ref::<Error>() {
+            return result.default_redacted_output_tail();
+        }
+        current = err.source();
+    }
+    None
+}
+
+pub fn display_for_log(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut rendered = render_with_causes(&err.to_string(), &collect_causes(err));
+    if let Some(tail) = default_redacted_output_tail(err) {
+        append_tail_for_log(
+            &mut rendered,
+            "stderr",
+            tail.stderr.as_deref(),
+            tail.stderr_truncated,
+        );
+        append_tail_for_log(
+            &mut rendered,
+            "stdout",
+            tail.stdout.as_deref(),
+            tail.stdout_truncated,
+        );
+    }
+    rendered
+}
+
+fn append_tail_for_log(rendered: &mut String, stream: &str, tail: Option<&str>, truncated: bool) {
+    let tail = tail.unwrap_or("");
+    let _ = write!(
+        rendered,
+        "\n--- {stream} (truncated={truncated}, bytes={}) ---\n{tail}",
+        tail.len()
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use fabro_types::CommandTermination;
@@ -214,6 +253,57 @@ mod tests {
         assert!(rendered.contains("hint:"));
     }
 
+    #[test]
+    fn display_for_log_walks_context_chain_and_emits_tail() {
+        let exec_error = Error::exec("git push origin refs/heads/run", crate::ExecResult {
+            stdout:      "last stdout line".to_string(),
+            stderr:      "last stderr line".to_string(),
+            exit_code:   Some(128),
+            termination: CommandTermination::Exited,
+            duration_ms: 210,
+        });
+        let error = Error::context("metadata push failed", exec_error);
+
+        let rendered = display_for_log(&error);
+
+        assert!(rendered.contains("metadata push failed"));
+        assert!(rendered.contains("git push origin refs/heads/run"));
+        assert!(rendered.contains("--- stderr (truncated=false, bytes=16) ---"));
+        assert!(rendered.contains("last stderr line"));
+        assert!(rendered.contains("--- stdout (truncated=false, bytes=16) ---"));
+        assert!(rendered.contains("last stdout line"));
+    }
+
+    #[test]
+    fn display_for_log_redacts_secrets() {
+        let error = Error::exec("git push origin refs/heads/run", crate::ExecResult {
+            stdout:      "stdout secret ghs_xK9mZ2vL8nQ5rT1wY4bC7dF0gH3jE6pA".to_string(),
+            stderr:      "stderr secret ghs_xK9mZ2vL8nQ5rT1wY4bC7dF0gH3jE6pA".to_string(),
+            exit_code:   Some(128),
+            termination: CommandTermination::Exited,
+            duration_ms: 210,
+        });
+
+        let rendered = display_for_log(&error);
+
+        assert!(
+            !rendered.contains("ghs_xK9mZ2vL8nQ5rT1wY4bC7dF0gH3jE6pA"),
+            "log rendering leaked raw secret: {rendered}"
+        );
+        assert!(rendered.contains("REDACTED"));
+    }
+
+    #[test]
+    fn display_for_log_for_non_exec_error_returns_chain_only() {
+        let error = Error::context("outer failure", std::io::Error::other("leaf failure"));
+
+        let rendered = display_for_log(&error);
+
+        assert_eq!(rendered, "outer failure\n  caused by: leaf failure");
+        assert!(!rendered.contains("--- stderr"));
+        assert!(!rendered.contains("--- stdout"));
+    }
+
     fn assert_exec_rendering_is_safe(rendered: &str) {
         for forbidden in [
             "fatal:",
@@ -249,6 +339,23 @@ mod tests {
                 .expect("stderr tail")
                 .contains("REDACTED")
         );
+    }
+
+    #[test]
+    fn free_tail_helper_walks_context_chain() {
+        let exec_error = Error::exec("git push origin refs/heads/run", crate::ExecResult {
+            stdout:      "last stdout line".to_string(),
+            stderr:      "last stderr line".to_string(),
+            exit_code:   Some(128),
+            termination: CommandTermination::Exited,
+            duration_ms: 210,
+        });
+        let error = Error::context("metadata push failed", exec_error);
+
+        let tail = default_redacted_output_tail(&error).expect("tail present");
+
+        assert_eq!(tail.stdout.as_deref(), Some("last stdout line"));
+        assert_eq!(tail.stderr.as_deref(), Some("last stderr line"));
     }
 
     #[test]

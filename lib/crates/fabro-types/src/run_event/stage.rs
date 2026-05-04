@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::ExecOutputTail;
 use crate::{BilledModelUsage, FailureDetail, Outcome, StageOutcome};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -115,5 +116,7 @@ pub struct CheckpointCompletedProps {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CheckpointFailedProps {
-    pub error: String,
+    pub error:            String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec_output_tail: Option<ExecOutputTail>,
 }

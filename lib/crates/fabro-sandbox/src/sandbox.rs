@@ -447,7 +447,7 @@ impl ExecResult {
     ///
     /// This stores raw stdout/stderr. Callers must not log these fields
     /// directly; use `default_redacted_output_tail()` for events and
-    /// tracing metadata.
+    /// `display_for_log()` for tracing.
     #[cfg(test)]
     pub fn from_process_output(output: std::process::Output, duration_ms: u64) -> Self {
         let std::process::Output {
@@ -884,7 +884,7 @@ pub async fn git_push_via_exec(sandbox: &dyn Sandbox, refspec: &str) -> crate::R
     if let Err(e) = sandbox.refresh_push_credentials().await {
         tracing::warn!(
             refspec = %refspec,
-            error = %e,
+            error = %crate::display_for_log(&e),
             "Failed to refresh push credentials before git push"
         );
     }

@@ -11,6 +11,11 @@ use fabro_retro::retro_agent::{
 use super::types::{Executed, RetroOptions, Retroed};
 use crate::event::Event;
 
+fn exec_output_tail_from_anyhow(err: &anyhow::Error) -> Option<fabro_types::ExecOutputTail> {
+    err.chain()
+        .find_map(fabro_sandbox::default_redacted_output_tail)
+}
+
 pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
     let services = &options.services;
     let state = match services.run_store.state().await {
@@ -18,8 +23,9 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
         Err(e) => {
             tracing::warn!(error = %e, "Could not load run state, skipping retro");
             services.emitter.emit(&Event::RetroFailed {
-                error:       e.to_string(),
-                duration_ms: 0,
+                error:            e.to_string(),
+                duration_ms:      0,
+                exec_output_tail: exec_output_tail_from_anyhow(&e),
             });
             return None;
         }
@@ -27,8 +33,9 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
     let Some(ref cp) = state.checkpoint else {
         tracing::warn!("Could not load checkpoint, skipping retro");
         services.emitter.emit(&Event::RetroFailed {
-            error:       "checkpoint not found".to_string(),
-            duration_ms: 0,
+            error:            "checkpoint not found".to_string(),
+            duration_ms:      0,
+            exec_output_tail: None,
         });
         return None;
     };
@@ -39,8 +46,9 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
         Err(err) => {
             tracing::warn!(error = %err, "Could not load events from store, skipping retro");
             services.emitter.emit(&Event::RetroFailed {
-                error:       err.to_string(),
-                duration_ms: 0,
+                error:            err.to_string(),
+                duration_ms:      0,
+                exec_output_tail: exec_output_tail_from_anyhow(&err),
             });
             return None;
         }
@@ -129,6 +137,7 @@ pub async fn run_retro(options: &RetroOptions, dry_run: bool) -> Option<Retro> {
             services.emitter.emit(&Event::RetroFailed {
                 error: e.to_string(),
                 duration_ms,
+                exec_output_tail: exec_output_tail_from_anyhow(&e),
             });
             tracing::debug!(error = %e, "Retro agent skipped");
         }

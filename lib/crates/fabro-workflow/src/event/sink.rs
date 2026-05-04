@@ -232,9 +232,10 @@ mod tests {
         );
         let run_store = store.create_run(&fixtures::RUN_7).await.unwrap();
         let stored = to_run_event(&fixtures::RUN_7, &Event::RunNotice {
-            level:   RunNoticeLevel::Warn,
-            code:    "example".to_string(),
-            message: "notice".to_string(),
+            level:            RunNoticeLevel::Warn,
+            code:             "example".to_string(),
+            message:          "notice".to_string(),
+            exec_output_tail: None,
         });
         let payload = build_redacted_event_payload(&stored, &fixtures::RUN_7).unwrap();
         run_store.append_event(&payload).await.unwrap();

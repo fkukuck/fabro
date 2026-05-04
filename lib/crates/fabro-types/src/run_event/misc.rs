@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::ExecOutputTail;
 use crate::CommandTermination;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,8 +96,10 @@ pub struct GitCommitProps {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GitPushProps {
-    pub branch:  String,
-    pub success: bool,
+    pub branch:           String,
+    pub success:          bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec_output_tail: Option<ExecOutputTail>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -274,6 +277,8 @@ pub struct RetroCompletedProps {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RetroFailedProps {
-    pub error:       String,
-    pub duration_ms: u64,
+    pub error:            String,
+    pub duration_ms:      u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec_output_tail: Option<ExecOutputTail>,
 }
