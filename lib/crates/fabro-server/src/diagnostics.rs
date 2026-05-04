@@ -99,50 +99,92 @@ async fn check_llm_providers(state: &AppState) -> CheckResult {
         };
     }
 
-    let mut details = Vec::new();
-    let mut failed = Vec::new();
+    let mut details: Vec<CheckDetail> = Vec::new();
+    let mut failures: Vec<ProviderFailure> = Vec::new();
     for (provider, issue) in &result.auth_issues {
-        failed.push(provider.to_string());
-        details.push(CheckDetail::new(auth_issue_message(*provider, issue)));
+        let message = auth_issue_message(*provider, issue);
+        failures.push(ProviderFailure {
+            name:  provider.to_string(),
+            short: short_error_line(&message),
+        });
+        details.push(CheckDetail::new(message));
     }
     for provider_name in result.client.provider_names() {
         let Ok(provider) = provider_name.parse::<Provider>() else {
             continue;
         };
-        let result = timeout(
+        let probe_result = timeout(
             Duration::from_secs(30),
             probe_llm_provider(&result.client, provider),
         )
         .await;
-        match result {
+        match probe_result {
             Ok(Ok(())) => details.push(CheckDetail::new(format!("{provider}: OK"))),
             Ok(Err(err)) => {
-                failed.push(provider.to_string());
-                details.push(CheckDetail::new(format!("{provider}: {err:#}")));
+                failures.push(ProviderFailure {
+                    name:  provider.to_string(),
+                    short: short_error_line(&err.to_string()),
+                });
+                details.push(CheckDetail::new(format!("{provider}: {err}")));
             }
             Err(_) => {
-                failed.push(provider.to_string());
+                failures.push(ProviderFailure {
+                    name:  provider.to_string(),
+                    short: "timeout (30s)".to_string(),
+                });
                 details.push(CheckDetail::new(format!("{provider}: timeout (30s)")));
             }
         }
     }
 
-    if failed.is_empty() {
-        CheckResult {
+    if failures.is_empty() {
+        return CheckResult {
             name: "LLM Providers".to_string(),
             status: CheckStatus::Pass,
             summary: format!("{} configured", result.client.provider_names().len()),
             details,
             remediation: None,
-        }
+        };
+    }
+
+    let summary = if failures.len() == 1 {
+        format!("{} failed", failures[0].name)
     } else {
-        CheckResult {
-            name: "LLM Providers".to_string(),
-            status: CheckStatus::Warning,
-            summary: "some providers require attention".to_string(),
-            details,
-            remediation: Some(format!("Connectivity issues with: {}", failed.join(", "))),
-        }
+        format!("{} providers failed", failures.len())
+    };
+    let remediation = failures
+        .iter()
+        .map(|f| format!("{}: {}", f.name, f.short))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    CheckResult {
+        name: "LLM Providers".to_string(),
+        status: CheckStatus::Error,
+        summary,
+        details,
+        remediation: Some(remediation),
+    }
+}
+
+struct ProviderFailure {
+    name:  String,
+    short: String,
+}
+
+const MAX_SHORT_LEN: usize = 120;
+
+fn short_error_line(rendered: &str) -> String {
+    let first = rendered
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("error");
+    if first.chars().count() > MAX_SHORT_LEN {
+        let cutoff: String = first.chars().take(MAX_SHORT_LEN).collect();
+        format!("{cutoff}…")
+    } else {
+        first.to_string()
     }
 }
 
@@ -152,7 +194,7 @@ fn probe_model(provider: Provider) -> String {
         .map_or_else(|| format!("unknown-{provider}"), |m| m.id.clone())
 }
 
-async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> anyhow::Result<()> {
+async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> fabro_llm::Result<()> {
     let request = Request {
         model:            probe_model(provider),
         messages:         vec![Message::user("hi")],
@@ -169,11 +211,7 @@ async fn probe_llm_provider(client: &LlmClient, provider: Provider) -> anyhow::R
         metadata:         None,
         provider_options: None,
     };
-    client
-        .complete(&request)
-        .await
-        .map(|_| ())
-        .map_err(Into::into)
+    client.complete(&request).await.map(|_| ())
 }
 
 async fn check_github_app(state: &AppState) -> CheckResult {
@@ -595,7 +633,126 @@ fn check_crypto(state: &AppState) -> CheckResult {
 
 #[cfg(test)]
 mod tests {
+    use fabro_auth::{AuthCredential, AuthDetails};
+    use fabro_config::RunLayer;
+    use fabro_vault::SecretType;
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
+    use serde_json::json;
+
     use super::*;
+    use crate::test_support::{default_test_server_settings, test_app_state_with_env_lookup};
+
+    #[test]
+    fn short_error_line_returns_fallback_for_empty_input() {
+        assert_eq!(short_error_line(""), "error");
+    }
+
+    #[test]
+    fn short_error_line_skips_whitespace_only_first_line() {
+        let input = "   \n\t\nactual message";
+        assert_eq!(short_error_line(input), "actual message");
+    }
+
+    #[test]
+    fn short_error_line_truncates_long_input_with_ellipsis() {
+        let input = "a".repeat(MAX_SHORT_LEN + 50);
+        let result = short_error_line(&input);
+        let expected = format!("{}…", "a".repeat(MAX_SHORT_LEN));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn short_error_line_keeps_input_at_exact_max_length() {
+        let input = "a".repeat(MAX_SHORT_LEN);
+        assert_eq!(short_error_line(&input), input);
+    }
+
+    #[test]
+    fn short_error_line_truncates_one_char_past_max_length() {
+        let input = "a".repeat(MAX_SHORT_LEN + 1);
+        let expected = format!("{}…", "a".repeat(MAX_SHORT_LEN));
+        assert_eq!(short_error_line(&input), expected);
+    }
+
+    #[test]
+    fn short_error_line_returns_first_non_empty_trimmed_line() {
+        let input = "  first line  \nsecond line";
+        assert_eq!(short_error_line(input), "first line");
+    }
+
+    #[test]
+    fn short_error_line_returns_short_input_unchanged() {
+        assert_eq!(short_error_line("connection refused"), "connection refused");
+    }
+
+    #[tokio::test]
+    async fn check_llm_providers_reports_error_with_typed_remediation_on_probe_failure() {
+        let server = MockServer::start_async().await;
+        let _mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/responses");
+                then.status(401)
+                    .header("content-type", "application/json")
+                    .json_body(json!({
+                        "error": {
+                            "message": "invalid api key",
+                            "type": "invalid_request_error"
+                        }
+                    }));
+            })
+            .await;
+        let base_url = server.url("/v1");
+        let state = test_app_state_with_env_lookup(
+            default_test_server_settings(),
+            RunLayer::default(),
+            5,
+            move |name| match name {
+                "OPENAI_BASE_URL" => Some(base_url.clone()),
+                _ => None,
+            },
+        );
+        let credential = AuthCredential {
+            provider: Provider::OpenAi,
+            details:  AuthDetails::ApiKey {
+                key: "vault-openai-key".to_string(),
+            },
+        };
+        state
+            .vault
+            .write()
+            .await
+            .set(
+                "openai_codex",
+                &serde_json::to_string(&credential).unwrap(),
+                SecretType::Credential,
+                None,
+            )
+            .unwrap();
+
+        let result = check_llm_providers(&state).await;
+
+        assert_eq!(result.status, CheckStatus::Error);
+        assert_eq!(result.summary, "openai failed");
+        let remediation = result.remediation.expect("remediation set on failure");
+        assert!(
+            remediation.starts_with("openai: "),
+            "expected remediation to start with provider name, got: {remediation}"
+        );
+        assert!(
+            remediation.contains("Authentication"),
+            "expected typed Display 'Authentication' in remediation, got: {remediation}"
+        );
+        assert!(!result.details.is_empty(), "details should be populated");
+        assert!(
+            result
+                .details
+                .iter()
+                .any(|d| d.text.starts_with("openai: ")),
+            "expected a detail line prefixed with 'openai: ', got: {:?}",
+            result.details
+        );
+    }
 
     #[test]
     fn check_storage_dir_path_passes_for_readable_writable_directory() {
