@@ -1,5 +1,5 @@
 ---
-title: "Precise stage outcomes"
+title: "Command logs and precise stage outcomes"
 date: "2026-04-30"
 ---
 
@@ -12,6 +12,18 @@ To migrate:
 3. Replace `outcome=partial_success` with `outcome=partially_succeeded`.
 4. Remove `outcome=retry` branches and use retry policies plus `stage.retrying` events for retry observability.
 </Warning>
+
+## Live command output logs
+
+Command stages used to expose output mostly through event payloads and short diagnostic tails. Fabro now records stdout and stderr as per-stage logs while the command runs, stores the finalized streams in CAS-backed storage, and renders separate live output panels in the run stage view.
+
+API clients can tail the same logs by byte offset, which makes long-running scripts easier to follow without reloading an entire run projection:
+
+```bash
+curl "$FABRO_SERVER/api/v1/runs/$RUN_ID/stages/$STAGE_ID/logs/stdout?offset=0"
+```
+
+The same command log data is available to edge routing and retros after the command finishes, so workflow decisions and run narratives can inspect the final output without relying on truncated event fields.
 
 ## Precise stage outcomes
 
@@ -34,6 +46,7 @@ The OpenAPI schema also reuses canonical billing, model, provider, settings, and
 ## More
 
 <Accordion title="API">
+- New `GET /api/v1/runs/{id}/stages/{stageId}/logs/{stream}` endpoint tails command stdout or stderr with byte offsets
 - Replaced the generated `StageStatus` model with `StageState` and `StageOutcome` shapes
 - Tightened shared model, billing, provider, and settings schemas in the OpenAPI contract
 - Added `configured` to `GET /models` responses so clients can tell whether credential material is present before testing a model
@@ -43,4 +56,17 @@ The OpenAPI schema also reuses canonical billing, model, provider, settings, and
 <Accordion title="Workflows">
 - `allow_partial=true` now promotes exhausted retryable failures to `partially_succeeded`
 - Retryable failures emit retrying events while the node remains active instead of exposing `retry` as a final outcome
+- Command results now distinguish cancellations from timeouts
+- Docker, Daytona, local, and worktree sandboxes feed command stdout and stderr into the same streaming log pipeline
+</Accordion>
+
+<Accordion title="Improvements">
+- Run progress no longer prints successful metadata snapshot lines in the main progress stream
+- Run detail headers are less noisy after removing the repeated source and sandbox path line
+</Accordion>
+
+<Accordion title="Fixes">
+- Fixed command diagnostics being lost on early command failures
+- Fixed Daytona and worktree sandboxes losing streamed command semantics
+- Fixed retros missing command timing log references
 </Accordion>

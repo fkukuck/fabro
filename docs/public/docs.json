@@ -248,6 +248,16 @@
         "icon": "clock-rotate-left",
         "groups": [
           {
+            "group": "May 2026",
+            "icon": "clock-rotate-left",
+            "pages": [
+              "changelog/2026-05-04",
+              "changelog/2026-05-03",
+              "changelog/2026-05-02",
+              "changelog/2026-05-01"
+            ]
+          },
+          {
             "group": "April 2026",
             "icon": "clock-rotate-left",
             "pages": [
