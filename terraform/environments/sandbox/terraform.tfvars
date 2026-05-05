@@ -15,8 +15,8 @@ container_apps_environment_name         = "fkukuck-fabro-env"
 container_apps_environment_storage_name = "fabrostorage"
 fabro_server_name                       = "fkukuck-fabro-server"
 fabro_server_image                      = "example.azurecr.io/fabro-server:bootstrap"
-fabro_server_cpu                        = 2
-fabro_server_memory                     = "4Gi"
+fabro_server_cpu                        = 8
+fabro_server_memory                     = "16Gi"
 github_actions_principal_id             = "be3c8c5c-9478-441e-9a6f-e58ddb8746ba"
 
 tags = {
