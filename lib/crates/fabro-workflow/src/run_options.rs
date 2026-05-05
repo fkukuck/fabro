@@ -52,6 +52,10 @@ impl RunOptions {
         self.settings.run.checkpoint.exclude_globs.clone()
     }
 
+    pub fn checkpoint_commit_timeout_ms(&self) -> u64 {
+        self.settings.run.checkpoint.commit_timeout_ms
+    }
+
     pub fn git_author(&self) -> GitAuthor {
         git_author_from_settings(&self.settings)
     }

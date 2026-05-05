@@ -137,10 +137,13 @@ impl_combine_self!(
 
 impl Combine for RunCheckpointLayer {
     fn combine(self, other: Self) -> Self {
-        if self.exclude_globs.is_empty() {
-            other
-        } else {
-            self
+        Self {
+            exclude_globs: if self.exclude_globs.is_empty() {
+                other.exclude_globs
+            } else {
+                self.exclude_globs
+            },
+            commit_timeout: self.commit_timeout.or(other.commit_timeout),
         }
     }
 }

@@ -95,9 +95,19 @@ impl Default for RunExecutionSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunCheckpointSettings {
-    pub exclude_globs: Vec<String>,
+    pub exclude_globs:      Vec<String>,
+    pub commit_timeout_ms:  u64,
+}
+
+impl Default for RunCheckpointSettings {
+    fn default() -> Self {
+        Self {
+            exclude_globs: Vec::new(),
+            commit_timeout_ms: 30_000,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

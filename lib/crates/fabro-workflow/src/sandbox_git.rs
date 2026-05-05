@@ -27,6 +27,7 @@ pub struct GitState {
     pub run_branch:               Option<String>,
     pub meta_branch:              Option<String>,
     pub checkpoint_exclude_globs: Vec<String>,
+    pub checkpoint_commit_timeout_ms: u64,
     pub git_author:               GitAuthor,
 }
 
@@ -67,6 +68,7 @@ pub async fn git_checkpoint(
     completed_count: usize,
     shadow_sha: Option<String>,
     exclude_globs: &[String],
+    commit_timeout_ms: u64,
     author: &GitAuthor,
 ) -> std::result::Result<String, GitCommandError> {
     let mut all_excludes: Vec<String> = artifact_snapshot::EXCLUDE_DIRS
@@ -131,7 +133,7 @@ pub async fn git_checkpoint(
         email = shell_quote(&author.email),
     );
     let commit_result = sandbox
-        .exec_command(&commit_cmd, 30_000, None, None, None)
+        .exec_command(&commit_cmd, commit_timeout_ms, None, None, None)
         .await;
     let _ = sandbox.delete_file(&msg_path).await;
     match commit_result {
@@ -173,6 +175,7 @@ pub(crate) async fn checked_git_checkpoint(
     completed_count: usize,
     shadow_sha: Option<String>,
     exclude_globs: &[String],
+    commit_timeout_ms: u64,
     author: &GitAuthor,
 ) -> std::result::Result<String, SharedError> {
     runtime.ensure_git_available(sandbox).await.map_err(|err| {
@@ -186,6 +189,7 @@ pub(crate) async fn checked_git_checkpoint(
         completed_count,
         shadow_sha,
         exclude_globs,
+        commit_timeout_ms,
         author,
     )
     .await
@@ -1046,6 +1050,7 @@ mod tests {
             1,
             None,
             &[],
+            30_000,
             &crate::git::GitAuthor::default(),
         )
         .await
@@ -1072,6 +1077,7 @@ mod tests {
             1,
             None,
             &[],
+            30_000,
             &crate::git::GitAuthor::default(),
         )
         .await
@@ -1102,12 +1108,33 @@ mod tests {
             1,
             None,
             &[],
+            88,
             &crate::git::GitAuthor::default(),
         )
         .await
         .unwrap_err();
 
         assert_eq!(err.to_string(), "git commit timed out after 88ms");
+    }
+
+    #[tokio::test]
+    async fn git_checkpoint_uses_supplied_commit_timeout() {
+        let sandbox = ScriptedSandbox::new(vec![exec_ok(), exec_timed_out(321)]);
+        let err = git_checkpoint(
+            &sandbox,
+            "run1",
+            "work",
+            "success",
+            1,
+            None,
+            &[],
+            321,
+            &crate::git::GitAuthor::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "git commit timed out after 321ms");
     }
 
     #[tokio::test]
@@ -1121,6 +1148,7 @@ mod tests {
             1,
             None,
             &[],
+            30_000,
             &crate::git::GitAuthor::default(),
         )
         .await
@@ -1141,10 +1169,30 @@ mod tests {
         ]);
         let author = crate::git::GitAuthor::default();
 
-        let first =
-            git_checkpoint(&sandbox, "run1", "work", "success", 1, None, &[], &author).await;
-        let second =
-            git_checkpoint(&sandbox, "run1", "work", "success", 1, None, &[], &author).await;
+        let first = git_checkpoint(
+            &sandbox,
+            "run1",
+            "work",
+            "success",
+            1,
+            None,
+            &[],
+            30_000,
+            &author,
+        )
+        .await;
+        let second = git_checkpoint(
+            &sandbox,
+            "run1",
+            "work",
+            "success",
+            1,
+            None,
+            &[],
+            30_000,
+            &author,
+        )
+        .await;
 
         assert!(first.is_ok(), "first checkpoint failed: {:?}", first.err());
         assert!(
@@ -1241,8 +1289,18 @@ mod tests {
 
         // Call git_checkpoint with empty user excludes — built-in excludes should still
         // apply
-        let result =
-            git_checkpoint(&sandbox, "run1", "work", "success", 1, None, &[], &author).await;
+        let result = git_checkpoint(
+            &sandbox,
+            "run1",
+            "work",
+            "success",
+            1,
+            None,
+            &[],
+            30_000,
+            &author,
+        )
+        .await;
         assert!(result.is_ok(), "git_checkpoint failed: {:?}", result.err());
 
         // Verify that excluded directories were NOT staged

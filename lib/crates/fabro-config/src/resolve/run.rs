@@ -138,6 +138,10 @@ fn resolve_checkpoint(checkpoint: Option<&RunCheckpointLayer>) -> RunCheckpointS
         exclude_globs: checkpoint
             .map(|checkpoint| checkpoint.exclude_globs.clone())
             .unwrap_or_default(),
+        commit_timeout_ms: checkpoint
+            .and_then(|checkpoint| checkpoint.commit_timeout)
+            .map(|timeout| u64::try_from(timeout.as_std().as_millis()).unwrap_or(u64::MAX))
+            .unwrap_or(30_000),
     }
 }
 

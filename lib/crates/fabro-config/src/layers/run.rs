@@ -210,6 +210,8 @@ pub struct RunExecutionLayer {
 pub struct RunCheckpointLayer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude_globs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_timeout: Option<Duration>,
 }
 
 /// `[run.sandbox]` — sandbox selection and execution-environment surface.

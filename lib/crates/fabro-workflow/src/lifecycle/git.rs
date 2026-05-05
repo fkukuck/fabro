@@ -260,6 +260,7 @@ impl RunLifecycle<WorkflowGraph> for GitLifecycle {
             completed_count,
             shadow_sha,
             &self.run_options.checkpoint_exclude_globs(),
+            self.run_options.checkpoint_commit_timeout_ms(),
             &git_author,
         )
         .await;

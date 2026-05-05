@@ -63,6 +63,7 @@ pub async fn execute(init: Initialized) -> Executed {
             run_branch: git.run_branch.clone(),
             meta_branch: git.meta_branch.clone(),
             checkpoint_exclude_globs: run_options.checkpoint_exclude_globs(),
+            checkpoint_commit_timeout_ms: run_options.checkpoint_commit_timeout_ms(),
             git_author: run_options.git_author(),
         }))
     });

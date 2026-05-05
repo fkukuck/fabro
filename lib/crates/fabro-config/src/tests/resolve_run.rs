@@ -116,3 +116,28 @@ issues = "read"
         Some("read")
     );
 }
+
+#[test]
+fn resolves_checkpoint_commit_timeout() {
+    let settings = WorkflowSettingsBuilder::from_toml(
+        r#"
+_version = 1
+
+[run.checkpoint]
+commit_timeout = "30m"
+"#,
+    )
+    .expect("checkpoint timeout settings should resolve")
+    .run;
+
+    assert_eq!(settings.checkpoint.commit_timeout_ms, 1_800_000);
+}
+
+#[test]
+fn resolves_checkpoint_commit_timeout_default() {
+    let settings = WorkflowSettingsBuilder::from_layer(&SettingsLayer::default())
+        .expect("empty settings should resolve")
+        .run;
+
+    assert_eq!(settings.checkpoint.commit_timeout_ms, 30_000);
+}
