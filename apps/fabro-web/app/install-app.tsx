@@ -432,7 +432,7 @@ export default function InstallApp() {
             await runStepSubmit({
               action:   () => putInstallServer(installToken, canonicalUrl.trim()),
               fallback: "Failed to save server settings.",
-              next:     "/install/azure",
+              next:     "/install/object-store",
             });
           }}
         >
@@ -461,6 +461,19 @@ export default function InstallApp() {
           submitting={submitting}
           backHref="/install/server"
           onSubmit={async () => {
+            const hasAnyAzureInput = [
+              azureForm.subscriptionId,
+              azureForm.resourceGroup,
+              azureForm.location,
+              azureForm.subnetId,
+              azureForm.acrServer,
+              azureForm.acrIdentityResourceId,
+              azureForm.sandboxdPort,
+            ].some((value) => value.trim().length > 0);
+            if (!hasAnyAzureInput) {
+              navigate("/install/object-store");
+              return;
+            }
             if (!azureForm.subscriptionId.trim()) {
               setSaveError("Enter the Azure subscription ID before continuing.");
               focusInput(azureSubscriptionIdInputRef);
@@ -641,7 +654,7 @@ export default function InstallApp() {
           submittingLabel={
             objectStoreForm.provider === "local" ? "Saving..." : "Checking access..."
           }
-          backHref="/install/azure"
+          backHref={session?.azure ? "/install/azure" : "/install/server"}
           onSubmit={async () => {
             if (objectStoreForm.provider === "local") {
               if (!objectStoreForm.localRoot.trim()) {
@@ -896,6 +909,12 @@ export default function InstallApp() {
           }
           backHref="/install/object-store"
           onSubmit={async () => {
+            if (sandboxForm.provider === "azure" && !session?.azure) {
+              setSaveError(
+                "Complete the Azure step before selecting the Azure sandbox runtime.",
+              );
+              return;
+            }
             if (sandboxForm.provider === "daytona") {
               const apiKey = sandboxForm.apiKey.trim();
               const keepStoredKey = sandboxForm.apiKeySaved && !apiKey;

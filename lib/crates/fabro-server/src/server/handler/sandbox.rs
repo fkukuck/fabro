@@ -212,7 +212,8 @@ async fn reconnect_run_sandbox(
 ) -> Result<Box<dyn Sandbox>, Response> {
     let record = load_run_sandbox_record(state, run_id).await?;
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
-    reconnect(&record, daytona_api_key).await.map_err(|err| {
+    let storage_dir = state.server_storage_dir();
+    reconnect(&record, daytona_api_key, Some(storage_dir.as_path())).await.map_err(|err| {
         let detail = render_with_causes(&err.to_string(), &collect_causes(err.as_ref()));
         ApiError::new(StatusCode::CONFLICT, detail).into_response()
     })

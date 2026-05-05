@@ -1738,9 +1738,7 @@ async fn post_install_finish(
     let Some(server) = pending_install.server else {
         return missing_step_response("server");
     };
-    let Some(azure) = pending_install.azure else {
-        return missing_step_response("azure");
-    };
+    let azure = pending_install.azure;
     let Some(object_store) = pending_install.object_store else {
         return missing_step_response("object_store");
     };
@@ -1753,6 +1751,9 @@ async fn post_install_finish(
     let Some(github) = pending_install.github else {
         return missing_step_response("github");
     };
+    if matches!(&sandbox, InstallSandboxState::Azure) && azure.is_none() {
+        return missing_step_response("azure");
+    }
 
     let mut settings_doc = toml::Value::Table(toml::Table::default());
     let install_listen = state.install_listen_config();
@@ -1761,10 +1762,10 @@ async fn post_install_finish(
     {
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
-    if let Err(err) =
-        write_azure_platform_settings(&mut settings_doc, &azure.to_platform_selection())
-    {
-        return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+    if let Some(azure) = azure.as_ref() {
+        if let Err(err) = write_azure_platform_settings(&mut settings_doc, &azure.to_platform_selection()) {
+            return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+        }
     }
     let object_store_env_plan = match write_object_store_settings(
         &mut settings_doc,
@@ -1859,18 +1860,6 @@ async fn post_install_finish(
             ) {
                 return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
             }
-            let dev_token_path = Storage::new(state.storage_dir.as_ref())
-                .runtime_directory()
-                .dev_token_path();
-            let token = match dev_token::read_or_mint_dev_token_for_install(&dev_token_path) {
-                Ok(value) => value,
-                Err(err) => {
-                    return install_error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        err.to_string(),
-                    );
-                }
-            };
             server_env_writes.push(make_env_write(
                 EnvVars::GITHUB_APP_PRIVATE_KEY,
                 BASE64_STANDARD.encode(github.pem.as_bytes()),
@@ -1882,7 +1871,7 @@ async fn post_install_finish(
             if let Some(secret) = github.webhook_secret {
                 server_env_writes.push(make_env_write(EnvVars::GITHUB_APP_WEBHOOK_SECRET, secret));
             }
-            Some(token)
+            None
         }
     };
 

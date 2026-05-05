@@ -712,10 +712,6 @@ where
         &resolved_server_settings,
         &server_secrets,
     )?;
-    let (run_log_store, _) = build_artifact_object_store_with_server_secrets(
-        &resolved_server_settings,
-        &server_secrets,
-    )?;
     let artifact_store = fabro_store::ArtifactStore::new(artifact_object_store, artifact_prefix);
     let env_lookup: EnvLookup = Arc::new(process_env_var);
     resolve_canonical_origin(&resolved_server_settings, &env_lookup).map_err(anyhow::Error::msg)?;
@@ -725,7 +721,6 @@ where
         max_concurrent_runs,
         store,
         artifact_store,
-        run_log_store,
         vault_path,
         server_secrets,
         env_lookup,

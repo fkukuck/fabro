@@ -58,7 +58,6 @@ rand = { workspace = true, optional = true }
 daytona-sdk = { workspace = true, optional = true }
 daytona-api-client = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
-fabro-http = { workspace = true, optional = true }
 reqwest-middleware = { version = "0.5", features = ["json", "multipart", "form", "query"], optional = true }
 
 [dev-dependencies]
