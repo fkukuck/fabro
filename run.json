@@ -1,0 +1,211 @@
+{
+  "spec": {
+    "run_id": "01KQWQE18FWPSG2Q11W3QY55X4",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "directory": ".",
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "Verify that the deployed Azure server can launch an Azure sandbox"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {},
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.4",
+          "fallbacks": []
+        },
+        "git": {
+          "author": null
+        },
+        "prepare": {
+          "commands": [],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt",
+          "retros": true
+        },
+        "checkpoint": {
+          "exclude_globs": [],
+          "commit_timeout_ms": 30000
+        },
+        "sandbox": {
+          "provider": "azure",
+          "preserve": false,
+          "devcontainer": false,
+          "env": {},
+          "local": {
+            "worktree_mode": "always"
+          },
+          "docker": {
+            "image": "buildpack-deps:noble",
+            "network_mode": null,
+            "memory_limit": 4000000000,
+            "cpu_quota": 200000,
+            "env_vars": {},
+            "skip_clone": false
+          },
+          "daytona": null,
+          "azure": {
+            "image": "fkukuckfabroprod01.azurecr.io/fabro-azure-sandbox-base:20260505T181645Z-7ae3f29",
+            "cpu": 1.0,
+            "memory_gb": 2.0
+          }
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null,
+          "discord": null,
+          "teams": null
+        },
+        "agent": {
+          "permissions": null,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": null,
+        "artifacts": {
+          "include": []
+        }
+      }
+    },
+    "graph": {
+      "name": "AzureDeploySmoke",
+      "nodes": {
+        "probe": {
+          "id": "probe",
+          "attrs": {
+            "script": {
+              "String": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace"
+            },
+            "shape": {
+              "String": "parallelogram"
+            },
+            "label": {
+              "String": "Probe"
+            }
+          }
+        },
+        "start": {
+          "id": "start",
+          "attrs": {
+            "label": {
+              "String": "Start"
+            },
+            "shape": {
+              "String": "Mdiamond"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "shape": {
+              "String": "Msquare"
+            },
+            "label": {
+              "String": "Exit"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "probe",
+          "attrs": {}
+        },
+        {
+          "from": "probe",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "goal": {
+          "String": "Verify that the deployed Azure server can launch an Azure sandbox"
+        },
+        "rankdir": {
+          "String": "LR"
+        }
+      }
+    },
+    "workflow_slug": "azure-deploy-smoke-verify",
+    "source_directory": "/Users/ipt/repos/fabro-fkukuck",
+    "provenance": {
+      "server": {
+        "version": "0.223.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.223.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.223.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "7205627"
+        },
+        "login": "fkukuck",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "6acac7c6ae9b4f8b4387dbd8c26a12737d44681f1292750f27ea6a85dd687913",
+    "definition_blob": "7adcb9eda95fc4bf6558d04e6041cbfe734e2d9b07d81fcbb5a33d2769428102",
+    "git": {
+      "origin_url": "https://github.com/fkukuck/fabro",
+      "branch": "ipt",
+      "sha": "7ae3f29d7890dbb8d4337c52b35a175f7e2efe74",
+      "dirty": "dirty",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    },
+    "in_place": false
+  },
+  "graph_source": "digraph AzureDeploySmoke {\n    graph [goal=\"Verify that the deployed Azure server can launch an Azure sandbox\"]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    probe [\n        shape=parallelogram,\n        label=\"Probe\",\n        script=\"test \\\"$(pwd)\\\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace\"\n    ]\n\n    start -> probe -> exit\n}\n",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-05-05T18:47:00.361256965Z",
+  "pending_control": null,
+  "checkpoint": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "retro": null,
+  "retro_prompt": null,
+  "retro_response": null,
+  "sandbox": {
+    "provider": "azure",
+    "working_directory": "/workspace",
+    "identifier": "/subscriptions/97200cb2-456d-4471-876a-55f0a2bd8d54/resourceGroups/fkukuck-fabro-prod/providers/Microsoft.ContainerInstance/containerGroups/fabro-01kqwqe18fwpsg2q11w3qy55x4"
+  },
+  "final_patch": null,
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
