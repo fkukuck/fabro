@@ -186,14 +186,101 @@
     "in_place": false
   },
   "graph_source": "digraph AzureDeploySmoke {\n    graph [goal=\"Verify that the deployed Azure server can launch an Azure sandbox\"]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    probe [\n        shape=parallelogram,\n        label=\"Probe\",\n        script=\"test \\\"$(pwd)\\\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace\"\n    ]\n\n    start -> probe -> exit\n}\n",
-  "start": null,
-  "status": {
-    "kind": "starting"
+  "start": {
+    "run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
+    "start_time": "2026-05-05T18:46:03.263711117Z",
+    "run_branch": "fabro/run/01KQWQ8VHD9KKA6E6WTBMFP79S",
+    "base_sha": "7ae3f29d7890dbb8d4337c52b35a175f7e2efe74"
   },
-  "status_updated_at": "2026-05-05T18:44:10.635046694Z",
+  "status": {
+    "kind": "running"
+  },
+  "status_updated_at": "2026-05-05T18:46:03.263743417Z",
   "pending_control": null,
-  "checkpoint": null,
-  "checkpoints": [],
+  "checkpoint": {
+    "timestamp": "2026-05-05T18:46:05.353468895Z",
+    "current_node": "probe",
+    "completed_nodes": [
+      "start",
+      "probe"
+    ],
+    "node_retries": {},
+    "context_values": {
+      "internal.work_dir": "/workspace",
+      "internal.thread_id": "start",
+      "outcome": "succeeded",
+      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+      "failure_class": "",
+      "failure_signature": "",
+      "internal.retry_count.start": 0,
+      "internal.run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
+      "graph.rankdir": "LR",
+      "command.output": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
+      "internal.fidelity": "compact",
+      "current_node": "probe",
+      "internal.node_visit_count": 1,
+      "thread.start.current_node": "probe",
+      "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "internal.retry_count.probe": 0
+    },
+    "node_outcomes": {
+      "probe": {
+        "status": "succeeded",
+        "context_updates": {
+          "command.output": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
+          "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+        },
+        "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "usage": null
+      },
+      "start": {
+        "status": "succeeded",
+        "usage": null
+      }
+    },
+    "next_node_id": "exit",
+    "node_visits": {
+      "probe": 1,
+      "start": 1
+    }
+  },
+  "checkpoints": [
+    [
+      18,
+      {
+        "timestamp": "2026-05-05T18:46:05.162235270Z",
+        "current_node": "start",
+        "completed_nodes": [
+          "start"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.node_visit_count": 1,
+          "internal.run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
+          "internal.thread_id": null,
+          "failure_class": "",
+          "internal.retry_count.start": 0,
+          "internal.work_dir": "/workspace",
+          "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+          "graph.rankdir": "LR",
+          "internal.fidelity": "compact",
+          "failure_signature": "",
+          "outcome": "succeeded",
+          "current_node": "start"
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "probe",
+        "node_visits": {
+          "start": 1
+        }
+      }
+    ]
+  ],
   "conclusion": null,
   "retro": null,
   "retro_prompt": null,
@@ -207,5 +294,41 @@
   "pull_request": null,
   "superseded_by": null,
   "pending_interviews": {},
-  "stages": {}
+  "stages": {
+    "start@1": {
+      "first_event_seq": 15,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-05-05T18:46:05.161851873Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
+    },
+    "probe@1": {
+      "first_event_seq": 19,
+      "prompt": null,
+      "response": null,
+      "completion": null,
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": {
+        "script": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "command": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "language": "shell"
+      },
+      "script_timing": null,
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null
+    }
+  }
 }
