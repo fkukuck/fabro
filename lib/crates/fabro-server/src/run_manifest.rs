@@ -1459,7 +1459,7 @@ mod tests {
     }
 
     async fn preflight_for_settings(source: &str) -> Result<(CheckReport, bool)> {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),
@@ -1987,7 +1987,7 @@ provider = "local"
 
     #[tokio::test]
     async fn preflight_reports_github_token_check_for_run_scm_permissions() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),
@@ -2029,7 +2029,7 @@ issues = "read"
 
     #[tokio::test]
     async fn preflight_ignores_project_server_github_permissions_under_remote_mode() {
-        let state = crate::server::create_app_state();
+        let state = crate::test_support::test_app_state();
         let mut manifest = minimal_manifest();
         manifest.configs.push(types::ManifestConfig {
             path:   Some("/tmp/project/.fabro/project.toml".to_string()),

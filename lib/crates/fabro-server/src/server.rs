@@ -2311,6 +2311,7 @@ fn worker_command(
     }
     let value: &'static str = server_destination.into();
     cmd.env(EnvVars::FABRO_LOG_DESTINATION, value);
+    cmd.env(EnvVars::FABRO_STORAGE_ROOT, &storage_dir);
     cmd.env_remove(EnvVars::FABRO_WORKER_TOKEN);
     cmd.env(EnvVars::FABRO_WORKER_TOKEN, worker_token);
     if let Some(pem) = state.server_secret(EnvVars::GITHUB_APP_PRIVATE_KEY) {

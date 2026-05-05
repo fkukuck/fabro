@@ -1666,6 +1666,27 @@ destination = "stdout"
 
 #[cfg(unix)]
 #[test]
+fn worker_command_sets_fabro_storage_root_env() {
+    let storage_dir = tempfile::tempdir().unwrap();
+    let state = worker_command_test_state(storage_dir.path(), &["dev-token"], Some(TEST_DEV_TOKEN));
+    let run_id = RunId::new();
+
+    let cmd = worker_command(
+        state.as_ref(),
+        run_id,
+        RunExecutionMode::Start,
+        storage_dir.path(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        command_env_value(&cmd, EnvVars::FABRO_STORAGE_ROOT),
+        EnvOverride::Set(storage_dir.path().display().to_string())
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_command_env_log_destination_overrides_server_logging_config() {
     let storage_dir = tempfile::tempdir().unwrap();
     let state = worker_command_test_state_with_extra_config_and_env_lookup(
