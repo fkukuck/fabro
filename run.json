@@ -198,7 +198,7 @@
   "status_updated_at": "2026-05-05T18:46:03.263743417Z",
   "pending_control": null,
   "checkpoint": {
-    "timestamp": "2026-05-05T18:46:05.353468895Z",
+    "timestamp": "2026-05-05T18:46:08.545422368Z",
     "current_node": "probe",
     "completed_nodes": [
       "start",
@@ -206,24 +206,28 @@
     ],
     "node_retries": {},
     "context_values": {
-      "internal.work_dir": "/workspace",
-      "internal.thread_id": "start",
-      "outcome": "succeeded",
-      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
-      "failure_class": "",
-      "failure_signature": "",
-      "internal.retry_count.start": 0,
-      "internal.run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
-      "graph.rankdir": "LR",
       "command.output": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
-      "internal.fidelity": "compact",
-      "current_node": "probe",
+      "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+      "failure_signature": "",
       "internal.node_visit_count": 1,
+      "internal.work_dir": "/workspace",
+      "current_node": "probe",
+      "internal.retry_count.probe": 0,
+      "internal.fidelity": "compact",
+      "graph.rankdir": "LR",
+      "failure_class": "",
+      "internal.run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
+      "outcome": "succeeded",
       "thread.start.current_node": "probe",
       "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
-      "internal.retry_count.probe": 0
+      "internal.retry_count.start": 0,
+      "internal.thread_id": "start"
     },
     "node_outcomes": {
+      "start": {
+        "status": "succeeded",
+        "usage": null
+      },
       "probe": {
         "status": "succeeded",
         "context_updates": {
@@ -232,13 +236,10 @@
         },
         "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
         "usage": null
-      },
-      "start": {
-        "status": "succeeded",
-        "usage": null
       }
     },
     "next_node_id": "exit",
+    "git_commit_sha": "a6c5b4f2cc41d8125dc96a84025f4528f320c4f9",
     "node_visits": {
       "probe": 1,
       "start": 1
@@ -279,9 +280,80 @@
           "start": 1
         }
       }
+    ],
+    [
+      26,
+      {
+        "timestamp": "2026-05-05T18:46:08.545422368Z",
+        "current_node": "probe",
+        "completed_nodes": [
+          "start",
+          "probe"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "command.output": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
+          "graph.goal": "Verify that the deployed Azure server can launch an Azure sandbox",
+          "failure_signature": "",
+          "internal.node_visit_count": 1,
+          "internal.work_dir": "/workspace",
+          "current_node": "probe",
+          "internal.retry_count.probe": 0,
+          "internal.fidelity": "compact",
+          "graph.rankdir": "LR",
+          "failure_class": "",
+          "internal.run_id": "01KQWQ8VHD9KKA6E6WTBMFP79S",
+          "outcome": "succeeded",
+          "thread.start.current_node": "probe",
+          "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+          "internal.retry_count.start": 0,
+          "internal.thread_id": "start"
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "probe": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
+              "command.stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+            },
+            "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+            "usage": null
+          }
+        },
+        "next_node_id": "exit",
+        "git_commit_sha": "a6c5b4f2cc41d8125dc96a84025f4528f320c4f9",
+        "node_visits": {
+          "probe": 1,
+          "start": 1
+        }
+      }
     ]
   ],
-  "conclusion": null,
+  "conclusion": {
+    "timestamp": "2026-05-05T18:46:08.625614850Z",
+    "status": "succeeded",
+    "duration_ms": 5282,
+    "final_git_commit_sha": "a6c5b4f2cc41d8125dc96a84025f4528f320c4f9",
+    "stages": [
+      {
+        "stage_id": "start",
+        "stage_label": "start",
+        "duration_ms": 0,
+        "retries": 0
+      },
+      {
+        "stage_id": "probe",
+        "stage_label": "probe",
+        "duration_ms": 189,
+        "retries": 0
+      }
+    ],
+    "total_retries": 0
+  },
   "retro": null,
   "retro_prompt": null,
   "retro_response": null,
@@ -317,7 +389,12 @@
       "first_event_seq": 19,
       "prompt": null,
       "response": null,
-      "completion": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Script completed: test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
+        "failure_reason": null,
+        "timestamp": "2026-05-05T18:46:05.352202804Z"
+      },
       "provider_used": null,
       "diff": null,
       "script_invocation": {
@@ -325,6 +402,39 @@
         "command": "test \"$(pwd)\" = /workspace && uname -a && command -v fabro-sandboxd && test -d /workspace",
         "language": "shell"
       },
+      "script_timing": {
+        "stdout": "blob://sha256/489ef7a631daabd81735e8780bc7539ba4d4467409e69fea09c4db436cc327f3",
+        "stderr": "blob://sha256/12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "exit_code": 0,
+        "duration_ms": 3,
+        "termination": "exited",
+        "stdout_bytes": 163,
+        "stderr_bytes": 0,
+        "streams_separated": true,
+        "live_streaming": false
+      },
+      "parallel_results": null,
+      "stdout": null,
+      "stderr": null,
+      "stdout_bytes": 163,
+      "stderr_bytes": 0,
+      "streams_separated": true,
+      "live_streaming": false,
+      "termination": "exited"
+    },
+    "exit@1": {
+      "first_event_seq": 29,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-05-05T18:46:08.545568967Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
       "script_timing": null,
       "parallel_results": null,
       "stdout": null,
