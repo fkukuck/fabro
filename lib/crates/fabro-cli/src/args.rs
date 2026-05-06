@@ -497,9 +497,9 @@ pub(crate) struct CpArgs {
     #[command(flatten)]
     pub(crate) server: ServerTargetArgs,
 
-    /// Source: <run-id>:<path> or local path
+    /// Source: `<run-id>:<path>` or local path
     pub(crate) src:       String,
-    /// Destination: <run-id>:<path> or local path
+    /// Destination: `<run-id>:<path>` or local path
     pub(crate) dst:       String,
     /// Recurse into directories
     #[arg(short, long)]
@@ -1462,7 +1462,7 @@ pub(crate) struct InstallGithubArgs {
     #[arg(long)]
     pub(crate) strategy: Option<InstallGitHubStrategyArg>,
 
-    /// GitHub App owner: 'personal' or 'org:<slug>' (app only, requires
+    /// GitHub App owner: `personal` or `org:<slug>` (app only, requires
     /// --non-interactive)
     #[arg(long)]
     pub(crate) owner: Option<String>,
