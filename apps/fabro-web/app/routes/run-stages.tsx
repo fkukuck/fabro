@@ -363,7 +363,7 @@ function EventRow({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`grid w-full grid-cols-[5rem_1fr_auto_auto] items-center gap-4 py-1.5 pl-5 pr-6 text-left transition-colors hover:bg-overlay focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-500 sm:pr-8 lg:pr-10 ${
+      className={`grid w-full grid-cols-[5rem_1fr_auto_auto] items-center gap-4 px-5 py-1.5 text-left transition-colors hover:bg-overlay focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-500 ${
         selected ? "bg-overlay" : ""
       }`}
     >
