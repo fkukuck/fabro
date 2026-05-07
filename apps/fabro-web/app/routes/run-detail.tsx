@@ -17,7 +17,7 @@ import { Link, Outlet, useLocation, useMatches } from "react-router";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 
 import { InterviewDock } from "../components/interview-dock";
-import { SteerBar } from "../components/steer-bar";
+import { SteerBar, type SteerBarHandle } from "../components/steer-bar";
 import { SteerComposer } from "../components/steer-composer";
 import { ErrorState } from "../components/state";
 import { useToast } from "../components/toast";
@@ -32,6 +32,7 @@ import { useDemoMode } from "../lib/demo-mode";
 import {
   useArchiveRun,
   useCancelRun,
+  useInterruptRun,
   usePreviewRun,
   useUnarchiveRun,
   type LifecycleMutationResult,
@@ -147,9 +148,11 @@ export default function RunDetail({ params }: { params: { id: string } }) {
   const cancelMutation = useCancelRun(params.id);
   const archiveMutation = useArchiveRun(params.id);
   const unarchiveMutation = useUnarchiveRun(params.id);
+  const interruptMutation = useInterruptRun(params.id);
   const { push, dismiss } = useToast();
   const tabs = allTabs.filter((t) => !t.demoOnly || demoMode);
   const lifecycleToastStateRef = useRef<LifecycleToastState>(INITIAL_LIFECYCLE_TOAST_STATE);
+  const steerBarRef = useRef<SteerBarHandle | null>(null);
   const [steerOpen, setSteerOpen] = useState(false);
   const now = useTickingNow(30_000);
   const fullHeight = matches.some(
@@ -281,9 +284,16 @@ export default function RunDetail({ params }: { params: { id: string } }) {
           </div>
         </div>
 
+        {demoMode && <ConnectMenu />}
+
         <ActionsMenu
           canSteer={statusKind === "running"}
           onSteer={() => setSteerOpen(true)}
+          canSendInterrupt={statusKind === "running"}
+          interruptPending={interruptMutation.isMutating}
+          onSendInterrupt={() => void interruptMutation.trigger()}
+          canFocusSteer={statusKind === "running" && !hasPendingQuestions}
+          onFocusSteer={() => steerBarRef.current?.focus()}
           canPreview={!!run.sandboxId}
           previewPending={previewPending}
           onPreview={() => void previewMutation.trigger({
@@ -352,7 +362,7 @@ export default function RunDetail({ params }: { params: { id: string } }) {
         {hasPendingQuestions ? (
           <InterviewDock runId={params.id} questions={pendingQuestions} />
         ) : (
-          <SteerBar runId={params.id} />
+          <SteerBar ref={steerBarRef} runId={params.id} />
         )}
       </div>
     </div>
@@ -406,9 +416,41 @@ export function handleLifecycleToastResult(
   return { ...nextState, activeArchiveToastId: null };
 }
 
+function ConnectMenu() {
+  return (
+    <Menu as="div" className="shrink-0">
+      <MenuButton className={ACTIONS_TRIGGER_CLASS}>
+        Connect
+        <ChevronDownIcon className="-mr-1 size-4 text-fg-muted" aria-hidden="true" />
+      </MenuButton>
+      <MenuItems
+        transition
+        anchor={{ to: "bottom end", gap: 4 }}
+        className="z-20 w-44 origin-top-right rounded-md bg-panel py-1 outline-1 -outline-offset-1 outline-line-strong transition data-closed:scale-95 data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+      >
+        <MenuItem>
+          <button type="button" className={MENU_ITEM_CLASS}>
+            Preview
+          </button>
+        </MenuItem>
+        <MenuItem>
+          <button type="button" className={MENU_ITEM_CLASS}>
+            SSH
+          </button>
+        </MenuItem>
+      </MenuItems>
+    </Menu>
+  );
+}
+
 interface ActionsMenuProps {
   canSteer: boolean;
   onSteer: () => void;
+  canSendInterrupt: boolean;
+  interruptPending: boolean;
+  onSendInterrupt: () => void;
+  canFocusSteer: boolean;
+  onFocusSteer: () => void;
   canPreview: boolean;
   previewPending: boolean;
   onPreview: () => void;
@@ -426,17 +468,21 @@ interface ActionsMenuProps {
 function ActionsMenu(props: ActionsMenuProps) {
   const {
     canSteer, onSteer,
+    canSendInterrupt, interruptPending, onSendInterrupt,
+    canFocusSteer, onFocusSteer,
     canPreview, previewPending, onPreview,
     canArchive, archivePending, onArchive,
     canUnarchive, unarchivePending, onUnarchive,
     canCancel, cancelPending, onCancel,
   } = props;
 
-  const hasOps = canPreview || canSteer;
+  const hasOps =
+    canPreview || canSteer || canSendInterrupt || canFocusSteer;
   const hasLifecycle = canArchive || canUnarchive;
   const hasDestructive = canCancel;
   const hasAny = hasOps || hasLifecycle || hasDestructive;
-  const anyPending = previewPending || archivePending || unarchivePending || cancelPending;
+  const anyPending =
+    previewPending || archivePending || unarchivePending || cancelPending || interruptPending;
 
   if (!hasAny) return null;
 
@@ -471,7 +517,29 @@ function ActionsMenu(props: ActionsMenuProps) {
             </button>
           </MenuItem>
         )}
-        {hasOps && hasLifecycle && <div className="my-1 h-px bg-line" role="separator" />}
+        <MenuItem>
+          <button
+            type="button"
+            onClick={onSendInterrupt}
+            disabled={!canSendInterrupt || interruptPending}
+            className={MENU_ITEM_CLASS}
+          >
+            {interruptPending ? "Interrupting…" : "Send interrupt"}
+          </button>
+        </MenuItem>
+        <MenuItem>
+          <button
+            type="button"
+            onClick={onFocusSteer}
+            disabled={!canFocusSteer}
+            className={MENU_ITEM_CLASS}
+          >
+            Send steering…
+          </button>
+        </MenuItem>
+        {(hasLifecycle || hasDestructive) && (
+          <div className="my-1 h-px bg-line" role="separator" />
+        )}
         {canArchive && (
           <MenuItem>
             <button

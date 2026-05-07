@@ -44,6 +44,7 @@ mock.module("../lib/queries", () => ({
 mock.module("../lib/mutations", () => ({
   useArchiveRun:           () => noopMutation(),
   useCancelRun:            () => noopMutation(),
+  useInterruptRun:         () => noopMutation(),
   usePreviewRun:           () => noopMutation(),
   useSteerRun:             () => noopMutation(),
   useSubmitInterviewAnswer: () => noopMutation(),

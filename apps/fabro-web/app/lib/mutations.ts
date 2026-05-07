@@ -119,6 +119,24 @@ export function useSubmitInterviewAnswer(runId: string | undefined) {
 
 export type SteerRunArg = SteerRunRequest;
 
+export function useInterruptRun(runId: string | undefined) {
+  const { mutate } = useSWRConfig();
+  return useSWRMutation(
+    runId ? `interrupt-run:${runId}` : null,
+    async (_key: string) => {
+      if (!runId) throw new Error("runId is required");
+      const path = `/api/v1/runs/${encodeURIComponent(runId)}/interrupt`;
+      await apiJsonMutation<void, undefined>(path, { arg: undefined });
+    },
+    {
+      onSuccess: () => {
+        if (!runId) return;
+        void mutate(queryKeys.runs.detail(runId));
+      },
+    },
+  );
+}
+
 export function useSteerRun(runId: string | undefined) {
   const { mutate } = useSWRConfig();
   return useSWRMutation(

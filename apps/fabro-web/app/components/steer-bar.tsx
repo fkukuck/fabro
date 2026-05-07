@@ -1,13 +1,33 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { CheckIcon } from "@heroicons/react/16/solid";
 
 export interface SteerBarProps {
   runId: string;
 }
 
-export function SteerBar({ runId: _runId }: SteerBarProps) {
+export interface SteerBarHandle {
+  focus(): void;
+}
+
+export const SteerBar = forwardRef<SteerBarHandle, SteerBarProps>(function SteerBar(
+  { runId: _runId },
+  ref,
+) {
   const [text, setText] = useState("");
   const [interrupt, setInterrupt] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useImperativeHandle(ref, () => ({
+    focus() {
+      textareaRef.current?.focus();
+    },
+  }));
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0;
 
@@ -33,6 +53,7 @@ export function SteerBar({ runId: _runId }: SteerBarProps) {
       className="mx-auto flex max-w-4xl items-end gap-2 px-4 py-3 sm:px-6 lg:px-8"
     >
       <textarea
+        ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -76,4 +97,4 @@ export function SteerBar({ runId: _runId }: SteerBarProps) {
       </button>
     </form>
   );
-}
+});
