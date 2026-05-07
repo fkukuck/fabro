@@ -20,6 +20,7 @@ fn run_summary_json_matches_openapi_shape() {
     let created_at = Utc.with_ymd_and_hms(2026, 4, 20, 12, 0, 0).unwrap();
     let run_id = RunId::with_timestamp(created_at, 7);
     let superseded_by = RunId::with_timestamp(created_at, 8);
+    let last_event_at = Utc.with_ymd_and_hms(2026, 4, 20, 12, 0, 42).unwrap();
     let summary = RunSummary::new(
         run_id,
         Some("workflow".to_string()),
@@ -30,6 +31,7 @@ fn run_summary_json_matches_openapi_shape() {
         false,
         None,
         Some(created_at),
+        Some(last_event_at),
         RunStatus::Archived {
             prior: TerminalStatus::Succeeded {
                 reason: SuccessReason::PartialSuccess,
@@ -60,6 +62,7 @@ fn run_summary_json_matches_openapi_shape() {
             },
             "start_time": "2026-04-20T12:00:00Z",
             "created_at": "2026-04-20T12:00:00Z",
+            "last_event_at": "2026-04-20T12:00:42Z",
             "status": {
                 "kind": "archived",
                 "prior": {
@@ -107,6 +110,7 @@ fn run_summary_deserializes_when_optional_fields_are_absent() {
     });
     assert_eq!(summary.start_time, None);
     assert_eq!(summary.created_at, created_at);
+    assert_eq!(summary.last_event_at, None);
     assert_eq!(summary.status, RunStatus::Running);
     assert_eq!(summary.pending_control, None);
     assert_eq!(summary.duration_ms, None);

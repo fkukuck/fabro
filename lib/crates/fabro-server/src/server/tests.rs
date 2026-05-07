@@ -8388,7 +8388,10 @@ async fn boards_runs_includes_archived_when_flag_set() {
         .find(|i| i["run_id"].as_str() == Some(&archived_id.to_string()))
         .expect("archived run should appear when include_archived=true");
     assert_eq!(archived_item["column"].as_str().unwrap(), "archived");
-    assert_eq!(archived_item["status"]["kind"].as_str().unwrap(), "archived");
+    assert_eq!(
+        archived_item["status"]["kind"].as_str().unwrap(),
+        "archived"
+    );
 
     let succeeded_item = data
         .iter()
@@ -8401,18 +8404,15 @@ async fn boards_runs_includes_archived_when_flag_set() {
         .iter()
         .map(|c| c["id"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(
-        column_ids,
-        vec![
-            "queued",
-            "initializing",
-            "running",
-            "blocked",
-            "succeeded",
-            "failed",
-            "archived",
-        ],
-    );
+    assert_eq!(column_ids, vec![
+        "queued",
+        "initializing",
+        "running",
+        "blocked",
+        "succeeded",
+        "failed",
+        "archived",
+    ],);
 }
 
 #[tokio::test]

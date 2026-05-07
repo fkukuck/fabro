@@ -44,6 +44,7 @@ export interface RunProjection {
     'start'?: { [key: string]: any; } | null;
     'status'?: RunStatus | null;
     'status_updated_at'?: string | null;
+    'last_event_at'?: string | null;
     'pending_control'?: RunControlAction | null;
     'checkpoint'?: RunCheckpoint | null;
     /**

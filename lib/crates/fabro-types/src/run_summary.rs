@@ -26,6 +26,8 @@ pub struct RunSummary {
     #[serde(default)]
     pub start_time:       Option<DateTime<Utc>>,
     pub created_at:       DateTime<Utc>,
+    #[serde(default)]
+    pub last_event_at:    Option<DateTime<Utc>>,
     pub status:           RunStatus,
     #[serde(default)]
     pub pending_control:  Option<RunControlAction>,
@@ -54,6 +56,7 @@ impl RunSummary {
         in_place: bool,
         repo_origin_url: Option<String>,
         start_time: Option<DateTime<Utc>>,
+        last_event_at: Option<DateTime<Utc>>,
         status: RunStatus,
         pending_control: Option<RunControlAction>,
         duration_ms: Option<u64>,
@@ -80,6 +83,7 @@ impl RunSummary {
             repository,
             start_time,
             created_at,
+            last_event_at,
             status,
             pending_control,
             duration_ms,
@@ -173,6 +177,7 @@ mod tests {
             false,
             Some("https://github.com/fabro-sh/fabro.git".to_string()),
             Some(Utc.with_ymd_and_hms(2026, 4, 20, 12, 0, 0).unwrap()),
+            Some(Utc.with_ymd_and_hms(2026, 4, 20, 12, 5, 0).unwrap()),
             RunStatus::Blocked {
                 blocked_reason: BlockedReason::HumanInputRequired,
             },
@@ -189,6 +194,10 @@ mod tests {
         assert_eq!(summary.created_at, fixtures::RUN_1.created_at());
         assert_eq!(summary.elapsed_secs, Some(0.042));
         assert_eq!(
+            summary.last_event_at,
+            Some(Utc.with_ymd_and_hms(2026, 4, 20, 12, 5, 0).unwrap())
+        );
+        assert_eq!(
             summary.source_directory.as_deref(),
             Some("/Users/client/local-checkout")
         );
@@ -200,6 +209,7 @@ mod tests {
             value["repo_origin_url"],
             "https://github.com/fabro-sh/fabro.git"
         );
+        assert_eq!(value["last_event_at"], "2026-04-20T12:05:00Z");
         let parsed: RunSummary = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, summary);
     }
@@ -216,6 +226,7 @@ mod tests {
             false,
             None,
             None,
+            None,
             RunStatus::Submitted,
             None,
             None,
@@ -223,6 +234,7 @@ mod tests {
             None,
         );
         assert_eq!(source_only.repository.name, "local-checkout");
+        assert_eq!(source_only.last_event_at, None);
 
         let unknown = RunSummary::new(
             fixtures::RUN_1,
@@ -232,6 +244,7 @@ mod tests {
             HashMap::new(),
             None,
             false,
+            None,
             None,
             None,
             RunStatus::Submitted,

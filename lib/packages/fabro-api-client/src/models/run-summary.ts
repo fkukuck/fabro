@@ -39,6 +39,7 @@ export interface RunSummary {
     'repository': RepositoryReference;
     'start_time'?: string | null;
     'created_at': string;
+    'last_event_at'?: string | null;
     'status': RunStatus;
     'pending_control'?: RunControlAction | null;
     'duration_ms'?: number | null;

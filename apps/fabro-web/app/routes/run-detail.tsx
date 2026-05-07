@@ -11,6 +11,7 @@ import {
   ClockIcon,
   FolderIcon,
   RectangleStackIcon,
+  SignalIcon,
 } from "@heroicons/react/20/solid";
 import { Link, Outlet, useLocation, useMatches } from "react-router";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
@@ -35,6 +36,7 @@ import {
   type LifecycleMutationResult,
   type PreviewMutationResult,
 } from "../lib/mutations";
+import { formatRelativeTime } from "../lib/format";
 import { useRunEvents } from "../lib/run-events";
 import { useRunToasts } from "../hooks/use-run-toasts";
 import { useRun, useRunQuestions } from "../lib/queries";
@@ -69,6 +71,15 @@ const MENU_ITEM_DANGER_CLASS =
 
 function classNames(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function useTickingNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
 }
 
 type RunDetailRun = ReturnType<typeof mapRunSummaryToRunItem> & {
@@ -139,6 +150,7 @@ export default function RunDetail({ params }: { params: { id: string } }) {
   const tabs = allTabs.filter((t) => !t.demoOnly || demoMode);
   const lifecycleToastStateRef = useRef<LifecycleToastState>(INITIAL_LIFECYCLE_TOAST_STATE);
   const [steerOpen, setSteerOpen] = useState(false);
+  const now = useTickingNow(30_000);
   const fullHeight = matches.some(
     (m) => (m.handle as { fullHeight?: boolean } | undefined)?.fullHeight,
   );
@@ -253,6 +265,15 @@ export default function RunDetail({ params }: { params: { id: string } }) {
               <span className="flex items-center gap-1.5 font-mono text-xs text-fg-muted">
                 <ClockIcon className="size-3.5" aria-hidden="true" />
                 {run.elapsed}
+              </span>
+            )}
+            {run.lastEventAt && (
+              <span
+                className="flex items-center gap-1.5 font-mono text-xs text-fg-muted"
+                title={`Last event ${new Date(run.lastEventAt).toLocaleString()}`}
+              >
+                <SignalIcon className="size-3.5" aria-hidden="true" />
+                {formatRelativeTime(run.lastEventAt, now)}
               </span>
             )}
           </div>

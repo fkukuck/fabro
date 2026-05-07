@@ -69,6 +69,10 @@ export interface RunListItem {
      * Timestamp when the run was created.
      */
     'created_at': string;
+    /**
+     * Timestamp of the most recent event applied to the run\'s projection. Null until the first event is recorded.
+     */
+    'last_event_at'?: string | null;
 }
 
 

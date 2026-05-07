@@ -5613,6 +5613,11 @@ components:
             - type: string
               format: date-time
             - type: "null"
+        last_event_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
         pending_control:
           oneOf:
             - $ref: "#/components/schemas/RunControlAction"
@@ -5701,6 +5706,9 @@ components:
           format: date-time
         created_at:
           type: string
+          format: date-time
+        last_event_at:
+          type: ["string", "null"]
           format: date-time
         status:
           $ref: "#/components/schemas/RunStatus"
@@ -6392,6 +6400,10 @@ components:
           format: date-time
           description: Timestamp when the run was created.
           example: "2026-03-06T14:30:00Z"
+        last_event_at:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp of the most recent event applied to the run's projection. Null until the first event is recorded.
 
     RunCheckpoint:
       description: Serializable snapshot of execution state for crash recovery and resume.

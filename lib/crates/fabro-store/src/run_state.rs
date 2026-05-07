@@ -46,6 +46,8 @@ impl RunProjectionReducer for RunProjection {
         let ts = stored.ts;
         let run_id = stored.run_id;
 
+        self.last_event_at = Some(ts);
+
         match &stored.body {
             EventBody::RunCreated(props) => {
                 let labels = props.labels.clone().into_iter().collect::<HashMap<_, _>>();
@@ -547,6 +549,7 @@ pub(crate) fn build_summary(state: &RunProjection, run_id: &RunId) -> RunSummary
             .and_then(|spec| spec.git.as_ref())
             .map(|git| git.origin_url.clone()),
         state.start.as_ref().map(|start| start.start_time),
+        state.last_event_at,
         state.status.unwrap_or(RunStatus::Submitted),
         state.pending_control,
         state
@@ -851,6 +854,22 @@ mod tests {
         assert_eq!(state.pending_control, Some(RunControlAction::Pause));
         assert!(state.checkpoints.is_empty());
         assert!(state.is_empty());
+        assert_eq!(state.last_event_at, None);
+    }
+
+    #[test]
+    fn last_event_at_tracks_most_recent_event_timestamp() {
+        let earlier =
+            test_raw_event_at(1, "2026-04-20T12:00:00Z", "run_submitted", &json!({}), None);
+        let later = test_raw_event_at(2, "2026-04-20T12:05:30Z", "run_running", &json!({}), None);
+
+        let state = RunProjection::apply_events(&[earlier, later.clone()]).unwrap();
+
+        assert_eq!(state.last_event_at, Some(later.event.ts));
+
+        // Empty projections still have no timestamp.
+        let empty = RunProjection::default();
+        assert_eq!(empty.last_event_at, None);
     }
 
     #[test]

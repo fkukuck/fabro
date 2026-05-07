@@ -17,6 +17,7 @@ fn run_projection_round_trips_populated_projection() {
         "start": null,
         "status": null,
         "status_updated_at": null,
+        "last_event_at": null,
         "pending_control": "pause",
         "checkpoint": null,
         "checkpoints": [[
@@ -85,6 +86,7 @@ fn run_projection_round_trips_with_pending_control_unset() {
         "start": null,
         "status": null,
         "status_updated_at": null,
+        "last_event_at": null,
         "pending_control": null,
         "checkpoint": null,
         "checkpoints": [],

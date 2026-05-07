@@ -38,6 +38,7 @@ export interface RunItem {
   sandboxWorkingDirectory?: string;
   sourceDirectory?: string;
   createdAt?: string;
+  lastEventAt?: string;
 }
 
 export type ColumnStatus = ApiBoardColumn;
@@ -101,6 +102,7 @@ export function mapRunListItem(item: RunListItem): RunItem {
     sandboxWorkingDirectory: item.sandbox?.working_directory ?? undefined,
     sourceDirectory: item.source_directory ?? undefined,
     createdAt: item.created_at,
+    lastEventAt: item.last_event_at ?? undefined,
   };
 }
 
@@ -122,6 +124,7 @@ export function mapRunSummaryToRunItem(summary: RunSummary): RunItem {
         : summary.duration_ms != null
         ? formatElapsedSecs(summary.duration_ms / 1000)
         : undefined,
+    lastEventAt: summary.last_event_at ?? undefined,
   };
 }
 

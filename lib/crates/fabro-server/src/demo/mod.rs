@@ -882,6 +882,7 @@ mod runs {
             false,
             Some(format!("https://github.com/demo/{repo_name}.git")),
             Some(created_at),
+            Some(created_at),
             parse_run_status(status, status_reason)
                 .unwrap_or_else(|| panic!("invalid demo run status: {status}")),
             pending_control,
@@ -960,6 +961,7 @@ mod runs {
         RunListItem {
             column,
             created_at: summary.created_at,
+            last_event_at: summary.last_event_at,
             duration_ms: summary.duration_ms.and_then(|ms| i64::try_from(ms).ok()),
             elapsed_secs: summary.elapsed_secs,
             goal: summary.goal,

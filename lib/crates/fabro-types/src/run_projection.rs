@@ -17,6 +17,7 @@ pub struct RunProjection {
     pub start:              Option<StartRecord>,
     pub status:             Option<RunStatus>,
     pub status_updated_at:  Option<DateTime<Utc>>,
+    pub last_event_at:      Option<DateTime<Utc>>,
     pub pending_control:    Option<RunControlAction>,
     pub checkpoint:         Option<Checkpoint>,
     pub checkpoints:        Vec<(u32, Checkpoint)>,
