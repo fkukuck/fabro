@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Fabro Azure"
+  short_description: "Run the Fabro Azure deployment guide"
+  default_prompt: "Use $deploy-fabro-azure to deploy or validate this Fabro repo on Azure."

@@ -37,6 +37,19 @@ This guide documents the supported production path for this repo:
 - Terraform `>= 1.8.0`
 - The latest [`az`](https://learn.microsoft.com/cli/azure/install-azure-cli) CLI
 - Docker with `buildx`
+- GitHub CLI authenticated with access to administer the target repository environment and secrets
+- A GitHub App created for this Fabro deployment, with the App ID, Client ID, slug, allowed username, a newly generated client secret, and a downloaded private-key PEM available before the first headless install run
+
+Run these local checks before touching Terraform:
+
+```bash
+az account show --query '{subscription:id,tenant:tenantId,user:user.name}' -o table
+gh auth status
+terraform version
+docker buildx version
+```
+
+The GitHub App client secret and private key cannot be recovered from GitHub after creation. Generate them during setup, store them immediately in the GitHub `production` environment, and keep any local PEM file out of git.
 
 ## Supported greenfield sequence
 
@@ -198,6 +211,41 @@ Optional environment secret:
 
 - `FABRO_DEPLOY_GITHUB_APP_WEBHOOK_SECRET`
 
+Use a presence-only preflight before dispatching the workflow. This prints which required names are missing without printing secret values:
+
+```bash
+repo=<owner>/<repo>
+env=production
+
+gh api "repos/$repo/environments/$env/variables" \
+  --jq '.variables[].name' > /tmp/fabro-azure-vars.txt
+gh api "repos/$repo/environments/$env/secrets" \
+  --jq '.secrets[].name' > /tmp/fabro-azure-secrets.txt
+
+for name in \
+  AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_LOCATION \
+  AZURE_RESOURCE_GROUP_NAME AZURE_VNET_NAME AZURE_VNET_CIDR \
+  AZURE_ACA_SUBNET_NAME AZURE_ACA_SUBNET_CIDR \
+  AZURE_ACI_SUBNET_NAME AZURE_ACI_SUBNET_CIDR \
+  AZURE_STORAGE_ACCOUNT_NAME AZURE_SERVER_STORAGE_SHARE_NAME \
+  AZURE_ACR_NAME AZURE_IDENTITY_NAME AZURE_CONTAINER_APPS_ENVIRONMENT_NAME \
+  AZURE_FABRO_SERVER_NAME AZURE_GITHUB_ACTIONS_PRINCIPAL_ID \
+  TF_BACKEND_RESOURCE_GROUP TF_BACKEND_STORAGE_ACCOUNT TF_BACKEND_CONTAINER TF_BACKEND_KEY \
+  FABRO_DEPLOY_GITHUB_APP_ID FABRO_DEPLOY_GITHUB_APP_CLIENT_ID \
+  FABRO_DEPLOY_GITHUB_APP_SLUG FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME; do
+  grep -qx "$name" /tmp/fabro-azure-vars.txt || echo "missing var: $name"
+done
+
+for name in \
+  FABRO_DEPLOY_GITHUB_TOKEN \
+  FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET \
+  FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY; do
+  grep -qx "$name" /tmp/fabro-azure-secrets.txt || echo "missing secret: $name"
+done
+```
+
+Do not dispatch a headless first deploy while only some GitHub App values are present. A partial App configuration is an operator error; the workflow fails early before building images. If all GitHub App values are absent, the first install can still use the manual linkage fallback described below.
+
 `FABRO_DEPLOY_GITHUB_TOKEN` is no longer sent to the server as the installed GitHub credential. It remains required only so the deploy workflow can validate repository access and persist `FABRO_DEPLOY_DEV_TOKEN` back into the GitHub `production` environment after a successful install.
 
 After the first successful install, add one secret if the workflow did not already persist it:
@@ -218,7 +266,7 @@ Trigger the manual workflow from GitHub using the Azure-ready branch or ref you 
 
 For forks that keep `main` as an upstream mirror, do not assume `main` contains the Azure deploy workflow. Run the manual deploy from the Azure-ready branch or tag that carries `.github/workflows/deploy-azure.yml` and the matching infrastructure changes.
 
-The deploy workflow does seven things:
+The deploy workflow does eight things:
 
 1. Logs into Azure with GitHub OIDC.
 2. Builds and pushes `fabro-server:<deploy-id>` and `fabro-azure-sandbox-base:<deploy-id>` to ACR.
@@ -238,6 +286,11 @@ If `/health` returns `{"status":"ok","mode":"install"}` and the GitHub App value
 If `/health` returns install mode and the GitHub App values are missing, the workflow still pre-fills the server, Azure, object-store, sandbox, and LLM install steps, then stops at the GitHub App linkage handoff point. Complete the remaining GitHub step manually in the browser, store the emitted `FABRO_DEPLOY_DEV_TOKEN`, and rerun `.github/workflows/deploy-azure.yml`.
 
 If `/health` returns plain `{"status":"ok"}`, the workflow skips install and continues directly. The authenticated checks run only when `FABRO_DEPLOY_DEV_TOKEN` is already available; otherwise those authenticated checks remain skipped.
+
+The stable Container App base URL and the API URL are different on purpose:
+
+- use the base URL for browser access, `/health`, and `fabro auth login --server "$FABRO_SERVER_URL"`
+- use `$FABRO_SERVER_URL/api/v1` for API endpoints and `fabro run --server "$FABRO_SERVER_URL/api/v1"`
 
 ## 5. Install completion
 
@@ -285,8 +338,9 @@ After the manual install succeeds:
 
 1. Save the dev token shown by the wizard.
 2. Store it in the GitHub `production` environment as `FABRO_DEPLOY_DEV_TOKEN`.
-3. Use the same workflow for every steady-state deploy.
-4. Rerun `.github/workflows/deploy-azure.yml` so the authenticated API check and Azure smoke workflow execute against the configured deployment.
+3. Verify local browser auth with `fabro auth login --server "$FABRO_SERVER_URL"`.
+4. Use the same workflow for every steady-state deploy.
+5. Rerun `.github/workflows/deploy-azure.yml` so the authenticated API check and Azure smoke workflow execute against the configured deployment.
 
 ## 6. Shared sandbox image and workflow-specific images
 
@@ -350,7 +404,9 @@ sed -i.bak \
 rm -f /tmp/azure-deploy-smoke/workflow.toml.bak
 
 export FABRO_DEV_TOKEN="$FABRO_DEPLOY_DEV_TOKEN"
-# or run `fabro auth login --server "$FABRO_SERVER_URL/api/v1"` first
+fabro auth login \
+  --server "$FABRO_SERVER_URL" \
+  --dev-token "$FABRO_DEPLOY_DEV_TOKEN"
 
 (
   cd /tmp/azure-deploy-smoke
@@ -360,6 +416,8 @@ export FABRO_DEV_TOKEN="$FABRO_DEPLOY_DEV_TOKEN"
 ```
 
 If the smoke workflow succeeds, the deployed server has proven that it can launch an Azure sandbox using the shared base image.
+
+If `GET /api/v1/models` succeeds with an `Authorization: Bearer` header but `fabro run --server "$FABRO_SERVER_URL/api/v1"` fails with `Authentication required`, the server is authenticated but the CLI has not stored credentials for that remote target. Run `fabro auth login --server "$FABRO_SERVER_URL" --dev-token "$FABRO_DEPLOY_DEV_TOKEN"` before retrying the CLI smoke.
 
 If `FABRO_DEPLOY_DEV_TOKEN` is not set yet on an already-configured deployment, the workflow still passes `/health` and
 skips the authenticated API check and smoke workflow until a reusable dev token is available. If the server is still in
@@ -389,6 +447,7 @@ Before relying on CI deploys, verify all of the following:
 - `terraform/environments/sandbox` has been applied once manually with `-var='fabro_server_enabled=false'`
 - the GitHub `production` environment contains every Azure and Terraform variable listed in this guide
 - the GitHub App values are present for headless bootstrap, or manual GitHub App linkage has already completed
+- no partial GitHub App configuration exists; either every required GitHub App var/secret is present before headless install, or all App values are absent and the run is expected to stop at the manual handoff
 - `FABRO_DEPLOY_DEV_TOKEN` is stored in the GitHub `production` environment
 - every workflow-specific image required by real Azure workflows exists in the target ACR and is listed in `AZURE_REQUIRED_WORKFLOW_IMAGES`
 - the Container App is still configured for exactly one replica

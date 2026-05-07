@@ -94,6 +94,35 @@ jobs:
             fi
           done
 
+      - name: Validate GitHub App deploy inputs
+        env:
+          FABRO_DEPLOY_GITHUB_TOKEN: ${{ secrets.FABRO_DEPLOY_GITHUB_TOKEN }}
+          FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET: ${{ secrets.FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET }}
+          FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY }}
+          FABRO_DEPLOY_GITHUB_APP_ID: ${{ vars.FABRO_DEPLOY_GITHUB_APP_ID }}
+          FABRO_DEPLOY_GITHUB_APP_CLIENT_ID: ${{ vars.FABRO_DEPLOY_GITHUB_APP_CLIENT_ID }}
+          FABRO_DEPLOY_GITHUB_APP_SLUG: ${{ vars.FABRO_DEPLOY_GITHUB_APP_SLUG }}
+          FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME: ${{ vars.FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME }}
+        run: |
+          app_config_present=false
+          for name in FABRO_DEPLOY_GITHUB_APP_ID FABRO_DEPLOY_GITHUB_APP_CLIENT_ID FABRO_DEPLOY_GITHUB_APP_SLUG FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY; do
+            if [ -n "${!name}" ]; then
+              app_config_present=true
+            fi
+          done
+
+          if [ "$app_config_present" = true ]; then
+            for name in FABRO_DEPLOY_GITHUB_TOKEN FABRO_DEPLOY_GITHUB_APP_ID FABRO_DEPLOY_GITHUB_APP_CLIENT_ID FABRO_DEPLOY_GITHUB_APP_SLUG FABRO_DEPLOY_GITHUB_ALLOWED_USERNAME FABRO_DEPLOY_GITHUB_APP_CLIENT_SECRET FABRO_DEPLOY_GITHUB_APP_PRIVATE_KEY; do
+              if [ -z "${!name}" ]; then
+                printf 'Missing GitHub App deploy value required for headless install: %s\n' "$name" >&2
+                exit 1
+              fi
+            done
+            echo "Headless GitHub App install inputs are present."
+          else
+            echo "No GitHub App install inputs found; first install will stop at the documented manual GitHub App linkage handoff if the server is still in install mode."
+          fi
+
       - name: Initialize deploy auth state
         env:
           FABRO_DEPLOY_DEV_TOKEN: ${{ secrets.FABRO_DEPLOY_DEV_TOKEN }}
@@ -344,7 +373,7 @@ jobs:
                 --name "$TF_VAR_fabro_server_name" \
                 --revision "$READY_REVISION" \
                 $tail_arg \
-                | perl -nle 'if (/\/install\?token=([^"[:space:]]+)/) { $token = $1 } END { print $token if defined $token }'); then
+                | perl -nle 'if (/^\s*([A-Za-z0-9_-]{40,})\s*$/) { $token = $1 } elsif (/\/install\?token=([A-Za-z0-9_-]{40,})/) { $token = $1 } END { print $token if defined $token }'); then
                 if [ -n "$token" ]; then
                   printf '%s\n' "$token"
                   return 0
@@ -386,28 +415,59 @@ jobs:
             local method=$1
             local path=$2
             local body=${3-}
+            local response_file
+            local status
+
+            response_file=$(mktemp)
 
             if [ -n "$body" ]; then
-              curl --retry 12 \
+              if ! status=$(curl --retry 12 \
                 --retry-all-errors \
                 --retry-delay 5 \
                 --connect-timeout 10 \
-                -fsSL \
+                -sS \
+                -o "$response_file" \
+                -w '%{http_code}' \
                 -X "$method" \
                 -H "Authorization: Bearer $INSTALL_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "$body" \
-                "$FABRO_SERVER_URL$path"
+                "$FABRO_SERVER_URL$path"); then
+                printf 'Install request %s %s failed before a successful HTTP response\n' "$method" "$path" >&2
+                head -c 2000 "$response_file" >&2 || true
+                rm -f "$response_file"
+                return 1
+              fi
             else
-              curl --retry 12 \
+              if ! status=$(curl --retry 12 \
                 --retry-all-errors \
                 --retry-delay 5 \
                 --connect-timeout 10 \
-                -fsSL \
+                -sS \
+                -o "$response_file" \
+                -w '%{http_code}' \
                 -X "$method" \
                 -H "Authorization: Bearer $INSTALL_TOKEN" \
-                "$FABRO_SERVER_URL$path"
+                "$FABRO_SERVER_URL$path"); then
+                printf 'Install request %s %s failed before a successful HTTP response\n' "$method" "$path" >&2
+                head -c 2000 "$response_file" >&2 || true
+                rm -f "$response_file"
+                return 1
+              fi
             fi
+
+            case "$status" in
+              2*)
+                cat "$response_file"
+                rm -f "$response_file"
+                ;;
+              *)
+                printf 'Install request %s %s returned HTTP %s\n' "$method" "$path" "$status" >&2
+                head -c 2000 "$response_file" >&2 || true
+                rm -f "$response_file"
+                return 1
+                ;;
+            esac
           }
 
           install_request PUT /install/server "$(jq -nc \
@@ -578,6 +638,11 @@ jobs:
         env:
           FABRO_DEV_TOKEN: ${{ env.FABRO_DEPLOY_RUNTIME_DEV_TOKEN }}
         run: |
+          cargo run --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p fabro-cli -- \
+            auth login \
+            --server "$FABRO_SERVER_URL" \
+            --dev-token "$FABRO_DEPLOY_RUNTIME_DEV_TOKEN"
+
           cargo run --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p fabro-cli -- \
             run workflow.toml \
             --server "$FABRO_SERVER_URL/api/v1"
