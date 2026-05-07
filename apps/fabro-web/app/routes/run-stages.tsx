@@ -325,6 +325,68 @@ function CodeBlock({ children }: { children: string }) {
   );
 }
 
+function prettyJson(raw: string): { text: string; isJson: boolean } {
+  if (!raw || !raw.trim()) return { text: "", isJson: false };
+  try {
+    return { text: JSON.stringify(JSON.parse(raw), null, 2), isJson: true };
+  } catch {
+    return { text: raw, isJson: false };
+  }
+}
+
+const JSON_TOKEN_RE =
+  /"(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?/g;
+
+function highlightJson(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  JSON_TOKEN_RE.lastIndex = 0;
+  while ((match = JSON_TOKEN_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    let cls: string;
+    if (token.startsWith('"')) {
+      const after = text.slice(JSON_TOKEN_RE.lastIndex);
+      cls = /^\s*:/.test(after) ? "text-teal-300" : "text-mint";
+    } else if (token === "true" || token === "false") {
+      cls = "text-coral";
+    } else if (token === "null") {
+      cls = "text-fg-muted";
+    } else {
+      cls = "text-amber";
+    }
+    parts.push(
+      <span key={key++} className={cls}>
+        {token}
+      </span>,
+    );
+    lastIndex = JSON_TOKEN_RE.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+function JsonBlock({ value }: { value: string }) {
+  const pretty = useMemo(() => prettyJson(value), [value]);
+  const tokens = useMemo(
+    () => (pretty.isJson ? highlightJson(pretty.text) : null),
+    [pretty.isJson, pretty.text],
+  );
+  return (
+    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md bg-overlay-strong p-3 font-mono text-xs leading-relaxed text-fg-3">
+      {!pretty.text ? (
+        <span className="text-fg-muted">empty</span>
+      ) : (
+        tokens ?? pretty.text
+      )}
+    </pre>
+  );
+}
+
 function EventDetails({ turn, runStart }: { turn: TurnType; runStart: string | undefined }) {
   const elapsed = formatElapsed(turn.ts, runStart);
   const absolute = (() => {
@@ -352,10 +414,10 @@ function EventDetails({ turn, runStart }: { turn: TurnType; runStart: string | u
             <span className="text-fg-muted">({turn.toolName})</span>
           </DetailField>
           <DetailField label="Input">
-            <CodeBlock>{turn.input}</CodeBlock>
+            <JsonBlock value={turn.input} />
           </DetailField>
           <DetailField label={turn.isError ? "Error" : "Result"}>
-            <CodeBlock>{turn.result}</CodeBlock>
+            <JsonBlock value={turn.result} />
           </DetailField>
         </>
       )}
