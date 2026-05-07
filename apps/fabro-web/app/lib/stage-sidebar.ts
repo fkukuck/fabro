@@ -42,6 +42,7 @@ export function mapRunStagesToSidebarStages(
       duration: stage.duration_secs != null
         ? formatDurationSecs(stage.duration_secs)
         : "--",
+      startedAt: stage.started_at ?? null,
     }));
 }
 

@@ -12,6 +12,7 @@ function makeStage(nodeId: string, visit: number, status: StageState): Stage {
     visit,
     status,
     duration: "--",
+    startedAt: null,
   };
 }
 

@@ -21,6 +21,7 @@ export interface Stage {
   duration: string;
   nodeId: string;
   visit: number;
+  startedAt: string | null;
 }
 
 export const statusConfig: Record<StageState, { icon: ComponentType<{ className?: string }>; color: string }> = {

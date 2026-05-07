@@ -907,7 +907,10 @@ export default function RunStages() {
     );
   }
 
-  const runStart = runQuery.data?.created_at;
+  const runStart =
+    selectedStage.startedAt ??
+    runQuery.data?.start_time ??
+    runQuery.data?.created_at;
 
   return (
     <div className="-mr-4 -mt-6 flex min-h-0 flex-1 sm:-mr-6 lg:-mr-8">
