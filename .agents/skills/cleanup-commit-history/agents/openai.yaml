@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cleanup Commit History"
+  short_description: "Rewrite branch history into durable commits"
+  default_prompt: "Use $cleanup-commit-history to rewrite this branch into a small, durable commit series."

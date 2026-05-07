@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rebase onto upstream/main"
+  short_description: "Rebase a Fabro fork branch onto upstream/main in a worktree"
+  default_prompt: "Rebase this Fabro fork branch onto upstream/main and resolve conflicts using the repo workflow."
