@@ -214,7 +214,7 @@ jobs:
             tmp/docker-context/amd64/fabro
 
       - name: Build fabro-sandboxd binary
-        run: cargo build --release -p fabro-sandboxd
+        run: cargo zigbuild --target x86_64-unknown-linux-musl --release -p fabro-sandboxd
 
       - name: Stage sandbox base Docker context
         run: |
@@ -231,7 +231,7 @@ jobs:
             --exclude 'apps/marketing/node_modules' \
             ./ "$RUNNER_TEMP/azure-sandbox-build/"
           install -D -m 0755 \
-            target/release/fabro-sandboxd \
+            target/x86_64-unknown-linux-musl/release/fabro-sandboxd \
             "$RUNNER_TEMP/azure-sandbox-build/out/fabro-sandboxd"
           rm -f "$RUNNER_TEMP/azure-sandbox-build/.dockerignore"
 
