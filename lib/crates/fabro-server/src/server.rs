@@ -116,6 +116,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use ulid::Ulid;
 
 use crate::auth::{self, GithubEndpoints, auth_translation_middleware, demo_routing_middleware};
+use crate::azure_platform::resolve_azure_platform_config;
 use crate::canonical_origin::resolve_canonical_origin;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -2740,6 +2741,26 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
             (name.clone(), resolved)
         })
         .collect();
+    let azure_platform = match resolve_azure_platform_config(&server_settings.server, &|name| {
+        state.vault_or_env_pub(name)
+    }) {
+        Ok(platform) => platform,
+        Err(err) => {
+            if cancel_token.load(Ordering::SeqCst) {
+                finish_cancelled_run_before_execution(&state, run_id).await;
+                return;
+            }
+            tracing::error!(run_id = %run_id, error = %err, "Invalid Azure platform config");
+            fail_run_before_execution(
+                &state,
+                run_id,
+                FailureReason::WorkflowError,
+                format!("Invalid Azure platform config: {err}"),
+            )
+            .await;
+            return;
+        }
+    };
     let services = operations::StartServices {
         run_id,
         cancel_token: Some(Arc::clone(&cancel_token)),
@@ -2751,6 +2772,7 @@ async fn execute_run_in_process(state: Arc<AppState>, run_id: RunId) {
         run_control: None,
         github_app,
         github_permissions,
+        azure_platform,
         vault: Some(Arc::clone(&state.vault)),
         on_node: None,
         registry_override,

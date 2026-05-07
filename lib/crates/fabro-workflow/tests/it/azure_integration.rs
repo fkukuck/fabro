@@ -9,6 +9,7 @@ async fn azure_exec_command_round_trip() {
             image:     Some(std::env::var("FABRO_AZURE_TEST_IMAGE").unwrap()),
             cpu:       Some(2.0),
             memory_gb: Some(4.0),
+            platform:  None,
         },
         github_app:       None,
         run_id:           None,

@@ -118,6 +118,7 @@ pub(crate) async fn execute(
         run_control: Some(run_control),
         github_app,
         github_permissions: HashMap::new(),
+        azure_platform: None,
         vault,
         on_node: None,
         registry_override: None,

@@ -10,6 +10,7 @@ use fabro_interview::{AutoApproveInterviewer, Interviewer};
 use fabro_mcp::config::{McpServerSettings, McpTransport};
 use fabro_model::{Catalog, FallbackTarget, Provider};
 use fabro_retro::retro::Retro;
+use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_sandbox::config::{
     self as sandbox_config, DaytonaNetwork, DaytonaSnapshotSettings,
     DockerfileSource as SandboxDockerfileSource, WorktreeMode, bridge_worktree_mode,
@@ -97,6 +98,7 @@ pub struct StartServices {
     /// Server-resolved GitHub integration permissions to inject into the
     /// sandbox env. Empty when github integration has no permissions.
     pub github_permissions: HashMap<String, String>,
+    pub azure_platform:     Option<AzurePlatformConfig>,
     pub vault:              Option<Arc<AsyncRwLock<Vault>>>,
     pub on_node:            crate::OnNodeCallback,
     pub registry_override:  Option<Arc<HandlerRegistry>>,
@@ -387,13 +389,17 @@ impl RunSession {
                     api_key,
                 }
             }
-            SandboxProvider::Azure => SandboxSpec::Azure {
-                config:           resolve_azure_config(&resolved).unwrap_or_default(),
-                github_app:       services.github_app.clone(),
-                run_id:           Some(record.run_id),
-                clone_origin_url: origin_url.clone(),
-                clone_branch:     detected_base_branch.clone(),
-            },
+            SandboxProvider::Azure => {
+                let mut config = resolve_azure_config(&resolved).unwrap_or_default();
+                config.platform = services.azure_platform.clone();
+                SandboxSpec::Azure {
+                    config,
+                    github_app: services.github_app.clone(),
+                    run_id: Some(record.run_id),
+                    clone_origin_url: origin_url.clone(),
+                    clone_branch: detected_base_branch.clone(),
+                }
+            }
         };
 
         let toml_env: HashMap<String, String> = resolved
@@ -1172,6 +1178,7 @@ mod tests {
             run_control: None,
             github_app: None,
             github_permissions: HashMap::new(),
+            azure_platform: None,
             vault: None,
             on_node: None,
             registry_override: Some(registry),
