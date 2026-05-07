@@ -17,12 +17,13 @@ use fabro_config::{ServerSettingsBuilder, Storage};
 use fabro_interview::{
     AnswerSubmission, ControlInterviewer, WorkerControlEnvelope, WorkerControlMessage,
 };
+use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_store::{EventEnvelope, RunProjection, RunProjectionReducer};
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::RunMode;
 use fabro_types::{
     ArtifactUpload, EventBody, FailureReason, Principal, RunBlobId, RunEvent, RunId,
-    WorkflowSettings,
+    ServerSettings, WorkflowSettings,
 };
 use fabro_vault::Vault;
 use fabro_workflow::artifact_upload::{ArtifactSink, StageArtifactUploader};
@@ -98,6 +99,7 @@ pub(crate) async fn execute(
         };
         maybe_build_github_credentials(&run_spec.settings, vault_guard.as_deref())?
     };
+    let azure_platform = load_worker_azure_platform_config(&client).await?;
     let services = StartServices {
         run_id,
         cancel_token: Some(Arc::clone(&cancel_token)),
@@ -118,7 +120,7 @@ pub(crate) async fn execute(
         run_control: Some(run_control),
         github_app,
         github_permissions: HashMap::new(),
-        azure_platform: None,
+        azure_platform,
         vault,
         on_node: None,
         registry_override: None,
@@ -134,6 +136,35 @@ pub(crate) async fn execute(
     }
 
     Ok(())
+}
+
+async fn load_worker_azure_platform_config(
+    client: &fabro_client::Client,
+) -> Result<Option<AzurePlatformConfig>> {
+    let settings = client
+        .retrieve_resolved_server_settings()
+        .await
+        .context("failed to load server settings for worker runtime")?;
+    Ok(azure_platform_from_server_settings(&settings))
+}
+
+fn azure_platform_from_server_settings(settings: &ServerSettings) -> Option<AzurePlatformConfig> {
+    let platform = settings
+        .server
+        .sandbox
+        .azure
+        .as_ref()
+        .and_then(|azure| azure.platform.as_ref())?;
+
+    Some(AzurePlatformConfig {
+        subscription_id:          platform.subscription_id.clone(),
+        resource_group:           platform.resource_group.clone(),
+        location:                 platform.location.clone(),
+        subnet_id:                platform.subnet_id.clone(),
+        acr_server:               platform.acr_server.clone(),
+        acr_identity_resource_id: platform.acr_identity_resource_id.clone(),
+        sandboxd_port:            platform.sandboxd_port,
+    })
 }
 
 fn load_worker_vault(storage_dir: Option<&Path>) -> Result<Option<Arc<AsyncRwLock<Vault>>>> {
@@ -644,6 +675,52 @@ mod tests {
         assert!(super::clone_sandbox_requires_github_credentials("daytona"));
         assert!(super::clone_sandbox_requires_github_credentials("azure"));
         assert!(!super::clone_sandbox_requires_github_credentials("local"));
+    }
+
+    #[test]
+    fn azure_platform_from_server_settings_reads_resolved_settings() {
+        let settings = fabro_config::ServerSettingsBuilder::from_toml(
+            r#"
+            _version = 1
+
+            [server.auth]
+            methods = ["dev-token"]
+
+            [server.sandbox.azure.platform]
+            subscription_id = "sub-1"
+            resource_group = "rg-1"
+            location = "northeurope"
+            subnet_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.Network/virtualNetworks/vnet/subnets/aci"
+            acr_server = "fabro.azurecr.io"
+            acr_identity_resource_id = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/fabro-acr"
+            sandboxd_port = 7778
+            "#,
+        )
+        .unwrap();
+
+        let platform = super::azure_platform_from_server_settings(&settings)
+            .expect("azure platform should be present");
+
+        assert_eq!(platform.subscription_id, "sub-1");
+        assert_eq!(platform.resource_group, "rg-1");
+        assert_eq!(platform.location, "northeurope");
+        assert_eq!(platform.acr_server, "fabro.azurecr.io");
+        assert_eq!(platform.sandboxd_port, 7778);
+    }
+
+    #[test]
+    fn azure_platform_from_server_settings_allows_missing_platform() {
+        let settings = fabro_config::ServerSettingsBuilder::from_toml(
+            r#"
+            _version = 1
+
+            [server.auth]
+            methods = ["dev-token"]
+            "#,
+        )
+        .unwrap();
+
+        assert!(super::azure_platform_from_server_settings(&settings).is_none());
     }
 
     fn test_user_principal(login: &str) -> Principal {

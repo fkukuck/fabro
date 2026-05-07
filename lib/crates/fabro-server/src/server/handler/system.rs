@@ -3,10 +3,11 @@ use std::sync::Arc;
 use super::super::{
     AggregateBilling, AggregateBillingTotals, ApiError, AppState, BilledTokenCounts,
     BillingByModel, DfParams, FABRO_VERSION, GithubIntegrationStrategy, IntoResponse, Json,
-    ModelReference, Path, PruneRunsRequest, PruneRunsResponse, Query, RequiredUser, Response,
-    Router, RunStatus, State, StatusCode, SystemInfoResponse, SystemRunCounts,
-    build_disk_usage_response, build_prune_plan, delete_run_internal, diagnostics, get, post,
-    resolve_interp_string, spawn_blocking, system_features, system_sandbox_provider, to_i64,
+    ModelReference, Path, Principal, PruneRunsRequest, PruneRunsResponse, Query, RequestAuth,
+    RequiredUser, Response, Router, RunStatus, State, StatusCode, SystemInfoResponse,
+    SystemRunCounts, build_disk_usage_response, build_prune_plan, delete_run_internal, diagnostics,
+    get, post, resolve_interp_string, spawn_blocking, system_features, system_sandbox_provider,
+    to_i64,
 };
 
 pub(super) fn routes() -> Router<Arc<AppState>> {
@@ -27,7 +28,12 @@ pub(in crate::server) async fn health() -> Response {
     .into_response()
 }
 
-async fn get_server_settings(_auth: RequiredUser, State(state): State<Arc<AppState>>) -> Response {
+async fn get_server_settings(auth: RequestAuth, State(state): State<Arc<AppState>>) -> Response {
+    match auth.0.snapshot().principal {
+        Principal::User(_) | Principal::Worker { .. } => {}
+        _ => return ApiError::unauthorized().into_response(),
+    }
+
     (
         StatusCode::OK,
         Json(state.server_settings().as_ref().clone()),
