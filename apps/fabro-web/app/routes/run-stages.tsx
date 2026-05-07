@@ -28,8 +28,8 @@ export const handle = { wide: true, fullHeight: true };
 
 type TurnType =
   | { kind: "system"; ts: string; content: string }
-  | { kind: "assistant"; ts: string; content: string }
-  | { kind: "tool"; ts: string; toolName: string; input: string; result: string; isError: boolean }
+  | { kind: "assistant"; ts: string; content: string; inputTokens: number; outputTokens: number }
+  | { kind: "tool"; ts: string; toolName: string; input: string; result: string; isError: boolean; durationMs: number }
   | { kind: "command"; ts: string; script: string; running: boolean; exitCode: number | null; durationMs: number };
 
 const STAGE_ACTIVITY_EVENT_SET = new Set<string>(STAGE_ACTIVITY_EVENT_TYPES);
@@ -95,7 +95,16 @@ export function eventsToActivity(events: EventEnvelope[], stageId: string): Turn
         break;
       case "agent.message": {
         const msg = getString(props, "text") ?? e.text ?? "";
-        if (msg) turns.push({ kind: "assistant", ts: e.ts, content: msg });
+        if (msg) {
+          const billing = (props.billing ?? {}) as UnknownRecord;
+          turns.push({
+            kind: "assistant",
+            ts: e.ts,
+            content: msg,
+            inputTokens: getNumber(billing, "input_tokens") ?? 0,
+            outputTokens: getNumber(billing, "output_tokens") ?? 0,
+          });
+        }
         break;
       }
       case "agent.tool.started": {
@@ -121,6 +130,7 @@ export function eventsToActivity(events: EventEnvelope[], stageId: string): Turn
           input: started?.input ?? "",
           result,
           isError: (props.is_error ?? e.is_error) === true,
+          durationMs: durationBetween(started?.ts, e.ts),
         });
         break;
       }
@@ -279,6 +289,39 @@ export function turnSummary(turn: TurnType): string {
   }
 }
 
+function durationBetween(startTs: string | undefined, endTs: string): number {
+  if (!startTs) return 0;
+  const startMs = Date.parse(startTs);
+  const endMs = Date.parse(endTs);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+  return Math.max(0, endMs - startMs);
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTokenCount(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+export function turnMetric(turn: TurnType): string | null {
+  switch (turn.kind) {
+    case "assistant": {
+      const total = turn.inputTokens + turn.outputTokens;
+      return total > 0 ? `${formatTokenCount(total)} tok` : null;
+    }
+    case "tool":
+    case "command":
+      return turn.durationMs > 0 ? formatDurationMs(turn.durationMs) : null;
+    case "system":
+      return null;
+  }
+}
+
 export function searchableText(turn: TurnType): string {
   switch (turn.kind) {
     case "system":
@@ -314,12 +357,13 @@ function EventRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const metric = turnMetric(turn);
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`grid w-full grid-cols-[5rem_1fr_auto] items-center gap-4 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 ${
+      className={`grid w-full grid-cols-[5rem_1fr_auto_auto] items-center gap-4 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 ${
         selected ? "bg-overlay" : ""
       }`}
     >
@@ -330,6 +374,9 @@ function EventRow({
       </span>
       <span className="min-w-0 truncate text-sm text-fg-3">
         {turnSummary(turn)}
+      </span>
+      <span className="text-right font-mono text-xs tabular-nums text-fg-muted">
+        {metric ?? ""}
       </span>
       <span className="font-mono text-xs tabular-nums text-fg-muted">
         {formatElapsed(turn.ts, runStart)}
@@ -677,7 +724,7 @@ function EventsToolbar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3">
+    <div className="relative flex flex-wrap items-center gap-x-3 gap-y-2 pb-3 before:pointer-events-none before:absolute before:bottom-0 before:left-1/2 before:h-px before:w-screen before:-translate-x-1/2 before:bg-line">
       <EventsTabToggle tab={tab} onTabChange={onTabChange} />
       {showTranscriptControls ? (
         <div className="flex flex-1 flex-wrap items-center gap-2">
@@ -774,7 +821,7 @@ export default function RunStages() {
         />
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-3 pt-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-3 pt-3">
         <div className="shrink-0">
           <EventsToolbar
             tab={tab}

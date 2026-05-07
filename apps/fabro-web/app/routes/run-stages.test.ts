@@ -46,13 +46,25 @@ describe("eventsToActivity", () => {
     const firstVisit = eventsToActivity(events, "verify@1");
     expect(firstVisit).toEqual([
       { kind: "system", ts: "2026-04-09T12:00:00Z", content: "first visit prompt" },
-      { kind: "assistant", ts: "2026-04-09T12:00:00Z", content: "first visit reply" },
+      {
+        kind: "assistant",
+        ts: "2026-04-09T12:00:00Z",
+        content: "first visit reply",
+        inputTokens: 0,
+        outputTokens: 0,
+      },
     ]);
 
     const secondVisit = eventsToActivity(events, "verify@2");
     expect(secondVisit).toEqual([
       { kind: "system", ts: "2026-04-09T12:00:00Z", content: "second visit prompt" },
-      { kind: "assistant", ts: "2026-04-09T12:00:00Z", content: "second visit reply" },
+      {
+        kind: "assistant",
+        ts: "2026-04-09T12:00:00Z",
+        content: "second visit reply",
+        inputTokens: 0,
+        outputTokens: 0,
+      },
     ]);
   });
 
