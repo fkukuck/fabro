@@ -1755,6 +1755,7 @@ methods = ["dev-token"]
         env_lookup: default_env_lookup(),
         github_api_base_url: None,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
+        shutdown: tokio_util::sync::CancellationToken::new(),
     }) else {
         panic!("build_app_state should require SESSION_SECRET")
     };
@@ -3247,6 +3248,7 @@ fn create_github_token_app_state_with_env_lookup(
         env_lookup: Arc::new(env_lookup),
         github_api_base_url,
         http_client: Some(fabro_http::test_http_client().expect("test HTTP client should build")),
+        shutdown: tokio_util::sync::CancellationToken::new(),
     };
     let state = build_app_state(config).expect("test app state should build");
     if let Some(token) = token {

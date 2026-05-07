@@ -520,19 +520,20 @@ pub struct AppState {
     pub(crate) files_in_flight: FilesInFlight,
     pull_request_create_locks: PullRequestCreateLocks,
 
-    pub(crate) vault:               Arc<AsyncRwLock<Vault>>,
-    pub(super) server_secrets:      ServerSecrets,
-    pub(crate) llm_source:          Arc<dyn CredentialSource>,
-    manifest_run_defaults:          RwLock<Arc<RunLayer>>,
-    manifest_run_settings:          RwLock<std::result::Result<RunNamespace, SharedError>>,
-    pub(crate) server_settings:     RwLock<Arc<ServerSettings>>,
-    pub(crate) env_lookup:          EnvLookup,
+    pub(crate) vault: Arc<AsyncRwLock<Vault>>,
+    pub(super) server_secrets: ServerSecrets,
+    pub(crate) llm_source: Arc<dyn CredentialSource>,
+    manifest_run_defaults: RwLock<Arc<RunLayer>>,
+    manifest_run_settings: RwLock<std::result::Result<RunNamespace, SharedError>>,
+    pub(crate) server_settings: RwLock<Arc<ServerSettings>>,
+    pub(crate) env_lookup: EnvLookup,
     pub(crate) github_api_base_url: String,
-    http_client:                    Option<fabro_http::HttpClient>,
-    shutting_down:                  AtomicBool,
-    registry_factory_override:      Option<Box<RegistryFactoryOverride>>,
-    slack_service:                  Option<Arc<SlackService>>,
-    slack_started:                  AtomicBool,
+    http_client: Option<fabro_http::HttpClient>,
+    shutdown: CancellationToken,
+    shutting_down: AtomicBool,
+    registry_factory_override: Option<Box<RegistryFactoryOverride>>,
+    slack_service: Option<Arc<SlackService>>,
+    slack_started: AtomicBool,
 }
 
 type PullRequestCreateLocks = Arc<Mutex<HashMap<RunId, Arc<AsyncMutex<()>>>>>;
@@ -592,6 +593,7 @@ pub(crate) struct AppStateConfig {
     pub(crate) env_lookup:                EnvLookup,
     pub(crate) github_api_base_url:       Option<String>,
     pub(crate) http_client:               Option<fabro_http::HttpClient>,
+    pub(crate) shutdown:                  CancellationToken,
 }
 
 #[derive(Clone)]
@@ -815,6 +817,10 @@ impl AppState {
     fn begin_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Relaxed);
         self.scheduler_notify.notify_waiters();
+    }
+
+    pub(crate) fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
     }
 
     fn is_shutting_down(&self) -> bool {
@@ -1511,6 +1517,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         env_lookup,
         github_api_base_url,
         http_client,
+        shutdown,
     } = config;
 
     let vault = Arc::new(AsyncRwLock::new(Vault::load(vault_path)?));
@@ -1572,6 +1579,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         env_lookup: Arc::clone(&env_lookup),
         github_api_base_url,
         http_client,
+        shutdown,
         shutting_down: AtomicBool::new(false),
         registry_factory_override,
         slack_service,

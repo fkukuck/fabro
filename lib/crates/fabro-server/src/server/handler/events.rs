@@ -67,6 +67,8 @@ async fn attach_events(
         filtered_global_events(state.global_event_tx.subscribe(), run_filter).filter_map(|event| {
             sse_event_from_store(&event).map(Ok::<Event, std::convert::Infallible>)
         });
+    let stream =
+        futures_util::StreamExt::take_until(stream, state.shutdown_token().cancelled_owned());
 
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
@@ -265,6 +267,7 @@ async fn attach_run_events(
         },
     };
     let (sender, receiver) = mpsc::unbounded_channel();
+    let shutdown = state.shutdown_token();
     tokio::spawn(async move {
         let mut next_seq = start_seq;
 
@@ -340,21 +343,30 @@ async fn attach_run_events(
             return;
         };
 
-        while let Some(result) = live_stream.next().await {
-            let Ok(event) = result else {
-                return;
-            };
-            let terminal = attach_event_is_terminal(&event);
-            if let Some(sse_event) = sse_event_from_store(&event) {
-                if sender
-                    .send(Ok::<Event, std::convert::Infallible>(sse_event))
-                    .is_err()
-                {
-                    return;
+        loop {
+            tokio::select! {
+                biased;
+                () = shutdown.cancelled() => break,
+                next = live_stream.next() => {
+                    let Some(result) = next else {
+                        return;
+                    };
+                    let Ok(event) = result else {
+                        return;
+                    };
+                    let terminal = attach_event_is_terminal(&event);
+                    if let Some(sse_event) = sse_event_from_store(&event) {
+                        if sender
+                            .send(Ok::<Event, std::convert::Infallible>(sse_event))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    if terminal {
+                        return;
+                    }
                 }
-            }
-            if terminal {
-                return;
             }
         }
     });
@@ -383,11 +395,16 @@ fn denied_lifecycle_event_name(body: &EventBody) -> Option<&'static str> {
 
 #[cfg(test)]
 mod stage_events_tests {
+    use std::time::Duration;
+
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode, header};
     use fabro_store::EventPayload;
     use fabro_types::RunId;
+    use fabro_workflow::event as workflow_event;
+    use http_body_util::BodyExt;
     use serde_json::json;
+    use tokio::time::timeout;
     use tower::ServiceExt;
 
     use crate::test_support::{build_test_router, test_app_state};
@@ -440,6 +457,93 @@ mod stage_events_tests {
             .await
             .expect("response body should fit in memory");
         serde_json::from_slice(&bytes).expect("response body should be valid JSON")
+    }
+
+    fn assert_event_stream_response(response: &axum::response::Response) {
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .expect("SSE response should set content-type")
+            .to_str()
+            .expect("content-type should be valid UTF-8");
+        assert!(
+            content_type.contains("text/event-stream"),
+            "expected text/event-stream content-type, got {content_type:?}"
+        );
+    }
+
+    async fn assert_sse_body_is_live(body: &mut Body) {
+        let result = timeout(Duration::from_millis(100), body.frame()).await;
+        assert!(
+            result.is_err(),
+            "SSE body should remain open before shutdown cancellation"
+        );
+    }
+
+    async fn assert_sse_body_completes_after_shutdown(mut body: Body) {
+        timeout(Duration::from_secs(1), async {
+            while let Some(frame) = body.frame().await {
+                frame.expect("SSE body frame should be readable");
+            }
+        })
+        .await
+        .expect("SSE body should complete promptly after shutdown cancellation");
+    }
+
+    #[tokio::test]
+    async fn attach_events_ends_when_shutdown_fires() {
+        let state = test_app_state();
+        let app = build_test_router(state.clone());
+
+        let response = app
+            .oneshot(req_get("/api/v1/attach"))
+            .await
+            .expect("attach request should complete");
+        assert_event_stream_response(&response);
+
+        let mut body = response.into_body();
+        assert_sse_body_is_live(&mut body).await;
+
+        state.shutdown_token().cancel();
+
+        assert_sse_body_completes_after_shutdown(body).await;
+    }
+
+    #[tokio::test]
+    async fn attach_run_events_ends_when_shutdown_fires() {
+        let state = test_app_state();
+        let app = build_test_router(state.clone());
+        let run_id = RunId::new();
+        let run_store = state
+            .store_ref()
+            .create_run(&run_id)
+            .await
+            .expect("test run should be creatable");
+        for event in [
+            workflow_event::Event::RunSubmitted {
+                definition_blob: None,
+            },
+            workflow_event::Event::RunStarting,
+            workflow_event::Event::RunRunning,
+        ] {
+            workflow_event::append_event(&run_store, &run_id, &event)
+                .await
+                .expect("run lifecycle event should append");
+        }
+
+        let response = app
+            .oneshot(req_get(&format!("/api/v1/runs/{run_id}/attach")))
+            .await
+            .expect("run attach request should complete");
+        assert_event_stream_response(&response);
+
+        let mut body = response.into_body();
+        assert_sse_body_is_live(&mut body).await;
+
+        state.shutdown_token().cancel();
+
+        assert_sse_body_completes_after_shutdown(body).await;
     }
 
     async fn seed_run_with_mixed_events() -> (RunId, axum::Router) {
