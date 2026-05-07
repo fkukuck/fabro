@@ -47,6 +47,7 @@ This guide documents the supported production path for this repo:
 - run the first `terraform/environments/sandbox` apply with `-var='fabro_server_enabled=false'`
 - trigger `.github/workflows/deploy-azure.yml`
 - let CI complete install, persist `FABRO_DEPLOY_DEV_TOKEN`, and continue authenticated checks in the same run when `/health` reports install mode and the GitHub App values are present
+- publish every workflow-specific Azure sandbox image your real workflows require, then list them in `AZURE_REQUIRED_WORKFLOW_IMAGES`
 - use the manual fallback only when the GitHub App values are missing
 
 ## 1. Bootstrap GitHub Actions managed identity and remote state
@@ -66,6 +67,8 @@ Copy the bootstrap example and fill in the real Azure names for this deployment:
 cp terraform/bootstrap/github_actions/terraform.tfvars.example \
   terraform/bootstrap/github_actions/terraform.tfvars
 ```
+
+`terraform.tfvars` is intentionally local operator state. Do not commit it.
 
 Then apply the bootstrap root:
 
@@ -103,6 +106,8 @@ Copy the sandbox example:
 cp terraform/environments/sandbox/terraform.tfvars.example \
   terraform/environments/sandbox/terraform.tfvars
 ```
+
+`terraform/environments/sandbox/terraform.tfvars` must also stay untracked. The example file is the only checked-in contract. A stale live `github_actions_principal_id` in git can override the GitHub environment value and make Terraform replace CI role assignments with the wrong principal during greenfield bring-up.
 
 Initialize the remote backend using the values you saved from bootstrap:
 
@@ -168,6 +173,12 @@ Add the Azure and Terraform backend variables from bootstrap, then add the sandb
 - `AZURE_CONTAINER_APPS_ENVIRONMENT_NAME`
 - `AZURE_FABRO_SERVER_NAME`
 
+Optional environment variable for day-two readiness checks:
+
+- `AZURE_REQUIRED_WORKFLOW_IMAGES`
+
+Set `AZURE_REQUIRED_WORKFLOW_IMAGES` when real product workflows depend on workflow-specific Azure sandbox images. It accepts comma-separated or newline-separated full image refs in this environment's ACR, for example `fabro.azurecr.io/fabro-sandboxes/software-factory:20260503T195826Z-04a98fe`.
+
 Before the first browser-login-ready deploy, create the GitHub App manually and store its values in the GitHub `production` environment.
 
 Required environment variables:
@@ -215,7 +226,8 @@ The deploy workflow does seven things:
 4. Runs a follow-up `terraform plan -detailed-exitcode` to prove the apply reached steady state.
 5. Waits for the new Container App revision to report ready and then resolves the stable Container App ingress URL for all remaining live checks.
 6. Reads `/health`, auto-completes install when the server reports install mode and the GitHub App values are present, persists `FABRO_DEPLOY_DEV_TOKEN`, waits for the configured auth state after install, and then runs the authenticated checks in the same run. When `/health` already returns plain `{"status":"ok"}`, install is skipped and the workflow continues directly, but authenticated validation still runs only if a dev token is already available.
-7. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, and whether the authenticated checks ran.
+7. Verifies every image listed in `AZURE_REQUIRED_WORKFLOW_IMAGES`, when that variable is set, exists in the target ACR.
+8. Publishes a GitHub Actions step summary with the ref, deploy ID, image refs, ready revision, whether the authenticated checks ran, and whether required workflow image checks ran.
 
 Deploy IDs use `<utc-timestamp>-<short-sha>`, for example `20260428T193500Z-a1b2c3d`.
 
@@ -244,6 +256,7 @@ The important runtime model is:
 
 - the Container App mounts `/storage`
 - the install wizard writes runtime configuration there
+- Azure platform state is canonical in `/storage/settings.toml` under `[server.sandbox.azure.platform]`; the server passes that settings-derived state to Azure sandbox creation
 - the install wizard's `Azure` step should use the Terraform output `acr_identity_resource_id`
 - on the sandbox step, choose `Azure Container Instances` so the wizard writes `provider = "azure"` and reuses the Azure subnet, registry, and managed-identity settings collected on the Azure step
 - the sandbox-attached identity for ACR pulls is the dedicated low-privilege sandbox-pull identity, not the privileged `fabro-server` identity
@@ -292,6 +305,21 @@ CI replaces that placeholder with the just-built immutable image before running 
 
 Workflow-specific sandbox images still live in the workflow repositories that use them. Those refs are updated manually by workflow owners.
 
+A successful Fabro server deploy proves only that the shared platform images were published:
+
+- `fabro-server:<deploy-id>`
+- `fabro-azure-sandbox-base:<deploy-id>`
+
+It does not prove that workflow-owned images exist in a new ACR. For greenfield deployments, publish every required workflow image before calling the environment ready. At minimum:
+
+1. Deploy the shared platform.
+2. Build and push every workflow-specific image required by this environment into the target ACR.
+3. Update or verify every `run.sandbox.azure.image` ref used by those workflows.
+4. Add those full image refs to `AZURE_REQUIRED_WORKFLOW_IMAGES`.
+5. Rerun `.github/workflows/deploy-azure.yml` and require the workflow image check to pass.
+
+Every workflow repo should be bootstrapable from public base images or from the shared `fabro-azure-sandbox-base:<deploy-id>` image that this deploy workflow publishes. Do not make a new ACR depend on historical private workflow images that may not exist in that registry.
+
 ## 7. Post-deploy validation
 
 Steady-state production deploys should validate all three of these checks using the stable Container App ingress URL after rollout:
@@ -299,6 +327,7 @@ Steady-state production deploys should validate all three of these checks using 
 1. `GET /health`
 2. authenticated `GET /api/v1/models`
 3. run `.fabro/workflows/azure-deploy-smoke` against the deployed server
+4. verify every image listed in `AZURE_REQUIRED_WORKFLOW_IMAGES` exists in ACR
 
 Equivalent manual checks:
 
@@ -361,13 +390,30 @@ Before relying on CI deploys, verify all of the following:
 - the GitHub `production` environment contains every Azure and Terraform variable listed in this guide
 - the GitHub App values are present for headless bootstrap, or manual GitHub App linkage has already completed
 - `FABRO_DEPLOY_DEV_TOKEN` is stored in the GitHub `production` environment
+- every workflow-specific image required by real Azure workflows exists in the target ACR and is listed in `AZURE_REQUIRED_WORKFLOW_IMAGES`
 - the Container App is still configured for exactly one replica
 - the deploy workflow can pass `GET /health`, authenticated `GET /api/v1/models`, and the Azure smoke workflow
 
 For the very first CI deploy, the last three checklist items become the follow-up gate after install is complete rather
 than a prerequisite for bringing the app up.
 
-## 10. Fork and resource-group reuse
+## 10. Greenfield hardening checklist
+
+A new Azure deployment is not greenfield-ready until all of these are true:
+
+- bootstrap outputs were copied into the GitHub `production` environment
+- no checked-in live `terraform.tfvars` values can conflict with those outputs
+- the first sandbox apply used the same `github_actions_principal_id` as `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID`
+- install completed successfully and `/health` returns plain `{"status":"ok"}`
+- Azure platform state is present in `/storage/settings.toml` under `[server.sandbox.azure.platform]`
+- post-install auth methods include both `dev-token` and `github` for GitHub App installs
+- `FABRO_DEPLOY_DEV_TOKEN` exists in the GitHub `production` environment
+- every required workflow-specific ACR image exists in the target registry
+- `AZURE_REQUIRED_WORKFLOW_IMAGES` lists those image refs and the deploy workflow verifies them
+- at least one real non-smoke Azure workflow has run successfully
+- every workflow image can be rebuilt from scratch using only public base images and the shared `fabro-azure-sandbox-base` image
+
+## 11. Fork and resource-group reuse
 
 The supported production shape is one GitHub repository environment driving one steady-state Azure environment.
 
@@ -379,7 +425,7 @@ If you need to reuse an existing Azure resource group, keep the Terraform backen
 aligned with the names already provisioned there. The deploy workflow only works when the GitHub environment, the
 Terraform state, and the live Azure resource group all describe the same environment.
 
-## 11. Troubleshooting and caveats
+## 12. Troubleshooting and caveats
 
 - **Single replica only.** Keep the Container App at one replica.
 - **The first production deploy is two-phase.** Bootstrap and run the shared environment apply once before expecting CI to deploy the server.
@@ -388,6 +434,7 @@ Terraform state, and the live Azure resource group all describe the same environ
 - **CI smoke checks need a dev token.** The headless GitHub App path persists one automatically when the GitHub App values are present; otherwise finish GitHub App linkage manually, store `FABRO_DEPLOY_DEV_TOKEN`, and rerun the workflow.
 - **The smoke workflow validation command is server-backed.** `fabro validate` currently uses server preflight, so it needs a configured server target rather than an unconfigured local machine.
 - **Workflow-specific images are still manual.** This repo only automates the shared deployment substrate.
+- **Server deploy success is not workflow readiness.** A greenfield environment is not ready for real workflows until every referenced `run.sandbox.azure.image` exists in the target ACR.
 
 To inspect or clean up stale Azure sandboxes:
 
@@ -402,7 +449,7 @@ az container delete \
   --yes
 ```
 
-## 12. Next steps
+## 13. Next steps
 
 <Columns cols={2}>
   <Card

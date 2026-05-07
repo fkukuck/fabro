@@ -22,6 +22,7 @@ Local Terraform state is no longer the supported production path for this enviro
 
 - Set the Azure naming and network variables in `terraform.tfvars`.
 - Set `github_actions_principal_id` to the same bootstrap-created GitHub Actions managed identity principal ID that you copied into the GitHub `production` environment as `AZURE_GITHUB_ACTIONS_PRINCIPAL_ID` before the first manual apply.
+- Keep `terraform.tfvars` local and untracked. A stale checked-in `github_actions_principal_id` can override the GitHub environment handoff and make CI try to replace role assignments with the wrong principal.
 - The first manual apply must happen before GitHub Actions takes over so Terraform can create the `github_actions_access` role assignments with the higher-privilege operator identity.
 - The first manual apply must pass `-var='fabro_server_enabled=false'` so Terraform creates the shared infrastructure without trying to launch `fabro-server` from the placeholder image.
 - The checked-in `fabro_server_image` placeholder exists only to satisfy Terraform while that first manual apply keeps the server disabled. CI always passes the real immutable image for steady-state deploys.
@@ -42,5 +43,6 @@ Local Terraform state is no longer the supported production path for this enviro
 - Keep the Container App at one replica.
 - This root owns shared infrastructure and the live `fabro-server` image reference.
 - Workflow-specific Azure sandbox image refs remain owned by the workflow repositories that use them.
+- Configure `AZURE_REQUIRED_WORKFLOW_IMAGES` in the GitHub environment when product workflows depend on additional ACR images. The deploy workflow accepts comma-separated or newline-separated image refs and fails early when any required image is missing from the target ACR.
 - If you reuse an existing Azure resource group, keep this root's backend and GitHub environment variables pointed at that same environment.
 - For forked testing or a second deployment, use a separate backend state key, GitHub environment, and Azure resource group instead of sharing this root across unrelated environments.

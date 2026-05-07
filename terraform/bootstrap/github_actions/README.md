@@ -12,9 +12,12 @@ Use this as the bootstrap companion to the canonical guide in
 
 ## Apply the bootstrap root
 
-1. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in real values.
+1. Copy `terraform.tfvars.example` to the untracked local file `terraform.tfvars` and fill in real values.
 2. Run `terraform init`.
 3. Run `terraform apply`.
+
+Do not commit `terraform.tfvars`. The checked-in contract is the example file plus the GitHub
+environment handoff below; live values are environment state and must stay local.
 
 ## GitHub environment handoff
 

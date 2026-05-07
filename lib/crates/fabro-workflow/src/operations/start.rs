@@ -665,6 +665,7 @@ fn runtime_azure_config(settings: &AzureSettings) -> sandbox_config::AzureConfig
         image:     settings.image.clone(),
         cpu:       settings.cpu,
         memory_gb: settings.memory_gb,
+        platform:  None,
     }
 }
 

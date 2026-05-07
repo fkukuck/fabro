@@ -17,6 +17,7 @@ use fabro_graphviz::render::apply_direction;
 use fabro_llm::Provider;
 use fabro_llm::model_test::{ModelTestStatus, run_basic_model_probe};
 use fabro_model::Catalog;
+use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_sandbox::config::{
     AzureConfig, DaytonaNetwork, DaytonaSnapshotSettings,
     DockerfileSource as SandboxDockerfileSource,
@@ -507,6 +508,7 @@ async fn build_preflight_report(
     };
 
     let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
+    let mut azure_platform_config = None;
     if sandbox_provider == SandboxProvider::Azure {
         let server_settings = state.server_settings();
         let azure_platform = resolve_azure_platform_config(&server_settings.server, &|name| {
@@ -531,7 +533,8 @@ async fn build_preflight_report(
                 false,
             ));
         }
-        if azure_platform.unwrap().is_none() {
+        azure_platform_config = azure_platform.unwrap();
+        if azure_platform_config.is_none() {
             checks.push(CheckResult {
                 name:        "Sandbox".into(),
                 status:      CheckStatus::Error,
@@ -561,6 +564,7 @@ async fn build_preflight_report(
         &resolved_run,
         github_app.clone(),
         daytona_api_key,
+        azure_platform_config,
     )
     .await;
     let repository_access_ok = run_repository_access_check(
@@ -846,6 +850,7 @@ fn preflight_sandbox_spec(
     resolved_run: &RunNamespace,
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
+    azure_platform: Option<AzurePlatformConfig>,
 ) -> SandboxSpec {
     let clone_origin_url = prepared
         .git
@@ -880,13 +885,17 @@ fn preflight_sandbox_spec(
                 api_key: daytona_api_key,
             }
         }
-        SandboxProvider::Azure => SandboxSpec::Azure {
-            config: resolve_azure_config(resolved_run).unwrap_or_default(),
-            github_app,
-            run_id: None,
-            clone_origin_url,
-            clone_branch,
-        },
+        SandboxProvider::Azure => {
+            let mut config = resolve_azure_config(resolved_run).unwrap_or_default();
+            config.platform = azure_platform;
+            SandboxSpec::Azure {
+                config,
+                github_app,
+                run_id: None,
+                clone_origin_url,
+                clone_branch,
+            }
+        }
     }
 }
 
@@ -897,6 +906,7 @@ async fn run_sandbox_check(
     resolved_run: &RunNamespace,
     github_app: Option<fabro_github::GitHubCredentials>,
     daytona_api_key: Option<String>,
+    azure_platform: Option<AzurePlatformConfig>,
 ) -> bool {
     let spec = preflight_sandbox_spec(
         sandbox_provider,
@@ -904,14 +914,16 @@ async fn run_sandbox_check(
         resolved_run,
         github_app.clone(),
         daytona_api_key,
+        azure_platform,
     );
-    let sandbox_result: Result<Arc<dyn Sandbox>, String> = spec.build(None).await.map_err(|err| {
-        match sandbox_provider {
-            SandboxProvider::Daytona => format!("Daytona sandbox creation failed: {err}"),
-            SandboxProvider::Azure => format!("Azure sandbox creation failed: {err}"),
-            _ => err.to_string(),
-        }
-    });
+    let sandbox_result: Result<Arc<dyn Sandbox>, String> =
+        spec.build(None)
+            .await
+            .map_err(|err| match sandbox_provider {
+                SandboxProvider::Daytona => format!("Daytona sandbox creation failed: {err}"),
+                SandboxProvider::Azure => format!("Azure sandbox creation failed: {err}"),
+                _ => err.to_string(),
+            });
 
     match sandbox_result {
         Ok(sandbox) => match sandbox.initialize().await {
@@ -1248,6 +1260,7 @@ fn runtime_azure_config(settings: &AzureSettings) -> AzureConfig {
         image:     settings.image.clone(),
         cpu:       settings.cpu,
         memory_gb: settings.memory_gb,
+        platform:  None,
     }
 }
 
@@ -1738,8 +1751,14 @@ skip_clone = {skip_clone}
             Some(git_context("https://github.com/acme/widgets", "main")),
         );
 
-        let spec =
-            preflight_sandbox_spec(SandboxProvider::Docker, &prepared, &resolved, None, None);
+        let spec = preflight_sandbox_spec(
+            SandboxProvider::Docker,
+            &prepared,
+            &resolved,
+            None,
+            None,
+            None,
+        );
 
         match spec {
             SandboxSpec::Docker {

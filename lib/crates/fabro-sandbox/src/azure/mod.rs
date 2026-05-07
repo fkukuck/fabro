@@ -60,7 +60,10 @@ impl AzureSandbox {
         clone_origin_url: Option<String>,
         clone_branch: Option<String>,
     ) -> Result<Self, String> {
-        let platform = load_platform_from_worker_storage_root()?;
+        let platform = runtime
+            .platform
+            .clone()
+            .map_or_else(load_platform_from_worker_storage_root, Ok)?;
         let arm = AzureArmClient::new(platform.clone())?;
         Ok(Self {
             runtime,
@@ -218,7 +221,8 @@ impl AzureSandbox {
             if !result.is_success() {
                 return Err(crate::Error::message(format!(
                     "failed to create working directory (exit {}): {}",
-                    result.display_exit_code(), result.stderr
+                    result.display_exit_code(),
+                    result.stderr
                 )));
             }
             return Ok(());
@@ -264,7 +268,8 @@ impl AzureSandbox {
         if !clone_result.is_success() {
             let err = format!(
                 "Failed to clone repo into Azure sandbox (exit {}): {}",
-                clone_result.display_exit_code(), clone_result.stderr
+                clone_result.display_exit_code(),
+                clone_result.stderr
             );
             self.emit(SandboxEvent::GitCloneFailed {
                 url,
@@ -361,7 +366,8 @@ impl Sandbox for AzureSandbox {
         } else {
             Err(crate::Error::message(format!(
                 "delete failed (exit {}): {}",
-                result.display_exit_code(), result.stderr
+                result.display_exit_code(),
+                result.stderr
             )))
         }
     }
@@ -388,7 +394,8 @@ impl Sandbox for AzureSandbox {
         if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "list_directory failed (exit {}): {}",
-                result.display_exit_code(), result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
 
@@ -459,7 +466,8 @@ impl Sandbox for AzureSandbox {
         if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "grep failed (exit {}): {}",
-                result.display_exit_code(), result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
         Ok(result.stdout.lines().map(String::from).collect())
@@ -476,7 +484,8 @@ impl Sandbox for AzureSandbox {
         if !result.is_success() {
             return Err(crate::Error::message(format!(
                 "glob failed (exit {}): {}",
-                result.display_exit_code(), result.stderr
+                result.display_exit_code(),
+                result.stderr
             )));
         }
         Ok(result
@@ -662,7 +671,8 @@ impl Sandbox for AzureSandbox {
         } else {
             Err(crate::Error::message(format!(
                 "Failed to refresh push credentials (exit {}): {}",
-                result.display_exit_code(), result.stderr
+                result.display_exit_code(),
+                result.stderr
             )))
         }
     }
@@ -760,24 +770,24 @@ mod tests {
         let sandbox = AzureSandbox {
             runtime:          AzureConfig::default(),
             platform:         AzurePlatformConfig {
-                subscription_id: "sub".into(),
-                resource_group:  "rg".into(),
-                location:        "loc".into(),
-                subnet_id:       "subnet".into(),
-                acr_server:      "acr.azurecr.io".into(),
+                subscription_id:          "sub".into(),
+                resource_group:           "rg".into(),
+                location:                 "loc".into(),
+                subnet_id:                "subnet".into(),
+                acr_server:               "acr.azurecr.io".into(),
                 acr_identity_resource_id: "identity".into(),
-                sandboxd_port:   7777,
+                sandboxd_port:            7777,
             },
             arm:              AzureArmClient::new_with_base_url(
                 fabro_http::http_client().unwrap(),
                 AzurePlatformConfig {
-                    subscription_id: "sub".into(),
-                    resource_group:  "rg".into(),
-                    location:        "loc".into(),
-                    subnet_id:       "subnet".into(),
-                    acr_server:      "acr.azurecr.io".into(),
+                    subscription_id:          "sub".into(),
+                    resource_group:           "rg".into(),
+                    location:                 "loc".into(),
+                    subnet_id:                "subnet".into(),
+                    acr_server:               "acr.azurecr.io".into(),
                     acr_identity_resource_id: "identity".into(),
-                    sandboxd_port:   7777,
+                    sandboxd_port:            7777,
                 },
                 "https://management.azure.com".into(),
             ),
@@ -797,10 +807,10 @@ mod tests {
     #[test]
     fn exec_response_maps_to_exited_exec_result() {
         let result = AzureSandbox::exec_result_from_response(ExecResponse {
-            stdout: "ok".into(),
-            stderr: String::new(),
-            exit_code: 0,
-            timed_out: false,
+            stdout:      "ok".into(),
+            stderr:      String::new(),
+            exit_code:   0,
+            timed_out:   false,
             duration_ms: 42,
         });
 
@@ -813,15 +823,18 @@ mod tests {
     #[test]
     fn exec_response_maps_timeouts_to_missing_exit_code() {
         let result = AzureSandbox::exec_result_from_response(ExecResponse {
-            stdout: String::new(),
-            stderr: "timed out".into(),
-            exit_code: 124,
-            timed_out: true,
+            stdout:      String::new(),
+            stderr:      "timed out".into(),
+            exit_code:   124,
+            timed_out:   true,
             duration_ms: 5000,
         });
 
         assert_eq!(result.exit_code, None);
-        assert_eq!(result.termination, fabro_types::CommandTermination::TimedOut);
+        assert_eq!(
+            result.termination,
+            fabro_types::CommandTermination::TimedOut
+        );
         assert_eq!(result.stderr, "timed out");
     }
 
@@ -832,26 +845,27 @@ mod tests {
                 image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".into()),
                 cpu:       Some(2.0),
                 memory_gb: Some(4.0),
+                platform:  None,
             },
             platform:         AzurePlatformConfig {
-                subscription_id: "sub".into(),
-                resource_group:  "rg".into(),
-                location:        "loc".into(),
-                subnet_id:       "subnet".into(),
-                acr_server:      "acr.azurecr.io".into(),
+                subscription_id:          "sub".into(),
+                resource_group:           "rg".into(),
+                location:                 "loc".into(),
+                subnet_id:                "subnet".into(),
+                acr_server:               "acr.azurecr.io".into(),
                 acr_identity_resource_id: String::new(),
-                sandboxd_port:   7777,
+                sandboxd_port:            7777,
             },
             arm:              AzureArmClient::new_with_base_url(
                 fabro_http::test_http_client().unwrap(),
                 AzurePlatformConfig {
-                    subscription_id: "sub".into(),
-                    resource_group:  "rg".into(),
-                    location:        "loc".into(),
-                    subnet_id:       "subnet".into(),
-                    acr_server:      "acr.azurecr.io".into(),
+                    subscription_id:          "sub".into(),
+                    resource_group:           "rg".into(),
+                    location:                 "loc".into(),
+                    subnet_id:                "subnet".into(),
+                    acr_server:               "acr.azurecr.io".into(),
                     acr_identity_resource_id: String::new(),
-                    sandboxd_port:   7777,
+                    sandboxd_port:            7777,
                 },
                 "http://127.0.0.1:1".into(),
             ),

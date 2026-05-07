@@ -28,6 +28,8 @@ pub struct AzureConfig {
     pub image:     Option<String>,
     pub cpu:       Option<f64>,
     pub memory_gb: Option<f64>,
+    #[cfg(feature = "azure")]
+    pub platform:  Option<crate::azure::config::AzurePlatformConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

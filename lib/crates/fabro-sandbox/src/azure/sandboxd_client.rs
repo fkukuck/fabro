@@ -126,7 +126,9 @@ fn is_retryable_http_error(err: &reqwest::Error) -> bool {
         || err.is_connect()
         || err.is_body()
         || err.is_decode()
-        || err.status().is_some_and(|status| status.is_server_error() || status.as_u16() == 429)
+        || err
+            .status()
+            .is_some_and(|status| status.is_server_error() || status.as_u16() == 429)
 }
 
 fn retry_delay(attempt: u32) -> Duration {
@@ -172,7 +174,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_file_retries_decode_error() {
-        let valid_body = serde_json::json!({ "content_base64": STANDARD.encode("hello") }).to_string();
+        let valid_body =
+            serde_json::json!({ "content_base64": STANDARD.encode("hello") }).to_string();
         let responses = vec![
             http_response("200 OK", "application/json", "not json"),
             http_response("200 OK", "application/json", &valid_body),
@@ -189,13 +192,20 @@ mod tests {
     #[tokio::test]
     async fn write_file_retries_server_error() {
         let responses = vec![
-            http_response("500 Internal Server Error", "text/plain", "temporary failure"),
+            http_response(
+                "500 Internal Server Error",
+                "text/plain",
+                "temporary failure",
+            ),
             http_response("200 OK", "text/plain", ""),
         ];
         let (base_url, hits) = spawn_sequence_server(responses).await;
         let client = SandboxdClient::new(base_url).unwrap();
 
-        client.write_file("/workspace/test.txt", b"hello").await.unwrap();
+        client
+            .write_file("/workspace/test.txt", b"hello")
+            .await
+            .unwrap();
 
         assert_eq!(hits.load(Ordering::SeqCst), 2);
     }
@@ -219,10 +229,10 @@ mod tests {
 
         let response = client
             .exec(ExecRequest {
-                command: "pwd".to_string(),
+                command:     "pwd".to_string(),
                 working_dir: None,
-                env: std::collections::HashMap::new(),
-                timeout_ms: 1000,
+                env:         std::collections::HashMap::new(),
+                timeout_ms:  1000,
             })
             .await
             .unwrap();

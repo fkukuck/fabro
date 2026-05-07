@@ -1,5 +1,7 @@
 target
 .env
+**/terraform.tfvars
+!**/terraform.tfvars.example
 .entire
 node_modules
 apps/fabro-web/dist/

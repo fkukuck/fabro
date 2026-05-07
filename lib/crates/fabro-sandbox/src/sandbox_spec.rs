@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 #[cfg(feature = "docker")]
 use anyhow::Context as _;
-use fabro_github::GitHubCredentials;
 #[cfg(feature = "azure")]
 use anyhow::anyhow;
+#[cfg(any(feature = "azure", feature = "daytona", feature = "docker"))]
+use fabro_github::GitHubCredentials;
 #[allow(
     unused_imports,
     reason = "Daytona-enabled builds persist RunId in the sandbox spec."

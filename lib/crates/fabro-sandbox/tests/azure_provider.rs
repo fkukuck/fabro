@@ -112,6 +112,7 @@ fn azure_parallel_worktree_path_uses_workspace_scratch_dir() {
                 image:     Some("fabro.azurecr.io/fabro-sandboxes/base:latest".into()),
                 cpu:       Some(2.0),
                 memory_gb: Some(4.0),
+                platform:  None,
             },
             None,
             None,
@@ -126,6 +127,34 @@ fn azure_parallel_worktree_path_uses_workspace_scratch_dir() {
             "left",
         );
         assert_eq!(path, "/workspace/.fabro/scratch/run-1/parallel/node-a/left");
+    });
+}
+
+#[test]
+fn azure_sandbox_new_uses_settings_platform_without_snapshot_file() {
+    let platform = fabro_sandbox::azure::config::AzurePlatformConfig {
+        subscription_id:          "sub-1".into(),
+        resource_group:           "rg-1".into(),
+        location:                 "eastus".into(),
+        subnet_id:                "/subscriptions/sub-1/.../aci".into(),
+        acr_server:               "fabro.azurecr.io".into(),
+        acr_identity_resource_id: "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acr-pull".into(),
+        sandboxd_port:            7777,
+    };
+
+    temp_env::with_var(EnvVars::FABRO_STORAGE_ROOT, None::<&str>, || {
+        AzureSandbox::new(
+            AzureConfig {
+                image: Some("fabro.azurecr.io/fabro-sandboxes/base:latest".into()),
+                platform: Some(platform),
+                ..AzureConfig::default()
+            },
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     });
 }
 

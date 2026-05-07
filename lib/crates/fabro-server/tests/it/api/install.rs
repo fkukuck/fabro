@@ -1174,7 +1174,7 @@ async fn token_install_finish_invokes_finish_hook_before_response_returns() {
 }
 
 #[tokio::test]
-async fn app_install_finish_uses_github_auth_without_dev_token() {
+async fn app_install_finish_uses_github_and_dev_token_auth() {
     let temp_dir = tempfile::tempdir().unwrap();
     let home_root = tempfile::tempdir().unwrap();
     let home = Home::new(home_root.path().join(".fabro"));
@@ -1316,11 +1316,16 @@ async fn app_install_finish_uses_github_auth_without_dev_token() {
     .await;
     assert_eq!(finish_body["status"], "completing");
     assert_eq!(finish_body["restart_url"], "https://fabro.example.com");
-    assert!(finish_body.get("dev_token").is_none());
+    assert!(
+        finish_body["dev_token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()),
+        "GitHub App installs should return a deployable dev token for CI smoke validation"
+    );
 
     let storage = Storage::new(temp_dir.path());
     let server_env = std::fs::read_to_string(storage.runtime_directory().env_path()).unwrap();
-    assert!(!server_env.contains("FABRO_DEV_TOKEN="));
+    assert!(server_env.contains("FABRO_DEV_TOKEN="));
 
     assert!(
         !home.root().join("dev-token").exists(),
@@ -1328,8 +1333,8 @@ async fn app_install_finish_uses_github_auth_without_dev_token() {
     );
 
     assert!(
-        !storage.runtime_directory().dev_token_path().exists(),
-        "storage dev token file should not be created for App installs"
+        storage.runtime_directory().dev_token_path().exists(),
+        "storage dev token file should be created for App installs"
     );
 
     let settings_toml = std::fs::read_to_string(&config_path).unwrap();
@@ -1341,7 +1346,7 @@ async fn app_install_finish_uses_github_auth_without_dev_token() {
             .iter()
             .map(|value| value.as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["github"]
+        vec!["dev-token", "github"]
     );
     assert_eq!(
         settings_doc["server"]["auth"]["github"]["allowed_usernames"]
@@ -1359,7 +1364,7 @@ async fn app_install_finish_uses_github_auth_without_dev_token() {
 }
 
 #[tokio::test]
-async fn headless_github_app_install_finish_uses_github_auth_without_dev_token() {
+async fn headless_github_app_install_finish_uses_github_and_dev_token_auth() {
     let temp_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("settings.toml");
@@ -1392,7 +1397,12 @@ async fn headless_github_app_install_finish_uses_github_auth_without_dev_token()
     )
     .await;
 
-    assert!(finish_body.get("dev_token").is_none());
+    assert!(
+        finish_body["dev_token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()),
+        "headless GitHub App installs should return a deployable dev token for CI smoke validation"
+    );
 
     let storage = Storage::new(temp_dir.path());
     let settings_toml = std::fs::read_to_string(&config_path).unwrap();
@@ -1404,7 +1414,7 @@ async fn headless_github_app_install_finish_uses_github_auth_without_dev_token()
             .iter()
             .map(|value| value.as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["github"]
+        vec!["dev-token", "github"]
     );
     assert_eq!(
         settings_doc["server"]["auth"]["github"]["allowed_usernames"]
@@ -1421,7 +1431,7 @@ async fn headless_github_app_install_finish_uses_github_auth_without_dev_token()
     );
 
     let server_env = std::fs::read_to_string(storage.runtime_directory().env_path()).unwrap();
-    assert!(!server_env.contains("FABRO_DEV_TOKEN="));
+    assert!(server_env.contains("FABRO_DEV_TOKEN="));
     assert!(server_env.contains("GITHUB_APP_CLIENT_SECRET="));
     assert!(server_env.contains("GITHUB_APP_PRIVATE_KEY="));
     assert!(
@@ -1429,8 +1439,8 @@ async fn headless_github_app_install_finish_uses_github_auth_without_dev_token()
         "home dev token file should not be created for headless App installs"
     );
     assert!(
-        !storage.runtime_directory().dev_token_path().exists(),
-        "storage dev token file should not be created for headless App installs"
+        storage.runtime_directory().dev_token_path().exists(),
+        "storage dev token file should be created for headless App installs"
     );
 }
 

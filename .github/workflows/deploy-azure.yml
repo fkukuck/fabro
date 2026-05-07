@@ -137,6 +137,7 @@ jobs:
             echo "TF_VAR_github_actions_principal_id=${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
             echo 'TF_VAR_tags={ environment = "sandbox", managed_by = "terraform" }'
           } >> "$GITHUB_ENV"
+          printf 'Using GitHub Actions principal ID from GitHub environment: %s\n' "${{ vars.AZURE_GITHUB_ACTIONS_PRINCIPAL_ID }}"
 
       # Do not make AZURE_GITHUB_ACTIONS_PRINCIPAL_ID optional in the supported path.
       # The greenfield sequence depends on the first manual terraform/environments/sandbox
@@ -581,6 +582,45 @@ jobs:
             run workflow.toml \
             --server "$FABRO_SERVER_URL/api/v1"
 
+      - name: Verify required workflow images
+        env:
+          AZURE_REQUIRED_WORKFLOW_IMAGES: ${{ vars.AZURE_REQUIRED_WORKFLOW_IMAGES }}
+        run: |
+          if [ -z "$AZURE_REQUIRED_WORKFLOW_IMAGES" ]; then
+            echo "No AZURE_REQUIRED_WORKFLOW_IMAGES variable configured; skipping workflow-specific image existence checks."
+            exit 0
+          fi
+
+          missing=false
+          while IFS= read -r raw_image; do
+            image=$(printf '%s' "$raw_image" | xargs)
+            if [ -z "$image" ]; then
+              continue
+            fi
+
+            case "$image" in
+              "$ACR_SERVER"/*)
+                repository_and_tag=${image#"$ACR_SERVER"/}
+                ;;
+              *)
+                printf 'Required workflow image %s is not in this environment ACR (%s)\n' "$image" "$ACR_SERVER" >&2
+                missing=true
+                continue
+                ;;
+            esac
+
+            if ! az acr repository show --name "$ACR_NAME" --image "$repository_and_tag" >/dev/null 2>&1; then
+              printf 'Required workflow image is missing from ACR: %s\n' "$image" >&2
+              missing=true
+            else
+              printf 'Verified required workflow image: %s\n' "$image"
+            fi
+          done < <(printf '%s\n' "$AZURE_REQUIRED_WORKFLOW_IMAGES" | tr ',' '\n')
+
+          if [ "$missing" = true ]; then
+            exit 1
+          fi
+
       - name: Deployment summary
         run: |
           {
@@ -595,5 +635,10 @@ jobs:
               echo "- Post-deploy authenticated checks: passed"
             else
               echo "- Post-deploy authenticated checks: skipped because no deploy dev token was available"
+            fi
+            if [ -n "${{ vars.AZURE_REQUIRED_WORKFLOW_IMAGES }}" ]; then
+              echo "- Required workflow image checks: passed"
+            else
+              echo "- Required workflow image checks: skipped because AZURE_REQUIRED_WORKFLOW_IMAGES is unset"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

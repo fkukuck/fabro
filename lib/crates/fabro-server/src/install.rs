@@ -19,11 +19,10 @@ use fabro_config::bind::{Bind, BindRequest};
 use fabro_config::envfile::EnvFileUpdate;
 use fabro_install::{
     InstallAzurePlatformSelection, InstallListenConfig, InstallSandboxSelection,
-    OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV,
-    PendingSettingsWrite, VaultSecretWrite, merge_server_settings,
-    persist_install_outputs_direct, write_azure_platform_settings,
-    write_github_app_settings, write_object_store_settings, write_sandbox_settings,
-    write_token_settings,
+    OBJECT_STORE_ACCESS_KEY_ID_ENV, OBJECT_STORE_SECRET_ACCESS_KEY_ENV, PendingSettingsWrite,
+    VaultSecretWrite, merge_server_settings, persist_install_outputs_direct,
+    write_azure_platform_settings, write_github_app_settings, write_object_store_settings,
+    write_sandbox_settings, write_token_settings,
 };
 use fabro_model::Provider;
 use fabro_sandbox::daytona;
@@ -1763,7 +1762,9 @@ async fn post_install_finish(
         return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
     }
     if let Some(azure) = azure.as_ref() {
-        if let Err(err) = write_azure_platform_settings(&mut settings_doc, &azure.to_platform_selection()) {
+        if let Err(err) =
+            write_azure_platform_settings(&mut settings_doc, &azure.to_platform_selection())
+        {
             return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
         }
     }
@@ -1871,7 +1872,19 @@ async fn post_install_finish(
             if let Some(secret) = github.webhook_secret {
                 server_env_writes.push(make_env_write(EnvVars::GITHUB_APP_WEBHOOK_SECRET, secret));
             }
-            None
+            let dev_token_path = Storage::new(state.storage_dir.as_ref())
+                .runtime_directory()
+                .dev_token_path();
+            let token = match dev_token::read_or_mint_dev_token_for_install(&dev_token_path) {
+                Ok(value) => value,
+                Err(err) => {
+                    return install_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        err.to_string(),
+                    );
+                }
+            };
+            Some(token)
         }
     };
 

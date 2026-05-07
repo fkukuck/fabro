@@ -1,5 +1,3 @@
-use anyhow::Context as _;
-use fabro_config::RuntimeDirectory;
 use fabro_sandbox::azure::config::AzurePlatformConfig;
 use fabro_types::settings::server::ServerNamespace;
 
@@ -25,40 +23,6 @@ pub(crate) fn resolve_azure_platform_config(
         acr_identity_resource_id: platform.acr_identity_resource_id.clone(),
         sandboxd_port:            platform.sandboxd_port,
     }))
-}
-
-pub(crate) fn write_azure_platform_snapshot(
-    runtime_directory: &RuntimeDirectory,
-    config: Option<AzurePlatformConfig>,
-) -> anyhow::Result<()> {
-    let path = runtime_directory.azure_platform_config_path();
-    match config {
-        Some(config) => {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating directory {}", parent.display()))?;
-            }
-            let bytes = serde_json::to_vec_pretty(&serde_json::json!({
-                "subscription_id": config.subscription_id,
-                "resource_group": config.resource_group,
-                "location": config.location,
-                "subnet_id": config.subnet_id,
-                "acr_server": config.acr_server,
-                "acr_identity_resource_id": config.acr_identity_resource_id,
-                "sandboxd_port": config.sandboxd_port,
-            }))?;
-            std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
-        }
-        None => match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => {
-                return Err(anyhow::Error::new(err).context(format!("removing {}", path.display())));
-            }
-        },
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
