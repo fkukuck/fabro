@@ -26,6 +26,7 @@ import * as Insights from "./routes/insights";
 import * as InsightsEditor from "./routes/insights-editor";
 import * as InsightsNew from "./routes/insights-new";
 import * as Settings from "./routes/settings";
+import * as Profile from "./routes/profile";
 import AppShellModule from "./layouts/app-shell";
 
 type RouteModule = {
@@ -109,6 +110,7 @@ export const routes: RouteObject[] = [
             ],
           }),
           route("settings", Settings),
+          route("profile", Profile),
         ],
       },
     ],
