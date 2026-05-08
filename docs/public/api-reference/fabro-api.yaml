@@ -6917,12 +6917,29 @@ components:
         - skipped
         - cancelled
 
+    StageHandler:
+      description: Canonical workflow stage handler kind.
+      type: string
+      enum:
+        - start
+        - exit
+        - agent
+        - prompt
+        - command
+        - human
+        - conditional
+        - parallel
+        - parallel.fan_in
+        - stack.manager_loop
+        - wait
+
     RunStage:
       description: A single stage in a run's workflow graph.
       type: object
       required:
         - id
         - name
+        - handler
         - status
         - node_id
         - visit
@@ -6935,6 +6952,8 @@ components:
           type: string
           description: Human-readable stage name.
           example: Propose Changes
+        handler:
+          $ref: "#/components/schemas/StageHandler"
         status:
           $ref: "#/components/schemas/StageState"
         duration_secs:

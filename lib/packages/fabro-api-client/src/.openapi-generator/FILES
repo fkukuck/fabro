@@ -307,6 +307,7 @@ models/slack-integration-settings.ts
 models/ssh-access-request.ts
 models/ssh-access-response.ts
 models/stage-completion.ts
+models/stage-handler.ts
 models/stage-outcome.ts
 models/stage-projection.ts
 models/stage-state.ts

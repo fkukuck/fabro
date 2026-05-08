@@ -33,7 +33,7 @@ import {
 import { STAGE_ACTIVITY_EVENT_TYPES, type StageActivityEventType } from "../lib/run-events";
 import { mapRunStagesToSidebarStages } from "../lib/stage-sidebar";
 import { getNumber, getString, type UnknownRecord } from "../lib/unknown";
-import type { EventEnvelope } from "@qltysh/fabro-api-client";
+import type { EventEnvelope, StageHandler } from "@qltysh/fabro-api-client";
 
 export const handle = { wide: true, fullHeight: true };
 
@@ -77,7 +77,7 @@ const EVENT_KIND_LABEL: Record<EventKind, string> = {
 const EVENTS_TABS = ["transcript", "debug"] as const;
 type EventsTab = (typeof EVENTS_TABS)[number];
 
-function eventsTabLabel(tab: EventsTab, stageKind: StageKind): string {
+export function eventsTabLabel(tab: EventsTab, stageKind: StageKind): string {
   if (tab === "debug") return "Debug";
   return stageKind === "command" ? "Logs" : "Thread";
 }
@@ -88,6 +88,18 @@ function stageHasExplicitRenderer(stageKind: StageKind): stageKind is "agent" | 
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled stage activity event type: ${value}`);
+}
+
+export function stageRendererBucket(handler: StageHandler): StageKind {
+  switch (handler) {
+    case "agent":
+    case "prompt":
+      return "agent";
+    case "command":
+      return "command";
+    default:
+      return "other";
+  }
 }
 
 function activityEventStageId(event: EventEnvelope): string | undefined {
@@ -231,16 +243,6 @@ export function eventsToActivity(events: EventEnvelope[], stageId: string): Turn
   }
 
   return turns;
-}
-
-export function turnsToStageKind(turns: TurnType[]): StageKind {
-  if (turns.length === 0) return "other";
-  let hasCommand = false;
-  for (const t of turns) {
-    if (t.kind === "assistant" || t.kind === "tool") return "agent";
-    if (t.kind === "command") hasCommand = true;
-  }
-  return hasCommand ? "command" : "agent";
 }
 
 type ToolTurn = Extract<TurnType, { kind: "tool" }>;
@@ -1182,7 +1184,9 @@ export default function RunStages() {
         : [],
     [stageEventsQuery.data, selectedStageId],
   );
-  const stageKind = useMemo(() => turnsToStageKind(turns), [turns]);
+  const stageKind = selectedStage
+    ? stageRendererBucket(selectedStage.handler)
+    : "other";
   const commandTurn = useMemo<CommandTurn | null>(() => {
     for (let i = turns.length - 1; i >= 0; i -= 1) {
       const t = turns[i];

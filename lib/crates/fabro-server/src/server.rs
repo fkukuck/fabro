@@ -33,9 +33,10 @@ pub use fabro_api::types::{
     PruneRunsRequest, PruneRunsResponse, RenderWorkflowGraphDirection, RenderWorkflowGraphRequest,
     RewindRequest, RewindResponse, RunArtifactEntry, RunArtifactListResponse, RunBilling,
     RunBillingStage, RunBillingTotals, RunError, RunManifest, RunStage, RunStatusResponse,
-    SandboxFileEntry, SandboxFileListResponse, SshAccessRequest, SshAccessResponse, StageState,
-    StartRunRequest, SubmitAnswerRequest, SystemFeatures, SystemInfoResponse, SystemRepairRunIssue,
-    SystemRepairRunsResponse, SystemRunCounts, TimelineEntryResponse, WriteBlobResponse,
+    SandboxFileEntry, SandboxFileListResponse, SshAccessRequest, SshAccessResponse, StageHandler,
+    StageState, StartRunRequest, SubmitAnswerRequest, SystemFeatures, SystemInfoResponse,
+    SystemRepairRunIssue, SystemRepairRunsResponse, SystemRunCounts, TimelineEntryResponse,
+    WriteBlobResponse,
 };
 use fabro_auth::{
     CredentialSource, VaultCredentialSource, auth_issue_message, parse_credential_secret,
@@ -635,10 +636,12 @@ pub(crate) fn run_stage_from_stage_id(
     status: StageState,
     duration_secs: Option<f64>,
     started_at: Option<chrono::DateTime<chrono::Utc>>,
+    handler: StageHandler,
 ) -> RunStage {
     RunStage {
         id: stage_id.to_string(),
         name: name.into(),
+        handler,
         status,
         duration_secs,
         node_id: stage_id.node_id().to_string(),

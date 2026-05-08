@@ -1288,6 +1288,7 @@ mod runs {
                 StageState::Succeeded,
                 Some(72.0),
                 None,
+                StageHandler::Command,
             ),
             run_stage_from_stage_id(
                 &StageId::new("propose-changes", 1),
@@ -1295,6 +1296,7 @@ mod runs {
                 StageState::Succeeded,
                 Some(154.0),
                 None,
+                StageHandler::Agent,
             ),
             run_stage_from_stage_id(
                 &StageId::new("review-changes", 1),
@@ -1302,6 +1304,7 @@ mod runs {
                 StageState::Succeeded,
                 Some(45.0),
                 None,
+                StageHandler::Agent,
             ),
             run_stage_from_stage_id(
                 &StageId::new("apply-changes", 1),
@@ -1309,6 +1312,7 @@ mod runs {
                 StageState::Succeeded,
                 Some(118.0),
                 None,
+                StageHandler::Command,
             ),
             run_stage_from_stage_id(
                 &StageId::new("apply-changes", 2),
@@ -1316,6 +1320,7 @@ mod runs {
                 StageState::Running,
                 None,
                 None,
+                StageHandler::Command,
             ),
         ]
     }

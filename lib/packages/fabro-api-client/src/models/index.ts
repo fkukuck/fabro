@@ -284,6 +284,7 @@ export * from './slack-integration-settings';
 export * from './ssh-access-request';
 export * from './ssh-access-response';
 export * from './stage-completion';
+export * from './stage-handler';
 export * from './stage-outcome';
 export * from './stage-projection';
 export * from './stage-state';

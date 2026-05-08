@@ -336,6 +336,7 @@ fn main() {
         ("QuestionType", "fabro_types::QuestionType", &[]),
         ("StageCompletion", "fabro_types::StageCompletion", &[]),
         ("StageOutcome", "fabro_types::StageOutcome", &[]),
+        ("StageHandler", "fabro_types::StageHandler", &[]),
         ("StageState", "fabro_types::StageState", &[]),
         ("CommandTermination", "fabro_types::CommandTermination", &[]),
         ("StageProjection", "fabro_types::StageProjection", &[]),

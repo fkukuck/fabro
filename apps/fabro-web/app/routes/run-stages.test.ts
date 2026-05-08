@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { EventEnvelope } from "@qltysh/fabro-api-client";
 
 import {
+  eventsTabLabel,
   eventsToActivity,
   extractStageModel,
   groupConsecutiveTools,
-  turnsToStageKind,
+  stageRendererBucket,
 } from "./run-stages";
 
 function envelope(seq: number, partial: Partial<EventEnvelope>): EventEnvelope {
@@ -572,63 +573,30 @@ describe("groupConsecutiveTools", () => {
   });
 });
 
-describe("turnsToStageKind", () => {
-  test("classifies a stage with only command events as command", () => {
-    const events: EventEnvelope[] = [
-      envelope(1, {
-        event: "stage.prompt",
-        node_id: "fmt",
-        properties: { text: "run formatter" },
-      }),
-      envelope(2, {
-        event: "command.started",
-        node_id: "fmt",
-        properties: { script: "cargo fmt", language: "shell" },
-      }),
-      envelope(3, {
-        event: "command.completed",
-        node_id: "fmt",
-        properties: {
-          output: "blob://sha256/abc",
-          exit_code: 0,
-          duration_ms: 5,
-          termination: "exited",
-        },
-      }),
-    ];
-
-    expect(turnsToStageKind(eventsToActivity(events, "fmt"))).toBe("command");
+describe("stageRendererBucket", () => {
+  test("maps agent and prompt handlers to the Thread renderer", () => {
+    expect(stageRendererBucket("agent")).toBe("agent");
+    expect(stageRendererBucket("prompt")).toBe("agent");
+    expect(eventsTabLabel("transcript", stageRendererBucket("agent"))).toBe("Thread");
   });
 
-  test("classifies a stage with agent events as agent", () => {
-    const events: EventEnvelope[] = [
-      envelope(1, {
-        event: "agent.message",
-        node_id: "simplify",
-        properties: { text: "thinking…" },
-      }),
-    ];
-
-    expect(turnsToStageKind(eventsToActivity(events, "simplify"))).toBe("agent");
+  test("maps command handlers to the Logs renderer", () => {
+    expect(stageRendererBucket("command")).toBe("command");
+    expect(eventsTabLabel("transcript", stageRendererBucket("command"))).toBe("Logs");
   });
 
-  test("classifies stages with no recognized turns as other", () => {
-    expect(turnsToStageKind([])).toBe("other");
-  });
-
-  test("treats interview-only events as an other stage", () => {
-    const events: EventEnvelope[] = [
-      envelope(1, {
-        event: "interview.started",
-        node_id: "yes_no",
-        properties: {},
-      }),
-      envelope(2, {
-        event: "interview.completed",
-        node_id: "yes_no",
-        properties: {},
-      }),
-    ];
-    expect(turnsToStageKind(eventsToActivity(events, "yes_no"))).toBe("other");
+  test("maps non-transcript handlers to Debug", () => {
+    for (const handler of [
+      "start",
+      "exit",
+      "human",
+      "conditional",
+      "parallel",
+      "parallel.fan_in",
+      "stack.manager_loop",
+      "wait",
+    ] as const) {
+      expect(stageRendererBucket(handler)).toBe("other");
+    }
   });
 });

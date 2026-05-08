@@ -20,7 +20,7 @@ use fabro_model::Provider;
 use fabro_types::settings::ServerAuthMethod;
 use fabro_types::{
     AttrValue, AuthMethod, CommandTermination, FailureCategory, FailureDetail, Graph,
-    InterviewQuestionRecord, Outcome, QuestionType, RunBlobId, RunId, RunSpec, SuccessReason,
+    InterviewQuestionRecord, Node, Outcome, QuestionType, RunBlobId, RunId, RunSpec, SuccessReason,
     SystemActorKind, fixtures,
 };
 use fabro_util::check_report::CheckStatus;
@@ -2460,10 +2460,31 @@ async fn list_run_stages_distinguishes_visits() {
     let state = test_app_state_with_isolated_storage();
     let app = crate::test_support::build_test_router(Arc::clone(&state));
     let run_id = RunId::new();
+    let mut graph = Graph::new("test");
+    let mut verify = Node::new("verify");
+    verify
+        .attrs
+        .insert("type".to_string(), AttrValue::String("command".to_string()));
+    graph.nodes.insert("verify".to_string(), verify);
 
     create_durable_run_with_events(&state, run_id, &[
-        workflow_event::Event::RunSubmitted {
-            definition_blob: None,
+        workflow_event::Event::RunCreated {
+            run_id,
+            settings: serde_json::to_value(fabro_types::WorkflowSettings::default()).unwrap(),
+            graph: serde_json::to_value(&graph).unwrap(),
+            workflow_source: None,
+            workflow_config: None,
+            labels: std::collections::BTreeMap::default(),
+            run_dir: String::new(),
+            source_directory: None,
+            workflow_slug: Some("test".to_string()),
+            db_prefix: None,
+            provenance: None,
+            manifest_blob: None,
+            git: None,
+            fork_source_ref: None,
+            in_place: false,
+            web_url: None,
         },
         workflow_event::Event::RunStarting,
         workflow_event::Event::RunRunning,
@@ -2553,12 +2574,14 @@ async fn list_run_stages_distinguishes_visits() {
     let first = stage_entry(&body, "verify@1");
     assert_eq!(first["node_id"], "verify");
     assert_eq!(first["visit"], 1);
+    assert_eq!(first["handler"], "command");
     assert_eq!(first["status"], "failed");
     assert_eq!(first["duration_secs"], 1.5);
 
     let second = stage_entry(&body, "verify@2");
     assert_eq!(second["node_id"], "verify");
     assert_eq!(second["visit"], 2);
+    assert_eq!(second["handler"], "command");
     assert_eq!(second["status"], "running");
 
     // Old `dot_id` field must be gone.

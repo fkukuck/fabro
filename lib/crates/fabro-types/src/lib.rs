@@ -28,6 +28,7 @@ pub mod sandbox_record;
 pub mod secret;
 pub mod settings;
 pub mod stage_completion;
+pub mod stage_handler;
 pub mod stage_id;
 pub mod start;
 pub mod status;
@@ -80,6 +81,7 @@ pub use run_summary::RunSummary;
 pub use sandbox_record::SandboxRecord;
 pub use secret::{SecretMetadata, SecretType};
 pub use stage_completion::StageCompletion;
+pub use stage_handler::StageHandler;
 pub use stage_id::{InvalidStageVisit, ParallelBranchId, StageId};
 pub use start::StartRecord;
 pub use status::{

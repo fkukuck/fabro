@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ComponentType } from "react";
 import { Link } from "react-router";
-import type { StageState } from "@qltysh/fabro-api-client";
+import type { StageHandler, StageState } from "@qltysh/fabro-api-client";
 import {
   ArrowPathIcon,
   CheckCircleIcon,
@@ -23,6 +23,7 @@ import { useTickingNow } from "../lib/time";
 export interface Stage {
   id: string;
   name: string;
+  handler: StageHandler;
   status: StageState;
   duration: string;
   nodeId: string;
