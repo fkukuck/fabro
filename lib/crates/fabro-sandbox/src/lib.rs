@@ -19,6 +19,8 @@ pub mod sandbox_record;
 
 pub mod worktree;
 
+pub mod terminal;
+
 pub mod local;
 
 #[cfg(feature = "docker")]
@@ -45,4 +47,5 @@ pub use sandbox::{
 pub use sandbox_provider::SandboxProvider;
 pub use sandbox_record::SandboxRecord;
 pub use sandbox_spec::SandboxSpec;
+pub use terminal::{TerminalSession, TerminalSize, open_terminal_for_run};
 pub use worktree::{WorktreeEvent, WorktreeEventCallback, WorktreeOptions, WorktreeSandbox};

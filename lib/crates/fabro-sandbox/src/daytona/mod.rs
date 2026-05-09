@@ -400,6 +400,10 @@ impl DaytonaSandbox {
         })
     }
 
+    pub(crate) fn daytona_id(&self) -> crate::Result<&str> {
+        Ok(&self.sandbox()?.id)
+    }
+
     fn repo_cloned(&self) -> bool {
         self.repo_cloned.get().copied().unwrap_or(false)
     }

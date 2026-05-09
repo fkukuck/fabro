@@ -31,7 +31,7 @@ fabro-interview = { path = "../fabro-interview" }
 fabro-slack = { path = "../fabro-slack" }
 fabro-workflow = { path = "../fabro-workflow" }
 fabro-validate = { path = "../fabro-validate" }
-fabro-sandbox = { path = "../fabro-sandbox", features = ["daytona"] }
+fabro-sandbox = { path = "../fabro-sandbox", features = ["daytona", "docker"] }
 fabro-github = { path = "../fabro-github" }
 fabro-agent = { path = "../fabro-agent" }
 fabro-llm = { path = "../fabro-llm" }
@@ -47,7 +47,7 @@ fabro-redact.workspace = true
 fabro-static.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["ws"] }
 axum-extra.workspace = true
 cookie.workspace = true
 dirs.workspace = true

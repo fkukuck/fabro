@@ -1,17 +1,24 @@
 use std::sync::Arc;
 
+use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
+use fabro_sandbox::{TerminalSize, open_terminal_for_run};
+
 use super::super::{
-    ApiError, AppState, Bytes, DaytonaSandbox, EnvVars, IntoResponse, Json, NamedTempFile, Path,
-    PreviewUrlRequest, PreviewUrlResponse, Query, RequiredUser, Response, Router, RunId, Sandbox,
-    SandboxFileEntry, SandboxFileListResponse, SandboxProvider, SshAccessRequest,
-    SshAccessResponse, State, StatusCode, collect_causes, fs, get, octet_stream_response,
-    parse_run_id_path, post, reconnect_for_run, reject_if_archived, render_with_causes,
+    ApiError, AppState, Bytes, DaytonaSandbox, EnvVars, HeaderMap, IntoResponse, Json,
+    NamedTempFile, Path, PreviewUrlRequest, PreviewUrlResponse, Query, RequiredUser, Response,
+    Router, RunId, Sandbox, SandboxFileEntry, SandboxFileListResponse, SandboxProvider,
+    SshAccessRequest, SshAccessResponse, State, StatusCode, collect_causes, fs, get,
+    octet_stream_response, parse_run_id_path, post, reconnect_for_run, reject_if_archived,
+    render_with_causes,
 };
+
+const MAX_TERMINAL_CONTROL_BYTES: usize = 4096;
 
 pub(super) fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/runs/{id}/preview", post(generate_preview_url))
         .route("/runs/{id}/ssh", post(create_ssh_access))
+        .route("/runs/{id}/terminal", get(run_terminal))
         .route("/runs/{id}/sandbox/files", get(list_sandbox_files))
         .route(
             "/runs/{id}/sandbox/file",
@@ -29,6 +36,203 @@ struct SandboxFilesParams {
 #[derive(serde::Deserialize)]
 struct SandboxFileParams {
     path: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TerminalClientMessage {
+    Resize(TerminalSize),
+    Close,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum TerminalClientControl {
+    Resize { cols: u16, rows: u16 },
+    Close,
+}
+
+fn parse_terminal_control_message(text: &str) -> Result<TerminalClientMessage, &'static str> {
+    if text.len() > MAX_TERMINAL_CONTROL_BYTES {
+        return Err("Terminal control message is too large.");
+    }
+    match serde_json::from_str::<TerminalClientControl>(text) {
+        Ok(TerminalClientControl::Resize { cols, rows }) if cols > 0 && rows > 0 => {
+            Ok(TerminalClientMessage::Resize(TerminalSize { cols, rows }))
+        }
+        Ok(TerminalClientControl::Resize { .. }) => {
+            Err("Terminal resize dimensions must be greater than zero.")
+        }
+        Ok(TerminalClientControl::Close) => Ok(TerminalClientMessage::Close),
+        Err(_) => Err("Invalid terminal control message."),
+    }
+}
+
+fn terminal_server_text(message_type: &str, message: Option<&str>) -> WsMessage {
+    let payload = match message {
+        Some(message) => serde_json::json!({ "type": message_type, "message": message }),
+        None => serde_json::json!({ "type": message_type }),
+    };
+    WsMessage::Text(payload.to_string().into())
+}
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "The Origin header URL is parsed only for same-origin validation and is never logged."
+)]
+fn origin_allowed(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) else {
+        return true;
+    };
+    let Some(host) = headers.get("host").and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    let Ok(origin_url) = url::Url::parse(origin) else {
+        return false;
+    };
+    let Some(origin_host) = origin_url.host_str() else {
+        return false;
+    };
+    let origin_authority = match origin_url.port_or_known_default() {
+        Some(port) => format!("{origin_host}:{port}"),
+        None => origin_host.to_string(),
+    };
+    origin_authority.eq_ignore_ascii_case(host)
+}
+
+async fn run_terminal(
+    _auth: RequiredUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let id = match parse_run_id_path(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if !origin_allowed(&headers) {
+        return ApiError::new(StatusCode::FORBIDDEN, "WebSocket origin is not allowed.")
+            .into_response();
+    }
+    ws.on_upgrade(move |socket| terminal_websocket(socket, state, id))
+}
+
+async fn terminal_websocket(mut socket: WebSocket, state: Arc<AppState>, id: RunId) {
+    let record = match load_run_sandbox_record(&state, &id).await {
+        Ok(record) => record,
+        Err(response) => {
+            let message = terminal_error_from_status(response.status());
+            let _ = socket
+                .send(terminal_server_text("error", Some(&message)))
+                .await;
+            return;
+        }
+    };
+    let daytona_api_key = state.vault_or_env(EnvVars::DAYTONA_API_KEY);
+    let daytona_organization_id = state.vault_or_env(EnvVars::DAYTONA_ORGANIZATION_ID);
+    let session = match open_terminal_for_run(
+        &record,
+        daytona_api_key,
+        daytona_organization_id,
+        Some(id),
+        TerminalSize::default(),
+    )
+    .await
+    {
+        Ok(session) => session,
+        Err(err) => {
+            let _ = socket
+                .send(terminal_server_text(
+                    "error",
+                    Some(&err.display_with_causes()),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    if socket
+        .send(terminal_server_text("ready", None))
+        .await
+        .is_err()
+    {
+        let _ = session.close().await;
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            message = socket.recv() => {
+                let Some(message) = message else {
+                    break;
+                };
+                match message {
+                    Ok(WsMessage::Binary(bytes)) => {
+                        if let Err(err) = session.write_input(&bytes).await {
+                            let _ = socket
+                                .send(terminal_server_text("error", Some(&err.display_with_causes())))
+                                .await;
+                            break;
+                        }
+                    }
+                    Ok(WsMessage::Text(text)) => {
+                        match parse_terminal_control_message(text.as_str()) {
+                            Ok(TerminalClientMessage::Resize(size)) => {
+                                if let Err(err) = session.resize(size).await {
+                                    let _ = socket
+                                        .send(terminal_server_text("error", Some(&err.display_with_causes())))
+                                        .await;
+                                    break;
+                                }
+                            }
+                            Ok(TerminalClientMessage::Close) => {
+                                let _ = socket.send(terminal_server_text("closed", None)).await;
+                                break;
+                            }
+                            Err(message) => {
+                                let _ = socket.send(terminal_server_text("error", Some(message))).await;
+                            }
+                        }
+                    }
+                    Ok(WsMessage::Close(_)) => break,
+                    Ok(WsMessage::Ping(_) | WsMessage::Pong(_)) => {}
+                    Err(err) => {
+                        tracing::debug!(error = %err, run_id = %id, "run terminal websocket closed with error");
+                        break;
+                    }
+                }
+            }
+            output = session.read_output() => {
+                match output {
+                    Ok(Some(bytes)) => {
+                        if socket.send(WsMessage::Binary(bytes.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = socket.send(terminal_server_text("closed", None)).await;
+                        break;
+                    }
+                    Err(err) => {
+                        let _ = socket
+                            .send(terminal_server_text("error", Some(&err.display_with_causes())))
+                            .await;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if let Err(err) = session.close().await {
+        tracing::warn!(error = %err.display_with_causes(), run_id = %id, "failed to close run terminal session");
+    }
+}
+
+fn terminal_error_from_status(status: StatusCode) -> String {
+    status
+        .canonical_reason()
+        .unwrap_or("Terminal unavailable")
+        .to_string()
 }
 
 async fn generate_preview_url(
@@ -282,5 +486,54 @@ async fn load_run_sandbox_record(
             ),
         },
         Err(_) => Err(ApiError::not_found("Run not found.").into_response()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue};
+
+    use super::*;
+
+    #[test]
+    fn terminal_control_accepts_resize_and_close() {
+        assert_eq!(
+            parse_terminal_control_message(r#"{"type":"resize","cols":120,"rows":32}"#),
+            Ok(TerminalClientMessage::Resize(TerminalSize {
+                cols: 120,
+                rows: 32,
+            }))
+        );
+        assert_eq!(
+            parse_terminal_control_message(r#"{"type":"close"}"#),
+            Ok(TerminalClientMessage::Close)
+        );
+    }
+
+    #[test]
+    fn terminal_control_rejects_malformed_oversized_and_zero_resize() {
+        assert!(parse_terminal_control_message("{").is_err());
+        assert!(parse_terminal_control_message(r#"{"type":"resize","cols":0,"rows":32}"#).is_err());
+        assert!(
+            parse_terminal_control_message(&"x".repeat(MAX_TERMINAL_CONTROL_BYTES + 1)).is_err()
+        );
+    }
+
+    #[test]
+    fn origin_validation_allows_absent_and_same_origin() {
+        assert!(origin_allowed(&HeaderMap::new()));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("127.0.0.1:4187"));
+        headers.insert("origin", HeaderValue::from_static("http://127.0.0.1:4187"));
+        assert!(origin_allowed(&headers));
+    }
+
+    #[test]
+    fn origin_validation_rejects_cross_origin_browser_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("127.0.0.1:4187"));
+        headers.insert("origin", HeaderValue::from_static("https://evil.example"));
+        assert!(!origin_allowed(&headers));
     }
 }

@@ -174,6 +174,14 @@ impl DockerSandbox {
         })
     }
 
+    pub(crate) fn container_identifier(&self) -> crate::Result<&str> {
+        self.container_id()
+    }
+
+    pub(crate) fn docker_client(&self) -> Docker {
+        self.docker.clone()
+    }
+
     fn resolve_container_path(path: &str) -> String {
         resolve_path(path, WORKING_DIRECTORY)
     }

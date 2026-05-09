@@ -12,6 +12,7 @@ import { ToastProvider } from "../components/toast";
 import { DemoModeProvider } from "../lib/demo-mode";
 
 let currentRunSummary: any = null;
+let currentRunState: any = null;
 let currentQuestions: any[] = [];
 const mountedRenderers: TestRenderer.ReactTestRenderer[] = [];
 
@@ -22,6 +23,9 @@ mock.module("../lib/queries", () => ({
   }),
   useRunQuestions: () => ({
     data: currentQuestions,
+  }),
+  useRunState: () => ({
+    data: currentRunState,
   }),
   useRunFiles: () => ({
     data:         null,
@@ -335,6 +339,7 @@ describe("RunDetail full-height child routes", () => {
       }
     });
     currentRunSummary = null;
+    currentRunState = null;
     currentQuestions = [];
     delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
@@ -371,6 +376,21 @@ describe("RunDetail full-height child routes", () => {
 
     const badges = tabCountBadges(renderer);
     expect(badges.map((badge) => badge.children.join(""))).toContain("7");
+  });
+
+  test("shows the Terminal tab when the run has a sandbox", async () => {
+    currentRunState = { sandbox: { provider: "docker", id: "container-1" } };
+    const renderer = await renderRunDetail({
+      initialEntry: "/runs/run_1",
+    });
+
+    const terminalLinks = renderer.root.findAll(
+      (node) =>
+        node.type === "a" &&
+        node.props.href === "/runs/run_1/terminal" &&
+        node.children.includes("Terminal"),
+    );
+    expect(terminalLinks).toHaveLength(1);
   });
 
   test("defers steer bar focus until after the Actions menu item click settles", async () => {

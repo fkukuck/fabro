@@ -44,7 +44,7 @@ import { formatAbsoluteTs, formatRelativeTime } from "../lib/format";
 import { queryKeys } from "../lib/query-keys";
 import { useRunEvents } from "../lib/run-events";
 import { useRunToasts } from "../hooks/use-run-toasts";
-import { useRun, useRunQuestions } from "../lib/queries";
+import { useRun, useRunQuestions, useRunState } from "../lib/queries";
 import {
   canArchive,
   canCancel,
@@ -61,6 +61,7 @@ import {
 const allTabs = [
   { name: "Overview", path: "", count: null, demoOnly: false },
   { name: "Stages", path: "/stages", count: null, demoOnly: false },
+  { name: "Terminal", path: "/terminal", count: null, demoOnly: false, requiresSandbox: true },
   { name: "Files Changed", path: "/files", count: null, demoOnly: false },
   { name: "Billing", path: "/billing", count: null, demoOnly: false },
 ];
@@ -135,6 +136,15 @@ export function lifecycleActionVisibility(status: string | null | undefined) {
   };
 }
 
+function runHasSandbox(runState: unknown): boolean {
+  return !!(
+    runState &&
+    typeof runState === "object" &&
+    "sandbox" in runState &&
+    (runState as { sandbox?: unknown }).sandbox
+  );
+}
+
 function buildRunDetailRun(summary: RunSummary): RunDetailRun {
   const item = mapRunSummaryToRunItem(summary);
   const rawStatus = summary.status;
@@ -159,6 +169,7 @@ export function meta({ data }: any) {
 export default function RunDetail({ params }: { params: { id: string } }) {
   const demoMode = useDemoMode();
   const runQuery = useRun(params.id);
+  const runStateQuery = useRunState(params.id);
   const run = runQuery.data ? buildRunDetailRun(runQuery.data) : null;
   const statusKind = runQuery.data?.status?.kind;
   const isBlocked = statusKind === "blocked";
@@ -178,11 +189,12 @@ export default function RunDetail({ params }: { params: { id: string } }) {
   const [deletePending, setDeletePending] = useState(false);
   const { push, dismiss } = useToast();
   const filesCount = runQuery.data?.diff_summary?.files_changed ?? null;
+  const hasSandbox = runHasSandbox(runStateQuery.data);
   const tabs = allTabs
     .map((tab) =>
       tab.name === "Files Changed" ? { ...tab, count: filesCount } : tab,
     )
-    .filter((t) => !t.demoOnly || demoMode);
+    .filter((t) => (!t.demoOnly || demoMode) && (!t.requiresSandbox || hasSandbox));
   const lifecycleToastStateRef = useRef<LifecycleToastState>(INITIAL_LIFECYCLE_TOAST_STATE);
   const steerBarRef = useRef<SteerBarHandle | null>(null);
   const now = useTickingNow(30_000);
@@ -345,7 +357,7 @@ export default function RunDetail({ params }: { params: { id: string } }) {
           onFocusSteer={() => {
             focusSteerAfterMenuClose(() => steerBarRef.current?.focus());
           }}
-          canPreview={!!run.sandboxId}
+          canPreview={hasSandbox}
           previewPending={previewPending}
           onPreview={() => void previewMutation.trigger({
             port: 3000,
