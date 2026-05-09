@@ -164,7 +164,7 @@ export function FileTreeSidebar({
     <aside
       aria-label="Changed files"
       style={themeStyles}
-      className="flex min-h-0 w-72 shrink-0 flex-col self-stretch"
+      className="-ml-0.5 flex min-h-0 w-72 shrink-0 flex-col self-stretch"
     >
       {paths.length > 0 ? (
         <FileTree model={model} className="min-h-0 flex-1 overflow-hidden" />
