@@ -3224,6 +3224,34 @@ async fn append_raw_run_event(
     run_store.append_event(&payload).await.unwrap();
 }
 
+async fn create_unreadable_durable_run(state: &Arc<AppState>, run_id: RunId) {
+    let run_store = state.store.create_run(&run_id).await.unwrap();
+    let payload = fabro_store::EventPayload::new(
+        json!({
+            "id": "evt-unreadable-run-completed",
+            "ts": "2026-05-05T20:46:33Z",
+            "run_id": run_id,
+            "event": "run.completed",
+            "properties": {
+                "duration_ms": 1,
+                "artifact_count": 0,
+                "status": "legacy-status",
+                "reason": "completed",
+            },
+        }),
+        &run_id,
+    )
+    .unwrap();
+    let err = run_store
+        .append_event(&payload)
+        .await
+        .expect_err("invalid projection event should be persisted but rejected by projection");
+    assert!(
+        err.to_string().contains("invalid completed stage status"),
+        "unexpected projection error: {err}"
+    );
+}
+
 fn github_token_settings() -> ServerSettings {
     ServerSettingsBuilder::from_toml(
         r#"
@@ -7433,6 +7461,65 @@ async fn delete_run_removes_durable_run() {
         .unwrap();
     let response = app.oneshot(req).await.unwrap();
     assert_status!(response, StatusCode::NOT_FOUND).await;
+}
+
+#[tokio::test]
+async fn delete_run_force_removes_unreadable_durable_run() {
+    let state = test_app_state();
+    let app = crate::test_support::build_test_router(Arc::clone(&state));
+    let run_id = RunId::new();
+    create_unreadable_durable_run(&state, run_id).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(api("/system/repair/runs"))
+        .body(Body::empty())
+        .unwrap();
+    let body = response_json!(app.clone().oneshot(req).await.unwrap(), StatusCode::OK).await;
+    assert_eq!(body["total_count"], 1);
+    assert_eq!(body["runs"][0]["run_id"], run_id.to_string());
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(api(&format!("/runs/{run_id}?force=true")))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_status!(response, StatusCode::NO_CONTENT).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(api("/system/repair/runs"))
+        .body(Body::empty())
+        .unwrap();
+    let body = response_json!(app.oneshot(req).await.unwrap(), StatusCode::OK).await;
+    assert_eq!(body["total_count"], 0);
+    assert!(body["runs"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn delete_run_without_force_keeps_unreadable_durable_run() {
+    let state = test_app_state();
+    let app = crate::test_support::build_test_router(Arc::clone(&state));
+    let run_id = RunId::new();
+    create_unreadable_durable_run(&state, run_id).await;
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(api(&format!("/runs/{run_id}")))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    response_json!(response, StatusCode::INTERNAL_SERVER_ERROR).await;
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(api("/system/repair/runs"))
+        .body(Body::empty())
+        .unwrap();
+    let body = response_json!(app.oneshot(req).await.unwrap(), StatusCode::OK).await;
+    assert_eq!(body["total_count"], 1);
+    assert_eq!(body["runs"][0]["run_id"], run_id.to_string());
 }
 
 #[tokio::test]

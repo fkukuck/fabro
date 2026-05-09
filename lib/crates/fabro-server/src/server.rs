@@ -1664,9 +1664,22 @@ async fn delete_run_sandbox_resource(
     let Ok(run_store) = state.store.open_run(&id).await else {
         return Ok(DeleteRunOutcome::NoContent);
     };
-    let projection = run_store.state().await.map_err(|err| {
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
-    })?;
+    let projection = match run_store.state().await {
+        Ok(projection) => projection,
+        Err(err) if force => {
+            tracing::warn!(
+                run_id = %id,
+                error = %render_with_causes(&err.to_string(), &collect_causes(&err)),
+                "Skipping sandbox provider delete because run projection cannot be loaded"
+            );
+            return Ok(DeleteRunOutcome::NoContent);
+        }
+        Err(err) => {
+            return Err(
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+            );
+        }
+    };
     let delete_started = matches!(projection.status, Some(RunStatus::Removing));
     let can_mark_removing = projection
         .status

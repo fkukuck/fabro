@@ -805,6 +805,14 @@ pub(crate) enum SystemRepairCommand {
 pub(crate) struct SystemRepairRunsArgs {
     #[command(flatten)]
     pub(crate) connection: ServerConnectionArgs,
+
+    /// Preview deleting unreadable runs
+    #[arg(long)]
+    pub(crate) delete: bool,
+
+    /// Actually delete unreadable runs (default is dry-run)
+    #[arg(long)]
+    pub(crate) yes: bool,
 }
 
 #[derive(Args)]
