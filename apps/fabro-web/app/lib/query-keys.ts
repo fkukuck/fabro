@@ -1,5 +1,8 @@
 export type RunGraphDirection = "LR" | "TB" | "BT" | "RL";
+export type RunFileScope = "committed" | "uncommitted" | "all";
 export type QueryKey = readonly unknown[];
+
+export const RUN_FILE_SCOPES = ["committed", "uncommitted", "all"] as const;
 
 function pathSegment(value: string): string {
   return encodeURIComponent(value);
@@ -24,7 +27,10 @@ export const queryKeys = {
   runs: {
     detail: (id: string) => ["runs", "detail", id] as const,
     state: (id: string) => ["runs", "state", id] as const,
-    files: (id: string) => ["runs", "files", id] as const,
+    files: (id: string, scope: RunFileScope = "committed") =>
+      ["runs", "files", id, scope] as const,
+    filesAllScopes: (id: string) =>
+      RUN_FILE_SCOPES.map((scope) => ["runs", "files", id, scope] as const),
     stages: (id: string) => ["runs", "stages", id] as const,
     graph: (id: string, direction?: RunGraphDirection) =>
       ["runs", "graph", id, direction ?? null] as const,

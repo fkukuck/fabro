@@ -6,6 +6,7 @@ import { ToastProvider } from "../components/toast";
 
 let currentFilesPayload: any = null;
 let currentRunStatus = "succeeded";
+const useRunFilesCalls: any[] = [];
 
 const multiFileDiffCalls: any[] = [];
 const patchDiffCalls: any[] = [];
@@ -46,13 +47,16 @@ mock.module("../lib/queries", () => ({
       source_directory: null,
     },
   }),
-  useRunFiles: () => ({
+  useRunFiles: (id: string | undefined, scope: string | undefined) => {
+    useRunFilesCalls.push({ id, scope });
+    return {
     data:         currentFilesPayload,
     error:        null,
     isLoading:    false,
     isValidating: false,
     mutate:       mock(() => Promise.resolve(currentFilesPayload)),
-  }),
+    };
+  },
   useRunQuestions: () => ({ data: [] }),
 }));
 
@@ -69,9 +73,10 @@ function makeFiles(count: number) {
   });
 }
 
-function makePayload(count: number) {
+function makePayload(count: number, source = "sandbox") {
   return {
     data: makeFiles(count),
+    source,
     meta: {
       degraded:            false,
       degraded_reason:     null,
@@ -84,13 +89,13 @@ function makePayload(count: number) {
   };
 }
 
-function renderRunFiles() {
+function renderRunFiles(initialEntry = "/runs/run_1/files") {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let renderer: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
     renderer = TestRenderer.create(
       <ToastProvider>
-        <MemoryRouter initialEntries={["/runs/run_1/files"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <Routes>
             <Route path="/runs/:id/files" element={<RunFiles />} />
           </Routes>
@@ -115,6 +120,7 @@ describe("RunFiles rendering", () => {
     patchDiffCalls.length = 0;
     virtualizerCalls.length = 0;
     providerCalls.length = 0;
+    useRunFilesCalls.length = 0;
     delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
 
@@ -126,6 +132,31 @@ describe("RunFiles rendering", () => {
     expect(virtualizerCalls).toHaveLength(1);
     expect(renderer.root.findAllByProps({ "data-run-file-row": "true" })).toHaveLength(1);
     expect(multiFileDiffCalls[0].options.diffStyle).toBe("split");
+  });
+
+  test("passes the selected URL scope to useRunFiles", () => {
+    currentFilesPayload = makePayload(1);
+
+    renderRunFiles("/runs/run_1/files?scope=all#file=src/file-0.ts");
+
+    expect(useRunFilesCalls[0]).toEqual({ id: "run_1", scope: "all" });
+  });
+
+  test("shows the scope picker only for sandbox responses", () => {
+    currentFilesPayload = makePayload(1, "sandbox");
+    const sandboxRenderer = renderRunFiles();
+    expect(
+      sandboxRenderer.root.findAllByProps({ "aria-label": "Diff scope" }),
+    ).toHaveLength(1);
+
+    act(() => sandboxRenderer.unmount());
+    mountedRenderers.pop();
+    currentFilesPayload = makePayload(1, "final_patch");
+    const fallbackRenderer = renderRunFiles("/runs/run_1/files?scope=all");
+
+    expect(
+      fallbackRenderer.root.findAllByProps({ "aria-label": "Diff scope" }),
+    ).toHaveLength(0);
   });
 
   test("renders a 27-file payload through one Pierre Virtualizer", () => {

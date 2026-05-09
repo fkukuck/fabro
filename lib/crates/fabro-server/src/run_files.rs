@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
+use std::path::Component;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -27,10 +28,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use fabro_agent::Sandbox;
 use fabro_api::types::{
-    DiffFile, DiffStats, FileDiff, FileDiffChangeKind, FileDiffTruncationReason,
-    PaginatedRunFileList, RunFilesMeta, RunFilesMetaDegradedReason, RunFilesMetaToSha,
+    DiffFile, DiffStats, FileDiff, FileDiffChangeKind, FileDiffTruncationReason, ListRunFilesScope,
+    PaginatedRunFileList, PaginatedRunFileListSource, RunFilesMeta, RunFilesMetaDegradedReason,
+    RunFilesMetaToSha,
 };
 use fabro_sandbox::reconnect::reconnect_for_run;
+use fabro_sandbox::shell_quote;
 use fabro_static::EnvVars;
 use fabro_types::RunId;
 use fabro_workflow::sandbox_git::{
@@ -87,6 +90,14 @@ pub struct ListRunFilesParams {
     pub from_sha: Option<String>,
     #[serde(default)]
     pub to_sha:   Option<String>,
+    #[serde(default)]
+    pub scope:    Option<ListRunFilesScope>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+pub(crate) struct RunFilesMaterializationKey {
+    run_id: RunId,
+    scope:  ListRunFilesScope,
 }
 
 /// Shared outcome of a single materialization. Wrapped in [`Arc`] so every
@@ -97,7 +108,8 @@ type Shared = Arc<ListRunFilesResult>;
 
 /// Registry type held on `AppState`. Maps each `RunId` to the watch channel
 /// that downstream callers subscribe to while a materialization is in flight.
-pub type FilesInFlight = Arc<Mutex<HashMap<RunId, watch::Receiver<Option<Shared>>>>>;
+pub type FilesInFlight =
+    Arc<Mutex<HashMap<RunFilesMaterializationKey, watch::Receiver<Option<Shared>>>>>;
 
 /// Construct a fresh, empty `FilesInFlight` registry.
 pub fn new_files_in_flight() -> FilesInFlight {
@@ -116,22 +128,26 @@ pub fn new_files_in_flight() -> FilesInFlight {
 pub async fn coalesced_list_run_files<F, Fut>(
     inflight: &FilesInFlight,
     run_id: &RunId,
+    scope: ListRunFilesScope,
     materialize: F,
 ) -> Shared
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ListRunFilesResult> + Send + 'static,
 {
+    let key = RunFilesMaterializationKey {
+        run_id: *run_id,
+        scope,
+    };
     let mut rx = {
         let mut guard = inflight.lock().await;
-        if let Some(existing) = guard.get(run_id) {
+        if let Some(existing) = guard.get(&key) {
             existing.clone()
         } else {
             let (tx, rx) = watch::channel::<Option<Shared>>(None);
-            guard.insert(*run_id, rx.clone());
+            guard.insert(key, rx.clone());
 
             let inflight = Arc::clone(inflight);
-            let run_id_cloned = *run_id;
             tokio::spawn(async move {
                 let result = AssertUnwindSafe(async move { materialize().await })
                     .catch_unwind()
@@ -146,7 +162,7 @@ where
                 // Send before unregistering so a new receiver subscribed via
                 // `rx.clone()` still sees the cached value via `borrow()`.
                 let _ = tx.send(Some(shared));
-                inflight.lock().await.remove(&run_id_cloned);
+                inflight.lock().await.remove(&key);
             });
             rx
         }
@@ -202,11 +218,12 @@ pub async fn list_run_files(
     }
 
     // 3. Coalesce the materialization.
+    let scope = params.scope.unwrap_or_default();
     let state_cloned = Arc::clone(&state);
     let id_cloned = id;
     let result: Shared =
-        coalesced_list_run_files(&state.files_in_flight, &id, move || async move {
-            materialize_sandbox_path(&state_cloned, &id_cloned).await
+        coalesced_list_run_files(&state.files_in_flight, &id, scope, move || async move {
+            materialize_sandbox_path(&state_cloned, &id_cloned, scope).await
         })
         .await;
 
@@ -246,19 +263,23 @@ fn validate_one_sha(value: Option<&str>, param_name: &str) -> std::result::Resul
 /// sandbox path; falls through to a `final_patch`-based degraded response
 /// when the base objects are gone; falls through to an empty envelope when
 /// neither is available.
-async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> ListRunFilesResult {
+async fn materialize_sandbox_path(
+    state: &Arc<AppState>,
+    run_id: &RunId,
+    scope: ListRunFilesScope,
+) -> ListRunFilesResult {
     let start = Instant::now();
 
     let projection = load_projection(state, run_id).await?;
 
     let Some(base_sha) = projection.start.as_ref().and_then(|s| s.base_sha.clone()) else {
         // Run hasn't started yet — no base_sha, no diff to compute.
-        return Ok(empty_envelope());
+        return Ok(empty_envelope(PaginatedRunFileListSource::FinalPatch));
     };
 
     let sandbox = match reconnect_run_sandbox(state, run_id, &projection).await {
         Ok(sandbox) => sandbox,
-        Err(err) if err.status() == StatusCode::CONFLICT => {
+        Err(err) if sandbox_read_error_should_fallback(&err) => {
             return Ok(build_fallback_response(
                 &projection,
                 RunFilesMetaDegradedReason::SandboxGone,
@@ -269,15 +290,60 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
         Err(err) => return Err(err),
     };
 
+    let materialized = match scope {
+        ListRunFilesScope::Committed => {
+            materialize_committed_sandbox_path(
+                sandbox.as_ref(),
+                &projection,
+                &base_sha,
+                run_id,
+                start,
+            )
+            .await
+        }
+        ListRunFilesScope::Uncommitted => {
+            materialize_working_tree_sandbox_path(sandbox.as_ref(), "HEAD", run_id, start).await
+        }
+        ListRunFilesScope::All => {
+            materialize_working_tree_sandbox_path(sandbox.as_ref(), &base_sha, run_id, start).await
+        }
+    };
+
+    match materialized {
+        Ok(body) => Ok(body),
+        Err(err) if sandbox_read_error_should_fallback(&err) => Ok(build_fallback_response(
+            &projection,
+            RunFilesMetaDegradedReason::SandboxGone,
+            run_id,
+            start,
+        )),
+        Err(err) => Err(err),
+    }
+}
+
+fn sandbox_read_error_should_fallback(err: &ApiError) -> bool {
+    matches!(
+        err.status(),
+        StatusCode::CONFLICT | StatusCode::SERVICE_UNAVAILABLE
+    )
+}
+
+async fn materialize_committed_sandbox_path(
+    sandbox: &dyn Sandbox,
+    projection: &fabro_store::RunProjection,
+    base_sha: &str,
+    run_id: &RunId,
+    start: Instant,
+) -> ListRunFilesResult {
     // Resolve HEAD (sha + commit time) in one round-trip.
-    let (to_sha, to_sha_committed_at) = resolve_head_sha_and_time(sandbox.as_ref()).await?;
+    let (to_sha, to_sha_committed_at) = resolve_head_sha_and_time(sandbox).await?;
 
     // Enumerate changes and classify binary vs text in parallel — both
     // traversals are mutually independent once `to_sha` is known, and
     // running them sequentially would add ~100 ms per request on Daytona.
     let (raw_res, numstat_res) = tokio::join!(
-        list_changed_files_raw(sandbox.as_ref(), &base_sha, &to_sha),
-        list_diff_numstat(sandbox.as_ref(), &base_sha, &to_sha),
+        list_changed_files_raw(sandbox, base_sha, &to_sha),
+        list_diff_numstat(sandbox, base_sha, &to_sha),
     );
 
     // Permanent errors (bad_sha, missing object) fall through to the
@@ -286,7 +352,7 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
         Ok(v) => v,
         Err(DiffError::Permanent { .. }) => {
             return Ok(build_fallback_response(
-                &projection,
+                projection,
                 RunFilesMetaDegradedReason::SandboxGone,
                 run_id,
                 start,
@@ -324,7 +390,7 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
     // cat-file invocations.
     let fetch_shas = collect_blob_shas(&classified);
     let blob_table: HashMap<String, Option<String>> =
-        fetch_blob_table(sandbox.as_ref(), &fetch_shas).await?;
+        fetch_blob_table(sandbox, &fetch_shas).await?;
 
     // Assemble the response in original classification order.
     let mut aggregate_bytes: u64 = 0;
@@ -364,8 +430,9 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
     .emit(run_id);
 
     Ok(PaginatedRunFileList {
-        data: response_data,
-        meta: RunFilesMeta {
+        data:   response_data,
+        source: PaginatedRunFileListSource::Sandbox,
+        meta:   RunFilesMeta {
             truncated,
             files_omitted_by_budget: (files_omitted_by_budget > 0)
                 .then(|| i64::try_from(files_omitted_by_budget).unwrap_or(i64::MAX)),
@@ -379,6 +446,219 @@ async fn materialize_sandbox_path(state: &Arc<AppState>, run_id: &RunId) -> List
     })
 }
 
+async fn materialize_working_tree_sandbox_path(
+    sandbox: &dyn Sandbox,
+    base_ref: &str,
+    run_id: &RunId,
+    start: Instant,
+) -> ListRunFilesResult {
+    let (to_sha, to_sha_committed_at) = resolve_head_sha_and_time(sandbox).await?;
+    let base_q = shell_quote(base_ref);
+    let patch = sandbox_git_stdout(
+        sandbox,
+        &format!(
+            "git -c maintenance.auto=0 -c gc.auto=0 -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=false diff --patch --find-renames=50% {base_q}"
+        ),
+        "git diff --patch",
+    )
+    .await?;
+
+    let mut entries: Vec<PatchBackedEntry> = split_patch_sections(&patch)
+        .into_iter()
+        .map(|section| PatchBackedEntry::Section(section.text.to_string()))
+        .collect();
+    entries.extend(untracked_patch_entries(sandbox).await?);
+
+    Ok(build_patch_backed_response(
+        &entries,
+        PatchBackedResponseMeta {
+            source: PaginatedRunFileListSource::Sandbox,
+            degraded: false,
+            degraded_reason: None,
+            to_sha: Some(to_sha_wrapper(&to_sha)),
+            to_sha_committed_at,
+        },
+        run_id,
+        start,
+    ))
+}
+
+async fn sandbox_git_stdout(
+    sandbox: &dyn Sandbox,
+    command: &str,
+    op: &str,
+) -> std::result::Result<String, ApiError> {
+    let res = sandbox
+        .exec_command(command, SANDBOX_GIT_TIMEOUT_MS, None, None, None)
+        .await
+        .map_err(|err| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.display_with_causes()))?;
+    if res.is_timed_out() {
+        return Err(transient_503(op, "command timed out"));
+    }
+    if !res.is_success() {
+        return Err(transient_503(op, res.stderr.trim()));
+    }
+    Ok(res.stdout)
+}
+
+async fn sandbox_command_success(
+    sandbox: &dyn Sandbox,
+    command: &str,
+    op: &str,
+) -> std::result::Result<bool, ApiError> {
+    let res = sandbox
+        .exec_command(command, SANDBOX_GIT_TIMEOUT_MS, None, None, None)
+        .await
+        .map_err(|err| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.display_with_causes()))?;
+    if res.is_timed_out() {
+        return Err(transient_503(op, "command timed out"));
+    }
+    Ok(res.is_success())
+}
+
+async fn untracked_patch_entries(
+    sandbox: &dyn Sandbox,
+) -> std::result::Result<Vec<PatchBackedEntry>, ApiError> {
+    let stdout = sandbox_git_stdout(
+        sandbox,
+        "git -c maintenance.auto=0 -c gc.auto=0 -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=false ls-files --others --exclude-standard -z",
+        "git ls-files --others",
+    )
+    .await?;
+    let paths: Vec<String> = stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .filter(|path| is_safe_repo_relative_path(path))
+        .map(str::to_string)
+        .collect();
+
+    let mut entries = Vec::new();
+    for path in &paths {
+        entries.push(untracked_path_entry(sandbox, path).await?);
+    }
+    Ok(entries)
+}
+
+async fn untracked_path_entry(
+    sandbox: &dyn Sandbox,
+    path: &str,
+) -> std::result::Result<PatchBackedEntry, ApiError> {
+    if is_sensitive(path) {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  patch_placeholder_file_diff(path, PlaceholderKind::Sensitive),
+            stats: DiffStats::default(),
+        });
+    }
+
+    let path_q = shell_quote(path);
+    if sandbox_command_success(sandbox, &format!("test -L {path_q}"), "test symlink").await? {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  patch_placeholder_file_diff(path, PlaceholderKind::Symlink),
+            stats: DiffStats::default(),
+        });
+    }
+
+    let Ok(bytes) = sandbox_git_stdout(
+        sandbox,
+        &format!("wc -c < {path_q}"),
+        "wc -c untracked file",
+    )
+    .await
+    .and_then(|stdout| {
+        stdout.trim().parse::<u64>().map_err(|_| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Failed to parse untracked file size.",
+            )
+        })
+    }) else {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  unreadable_untracked_placeholder(path),
+            stats: DiffStats::default(),
+        });
+    };
+    if bytes > PER_FILE_BYTES_CAP {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  truncated_untracked_placeholder(path),
+            stats: DiffStats::default(),
+        });
+    }
+
+    let Ok(contents) = sandbox.read_file(path, None, None).await else {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  unreadable_untracked_placeholder(path),
+            stats: DiffStats::default(),
+        });
+    };
+    if contents.contains('\0') {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  patch_placeholder_file_diff(path, PlaceholderKind::Binary),
+            stats: DiffStats::default(),
+        });
+    }
+    if contents.lines().count() > PER_FILE_LINES_CAP {
+        return Ok(PatchBackedEntry::Prebuilt {
+            diff:  truncated_untracked_placeholder(path),
+            stats: DiffStats::default(),
+        });
+    }
+
+    Ok(PatchBackedEntry::Section(added_file_patch_section(
+        path, &contents,
+    )))
+}
+
+fn is_safe_repo_relative_path(path: &str) -> bool {
+    if path.is_empty() || path.chars().any(char::is_control) {
+        return false;
+    }
+    std::path::Path::new(path)
+        .components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
+
+fn added_file_patch_section(path: &str, contents: &str) -> String {
+    let line_count = contents.lines().count();
+    let mut patch = format!(
+        "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{line_count} @@\n"
+    );
+    for line in contents.split_inclusive('\n') {
+        patch.push('+');
+        patch.push_str(line);
+    }
+    if !patch.ends_with('\n') {
+        patch.push('\n');
+    }
+    patch
+}
+
+fn patch_placeholder_file_diff(path: &str, kind: PlaceholderKind) -> FileDiff {
+    let mut diff = match kind {
+        PlaceholderKind::Symlink => {
+            degraded_file_diff(String::new(), path.to_string(), FileDiffChangeKind::Symlink)
+        }
+        _ => degraded_file_diff(String::new(), path.to_string(), FileDiffChangeKind::Added),
+    };
+    match kind {
+        PlaceholderKind::Sensitive => diff.sensitive = Some(true),
+        PlaceholderKind::Binary => diff.binary = Some(true),
+        PlaceholderKind::Symlink => {}
+        PlaceholderKind::Submodule => diff.change_kind = Some(FileDiffChangeKind::Submodule),
+    }
+    diff
+}
+
+fn truncated_untracked_placeholder(path: &str) -> FileDiff {
+    let mut diff = degraded_file_diff(String::new(), path.to_string(), FileDiffChangeKind::Added);
+    diff.truncated = Some(true);
+    diff.truncation_reason = Some(FileDiffTruncationReason::FileTooLarge);
+    diff
+}
+
+fn unreadable_untracked_placeholder(path: &str) -> FileDiff {
+    truncated_untracked_placeholder(path)
+}
+
 /// Build the degraded response from the stored `final_patch`.
 /// When `final_patch` is `None`, returns the empty envelope (UI maps this to
 /// R4(c)). Keeps the same `FileDiff[]` shape as live responses, but leaves
@@ -390,19 +670,74 @@ fn build_fallback_response(
     start: Instant,
 ) -> PaginatedRunFileList {
     let Some(patch) = projection.final_patch.as_deref() else {
-        return empty_envelope();
+        return empty_envelope(PaginatedRunFileListSource::FinalPatch);
     };
 
-    let sections = split_patch_sections(patch);
-    let original_section_count = sections.len();
-    let stats = sections
-        .iter()
-        .fold(DiffStats::default(), |mut acc, section| {
-            let stats = section_to_stats(section, is_sensitive);
-            acc.additions = acc.additions.saturating_add(stats.additions);
-            acc.deletions = acc.deletions.saturating_add(stats.deletions);
-            acc
-        });
+    let entries: Vec<PatchBackedEntry> = split_patch_sections(patch)
+        .into_iter()
+        .map(|section| PatchBackedEntry::Section(section.text.to_string()))
+        .collect();
+
+    let to_sha = projection
+        .conclusion
+        .as_ref()
+        .and_then(|c| c.final_git_commit_sha.clone())
+        .map(|s| to_sha_wrapper(&s));
+
+    // The patch was captured when the run ended; no live sandbox to query
+    // for strict commit time, so the conclusion timestamp is the closest
+    // proxy. The client renders this as "Captured Xm ago".
+    let to_sha_committed_at = projection.conclusion.as_ref().map(|c| c.timestamp);
+
+    build_patch_backed_response(
+        &entries,
+        PatchBackedResponseMeta {
+            source: PaginatedRunFileListSource::FinalPatch,
+            degraded: true,
+            degraded_reason: Some(reason),
+            to_sha,
+            to_sha_committed_at,
+        },
+        run_id,
+        start,
+    )
+}
+
+enum PatchBackedEntry {
+    Section(String),
+    Prebuilt { diff: FileDiff, stats: DiffStats },
+}
+
+struct PatchBackedResponseMeta {
+    source:              PaginatedRunFileListSource,
+    degraded:            bool,
+    degraded_reason:     Option<RunFilesMetaDegradedReason>,
+    to_sha:              Option<RunFilesMetaToSha>,
+    to_sha_committed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn build_patch_backed_response(
+    entries: &[PatchBackedEntry],
+    meta_input: PatchBackedResponseMeta,
+    run_id: &RunId,
+    start: Instant,
+) -> PaginatedRunFileList {
+    let original_section_count = entries.len();
+    let stats = entries.iter().fold(DiffStats::default(), |mut acc, entry| {
+        let stats = match entry {
+            PatchBackedEntry::Section(text) => {
+                let sections = split_patch_sections(text);
+                sections
+                    .first()
+                    .map(|section| section_to_stats(section, is_sensitive))
+                    .unwrap_or_default()
+            }
+            PatchBackedEntry::Prebuilt { stats, .. } => *stats,
+        };
+        acc.additions = acc.additions.saturating_add(stats.additions);
+        acc.deletions = acc.deletions.saturating_add(stats.deletions);
+        acc
+    });
 
     let truncated_by_count = original_section_count > FILE_COUNT_CAP;
     let mut aggregate_bytes: u64 = 0;
@@ -411,18 +746,27 @@ fn build_fallback_response(
     let mut response_data: Vec<FileDiff> =
         Vec::with_capacity(original_section_count.min(FILE_COUNT_CAP));
 
-    for section in sections.iter().take(FILE_COUNT_CAP) {
-        let change_kind = classify_section(section);
-        let (old_name, new_name) = section_paths(section, Some(change_kind));
+    for entry in entries.iter().take(FILE_COUNT_CAP) {
+        let PatchBackedEntry::Section(text) = entry else {
+            if let PatchBackedEntry::Prebuilt { diff, .. } = entry {
+                response_data.push(diff.clone());
+            }
+            continue;
+        };
+        let Some(section) = split_patch_sections(text).pop() else {
+            continue;
+        };
+        let change_kind = classify_section(&section);
+        let (old_name, new_name) = section_paths(&section, Some(change_kind));
         let mut diff = degraded_file_diff(old_name, new_name, change_kind);
 
-        if section_is_sensitive(section, is_sensitive) {
+        if section_is_sensitive(&section, is_sensitive) {
             diff.sensitive = Some(true);
             response_data.push(diff);
             continue;
         }
 
-        if section_is_binary(section) {
+        if section_is_binary(&section) {
             diff.binary = Some(true);
             response_data.push(diff);
             continue;
@@ -451,17 +795,6 @@ fn build_fallback_response(
         response_data.push(diff);
     }
 
-    let to_sha = projection
-        .conclusion
-        .as_ref()
-        .and_then(|c| c.final_git_commit_sha.clone())
-        .map(|s| to_sha_wrapper(&s));
-
-    // The patch was captured when the run ended; no live sandbox to query
-    // for strict commit time, so the conclusion timestamp is the closest
-    // proxy. The client renders this as "Captured Xm ago".
-    let to_sha_committed_at = projection.conclusion.as_ref().map(|c| c.timestamp);
-
     let truncated = truncated_by_count
         || response_data.iter().any(|f| f.truncated.unwrap_or(false))
         || files_omitted_by_budget > 0;
@@ -482,17 +815,18 @@ fn build_fallback_response(
     .emit(run_id);
 
     PaginatedRunFileList {
-        data: response_data,
-        meta: RunFilesMeta {
+        data:   response_data,
+        source: meta_input.source,
+        meta:   RunFilesMeta {
             truncated,
             files_omitted_by_budget: (files_omitted_by_budget > 0)
                 .then(|| i64::try_from(files_omitted_by_budget).unwrap_or(i64::MAX)),
             total_changed: i64::try_from(original_section_count).unwrap_or(i64::MAX),
             stats,
-            to_sha,
-            to_sha_committed_at,
-            degraded: Some(true),
-            degraded_reason: Some(reason),
+            to_sha: meta_input.to_sha,
+            to_sha_committed_at: meta_input.to_sha_committed_at,
+            degraded: Some(meta_input.degraded),
+            degraded_reason: meta_input.degraded_reason,
         },
     }
 }
@@ -702,9 +1036,10 @@ fn degraded_file_diff(
     }
 }
 
-fn empty_envelope() -> PaginatedRunFileList {
+fn empty_envelope(source: PaginatedRunFileListSource) -> PaginatedRunFileList {
     PaginatedRunFileList {
         data: Vec::new(),
+        source,
         meta: RunFilesMeta {
             truncated:               false,
             files_omitted_by_budget: None,
@@ -863,7 +1198,7 @@ fn classify_entries(
         if is_sensitive_fn(new_path) || is_sensitive_fn(old_path) {
             out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                 entry,
-                &PlaceholderKind::Sensitive,
+                PlaceholderKind::Sensitive,
             )));
             continue;
         }
@@ -872,13 +1207,13 @@ fn classify_entries(
             RawDiffEntry::Symlink { .. } => {
                 out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                     entry,
-                    &PlaceholderKind::Symlink,
+                    PlaceholderKind::Symlink,
                 )));
             }
             RawDiffEntry::Submodule { .. } => {
                 out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                     entry,
-                    &PlaceholderKind::Submodule,
+                    PlaceholderKind::Submodule,
                 )));
             }
             // `git diff --numstat` reports the post-rename path on renames,
@@ -886,7 +1221,7 @@ fn classify_entries(
             _ if numstat.binary_paths.contains(new_path) => {
                 out.push(ClassifiedEntry::Prebuilt(build_placeholder_file_diff(
                     entry,
-                    &PlaceholderKind::Binary,
+                    PlaceholderKind::Binary,
                 )));
             }
             _ => {
@@ -905,6 +1240,7 @@ fn classify_entries(
     }
 }
 
+#[derive(Clone, Copy)]
 enum PlaceholderKind {
     Sensitive,
     Binary,
@@ -912,7 +1248,7 @@ enum PlaceholderKind {
     Submodule,
 }
 
-fn build_placeholder_file_diff(entry: &RawDiffEntry, kind: &PlaceholderKind) -> FileDiff {
+fn build_placeholder_file_diff(entry: &RawDiffEntry, kind: PlaceholderKind) -> FileDiff {
     let (old_name, new_name, change_kind) = names_and_kind(entry);
     FileDiff {
         binary:            match kind {
@@ -1013,7 +1349,7 @@ fn stitch_file_diff(
         RawDiffEntry::Symlink { .. } | RawDiffEntry::Submodule { .. } => {
             // Shouldn't hit — those classify to Prebuilt. Return an empty
             // placeholder defensively.
-            return build_placeholder_file_diff(entry, &PlaceholderKind::Symlink);
+            return build_placeholder_file_diff(entry, PlaceholderKind::Symlink);
         }
     };
 
@@ -1266,8 +1602,9 @@ mod tests {
 
     fn ok_response() -> PaginatedRunFileList {
         PaginatedRunFileList {
-            data: Vec::new(),
-            meta: fabro_api::types::RunFilesMeta {
+            data:   Vec::new(),
+            source: PaginatedRunFileListSource::Sandbox,
+            meta:   fabro_api::types::RunFilesMeta {
                 truncated:               false,
                 files_omitted_by_budget: None,
                 total_changed:           0,
@@ -1309,8 +1646,14 @@ mod tests {
         let run_b = run;
 
         let (a, b) = tokio::join!(
-            tokio::spawn(async move { coalesced_list_run_files(&inflight_a, &run_a, mat_a).await }),
-            tokio::spawn(async move { coalesced_list_run_files(&inflight_b, &run_b, mat_b).await }),
+            tokio::spawn(async move {
+                coalesced_list_run_files(&inflight_a, &run_a, ListRunFilesScope::Committed, mat_a)
+                    .await
+            }),
+            tokio::spawn(async move {
+                coalesced_list_run_files(&inflight_b, &run_b, ListRunFilesScope::Committed, mat_b)
+                    .await
+            }),
         );
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -1341,8 +1684,39 @@ mod tests {
         let m1 = make(Arc::clone(&counter));
         let m2 = make(Arc::clone(&counter));
         let (r1, r2) = tokio::join!(
-            coalesced_list_run_files(&i1, &run1, m1),
-            coalesced_list_run_files(&i2, &run2, m2),
+            coalesced_list_run_files(&i1, &run1, ListRunFilesScope::Committed, m1),
+            coalesced_list_run_files(&i2, &run2, ListRunFilesScope::Committed, m2),
+        );
+
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn different_scopes_for_same_run_materialize_independently() {
+        let inflight = new_registry();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let run = run_id("run_scope_key");
+
+        let make = |counter: Arc<AtomicUsize>| {
+            move || {
+                let counter = counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    sleep(Duration::from_millis(10)).await;
+                    Ok(ok_response())
+                }
+            }
+        };
+
+        let i1 = Arc::clone(&inflight);
+        let i2 = Arc::clone(&inflight);
+        let m1 = make(Arc::clone(&counter));
+        let m2 = make(Arc::clone(&counter));
+        let (r1, r2) = tokio::join!(
+            coalesced_list_run_files(&i1, &run, ListRunFilesScope::Committed, m1),
+            coalesced_list_run_files(&i2, &run, ListRunFilesScope::All, m2),
         );
 
         assert_eq!(counter.load(Ordering::SeqCst), 2);
@@ -1355,10 +1729,11 @@ mod tests {
         let inflight = new_registry();
         let run = run_id("run_cccccccccccccccccccccccccc");
 
-        let first = coalesced_list_run_files(&inflight, &run, || async {
-            panic!("boom");
-        })
-        .await;
+        let first =
+            coalesced_list_run_files(&inflight, &run, ListRunFilesScope::Committed, || async {
+                panic!("boom");
+            })
+            .await;
         assert!(first.is_err(), "expected panic to become error");
         assert_eq!(
             first.as_ref().as_ref().unwrap_err().status(),
@@ -1370,7 +1745,10 @@ mod tests {
 
         // A subsequent call on the same run_id triggers a fresh materialization.
         let second =
-            coalesced_list_run_files(&inflight, &run, || async { Ok(ok_response()) }).await;
+            coalesced_list_run_files(&inflight, &run, ListRunFilesScope::Committed, || async {
+                Ok(ok_response())
+            })
+            .await;
         assert!(second.is_ok());
     }
 
@@ -1382,10 +1760,15 @@ mod tests {
 
         for _ in 0..3 {
             let counter_inner = Arc::clone(&counter);
-            let _ = coalesced_list_run_files(&inflight, &run, move || async move {
-                counter_inner.fetch_add(1, Ordering::SeqCst);
-                Ok(ok_response())
-            })
+            let _ = coalesced_list_run_files(
+                &inflight,
+                &run,
+                ListRunFilesScope::Committed,
+                move || async move {
+                    counter_inner.fetch_add(1, Ordering::SeqCst);
+                    Ok(ok_response())
+                },
+            )
             .await;
             // Yield to let the spawned task clean up the registry entry before
             // the next iteration.
@@ -1412,11 +1795,16 @@ mod tests {
         // Kick off the first coalesce, then drop it almost immediately
         // while the materialization is still sleeping.
         let first_fut = async move {
-            coalesced_list_run_files(&inflight_a, &run, move || async move {
-                counter_a.fetch_add(1, Ordering::SeqCst);
-                sleep(Duration::from_millis(80)).await;
-                Ok(ok_response())
-            })
+            coalesced_list_run_files(
+                &inflight_a,
+                &run,
+                ListRunFilesScope::Committed,
+                move || async move {
+                    counter_a.fetch_add(1, Ordering::SeqCst);
+                    sleep(Duration::from_millis(80)).await;
+                    Ok(ok_response())
+                },
+            )
             .await
         };
 
@@ -1426,10 +1814,15 @@ mod tests {
         sleep(Duration::from_millis(10)).await;
         handle.abort();
 
-        let second = coalesced_list_run_files(&inflight_b, &run, move || async move {
-            counter_b.fetch_add(1, Ordering::SeqCst);
-            Ok(ok_response())
-        })
+        let second = coalesced_list_run_files(
+            &inflight_b,
+            &run,
+            ListRunFilesScope::Committed,
+            move || async move {
+                counter_b.fetch_add(1, Ordering::SeqCst);
+                Ok(ok_response())
+            },
+        )
         .await;
 
         assert!(second.is_ok(), "second caller should receive a result");
@@ -1698,6 +2091,24 @@ index 1111111..2222222 160000
         .expect("fallback response should serialize")
     }
 
+    fn sandbox_patch_response_json(entries: &[PatchBackedEntry]) -> serde_json::Value {
+        serde_json::to_value(build_patch_backed_response(
+            entries,
+            PatchBackedResponseMeta {
+                source:              PaginatedRunFileListSource::Sandbox,
+                degraded:            false,
+                degraded_reason:     None,
+                to_sha:              Some(to_sha_wrapper(
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                )),
+                to_sha_committed_at: None,
+            },
+            &RunId::new(),
+            Instant::now(),
+        ))
+        .expect("sandbox patch response should serialize")
+    }
+
     fn simple_patch(path: &str) -> String {
         format!(
             "\
@@ -1709,6 +2120,47 @@ diff --git a/{path} b/{path}
 +new
 "
         )
+    }
+
+    #[test]
+    fn safe_repo_relative_path_rejects_absolute_parent_and_empty_paths() {
+        assert!(is_safe_repo_relative_path("src/main.rs"));
+        assert!(is_safe_repo_relative_path("./src/main.rs"));
+        assert!(!is_safe_repo_relative_path(""));
+        assert!(!is_safe_repo_relative_path("/src/main.rs"));
+        assert!(!is_safe_repo_relative_path("../secrets.env"));
+        assert!(!is_safe_repo_relative_path("src/../../secrets.env"));
+        assert!(!is_safe_repo_relative_path("src/main.rs\0.env"));
+        assert!(!is_safe_repo_relative_path("src/main.rs\n.env"));
+    }
+
+    #[test]
+    fn added_file_patch_section_renders_untracked_text_as_added_patch() {
+        let patch = added_file_patch_section("notes/todo.md", "one\ntwo\n");
+
+        assert!(patch.starts_with("diff --git a/notes/todo.md b/notes/todo.md\n"));
+        assert!(patch.contains("new file mode 100644\n"));
+        assert!(patch.contains("--- /dev/null\n+++ b/notes/todo.md\n"));
+        assert!(patch.contains("@@ -0,0 +1,2 @@\n+one\n+two\n"));
+    }
+
+    #[test]
+    fn sandbox_patch_response_keeps_source_sandbox_and_not_degraded() {
+        let entries = vec![PatchBackedEntry::Section(simple_patch("src/live.rs"))];
+        let body = sandbox_patch_response_json(&entries);
+
+        assert_eq!(body["source"].as_str(), Some("sandbox"));
+        assert_eq!(body["meta"]["degraded"].as_bool(), Some(false));
+        assert!(body["meta"]["degraded_reason"].is_null());
+        assert_eq!(
+            body["data"][0]["old_file"]["contents"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            body["data"][0]["new_file"]["contents"],
+            serde_json::Value::Null
+        );
+        assert!(body["data"][0]["unified_patch"].is_string());
     }
 
     #[test]

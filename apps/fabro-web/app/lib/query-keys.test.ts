@@ -6,7 +6,18 @@ import { queryKeysForRunEvent } from "./run-events";
 describe("queryKeys", () => {
   test("uses semantic tuples as stable SWR keys and keeps SSE URLs explicit", () => {
     expect(queryKeys.auth.me()).toEqual(["auth", "me"]);
-    expect(queryKeys.runs.files("run 1")).toEqual(["runs", "files", "run 1"]);
+    expect(queryKeys.runs.files("run 1")).toEqual([
+      "runs",
+      "files",
+      "run 1",
+      "committed",
+    ]);
+    expect(queryKeys.runs.files("run 1", "all")).toEqual([
+      "runs",
+      "files",
+      "run 1",
+      "all",
+    ]);
     expect(queryKeys.runs.graph("run-1", "TB")).toEqual(["runs", "graph", "run-1", "TB"]);
     expect(queryKeys.runs.stageLog("run 1", "build step@2", 12, 34)).toEqual([
       "runs",
@@ -27,9 +38,9 @@ describe("queryKeys", () => {
   });
 
   test("event-mapped keys match query hook resources", () => {
-    expect(queryKeysForRunEvent("run-1", "checkpoint.completed")).toEqual([
-      queryKeys.runs.files("run-1"),
-    ]);
+    expect(queryKeysForRunEvent("run-1", "checkpoint.completed")).toEqual(
+      queryKeys.runs.filesAllScopes("run-1"),
+    );
     expect(queryKeysForRunEvent("run-1", "stage.completed", "stage-1")).toEqual([
       queryKeys.runs.stages("run-1"),
       queryKeys.runs.billing("run-1"),

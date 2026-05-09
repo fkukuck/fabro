@@ -99,13 +99,13 @@ export function queryKeysForRunEvent(
   stageId?: string,
 ): SseKey[] {
   if (event === "checkpoint.completed") {
-    return [queryKeys.runs.files(runId)];
+    return queryKeys.runs.filesAllScopes(runId);
   }
 
   if (TERMINAL_EVENTS.has(event)) {
     return [
       queryKeys.runs.detail(runId),
-      queryKeys.runs.files(runId),
+      ...queryKeys.runs.filesAllScopes(runId),
       queryKeys.runs.billing(runId),
       queryKeys.runs.stages(runId),
       queryKeys.runs.graph(runId, "LR"),
@@ -201,7 +201,7 @@ function runInvalidation(runId: string, payload: RunEventPayload) {
 function resyncKeysForRun(runId: string) {
   return [
     queryKeys.runs.detail(runId),
-    queryKeys.runs.files(runId),
+    ...queryKeys.runs.filesAllScopes(runId),
     queryKeys.runs.billing(runId),
     queryKeys.runs.stages(runId),
     queryKeys.runs.events(runId, 1000),

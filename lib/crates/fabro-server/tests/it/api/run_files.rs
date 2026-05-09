@@ -29,6 +29,10 @@ fn files_url(run_id: &str) -> String {
     api(&format!("/runs/{run_id}/files"))
 }
 
+fn files_url_with_scope(run_id: &str, scope: &str) -> String {
+    format!("{}?scope={scope}", files_url(run_id))
+}
+
 fn store_bundle() -> (Arc<Database>, ArtifactStore) {
     let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(MemoryObjectStore::new());
     let store = Arc::new(Database::new(
@@ -183,6 +187,24 @@ async fn malformed_to_sha_returns_400() {
 }
 
 #[tokio::test]
+async fn invalid_scope_returns_400() {
+    let app = fabro_server::test_support::build_test_router(test_app_state());
+    let fake = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    let req = Request::builder()
+        .method("GET")
+        .uri(files_url_with_scope(fake, "dirty"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    response_status(
+        resp,
+        StatusCode::BAD_REQUEST,
+        format!("GET /api/v1/runs/{fake}/files?scope=dirty"),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn submitted_run_without_sandbox_returns_empty_envelope() {
     // A run that has been created but not started has no base_sha or
     // sandbox record, so the handler returns an empty envelope. The UI
@@ -216,6 +238,7 @@ async fn submitted_run_without_sandbox_returns_empty_envelope() {
         "expected empty data: {body}"
     );
     assert_eq!(body["meta"]["total_changed"], 0);
+    assert_eq!(body["source"].as_str(), Some("final_patch"));
     // Degraded is false because there's no final_patch either — the run
     // simply hasn't produced anything to diff.
     assert_eq!(body["meta"]["degraded"].as_bool(), Some(false));
@@ -265,6 +288,7 @@ diff --git a/.env.production b/.env.production
 
     assert_eq!(body["meta"]["degraded"].as_bool(), Some(true));
     assert!(body["meta"]["degraded_reason"].is_string());
+    assert_eq!(body["source"].as_str(), Some("final_patch"));
     assert!(body["meta"].get("patch").is_none());
     assert_eq!(body["meta"]["total_changed"], 2);
     assert_eq!(body["meta"]["truncated"].as_bool(), Some(false));
@@ -278,6 +302,49 @@ diff --git a/.env.production b/.env.production
     assert_eq!(data[1]["old_file"]["contents"], serde_json::Value::Null);
     assert_eq!(data[1]["new_file"]["contents"], serde_json::Value::Null);
     assert!(data[1].get("unified_patch").is_none());
+}
+
+#[tokio::test]
+async fn unavailable_sandbox_falls_back_to_final_patch_for_every_scope() {
+    let settings = test_settings();
+    let (store, artifact_store) = store_bundle();
+    let state = test_app_state_with_store(
+        settings.server_settings,
+        settings.manifest_run_defaults,
+        5,
+        Arc::clone(&store),
+        artifact_store,
+    );
+    let app = fabro_server::test_support::build_test_router(state);
+    let run_id = RunId::new();
+    let patch = "\
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1,2 @@
+ old
++new
+";
+    append_completed_run_with_final_patch(&store, &run_id, patch).await;
+
+    for scope in ["committed", "uncommitted", "all"] {
+        let req = Request::builder()
+            .method("GET")
+            .uri(files_url_with_scope(&run_id.to_string(), scope))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let body = response_json(
+            resp,
+            StatusCode::OK,
+            format!("GET /api/v1/runs/{run_id}/files?scope={scope}"),
+        )
+        .await;
+
+        assert_eq!(body["source"].as_str(), Some("final_patch"));
+        assert_eq!(body["meta"]["degraded"].as_bool(), Some(true));
+        assert_eq!(body["data"].as_array().map(Vec::len), Some(1));
+    }
 }
 
 #[tokio::test]
@@ -297,6 +364,7 @@ async fn demo_mode_returns_fixture_without_touching_store() {
     let body = response_json(resp, StatusCode::OK, "GET /api/v1/runs/whatever/files").await;
 
     // Demo fixture ships three entries (modified + added + renamed).
+    assert_eq!(body["source"].as_str(), Some("sandbox"));
     let data = body["data"].as_array().expect("data array");
     assert_eq!(data.len(), 3, "demo fixture should have 3 entries");
     // At least one entry must render with populated contents to prove the
@@ -326,6 +394,7 @@ async fn response_envelope_matches_openapi_paginated_run_file_list_shape() {
 
     assert!(body["data"].is_array());
     assert!(body["meta"].is_object());
+    assert!(body["source"].is_string());
     assert!(body["meta"]["truncated"].is_boolean());
     assert!(body["meta"]["total_changed"].is_number());
     for entry in body["data"].as_array().unwrap() {

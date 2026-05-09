@@ -16,8 +16,8 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use fabro_api::types::{
     CreateSecretRequest, DeleteSecretRequest, DiffFile, DiffStats, EventEnvelope, FileDiff,
-    FileDiffChangeKind, PaginatedEventList, PaginatedRunFileList, PaginationMeta,
-    RunArtifactListResponse, RunFilesMeta,
+    FileDiffChangeKind, PaginatedEventList, PaginatedRunFileList, PaginatedRunFileListSource,
+    PaginationMeta, RunArtifactListResponse, RunFilesMeta,
 };
 use serde_json::json;
 
@@ -199,7 +199,7 @@ fn demo_run_files() -> PaginatedRunFileList {
     let new_config = "import { readFile } from \"node:fs/promises\";\nimport { parse as parseToml } from \"@iarna/toml\";\n\nexport async function loadConfig(path: string) {\n  const contents = await readFile(path, \"utf8\");\n  return parseToml(contents);\n}\n";
 
     PaginatedRunFileList {
-        data: vec![
+        data:   vec![
             FileDiff {
                 binary:            None,
                 change_kind:       Some(FileDiffChangeKind::Modified),
@@ -249,7 +249,8 @@ fn demo_run_files() -> PaginatedRunFileList {
                 unified_patch:     None,
             },
         ],
-        meta: RunFilesMeta {
+        source: PaginatedRunFileListSource::Sandbox,
+        meta:   RunFilesMeta {
             truncated:               false,
             files_omitted_by_budget: None,
             total_changed:           3,

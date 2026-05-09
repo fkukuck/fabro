@@ -42,7 +42,7 @@ describe("queryKeysForRunEvent", () => {
   test("terminal events invalidate run-scoped resources", () => {
     expect(queryKeysForRunEvent("run-1", "run.completed")).toEqual([
       queryKeys.runs.detail("run-1"),
-      queryKeys.runs.files("run-1"),
+      ...queryKeys.runs.filesAllScopes("run-1"),
       queryKeys.runs.billing("run-1"),
       queryKeys.runs.stages("run-1"),
       queryKeys.runs.graph("run-1", "LR"),
@@ -106,7 +106,7 @@ describe("subscribeToRunEvents", () => {
     source.emit({ event: "checkpoint.completed", run_id: "run-coordinated" });
 
     expect(created).toEqual(["/api/v1/attach"]);
-    expect(keys).toEqual([queryKeys.runs.files("run-coordinated")]);
+    expect(keys).toEqual(queryKeys.runs.filesAllScopes("run-coordinated"));
 
     cleanup();
     coordinator.close();
@@ -167,7 +167,7 @@ describe("subscribeToRunEvents", () => {
     source.emit({ event: "checkpoint.completed" });
 
     expect(source.closed).toBe(false);
-    expect(keys).toEqual([queryKeys.runs.files("run-refcount")]);
+    expect(keys).toEqual(queryKeys.runs.filesAllScopes("run-refcount"));
 
     secondCleanup();
     expect(source.closed).toBe(true);

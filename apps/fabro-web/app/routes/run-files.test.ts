@@ -4,6 +4,7 @@ import {
   deepLinkToastMessage,
   emptyTransitionToastMessage,
   extractRequestId,
+  normalizeRunFileScope,
 } from "./run-files";
 
 function buildRunFilesPayload({
@@ -26,6 +27,7 @@ function buildRunFilesPayload({
       stats: { additions: 0, deletions: 0 },
       truncated: false,
     },
+    source: "sandbox",
   } as any;
 }
 
@@ -88,6 +90,19 @@ describe("emptyTransitionToastMessage", () => {
     expect(emptyTransitionToastMessage(0, 0)).toBeNull();
     expect(emptyTransitionToastMessage(null, 0)).toBeNull();
     expect(emptyTransitionToastMessage(2, 1)).toBeNull();
+  });
+});
+
+describe("normalizeRunFileScope", () => {
+  test("defaults missing or invalid values to committed", () => {
+    expect(normalizeRunFileScope(null)).toBe("committed");
+    expect(normalizeRunFileScope("dirty")).toBe("committed");
+  });
+
+  test("accepts supported scope values", () => {
+    expect(normalizeRunFileScope("committed")).toBe("committed");
+    expect(normalizeRunFileScope("uncommitted")).toBe("uncommitted");
+    expect(normalizeRunFileScope("all")).toBe("all");
   });
 });
 

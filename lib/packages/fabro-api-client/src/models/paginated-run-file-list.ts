@@ -26,5 +26,15 @@ import type { RunFilesMeta } from './run-files-meta';
 export interface PaginatedRunFileList {
     'data': Array<FileDiff>;
     'meta': RunFilesMeta;
+    /**
+     * Source used to materialize this response. `sandbox` honors the requested scope from the run-owned sandbox; `final_patch` is fallback committed/final diff data from stored run state.
+     */
+    'source': PaginatedRunFileListSourceEnum;
 }
 
+export const PaginatedRunFileListSourceEnum = {
+    SANDBOX: 'sandbox',
+    FINAL_PATCH: 'final_patch'
+} as const;
+
+export type PaginatedRunFileListSourceEnum = typeof PaginatedRunFileListSourceEnum[keyof typeof PaginatedRunFileListSourceEnum];

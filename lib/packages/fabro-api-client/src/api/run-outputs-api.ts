@@ -38,12 +38,13 @@ export const RunOutputsApiAxiosParamCreator = function (configuration?: Configur
          * @param {string} id Unique run identifier (ULID).
          * @param {number} [pageLimit] Maximum number of items to return per page.
          * @param {number} [pageOffset] Number of items to skip before returning results.
+         * @param {ListRunFilesScopeEnum} [scope] Diff scope to return. Defaults to committed changes only. Sandbox-backed responses honor all scopes; final-patch fallback responses always represent the stored committed/final diff.
          * @param {string} [fromSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {string} [toSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listRunFiles: async (id: string, pageLimit?: number, pageOffset?: number, fromSha?: string, toSha?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listRunFiles: async (id: string, pageLimit?: number, pageOffset?: number, scope?: ListRunFilesScopeEnum, fromSha?: string, toSha?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'id' is not null or undefined
             assertParamExists('listRunFiles', 'id', id)
             const localVarPath = `/api/v1/runs/{id}/files`
@@ -71,6 +72,10 @@ export const RunOutputsApiAxiosParamCreator = function (configuration?: Configur
 
             if (pageOffset !== undefined) {
                 localVarQueryParameter['page[offset]'] = pageOffset;
+            }
+
+            if (scope !== undefined) {
+                localVarQueryParameter['scope'] = scope;
             }
 
             if (fromSha !== undefined) {
@@ -147,13 +152,14 @@ export const RunOutputsApiFp = function(configuration?: Configuration) {
          * @param {string} id Unique run identifier (ULID).
          * @param {number} [pageLimit] Maximum number of items to return per page.
          * @param {number} [pageOffset] Number of items to skip before returning results.
+         * @param {ListRunFilesScopeEnum} [scope] Diff scope to return. Defaults to committed changes only. Sandbox-backed responses honor all scopes; final-patch fallback responses always represent the stored committed/final diff.
          * @param {string} [fromSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {string} [toSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listRunFiles(id: string, pageLimit?: number, pageOffset?: number, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<PaginatedRunFileList>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listRunFiles(id, pageLimit, pageOffset, fromSha, toSha, options);
+        async listRunFiles(id: string, pageLimit?: number, pageOffset?: number, scope?: ListRunFilesScopeEnum, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<PaginatedRunFileList>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listRunFiles(id, pageLimit, pageOffset, scope, fromSha, toSha, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['RunOutputsApi.listRunFiles']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -186,13 +192,14 @@ export const RunOutputsApiFactory = function (configuration?: Configuration, bas
          * @param {string} id Unique run identifier (ULID).
          * @param {number} [pageLimit] Maximum number of items to return per page.
          * @param {number} [pageOffset] Number of items to skip before returning results.
+         * @param {ListRunFilesScopeEnum} [scope] Diff scope to return. Defaults to committed changes only. Sandbox-backed responses honor all scopes; final-patch fallback responses always represent the stored committed/final diff.
          * @param {string} [fromSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {string} [toSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listRunFiles(id: string, pageLimit?: number, pageOffset?: number, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig): AxiosPromise<PaginatedRunFileList> {
-            return localVarFp.listRunFiles(id, pageLimit, pageOffset, fromSha, toSha, options).then((request) => request(axios, basePath));
+        listRunFiles(id: string, pageLimit?: number, pageOffset?: number, scope?: ListRunFilesScopeEnum, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig): AxiosPromise<PaginatedRunFileList> {
+            return localVarFp.listRunFiles(id, pageLimit, pageOffset, scope, fromSha, toSha, options).then((request) => request(axios, basePath));
         },
         /**
          * Returns token counts and billed totals broken down by stage and model for a specific run.
@@ -217,13 +224,14 @@ export class RunOutputsApi extends BaseAPI {
      * @param {string} id Unique run identifier (ULID).
      * @param {number} [pageLimit] Maximum number of items to return per page.
      * @param {number} [pageOffset] Number of items to skip before returning results.
+     * @param {ListRunFilesScopeEnum} [scope] Diff scope to return. Defaults to committed changes only. Sandbox-backed responses honor all scopes; final-patch fallback responses always represent the stored committed/final diff.
      * @param {string} [fromSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
      * @param {string} [toSha] Reserved for future use. Only the default value is accepted in the current API version; any other value returns 400.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    public listRunFiles(id: string, pageLimit?: number, pageOffset?: number, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig) {
-        return RunOutputsApiFp(this.configuration).listRunFiles(id, pageLimit, pageOffset, fromSha, toSha, options).then((request) => request(this.axios, this.basePath));
+    public listRunFiles(id: string, pageLimit?: number, pageOffset?: number, scope?: ListRunFilesScopeEnum, fromSha?: string, toSha?: string, options?: RawAxiosRequestConfig) {
+        return RunOutputsApiFp(this.configuration).listRunFiles(id, pageLimit, pageOffset, scope, fromSha, toSha, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -238,3 +246,9 @@ export class RunOutputsApi extends BaseAPI {
     }
 }
 
+export const ListRunFilesScopeEnum = {
+    COMMITTED: 'committed',
+    UNCOMMITTED: 'uncommitted',
+    ALL: 'all'
+} as const;
+export type ListRunFilesScopeEnum = typeof ListRunFilesScopeEnum[keyof typeof ListRunFilesScopeEnum];

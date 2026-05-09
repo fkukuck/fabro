@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import { ArrowPathIcon } from "@heroicons/react/20/solid";
+import type { RunFileScope } from "../../lib/query-keys";
 
 /**
  * Internal value used by `@pierre/diffs`. The UI labels "unified" as
@@ -16,6 +17,9 @@ type ChangeSummary = {
 
 export function Toolbar({
   changeSummary,
+  scope,
+  showScopePicker,
+  onScopeChange,
   onRefresh,
   refreshing,
   refreshDisabled,
@@ -26,6 +30,9 @@ export function Toolbar({
   diffStyleForced,
 }: {
   changeSummary: ChangeSummary;
+  scope: RunFileScope;
+  showScopePicker: boolean;
+  onScopeChange: (scope: RunFileScope) => void;
   onRefresh: () => void;
   refreshing: boolean;
   /** True when the server has nothing new to show (to_sha unchanged). */
@@ -72,6 +79,9 @@ export function Toolbar({
             {freshness}
           </span>
         ) : null}
+        {showScopePicker ? (
+          <DiffScopePicker value={scope} onChange={onScopeChange} />
+        ) : null}
         <DiffLayoutToggle
           value={diffStyle}
           onChange={onDiffStyleChange}
@@ -96,6 +106,44 @@ export function Toolbar({
           />
         </button>
       </div>
+    </div>
+  );
+}
+
+const scopeOptions: Array<{ value: RunFileScope; label: string }> = [
+  { value: "all", label: "All changes" },
+  { value: "uncommitted", label: "Uncommitted" },
+  { value: "committed", label: "Committed" },
+];
+
+function DiffScopePicker({
+  value,
+  onChange,
+}: {
+  value: RunFileScope;
+  onChange: (scope: RunFileScope) => void;
+}) {
+  const btn =
+    "rounded px-2.5 py-1 text-xs font-medium transition-colors";
+  const active = "bg-overlay-strong text-fg";
+  const inactive = "text-fg-3 hover:text-fg";
+  return (
+    <div
+      className="inline-flex rounded-md bg-panel-alt p-0.5 ring-1 ring-line"
+      role="group"
+      aria-label="Diff scope"
+    >
+      {scopeOptions.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
+          className={`${btn} ${value === option.value ? active : inactive}`}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }

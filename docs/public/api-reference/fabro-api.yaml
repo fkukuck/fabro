@@ -2241,6 +2241,17 @@ paths:
         - $ref: "#/components/parameters/RunId"
         - $ref: "#/components/parameters/PageLimit"
         - $ref: "#/components/parameters/PageOffset"
+        - name: scope
+          in: query
+          required: false
+          description: Diff scope to return. Defaults to committed changes only. Sandbox-backed responses honor all scopes; final-patch fallback responses always represent the stored committed/final diff.
+          schema:
+            type: string
+            default: committed
+            enum:
+              - committed
+              - uncommitted
+              - all
         - name: from_sha
           in: query
           required: false
@@ -7233,6 +7244,7 @@ components:
       required:
         - data
         - meta
+        - source
       properties:
         data:
           type: array
@@ -7240,6 +7252,12 @@ components:
             $ref: "#/components/schemas/FileDiff"
         meta:
           $ref: "#/components/schemas/RunFilesMeta"
+        source:
+          type: string
+          description: Source used to materialize this response. `sandbox` honors the requested scope from the run-owned sandbox; `final_patch` is fallback committed/final diff data from stored run state.
+          enum:
+            - sandbox
+            - final_patch
 
     # ── Billing Schemas ──────────────────────────────────────────────────
 

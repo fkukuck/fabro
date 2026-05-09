@@ -36,7 +36,7 @@ import {
   workflowsApi,
   type PaginatedEnvelope,
 } from "./api-client";
-import { queryKeys, type RunGraphDirection } from "./query-keys";
+import { queryKeys, type RunFileScope, type RunGraphDirection } from "./query-keys";
 
 const immutableOptions: SWRConfiguration = {
   revalidateIfStale: false,
@@ -95,10 +95,16 @@ export function useRunState(id: string | undefined) {
   );
 }
 
-export function useRunFiles(id: string | undefined) {
+export function useRunFiles(
+  id: string | undefined,
+  scope: RunFileScope = "committed",
+) {
   return useSWR<PaginatedRunFileList | null>(
-    id ? queryKeys.runs.files(id) : null,
-    () => apiNullableData(() => runOutputsApi.listRunFiles(id!)),
+    id ? queryKeys.runs.files(id, scope) : null,
+    () =>
+      apiNullableData(() =>
+        runOutputsApi.listRunFiles(id!, undefined, undefined, scope),
+      ),
     { keepPreviousData: true },
   );
 }

@@ -9,7 +9,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   MultiFileDiff,
   PatchDiff,
@@ -39,6 +39,7 @@ import { fileCacheKey } from "./run-files/cache-keys";
 import { VirtualizedDiffList } from "./run-files/virtualized-diff-list";
 import { ApiError, extractRequestId } from "../lib/api-client";
 import { useRun, useRunFiles } from "../lib/queries";
+import type { RunFileScope } from "../lib/query-keys";
 
 export { extractRequestId };
 
@@ -58,6 +59,13 @@ const DIFF_STYLE_STORAGE_KEY = "fabro.run-files.diff-style";
 const MIN_REFRESH_SPIN_MS = 500;
 
 export const ErrorBoundary = RunFilesErrorBoundary;
+
+export function normalizeRunFileScope(value: string | null): RunFileScope {
+  if (value === "all" || value === "uncommitted" || value === "committed") {
+    return value;
+  }
+  return "committed";
+}
 
 function useNarrowViewport(): boolean {
   const [narrow, setNarrow] = useState(() => {
@@ -291,7 +299,12 @@ const RunFileRow = memo(function RunFileRow({
 
 export default function RunFiles() {
   const params = useParams();
-  const filesQuery = useRunFiles(params.id);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const selectedScope = normalizeRunFileScope(
+    new URLSearchParams(location.search).get("scope"),
+  );
+  const filesQuery = useRunFiles(params.id, selectedScope);
   const runQuery = useRun(params.id);
   const { push } = useToast();
   const narrow = useNarrowViewport();
@@ -359,6 +372,18 @@ export default function RunFiles() {
     setMinSpinUntil(Date.now() + MIN_REFRESH_SPIN_MS);
     void filesQuery.mutate();
   }, [filesQuery]);
+  const handleScopeChange = useCallback(
+    (scope: RunFileScope) => {
+      const search = new URLSearchParams(location.search);
+      search.set("scope", scope);
+      navigate({
+        pathname: location.pathname,
+        search:   `?${search.toString()}`,
+        hash:     location.hash,
+      });
+    },
+    [location.hash, location.pathname, location.search, navigate],
+  );
   useEffect(() => {
     if (minSpinUntil === 0) return;
     const remaining = minSpinUntil - Date.now();
@@ -454,6 +479,10 @@ export default function RunFiles() {
   }
 
   const { data: files, meta } = data;
+  const showScopePicker = data.source === "sandbox";
+  const effectiveScope: RunFileScope = showScopePicker
+    ? selectedScope
+    : "committed";
 
   // Refresh is disabled when the server reports the same `to_sha` it
   // reported on the previous successful fetch — no new checkpoint yet.
@@ -470,6 +499,9 @@ export default function RunFiles() {
         additions: meta.stats.additions,
         deletions: meta.stats.deletions,
       }}
+      scope={effectiveScope}
+      showScopePicker={showScopePicker}
+      onScopeChange={handleScopeChange}
       onRefresh={handleRefresh}
       refreshing={showRefreshing}
       refreshDisabled={refreshDisabled}
