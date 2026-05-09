@@ -12,14 +12,17 @@ import {
   ClipboardDocumentIcon,
 } from "@heroicons/react/20/solid";
 
-import { SECONDARY_BUTTON_CLASS } from "../components/ui";
+import { SECONDARY_BUTTON_CLASS, Tooltip } from "../components/ui";
 import { useToast } from "../components/toast";
 import { apiData, humanInTheLoopApi } from "../lib/api-client";
 import { useRunState } from "../lib/queries";
 
+const ICON_BUTTON_CLASS =
+  "inline-flex size-9 items-center justify-center rounded-lg text-fg-2 outline-1 -outline-offset-1 outline-white/10 transition-colors hover:bg-overlay hover:text-fg focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-teal-500";
+
 export const handle = { wide: true, fullHeight: true };
 export const TERMINAL_DOCK_CLEARANCE_CLASS =
-  "pb-[calc(0.5rem+var(--fabro-interview-dock-clearance,0px))]";
+  "pb-[calc(0.25rem+var(--fabro-interview-dock-clearance,0px))]";
 
 type ConnectionStatus = "connecting" | "ready" | "closed" | "error";
 
@@ -28,19 +31,32 @@ interface TerminalServerMessage {
   message?: string;
 }
 
+const TERMINAL_BACKGROUND = "#05080F";
+
 const TERMINAL_THEME = {
-  background: "#0F1729",
-  foreground: "#E8EDF3",
-  cursor:     "#67B2D7",
-  selectionBackground: "#357F9E66",
-  black:   "#0F1729",
-  red:     "#E86B6B",
-  green:   "#5AC8A8",
-  yellow:  "#F0A45B",
-  blue:    "#67B2D7",
-  magenta: "#A8B5C5",
-  cyan:    "#B5DDEF",
-  white:   "#F7F9FB",
+  background:          TERMINAL_BACKGROUND,
+  foreground:          "#E6EDF3",
+  cursor:              "#7AC4E5",
+  cursorAccent:        "#05080F",
+  selectionBackground: "#1F4F73",
+
+  black:   "#05080F",
+  red:     "#FF6B6B",
+  green:   "#5EE6A8",
+  yellow:  "#FFC857",
+  blue:    "#82AAFF",
+  magenta: "#C792EA",
+  cyan:    "#7AC4E5",
+  white:   "#D5DCE3",
+
+  brightBlack:   "#4B5563",
+  brightRed:     "#FF8B8B",
+  brightGreen:   "#85F5C2",
+  brightYellow:  "#FFD98A",
+  brightBlue:    "#A4C4FF",
+  brightMagenta: "#E0B6FF",
+  brightCyan:    "#A8DFF5",
+  brightWhite:   "#FFFFFF",
 };
 
 export function buildTerminalWebSocketUrl(location: Location, runId: string): string {
@@ -86,16 +102,16 @@ function sendResize(socket: WebSocket | null, fitAddon: XtermFitAddon | null) {
   }));
 }
 
-function statusClasses(status: ConnectionStatus): string {
+function statusDotClasses(status: ConnectionStatus): string {
   switch (status) {
     case "ready":
-      return "bg-teal-500 text-on-primary";
+      return "bg-teal-500";
     case "error":
-      return "bg-coral/20 text-coral";
+      return "bg-coral";
     case "closed":
-      return "bg-overlay-strong text-fg-3";
+      return "bg-fg-muted";
     case "connecting":
-      return "bg-amber/20 text-amber";
+      return "bg-amber animate-pulse";
   }
 }
 
@@ -110,6 +126,34 @@ function statusLabel(status: ConnectionStatus): string {
     case "connecting":
       return "Connecting";
   }
+}
+
+function StatusPill({
+  status,
+  provider,
+}: {
+  status: ConnectionStatus;
+  provider: string | null;
+}) {
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className="inline-flex items-center gap-2 rounded-full bg-overlay py-1 pr-3 pl-2 text-xs font-medium text-fg-2 outline-1 -outline-offset-1 outline-white/10"
+    >
+      <span
+        className={`size-1.5 rounded-full ${statusDotClasses(status)}`}
+        aria-hidden="true"
+      />
+      <span>{statusLabel(status)}</span>
+      {provider ? (
+        <>
+          <span className="text-fg-muted" aria-hidden="true">·</span>
+          <span className="text-fg-3">{provider}</span>
+        </>
+      ) : null}
+    </span>
+  );
 }
 
 export default function RunTerminal({ params }: { params: { id: string } }) {
@@ -255,32 +299,20 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
       className={`flex h-full min-h-0 flex-col ${TERMINAL_DOCK_CLEARANCE_CLASS}`}
       aria-labelledby={terminalId}
     >
-      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id={terminalId} className="text-sm font-semibold text-fg">
-            Terminal
-          </h2>
-          {error ? (
-            <p className="mt-1 max-w-3xl text-sm text-coral">{error}</p>
-          ) : (
-            <p className="mt-1 font-mono text-xs text-fg-muted">
-              {provider ? `${provider} sandbox` : "Sandbox terminal"}
-            </p>
-          )}
-        </div>
+      <h2 id={terminalId} className="sr-only">Terminal</h2>
+      <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <StatusPill status={status} provider={provider} />
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClasses(status)}`}>
-            {statusLabel(status)}
-          </span>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_CLASS}
-            onClick={reconnect}
-            aria-label="Reconnect terminal"
-          >
-            <ArrowPathIcon className="size-4" aria-hidden="true" />
-            Reconnect
-          </button>
+          <Tooltip label="Reconnect">
+            <button
+              type="button"
+              className={ICON_BUTTON_CLASS}
+              onClick={reconnect}
+              aria-label="Reconnect terminal"
+            >
+              <ArrowPathIcon className="size-4" aria-hidden="true" />
+            </button>
+          </Tooltip>
           {canCopySsh && (
             <button
               type="button"
@@ -294,7 +326,15 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden rounded border border-line bg-page">
+      {error ? (
+        <p className="mb-2 shrink-0 text-xs text-coral" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div
+        className="min-h-0 flex-1 overflow-hidden rounded border border-line"
+        style={{ backgroundColor: TERMINAL_BACKGROUND }}
+      >
         <div ref={terminalEl} className="h-full min-h-0 p-3" />
       </div>
     </main>
