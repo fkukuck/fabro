@@ -144,8 +144,11 @@ mod daytona_terminal {
     use std::sync::Once;
 
     use async_trait::async_trait;
+    use daytona_api_client::apis::configuration::Configuration;
+    use daytona_api_client::apis::sandbox_api;
     use futures_util::stream::{SplitSink, SplitStream};
     use futures_util::{SinkExt, StreamExt};
+    use rand::Rng;
     use rustls::crypto::ring;
     use serde::{Deserialize, Serialize};
     use tokio::net::TcpStream;
@@ -168,14 +171,13 @@ mod daytona_terminal {
     static RUSTLS_PROVIDER: Once = Once::new();
 
     pub(super) struct DaytonaTerminalSession {
-        api_base_url: String,
-        api_key:      String,
-        org_id:       Option<String>,
-        sandbox_id:   String,
-        session_id:   String,
-        write:        Mutex<Option<ProviderSink>>,
-        read:         Mutex<Option<ProviderStream>>,
-        closed:       Mutex<bool>,
+        toolbox_base_url: String,
+        api_key:          String,
+        org_id:           Option<String>,
+        session_id:       String,
+        write:            Mutex<Option<ProviderSink>>,
+        read:             Mutex<Option<ProviderStream>>,
+        closed:           Mutex<bool>,
     }
 
     #[derive(Serialize)]
@@ -185,6 +187,7 @@ mod daytona_terminal {
         rows:       u16,
         cwd:        String,
         envs:       HashMap<String, String>,
+        id:         String,
         lazy_start: bool,
     }
 
@@ -210,26 +213,29 @@ mod daytona_terminal {
         ) -> crate::Result<Self> {
             ensure_rustls_provider();
             let sandbox_id = sandbox.daytona_id()?.to_string();
+            let toolbox_base_url =
+                daytona_toolbox_base_url(&api_base_url, &api_key, org_id.as_deref(), &sandbox_id)
+                    .await?;
+            let session_id = daytona_terminal_session_id();
             let session_id = create_pty_session(
-                &api_base_url,
+                &toolbox_base_url,
                 &api_key,
                 org_id.as_deref(),
-                &sandbox_id,
+                &session_id,
                 sandbox.working_directory().to_string(),
                 size,
             )
             .await?;
-            let ws_url = daytona_pty_ws_url(&api_base_url, &sandbox_id, &session_id)?;
+            let ws_url = daytona_pty_ws_url(&toolbox_base_url, &session_id)?;
             let request = daytona_ws_request(&ws_url, &api_key, org_id.as_deref())?;
             let (stream, _) = connect_async(request).await.map_err(|err| {
                 crate::Error::context("Failed to connect Daytona terminal WebSocket", err)
             })?;
             let (write, read) = stream.split();
             Ok(Self {
-                api_base_url,
+                toolbox_base_url,
                 api_key,
                 org_id,
-                sandbox_id,
                 session_id,
                 write: Mutex::new(Some(write)),
                 read: Mutex::new(Some(read)),
@@ -239,9 +245,8 @@ mod daytona_terminal {
 
         async fn kill_session(&self) -> crate::Result<()> {
             let url = format!(
-                "{}/toolbox/{}/toolbox/process/pty/{}",
-                trim_slash(&self.api_base_url),
-                url_component(&self.sandbox_id),
+                "{}/process/pty/{}",
+                trim_slash(&self.toolbox_base_url),
                 url_component(&self.session_id)
             );
             let mut request = fabro_http::http_client()
@@ -257,10 +262,11 @@ mod daytona_terminal {
             if !response.status().is_success()
                 && response.status() != fabro_http::StatusCode::NOT_FOUND
             {
-                return Err(crate::Error::message(format!(
-                    "Failed to delete Daytona PTY session: HTTP {}",
-                    response.status()
-                )));
+                return Err(daytona_response_error(
+                    "Failed to delete Daytona PTY session",
+                    response,
+                )
+                .await);
             }
             Ok(())
         }
@@ -312,9 +318,8 @@ mod daytona_terminal {
 
         async fn resize(&self, size: TerminalSize) -> crate::Result<()> {
             let url = format!(
-                "{}/toolbox/{}/toolbox/process/pty/{}/resize",
-                trim_slash(&self.api_base_url),
-                url_component(&self.sandbox_id),
+                "{}/process/pty/{}/resize",
+                trim_slash(&self.toolbox_base_url),
                 url_component(&self.session_id)
             );
             let mut request = fabro_http::http_client()
@@ -333,10 +338,9 @@ mod daytona_terminal {
                 .await
                 .map_err(|err| crate::Error::context("Failed to resize Daytona terminal", err))?;
             if !response.status().is_success() {
-                return Err(crate::Error::message(format!(
-                    "Failed to resize Daytona terminal: HTTP {}",
-                    response.status()
-                )));
+                return Err(
+                    daytona_response_error("Failed to resize Daytona terminal", response).await,
+                );
             }
             Ok(())
         }
@@ -359,17 +363,15 @@ mod daytona_terminal {
 
     impl Drop for DaytonaTerminalSession {
         fn drop(&mut self) {
-            let api_base_url = self.api_base_url.clone();
+            let toolbox_base_url = self.toolbox_base_url.clone();
             let api_key = self.api_key.clone();
             let org_id = self.org_id.clone();
-            let sandbox_id = self.sandbox_id.clone();
             let session_id = self.session_id.clone();
             if let Ok(handle) = Handle::try_current() {
                 handle.spawn(async move {
                     let url = format!(
-                        "{}/toolbox/{}/toolbox/process/pty/{}",
-                        trim_slash(&api_base_url),
-                        url_component(&sandbox_id),
+                        "{}/process/pty/{}",
+                        trim_slash(&toolbox_base_url),
                         url_component(&session_id)
                     );
                     let Ok(client) = fabro_http::http_client() else {
@@ -388,21 +390,17 @@ mod daytona_terminal {
     }
 
     async fn create_pty_session(
-        api_base_url: &str,
+        toolbox_base_url: &str,
         api_key: &str,
         org_id: Option<&str>,
-        sandbox_id: &str,
+        session_id: &str,
         cwd: String,
         size: TerminalSize,
     ) -> crate::Result<String> {
         let mut envs = HashMap::new();
         envs.insert("TERM".to_string(), "xterm-256color".to_string());
         envs.insert("LANG".to_string(), "C.UTF-8".to_string());
-        let url = format!(
-            "{}/toolbox/{}/toolbox/process/pty",
-            trim_slash(api_base_url),
-            url_component(sandbox_id)
-        );
+        let url = format!("{}/process/pty", trim_slash(toolbox_base_url));
         let mut request = fabro_http::http_client()
             .map_err(|err| crate::Error::context("Failed to build HTTP client", err))?
             .post(url)
@@ -412,6 +410,7 @@ mod daytona_terminal {
                 rows: size.rows,
                 cwd,
                 envs,
+                id: session_id.to_string(),
                 lazy_start: false,
             });
         if let Some(org_id) = org_id {
@@ -422,10 +421,9 @@ mod daytona_terminal {
             .await
             .map_err(|err| crate::Error::context("Failed to create Daytona PTY session", err))?;
         if !response.status().is_success() {
-            return Err(crate::Error::message(format!(
-                "Failed to create Daytona PTY session: HTTP {}",
-                response.status()
-            )));
+            return Err(
+                daytona_response_error("Failed to create Daytona PTY session", response).await,
+            );
         }
         let body = response
             .json::<DaytonaPtyCreateResponse>()
@@ -434,12 +432,37 @@ mod daytona_terminal {
         Ok(body.session_id)
     }
 
-    fn daytona_pty_ws_url(
+    async fn daytona_toolbox_base_url(
         api_base_url: &str,
+        api_key: &str,
+        org_id: Option<&str>,
         sandbox_id: &str,
-        session_id: &str,
     ) -> crate::Result<String> {
-        let base = trim_slash(api_base_url);
+        let http_client = fabro_http::http_client()
+            .map_err(|err| crate::Error::context("Failed to build HTTP client", err))?;
+        let configuration = Configuration {
+            base_path:           trim_slash(api_base_url).to_string(),
+            user_agent:          Some(concat!("fabro-sandbox/", env!("CARGO_PKG_VERSION")).into()),
+            client:              reqwest_middleware::ClientBuilder::new(http_client).build(),
+            basic_auth:          None,
+            oauth_access_token:  None,
+            bearer_access_token: Some(api_key.to_string()),
+            api_key:             None,
+        };
+        let proxy_url = sandbox_api::get_toolbox_proxy_url(&configuration, sandbox_id, org_id)
+            .await
+            .map_err(|err| {
+                crate::Error::context("Failed to resolve Daytona toolbox proxy URL", err)
+            })?;
+        Ok(format!(
+            "{}/{}",
+            trim_slash(&proxy_url.url),
+            url_component(sandbox_id)
+        ))
+    }
+
+    fn daytona_pty_ws_url(toolbox_base_url: &str, session_id: &str) -> crate::Result<String> {
+        let base = trim_slash(toolbox_base_url);
         let ws_base = if let Some(rest) = base.strip_prefix("https://") {
             format!("wss://{rest}")
         } else if let Some(rest) = base.strip_prefix("http://") {
@@ -450,11 +473,36 @@ mod daytona_terminal {
             ));
         };
         Ok(format!(
-            "{}/toolbox/{}/toolbox/process/pty/{}/connect",
+            "{}/process/pty/{}/connect",
             ws_base,
-            url_component(sandbox_id),
             url_component(session_id)
         ))
+    }
+
+    async fn daytona_response_error(action: &str, response: fabro_http::Response) -> crate::Error {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            crate::Error::message(format!("{action}: HTTP {status}"))
+        } else {
+            crate::Error::message(format!(
+                "{action}: HTTP {status}: {}",
+                truncate_error_body(trimmed)
+            ))
+        }
+    }
+
+    fn truncate_error_body(body: &str) -> String {
+        const MAX_LEN: usize = 500;
+        if body.len() <= MAX_LEN {
+            return body.to_string();
+        }
+        format!("{}...", &body[..MAX_LEN])
+    }
+
+    fn daytona_terminal_session_id() -> String {
+        format!("fabro-terminal-{:016x}", rand::rng().random::<u64>())
     }
 
     fn daytona_ws_request(
@@ -509,9 +557,88 @@ mod daytona_terminal {
         #[test]
         fn builds_daytona_pty_websocket_url() {
             assert_eq!(
-                daytona_pty_ws_url("https://app.daytona.io/api/", "sandbox/a", "pty-1").unwrap(),
-                "wss://app.daytona.io/api/toolbox/sandbox%2Fa/toolbox/process/pty/pty-1/connect"
+                daytona_pty_ws_url("https://proxy.app.daytona.io/toolbox/sandbox%2Fa", "pty-1")
+                    .unwrap(),
+                "wss://proxy.app.daytona.io/toolbox/sandbox%2Fa/process/pty/pty-1/connect"
             );
+        }
+
+        #[tokio::test]
+        async fn create_daytona_pty_session_posts_to_toolbox_proxy_with_id() {
+            let server = httpmock::MockServer::start_async().await;
+            let create = server
+                .mock_async(|when, then| {
+                    when.method(httpmock::Method::POST)
+                        .path("/toolbox/sandbox-1/process/pty")
+                        .header("authorization", "Bearer dtn_test")
+                        .json_body(serde_json::json!({
+                            "cols": 120,
+                            "rows": 32,
+                            "cwd": "/home/daytona/workspace",
+                            "envs": {
+                                "TERM": "xterm-256color",
+                                "LANG": "C.UTF-8"
+                            },
+                            "id": "fabro-terminal-test",
+                            "lazyStart": false
+                        }));
+                    then.status(200)
+                        .header("content-type", "application/json")
+                        .json_body(serde_json::json!({
+                            "sessionId": "fabro-terminal-test"
+                        }));
+                })
+                .await;
+
+            let session_id = create_pty_session(
+                &format!("{}/toolbox/sandbox-1", server.base_url()),
+                "dtn_test",
+                None,
+                "fabro-terminal-test",
+                "/home/daytona/workspace".to_string(),
+                TerminalSize {
+                    cols: 120,
+                    rows: 32,
+                },
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(session_id, "fabro-terminal-test");
+            create.assert_async().await;
+        }
+
+        #[tokio::test]
+        async fn resolves_daytona_toolbox_proxy_base_url() {
+            let server = httpmock::MockServer::start_async().await;
+            let proxy = server
+                .mock_async(|when, then| {
+                    when.method(httpmock::Method::GET)
+                        .path("/sandbox/sandbox-1/toolbox-proxy-url")
+                        .header("authorization", "Bearer dtn_test")
+                        .header("X-Daytona-Organization-ID", "org-1");
+                    then.status(200)
+                        .header("content-type", "application/json")
+                        .json_body(serde_json::json!({
+                            "url": format!("{}/toolbox", server.base_url())
+                        }));
+                })
+                .await;
+
+            let toolbox_base_url = daytona_toolbox_base_url(
+                &server.base_url(),
+                "dtn_test",
+                Some("org-1"),
+                "sandbox-1",
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                toolbox_base_url,
+                format!("{}/toolbox/sandbox-1", server.base_url())
+            );
+            proxy.assert_async().await;
         }
     }
 }
