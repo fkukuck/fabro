@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { useRef } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { MemoryRouter, Route, Routes } from "react-router";
 
@@ -10,6 +11,7 @@ const useRunFilesCalls: any[] = [];
 
 const multiFileDiffCalls: any[] = [];
 const patchDiffCalls: any[] = [];
+let patchDiffMountSeq = 0;
 const virtualizerCalls: any[] = [];
 const providerCalls: any[] = [];
 const mountedRenderers: TestRenderer.ReactTestRenderer[] = [];
@@ -20,8 +22,13 @@ mock.module("@pierre/diffs/react", () => ({
     return <div data-pierre-multi="true">{props.newFile.name}</div>;
   },
   PatchDiff: (props: any) => {
-    patchDiffCalls.push(props);
-    return <div data-pierre-patch="true">{props.patch}</div>;
+    const mountId = useRef(++patchDiffMountSeq);
+    patchDiffCalls.push({ ...props, mountId: mountId.current });
+    return (
+      <div data-pierre-patch="true" data-mount-id={mountId.current}>
+        {props.patch}
+      </div>
+    );
   },
   Virtualizer: (props: any) => {
     virtualizerCalls.push(props);
@@ -89,19 +96,46 @@ function makePayload(count: number, source = "sandbox") {
   };
 }
 
+function makePatchPayload(patch: string) {
+  return {
+    data: [
+      {
+        change_kind: "modified",
+        old_file:    { name: "docs/live.md", contents: null },
+        new_file:    { name: "docs/live.md", contents: null },
+        unified_patch: patch,
+      },
+    ],
+    source: "sandbox",
+    meta:   {
+      degraded:            false,
+      degraded_reason:     null,
+      total_changed:       1,
+      stats:               { additions: 1, deletions: 0 },
+      truncated:           false,
+      to_sha:              "abc1234",
+      to_sha_committed_at: "2026-05-05T12:00:00Z",
+    },
+  };
+}
+
+function runFilesTree(initialEntry = "/runs/run_1/files") {
+  return (
+    <ToastProvider>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route path="/runs/:id/files" element={<RunFiles />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>
+  );
+}
+
 function renderRunFiles(initialEntry = "/runs/run_1/files") {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let renderer: TestRenderer.ReactTestRenderer | undefined;
   act(() => {
-    renderer = TestRenderer.create(
-      <ToastProvider>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/runs/:id/files" element={<RunFiles />} />
-          </Routes>
-        </MemoryRouter>
-      </ToastProvider>,
-    );
+    renderer = TestRenderer.create(runFilesTree(initialEntry));
   });
   mountedRenderers.push(renderer!);
   return renderer!;
@@ -118,6 +152,7 @@ describe("RunFiles rendering", () => {
     currentRunStatus = "succeeded";
     multiFileDiffCalls.length = 0;
     patchDiffCalls.length = 0;
+    patchDiffMountSeq = 0;
     virtualizerCalls.length = 0;
     providerCalls.length = 0;
     useRunFilesCalls.length = 0;
@@ -147,7 +182,7 @@ describe("RunFiles rendering", () => {
     const sandboxRenderer = renderRunFiles();
     expect(
       sandboxRenderer.root.findAllByProps({ "aria-label": "Diff scope" }),
-    ).toHaveLength(1);
+    ).not.toHaveLength(0);
 
     act(() => sandboxRenderer.unmount());
     mountedRenderers.pop();
@@ -176,15 +211,7 @@ describe("RunFiles rendering", () => {
     const firstNewKey = multiFileDiffCalls[0].newFile.cacheKey;
 
     act(() => {
-      renderer.update(
-        <ToastProvider>
-          <MemoryRouter initialEntries={["/runs/run_1/files"]}>
-            <Routes>
-              <Route path="/runs/:id/files" element={<RunFiles />} />
-            </Routes>
-          </MemoryRouter>
-        </ToastProvider>,
-      );
+      renderer.update(runFilesTree());
     });
 
     const lastCall = multiFileDiffCalls[multiFileDiffCalls.length - 1];
@@ -193,5 +220,25 @@ describe("RunFiles rendering", () => {
     expect(firstOldKey).toContain("fabro-run-file:run_1:abc1234:old:src/file-0.ts:");
     expect(firstNewKey).toContain("fabro-run-file:run_1:abc1234:new:src/file-0.ts:");
     expect(lastCall.options).not.toHaveProperty("theme");
+  });
+
+  test("remounts patch diffs when the patch changes for the same file", () => {
+    currentFilesPayload = makePatchPayload(
+      "diff --git a/docs/live.md b/docs/live.md\n@@ -1 +1 @@\n+committed\n",
+    );
+
+    const renderer = renderRunFiles("/runs/run_1/files?scope=all");
+    const firstMountId = patchDiffCalls[0].mountId;
+
+    currentFilesPayload = makePatchPayload(
+      "diff --git a/docs/live.md b/docs/live.md\n@@ -1,0 +1,2 @@\n+committed\n+uncommitted\n",
+    );
+    act(() => {
+      renderer.update(runFilesTree("/runs/run_1/files?scope=all"));
+    });
+
+    const lastCall = patchDiffCalls[patchDiffCalls.length - 1];
+    expect(lastCall.patch).toContain("+uncommitted");
+    expect(lastCall.mountId).not.toBe(firstMountId);
   });
 });

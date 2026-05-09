@@ -35,7 +35,7 @@ import {
 } from "./run-files/states";
 import { useFileKeyboardNav } from "./run-files/keyboard";
 import { Toolbar, type DiffStyle } from "./run-files/toolbar";
-import { fileCacheKey } from "./run-files/cache-keys";
+import { fileCacheKey, stringHash } from "./run-files/cache-keys";
 import { VirtualizedDiffList } from "./run-files/virtualized-diff-list";
 import { ApiError, extractRequestId } from "../lib/api-client";
 import { useRun, useRunFiles } from "../lib/queries";
@@ -211,6 +211,33 @@ interface RunFileRowProps {
   toSha: string | null | undefined;
 }
 
+function fileDiffRenderKey({
+  file,
+  index,
+  scope,
+  toSha,
+}: {
+  file: ApiFileDiff;
+  index: number;
+  scope: RunFileScope;
+  toSha: string | null | undefined;
+}): string {
+  const display = file.new_file.name || file.old_file.name || `file-${index}`;
+  const oldContents = file.old_file.contents ?? "";
+  const newContents = file.new_file.contents ?? "";
+  const contentFingerprint = file.unified_patch
+    ? `patch:${stringHash(file.unified_patch)}`
+    : `contents:${stringHash(oldContents)}:${stringHash(newContents)}`;
+  return [
+    scope,
+    toSha ?? "no-sha",
+    display,
+    index,
+    file.change_kind ?? "modified",
+    contentFingerprint,
+  ].join(":");
+}
+
 const RunFileRow = memo(function RunFileRow({
   file,
   diffStyle,
@@ -280,7 +307,13 @@ const RunFileRow = memo(function RunFileRow({
       />
     );
   } else if (patch) {
-    body = <PatchDiff patch={patch} options={patchOptions} />;
+    body = (
+      <PatchDiff
+        key={stringHash(patch)}
+        patch={patch}
+        options={patchOptions}
+      />
+    );
   }
 
   return (
@@ -564,7 +597,12 @@ export default function RunFiles() {
                 (file.new_file.name === hashFile || file.old_file.name === hashFile);
               return (
                 <RunFileRow
-                  key={`${display}-${idx}`}
+                  key={fileDiffRenderKey({
+                    file,
+                    index: idx,
+                    scope: effectiveScope,
+                    toSha: meta.to_sha,
+                  })}
                   file={file}
                   diffStyle={diffStyle}
                   isDeepLinkTarget={isDeepLinkTarget}
