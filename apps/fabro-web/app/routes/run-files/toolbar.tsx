@@ -1,5 +1,12 @@
 import type { RefObject } from "react";
+import {
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+} from "@headlessui/react";
 import { ArrowPathIcon } from "@heroicons/react/20/solid";
+import { CheckIcon, ChevronUpDownIcon } from "@heroicons/react/16/solid";
 import type { RunFileScope } from "../../lib/query-keys";
 
 /**
@@ -57,7 +64,10 @@ export function Toolbar({
       : "Refresh";
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
-      <div className="flex min-w-0 items-baseline gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        {showScopePicker ? (
+          <DiffScopePicker value={scope} onChange={onScopeChange} />
+        ) : null}
         <p className="text-base font-semibold text-fg">
           <span className="tabular-nums">{totalChanged}</span>
           {" "}
@@ -78,9 +88,6 @@ export function Toolbar({
           >
             {freshness}
           </span>
-        ) : null}
-        {showScopePicker ? (
-          <DiffScopePicker value={scope} onChange={onScopeChange} />
         ) : null}
         <DiffLayoutToggle
           value={diffStyle}
@@ -123,28 +130,47 @@ function DiffScopePicker({
   value: RunFileScope;
   onChange: (scope: RunFileScope) => void;
 }) {
-  const btn =
-    "rounded px-2.5 py-1 text-xs font-medium transition-colors";
-  const active = "bg-overlay-strong text-fg";
-  const inactive = "text-fg-3 hover:text-fg";
+  const selected =
+    scopeOptions.find((o) => o.value === value) ?? scopeOptions[0];
   return (
-    <div
-      className="inline-flex rounded-md bg-panel-alt p-0.5 ring-1 ring-line"
-      role="group"
-      aria-label="Diff scope"
-    >
-      {scopeOptions.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          aria-pressed={value === option.value}
-          className={`${btn} ${value === option.value ? active : inactive}`}
+    <Listbox value={value} onChange={onChange}>
+      <div className="relative">
+        <ListboxButton
+          aria-label="Diff scope"
+          className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 text-xs font-medium text-fg-3 transition-colors hover:bg-overlay hover:text-fg data-open:bg-overlay data-open:text-fg"
         >
-          {option.label}
-        </button>
-      ))}
-    </div>
+          <span>{selected.label}</span>
+          <ChevronUpDownIcon className="size-3.5 text-fg-muted" aria-hidden="true" />
+        </ListboxButton>
+        <ListboxOptions
+          transition
+          anchor={{ to: "bottom start", gap: 4 }}
+          className="z-20 w-44 origin-top-left rounded-md bg-panel py-1 shadow-xl shadow-black/30 outline-1 -outline-offset-1 outline-line-strong transition data-closed:scale-95 data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in focus:outline-none"
+        >
+          {scopeOptions.map((option) => (
+            <ListboxOption
+              key={option.value}
+              value={option.value}
+              className="flex cursor-default items-center justify-between gap-3 px-3 py-1.5 text-xs text-fg-3 data-focus:bg-overlay data-focus:text-fg data-selected:text-fg"
+            >
+              {({ selected }) => (
+                <>
+                  <span className={selected ? "font-medium" : ""}>
+                    {option.label}
+                  </span>
+                  {selected ? (
+                    <CheckIcon
+                      className="size-3.5 text-teal-300"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </>
+              )}
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </div>
+    </Listbox>
   );
 }
 
