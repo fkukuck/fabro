@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { Link, useParams } from "react-router";
 import { GitPullRequestIcon } from "../components/icons";
+import { InlineMarkdown } from "../components/inline-markdown";
 import { ciConfig, columnForStatus, columnStatusDisplay, deriveCiStatus, mapRunSummaryToRunItem } from "../data/runs";
 import type { ColumnStatus, RunWithStatus } from "../data/runs";
 import { useWorkflowRuns } from "../lib/queries";
@@ -36,7 +37,7 @@ function RunRow({ run }: { run: RunWithStatus }) {
       </span>
 
       <span className="flex items-center gap-2 min-w-0">
-        <span className="truncate text-sm text-fg-2">{run.title}</span>
+        <InlineMarkdown content={run.title} className="truncate text-sm text-fg-2" />
         {run.comments != null && run.comments > 0 && (
           <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-fg-muted">
             <svg viewBox="0 0 16 16" fill="currentColor" className="size-3" aria-hidden="true">

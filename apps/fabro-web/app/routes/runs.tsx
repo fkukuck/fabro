@@ -26,6 +26,7 @@ import type { CiStatus, CheckRun, CheckStatus, RunItem, RunWithStatus, ColumnSta
 import { formatRelativeTime } from "../lib/format";
 import { EmptyState } from "../components/state";
 import { GitPullRequestIcon } from "../components/icons";
+import { InlineMarkdown } from "../components/inline-markdown";
 import { useToast } from "../components/toast";
 import { shouldRefreshBoardForEvent, useBoardEvents } from "../lib/board-events";
 import { useAuthConfig, useBoardsRuns, useSystemInfo } from "../lib/queries";
@@ -606,7 +607,7 @@ function RunRow({ run }: { run: RunWithStatus }) {
       <span className="truncate font-mono text-xs font-medium text-teal-500 pr-2">{run.repo}</span>
 
       <span className="flex items-center gap-2 min-w-0">
-        <span className="truncate text-sm text-fg-2">{run.title}</span>
+        <InlineMarkdown content={run.title} className="truncate text-sm text-fg-2" />
         {lifecycleLabel != null && (
           <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-fg-muted">
             {lifecycleLabel}

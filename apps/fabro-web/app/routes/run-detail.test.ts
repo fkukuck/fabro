@@ -71,10 +71,15 @@ type RunDetailActionResult = import("./run-detail").RunDetailActionResult;
 
 const h = createElement;
 
-function makeRunSummary(status = "succeeded", diffSummary: any = null, pullRequest: any = null) {
+function makeRunSummary(
+  status = "succeeded",
+  diffSummary: any = null,
+  pullRequest: any = null,
+  title = "Run 1",
+) {
   return {
     run_id:          "run_1",
-    title:           "Run 1",
+    title,
     repository:      { name: "fabro" },
     status:          { kind: status },
     workflow_slug:   "default",
@@ -111,14 +116,16 @@ async function renderRunDetail({
   questions = [],
   diffSummary = null,
   pullRequest = null,
+  title,
 }: {
   initialEntry: string;
   status?: string;
   questions?: any[];
   diffSummary?: any;
   pullRequest?: any;
+  title?: string;
 }) {
-  currentRunSummary = makeRunSummary(status, diffSummary, pullRequest);
+  currentRunSummary = makeRunSummary(status, diffSummary, pullRequest, title);
   currentQuestions = questions;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -451,6 +458,32 @@ describe("RunDetail full-height child routes", () => {
         node.props.style?.["--fabro-interview-dock-clearance"] === "18rem",
     );
     expect(clearanceOwners.length).toBeGreaterThan(0);
+  });
+
+  test("renders inline <code> in the run title heading for Markdown-formatted titles", async () => {
+    const renderer = await renderRunDetail({
+      initialEntry: "/runs/run_1",
+      title:        "Move from `[server.integrations.github]` to `[run.integrations.github]`",
+    });
+
+    const headings = renderer.root.findAll(
+      (node) =>
+        node.type === "h2" &&
+        hasClasses(node.props.className, ["text-xl", "font-semibold", "text-fg"]),
+    );
+    expect(headings).toHaveLength(1);
+
+    const codes = headings[0]!.findAllByType("code");
+    expect(codes).toHaveLength(2);
+    expect(
+      codes
+        .map((code) =>
+          code.children.filter((child) => typeof child === "string").join(""),
+        ),
+    ).toEqual([
+      "[server.integrations.github]",
+      "[run.integrations.github]",
+    ]);
   });
 
   test("preserves document-flow layout for child routes without fullHeight", async () => {

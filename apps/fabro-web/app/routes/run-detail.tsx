@@ -16,6 +16,7 @@ import {
 import { Link, Outlet, useLocation, useMatches, useNavigate } from "react-router";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 
+import { InlineMarkdown } from "../components/inline-markdown";
 import { InterviewDock } from "../components/interview-dock";
 import { GitPullRequestIcon } from "../components/icons";
 import { SteerBar, type SteerBarHandle } from "../components/steer-bar";
@@ -296,7 +297,9 @@ export default function RunDetail({ params }: { params: { id: string } }) {
         )}
       >
         <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-semibold text-fg">{run.title}</h2>
+          <h2 className="text-xl font-semibold text-fg">
+            <InlineMarkdown content={run.title} />
+          </h2>
           <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
             <span className="flex items-center gap-1.5">
               <span className={`size-2 rounded-full ${run.statusDot}`} />
