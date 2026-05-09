@@ -220,7 +220,7 @@ describe("RunFiles rendering", () => {
     currentFilesPayload = makePayload(1, "sandbox");
     const sandboxRenderer = renderRunFiles();
     expect(
-      sandboxRenderer.root.findAllByProps({ "aria-label": "Diff scope" }),
+      sandboxRenderer.root.findAllByProps({ "aria-label": "Diff selection" }),
     ).not.toHaveLength(0);
 
     act(() => sandboxRenderer.unmount());
@@ -229,7 +229,7 @@ describe("RunFiles rendering", () => {
     const fallbackRenderer = renderRunFiles("/runs/run_1/files?scope=all");
 
     expect(
-      fallbackRenderer.root.findAllByProps({ "aria-label": "Diff scope" }),
+      fallbackRenderer.root.findAllByProps({ "aria-label": "Diff selection" }),
     ).toHaveLength(0);
   });
 

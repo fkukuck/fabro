@@ -78,7 +78,7 @@ export function Toolbar({
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
       <div className="flex min-w-0 items-center gap-3">
         {showScopePicker ? (
-          <DiffScopePicker
+          <DiffSelectionPicker
             value={selection}
             commits={commits}
             onChange={onPickerChange}
@@ -139,7 +139,7 @@ const scopeOptions: Array<{ value: RunFileScope; label: string }> = [
   { value: "committed", label: "Committed" },
 ];
 
-function DiffScopePicker({
+function DiffSelectionPicker({
   value,
   commits,
   onChange,
@@ -159,7 +159,7 @@ function DiffScopePicker({
     <Listbox value={selectedValue} onChange={(next) => onChange(parsePickerValue(next))}>
       <div className="relative">
         <ListboxButton
-          aria-label="Diff scope"
+          aria-label="Diff selection"
           className="flex h-7 max-w-56 items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 text-xs font-medium text-fg-3 transition-colors hover:bg-overlay hover:text-fg data-open:bg-overlay data-open:text-fg"
         >
           <span className="truncate">{selectedLabel}</span>
