@@ -33,9 +33,9 @@ pub mod types {
         EventEnvelope, GitContext, IdpIdentity, InterviewOption, InterviewQuestionRecord,
         PendingInterviewRecord, PreRunPushOutcome, Principal, QuestionType, RepositoryReference,
         RunClientProvenance, RunEvent, RunProjection, RunProvenance, RunServerProvenance,
-        RunSummary, SecretMetadata, SecretType, ServerSettings, StageCompletion, StageHandler,
-        StageOutcome, StageProjection, StageState, SystemActorKind, UserPrincipal,
-        WorkflowSettings,
+        RunSummary, SandboxDetails, SandboxResources, SandboxState, SandboxTimestamps,
+        SecretMetadata, SecretType, ServerSettings, StageCompletion, StageHandler, StageOutcome,
+        StageProjection, StageState, SystemActorKind, UserPrincipal, WorkflowSettings,
     };
 
     pub use crate::generated::types::*;

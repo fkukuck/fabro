@@ -2610,6 +2610,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/runs/{id}/sandbox:
+    get:
+      operationId: retrieveRunSandbox
+      tags: [Human-in-the-Loop]
+      summary: Retrieve Run Sandbox Details
+      description: Returns provider-neutral details about the sandbox owned by this run, including identity, normalized state, image/snapshot, resources, labels, and timestamps.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Sandbox details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetails"
+        "404":
+          description: Run not found or run has no sandbox record
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Sandbox provider exists but inspection failed because the sandbox is gone or inaccessible
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "501":
+          description: Sandbox provider has no details implementation
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/v1/runs/{id}/sandbox/files:
     get:
       operationId: listSandboxFiles
@@ -7673,6 +7716,97 @@ components:
           type: string
           description: Command to connect to the sandbox.
           example: docker exec -it fabro-run-01HY0000000000000000000000 sh -lc 'cd /workspace && exec sh -l'
+
+    SandboxState:
+      description: Normalized sandbox lifecycle state used by the control plane and UI. The original provider-specific state string is preserved in `native_state`.
+      type: string
+      enum:
+        - unknown
+        - provisioning
+        - starting
+        - running
+        - stopping
+        - stopped
+        - paused
+        - deleting
+        - deleted
+        - archived
+        - restoring
+        - resizing
+        - error
+
+    SandboxResources:
+      description: Resource configuration for a sandbox. Fields are nullable when the provider does not surface a value or no limit is configured.
+      type: object
+      properties:
+        cpu_cores:
+          type: number
+          format: double
+          description: Configured CPU cores. Null when unavailable.
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Memory limit in bytes. Null when unavailable or unlimited.
+        disk_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Disk size in bytes. Null when unavailable.
+
+    SandboxTimestamps:
+      description: Lifecycle timestamps for a sandbox. Fields are nullable when the provider does not surface a value.
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: When the sandbox was created.
+        last_activity_at:
+          type: string
+          format: date-time
+          description: Most recent activity timestamp reported by the provider.
+
+    SandboxDetails:
+      description: Provider-neutral details about the sandbox owned by a run.
+      type: object
+      required:
+        - provider
+        - state
+        - resources
+        - labels
+        - timestamps
+      properties:
+        provider:
+          type: string
+          description: Sandbox provider name (`local`, `docker`, `daytona`).
+          example: docker
+        name:
+          type: string
+          description: Provider-facing sandbox name when available.
+        id:
+          type: string
+          description: Provider-facing identifier (container ID, Daytona UUID) when available.
+        state:
+          $ref: "#/components/schemas/SandboxState"
+        native_state:
+          type: string
+          description: Original provider state string before normalization. Display/debugging only; UI behavior keys off `state`.
+        region:
+          type: string
+          description: Provider region or target. Null for local-style providers.
+        image:
+          type: string
+          description: Container image or sandbox snapshot identifier.
+        resources:
+          $ref: "#/components/schemas/SandboxResources"
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Provider-reported labels.
+        timestamps:
+          $ref: "#/components/schemas/SandboxTimestamps"
 
     SandboxFileEntry:
       description: A directory entry in a run sandbox.

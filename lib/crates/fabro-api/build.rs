@@ -384,6 +384,10 @@ fn main() {
         ("PreRunPushOutcome", "fabro_types::PreRunPushOutcome", &[]),
         ("DirtyStatus", "fabro_types::DirtyStatus", &[]),
         ("GitContext", "fabro_types::GitContext", &[]),
+        ("SandboxDetails", "fabro_types::SandboxDetails", &[]),
+        ("SandboxState", "fabro_types::SandboxState", &[]),
+        ("SandboxResources", "fabro_types::SandboxResources", &[]),
+        ("SandboxTimestamps", "fabro_types::SandboxTimestamps", &[]),
     ];
     for (name, path, impls) in replacements {
         settings.with_replacement(*name, *path, impls.iter().copied());
