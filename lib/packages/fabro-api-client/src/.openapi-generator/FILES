@@ -36,6 +36,8 @@ models/auth-config-response.ts
 models/auth-me-response.ts
 models/auth-method.ts
 models/auth-session-user.ts
+models/auth-session.ts
+models/auth-sessions-response.ts
 models/billed-token-counts.ts
 models/billing-by-model.ts
 models/billing-model-ref.ts

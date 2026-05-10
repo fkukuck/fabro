@@ -26,6 +26,8 @@ import type { AuthConfigResponse } from '../models';
 // @ts-ignore
 import type { AuthMeResponse } from '../models';
 // @ts-ignore
+import type { AuthSessionsResponse } from '../models';
+// @ts-ignore
 import type { DemoToggleRequest } from '../models';
 // @ts-ignore
 import type { DemoToggleResponse } from '../models';
@@ -40,6 +42,46 @@ import type { ErrorResponse } from '../models';
  */
 export const AuthApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
+        /**
+         * Revokes an active CLI session chain. Browser sessions are not revocable in this API version.
+         * @summary Revoke an authenticated session
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteAuthSession: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('deleteAuthSession', 'id', id)
+            const localVarPath = `/api/v1/auth/sessions/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
         /**
          * Returns the browser login methods enabled for this server.
          * @summary Retrieve auth configuration
@@ -78,6 +120,42 @@ export const AuthApiAxiosParamCreator = function (configuration?: Configuration)
          */
         getAuthMe: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/v1/auth/me`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Returns the current browser session and active CLI session chains for the authenticated user.
+         * @summary List authenticated sessions
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listAuthSessions: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/v1/auth/sessions`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
             let baseOptions;
@@ -192,6 +270,19 @@ export const AuthApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = AuthApiAxiosParamCreator(configuration)
     return {
         /**
+         * Revokes an active CLI session chain. Browser sessions are not revocable in this API version.
+         * @summary Revoke an authenticated session
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async deleteAuthSession(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteAuthSession(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['AuthApi.deleteAuthSession']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Returns the browser login methods enabled for this server.
          * @summary Retrieve auth configuration
          * @param {*} [options] Override http request option.
@@ -213,6 +304,18 @@ export const AuthApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.getAuthMe(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['AuthApi.getAuthMe']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Returns the current browser session and active CLI session chains for the authenticated user.
+         * @summary List authenticated sessions
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async listAuthSessions(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<AuthSessionsResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listAuthSessions(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['AuthApi.listAuthSessions']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -251,6 +354,16 @@ export const AuthApiFactory = function (configuration?: Configuration, basePath?
     const localVarFp = AuthApiFp(configuration)
     return {
         /**
+         * Revokes an active CLI session chain. Browser sessions are not revocable in this API version.
+         * @summary Revoke an authenticated session
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteAuthSession(id: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.deleteAuthSession(id, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Returns the browser login methods enabled for this server.
          * @summary Retrieve auth configuration
          * @param {*} [options] Override http request option.
@@ -267,6 +380,15 @@ export const AuthApiFactory = function (configuration?: Configuration, basePath?
          */
         getAuthMe(options?: RawAxiosRequestConfig): AxiosPromise<AuthMeResponse> {
             return localVarFp.getAuthMe(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Returns the current browser session and active CLI session chains for the authenticated user.
+         * @summary List authenticated sessions
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listAuthSessions(options?: RawAxiosRequestConfig): AxiosPromise<AuthSessionsResponse> {
+            return localVarFp.listAuthSessions(options).then((request) => request(axios, basePath));
         },
         /**
          * Creates a browser session from an enabled development token.
@@ -296,6 +418,17 @@ export const AuthApiFactory = function (configuration?: Configuration, basePath?
  */
 export class AuthApi extends BaseAPI {
     /**
+     * Revokes an active CLI session chain. Browser sessions are not revocable in this API version.
+     * @summary Revoke an authenticated session
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public deleteAuthSession(id: string, options?: RawAxiosRequestConfig) {
+        return AuthApiFp(this.configuration).deleteAuthSession(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
      * Returns the browser login methods enabled for this server.
      * @summary Retrieve auth configuration
      * @param {*} [options] Override http request option.
@@ -313,6 +446,16 @@ export class AuthApi extends BaseAPI {
      */
     public getAuthMe(options?: RawAxiosRequestConfig) {
         return AuthApiFp(this.configuration).getAuthMe(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Returns the current browser session and active CLI session chains for the authenticated user.
+     * @summary List authenticated sessions
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public listAuthSessions(options?: RawAxiosRequestConfig) {
+        return AuthApiFp(this.configuration).listAuthSessions(options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

@@ -27,6 +27,7 @@ export const queryKeys = {
   auth: {
     config: () => ["auth", "config"] as const,
     me: () => ["auth", "me"] as const,
+    sessions: () => ["auth", "sessions"] as const,
     loginDevToken: () => ["auth", "login-dev-token"] as const,
   },
   demo: {

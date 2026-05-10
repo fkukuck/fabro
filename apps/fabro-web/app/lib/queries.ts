@@ -3,6 +3,7 @@ import type {
   ApiQuestion,
   AuthConfigResponse,
   AuthMeResponse,
+  AuthSessionsResponse,
   CommandLogResponse,
   EventEnvelope,
   PaginatedBoardRunList,
@@ -72,6 +73,13 @@ export function useAuthMe() {
     queryKeys.auth.me(),
     () => apiData(() => authApi.getAuthMe()),
     { dedupingInterval: 10_000 },
+  );
+}
+
+export function useAuthSessions() {
+  return useSWR<AuthSessionsResponse>(
+    queryKeys.auth.sessions(),
+    () => apiData(() => authApi.listAuthSessions()),
   );
 }
 

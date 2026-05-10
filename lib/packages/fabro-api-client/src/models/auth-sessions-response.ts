@@ -13,18 +13,11 @@
  */
 
 
+// May contain unused imports in some cases
+// @ts-ignore
+import type { AuthSession } from './auth-session';
 
-/**
- * Sandbox execution provider.
- */
-
-export const SandboxProvider = {
-    LOCAL: 'local',
-    DOCKER: 'docker',
-    DAYTONA: 'daytona'
-} as const;
-
-export type SandboxProvider = typeof SandboxProvider[keyof typeof SandboxProvider];
-
-
+export interface AuthSessionsResponse {
+    'sessions': Array<AuthSession>;
+}
 
