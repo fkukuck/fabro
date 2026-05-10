@@ -1,5 +1,5 @@
 import { BoltIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useMatches } from "react-router";
 
 export function meta({}: any) {
   return [{ title: "Settings — Fabro" }];
@@ -35,10 +35,19 @@ function classNames(...classes: Array<string | false | null | undefined>) {
 
 export default function SettingsLayout() {
   const { pathname } = useLocation();
+  const matches = useMatches();
   const currentName = navItems.find((item) => item.match(pathname))?.name ?? "Settings";
+  const fullHeight = matches.some(
+    (m) => (m.handle as { fullHeight?: boolean } | undefined)?.fullHeight,
+  );
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row">
+    <div
+      className={classNames(
+        "flex flex-col gap-6 lg:flex-row",
+        fullHeight && "min-h-0 flex-1",
+      )}
+    >
       <aside className="lg:w-56 lg:shrink-0">
         <nav className="sticky top-6">
           <ul role="list" className="flex gap-1 overflow-x-auto lg:flex-col lg:gap-0.5">
@@ -66,7 +75,12 @@ export default function SettingsLayout() {
         </nav>
       </aside>
 
-      <div className="min-w-0 flex-1">
+      <div
+        className={classNames(
+          "min-w-0 flex-1",
+          fullHeight && "flex min-h-0 flex-col",
+        )}
+      >
         <h1 className="mb-2 text-xl font-semibold tracking-tight text-fg">
           {currentName}
         </h1>

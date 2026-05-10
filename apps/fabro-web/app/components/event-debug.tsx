@@ -223,11 +223,16 @@ export function DetailsPanel({
   );
 }
 
+export type EventDisplayPayload = {
+  event?: string | null;
+  [key: string]: unknown;
+};
+
 export function DebugEventDetailsPanel({
   event,
   onClose,
 }: {
-  event: EventEnvelope | null;
+  event: EventDisplayPayload | null;
   onClose: () => void;
 }) {
   return (
@@ -241,7 +246,7 @@ export function DebugEventDetailsPanel({
   );
 }
 
-function DebugEventDetails({ event }: { event: EventEnvelope }) {
+function DebugEventDetails({ event }: { event: EventDisplayPayload }) {
   const text = useMemo(() => JSON.stringify(event, null, 2), [event]);
   const tokens = useMemo(() => highlightJson(text), [text]);
   return (
