@@ -18,6 +18,11 @@ mock.module("../lib/queries", () => ({
   }),
 }));
 
+mock.module("../components/terminal-view", () => ({
+  default: () => null,
+  TERMINAL_DOCK_CLEARANCE_CLASS: "",
+}));
+
 const { default: RunSandbox, formatBytesAsMemory } = await import("./run-sandbox");
 mock.restore();
 

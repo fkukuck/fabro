@@ -6,13 +6,13 @@ import {
   sandboxStatusDetail,
   TERMINAL_DOCK_CLEARANCE_CLASS,
   terminalAccessCommandLabel,
-} from "./run-terminal";
+} from "./terminal-view";
 
 function locationLike(url: string): Location {
   return new URL(url) as unknown as Location;
 }
 
-describe("run terminal route helpers", () => {
+describe("terminal view helpers", () => {
   test("builds ws URLs for local HTTP", () => {
     expect(
       buildTerminalWebSocketUrl(locationLike("http://127.0.0.1:4187/runs/run_1"), "run_1"),

@@ -1,7 +1,10 @@
+import TerminalView, { TERMINAL_DOCK_CLEARANCE_CLASS } from "../components/terminal-view";
 import { EmptyState, ErrorState } from "../components/state";
 import { formatAbsoluteTs } from "../lib/format";
 import { useRunSandboxDetails } from "../lib/queries";
 import type { SandboxDetails, SandboxResources, SandboxState } from "@qltysh/fabro-api-client";
+
+export const handle = { wide: true, fullHeight: true };
 
 const EMPTY_VALUE = "—";
 
@@ -167,48 +170,59 @@ function TimestampsPanel({ details }: { details: SandboxDetails }) {
   );
 }
 
-export default function RunSandbox({ params }: { params: { id: string } }) {
-  const sandboxQuery = useRunSandboxDetails(params.id);
-
-  if (sandboxQuery.error) {
+function DetailsColumn({ details }: { details: SandboxDetails | null }) {
+  if (!details) {
     return (
-      <div className="py-12">
-        <ErrorState
-          title="Sandbox unavailable"
-          description={
-            sandboxQuery.error instanceof Error
-              ? sandboxQuery.error.message
-              : "Could not load sandbox details."
-          }
-        />
-      </div>
+      <EmptyState
+        title="No sandbox"
+        description="This run has no sandbox or its provider does not expose details."
+      />
     );
   }
-
-  if (sandboxQuery.isLoading && !sandboxQuery.data) {
-    return <div className="py-12" />;
-  }
-
-  if (!sandboxQuery.data) {
-    return (
-      <div className="py-12">
-        <EmptyState
-          title="No sandbox"
-          description="This run has no sandbox or its provider does not expose details."
-        />
-      </div>
-    );
-  }
-
-  const details = sandboxQuery.data;
-
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="space-y-4">
       <StatusStrip details={details} />
       <OverviewPanel details={details} />
       <ResourcesPanel resources={details.resources} />
       <LabelsPanel labels={details.labels} />
       <TimestampsPanel details={details} />
+    </div>
+  );
+}
+
+export default function RunSandbox({ params }: { params: { id: string } }) {
+  const sandboxQuery = useRunSandboxDetails(params.id);
+
+  // The outer flex spans from the tab bar's bottom border down to the
+  // steer bar — `-mt-6` cancels the outlet wrapper's top gap, and we
+  // intentionally omit `pb-[clearance]` here so the column divider can
+  // run the full height. Each column adds its own `pt-6` and dock
+  // clearance to its content instead.
+  return (
+    <div className="-mt-6 flex min-h-0 flex-1">
+      <aside
+        className={`w-80 shrink-0 min-h-0 overflow-y-auto pt-6 pr-6 ${TERMINAL_DOCK_CLEARANCE_CLASS}`}
+      >
+        {sandboxQuery.error ? (
+          <ErrorState
+            title="Sandbox unavailable"
+            description={
+              sandboxQuery.error instanceof Error
+                ? sandboxQuery.error.message
+                : "Could not load sandbox details."
+            }
+          />
+        ) : sandboxQuery.isLoading && !sandboxQuery.data ? null : (
+          <DetailsColumn details={sandboxQuery.data ?? null} />
+        )}
+      </aside>
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col border-l border-line">
+        <div
+          className={`flex min-h-0 flex-1 flex-col pt-6 pl-6 ${TERMINAL_DOCK_CLEARANCE_CLASS}`}
+        >
+          <TerminalView runId={params.id} />
+        </div>
+      </div>
     </div>
   );
 }

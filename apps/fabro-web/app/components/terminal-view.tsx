@@ -12,16 +12,15 @@ import {
   ClipboardDocumentIcon,
 } from "@heroicons/react/20/solid";
 
-import { SECONDARY_BUTTON_CLASS, Tooltip } from "../components/ui";
-import { ErrorState } from "../components/state";
-import { useToast } from "../components/toast";
+import { SECONDARY_BUTTON_CLASS, Tooltip } from "./ui";
+import { ErrorState } from "./state";
+import { useToast } from "./toast";
 import { apiData, humanInTheLoopApi } from "../lib/api-client";
 import { useRunState } from "../lib/queries";
 
 const ICON_BUTTON_CLASS =
   "inline-flex size-9 items-center justify-center rounded-lg text-fg-2 outline-1 -outline-offset-1 outline-white/10 transition-colors hover:bg-overlay hover:text-fg focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-teal-500";
 
-export const handle = { wide: true, fullHeight: true };
 export const TERMINAL_DOCK_CLEARANCE_CLASS =
   "pb-[calc(0.125rem+var(--fabro-interview-dock-clearance,0px))]";
 
@@ -186,9 +185,9 @@ function StatusPill({
   );
 }
 
-export default function RunTerminal({ params }: { params: { id: string } }) {
+export default function TerminalView({ runId }: { runId: string }) {
   const { push } = useToast();
-  const stateQuery = useRunState(params.id);
+  const stateQuery = useRunState(runId);
   const sandbox = getObject(getObject(stateQuery.data, "run"), "sandbox")
     ?? getObject(stateQuery.data, "sandbox");
   const provider = getString(sandbox, "provider");
@@ -201,10 +200,7 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
   const terminalRef = useRef<XtermTerminal | null>(null);
   const fitRef = useRef<XtermFitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  const terminalId = useMemo(
-    () => `run-terminal-${params.id}`,
-    [params.id],
-  );
+  const headingId = useMemo(() => `run-terminal-${runId}`, [runId]);
 
   const reconnect = useCallback(() => {
     setError(null);
@@ -216,7 +212,7 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
     if (!accessCommandLabel) return;
     try {
       const response = await apiData(() =>
-        humanInTheLoopApi.createRunSshAccess(params.id, { ttl_minutes: 60 }),
+        humanInTheLoopApi.createRunSshAccess(runId, { ttl_minutes: 60 }),
       );
       await navigator.clipboard.writeText(response.command);
       push({ message: terminalAccessCommandCopiedMessage(provider) });
@@ -228,7 +224,7 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
           : terminalAccessCommandErrorMessage(provider),
       });
     }
-  }, [accessCommandLabel, params.id, provider, push]);
+  }, [accessCommandLabel, runId, provider, push]);
 
   useEffect(() => {
     if (!terminalEl.current) return undefined;
@@ -265,7 +261,7 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
       terminalRef.current = terminal;
       fitRef.current = fitAddon;
 
-      const socket = new WebSocket(buildTerminalWebSocketUrl(window.location, params.id));
+      const socket = new WebSocket(buildTerminalWebSocketUrl(window.location, runId));
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
 
@@ -341,14 +337,14 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [connectionKey, params.id]);
+  }, [connectionKey, runId]);
 
   return (
-    <main
-      className={`flex h-full min-h-0 flex-col ${TERMINAL_DOCK_CLEARANCE_CLASS}`}
-      aria-labelledby={terminalId}
+    <section
+      className="flex h-full min-h-0 flex-col"
+      aria-labelledby={headingId}
     >
-      <h2 id={terminalId} className="sr-only">Terminal</h2>
+      <h2 id={headingId} className="sr-only">Terminal</h2>
       <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-3">
         <StatusPill status={status} detail={sandboxDetail} />
         <div className="flex items-center gap-2">
@@ -391,6 +387,6 @@ export default function RunTerminal({ params }: { params: { id: string } }) {
           <div ref={terminalEl} className="h-full min-h-0 p-3" />
         </div>
       )}
-    </main>
+    </section>
   );
 }
