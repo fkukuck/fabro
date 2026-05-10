@@ -120,34 +120,40 @@ afterEach(() => {
 });
 
 describe("ProfileSessions", () => {
-  test("renders a profile-style skeleton while loading", () => {
+  test("renders profile-style skeletons while loading", () => {
     currentResponse = undefined;
     const renderer = renderAndTrack();
     const text = textFromNode(renderer.toJSON());
 
-    // Skeleton has no real content, just placeholder bars; verify session
-    // labels haven't rendered yet.
-    expect(text).not.toContain("This browser");
-    expect(text).not.toContain("Fabro CLI");
+    // Skeletons render placeholder bars only, no panel headings or content.
+    expect(text).not.toContain("Browser");
+    expect(text).not.toContain("CLI");
   });
 
-  test("renders browser and CLI sessions from a unified response", () => {
+  test("splits browser and CLI sessions into separate panels", () => {
     currentResponse = { sessions: [cliSession, browserSession] };
     const renderer = renderAndTrack();
     const text = textFromNode(renderer.toJSON());
 
-    expect(text).toContain("This browser");
-    expect(text).toContain("Fabro CLI");
-    expect(text).toContain("browser");
-    expect(text).toContain("cli");
-    expect(text).toContain("alice");
-    expect(text).toContain("fabro/0.1.0 Darwin");
+    expect(text).toContain("Browser");
+    expect(text).toContain("CLI");
+    expect(text).toContain("Signed in");
+    expect(text).toContain("Expires");
+    expect(text).toContain("Last active");
+    // Login, provider, user agent, and kind labels are intentionally absent.
+    expect(text).not.toContain("alice");
+    expect(text).not.toContain("github");
+    expect(text).not.toContain("fabro/0.1.0 Darwin");
+    expect(text).not.toContain("This browser");
+    expect(text).not.toContain("Fabro CLI");
   });
 
-  test("does not show a revoke button for non-revocable browser sessions", () => {
+  test("shows an empty CLI panel when no CLI sessions exist", () => {
     currentResponse = { sessions: [browserSession] };
     const renderer = renderAndTrack();
+    const text = textFromNode(renderer.toJSON());
 
+    expect(text).toContain("No CLI sessions.");
     const buttons = renderer.root.findAllByType("button");
     expect(buttons).toHaveLength(0);
   });
@@ -158,7 +164,7 @@ describe("ProfileSessions", () => {
 
     const buttons = renderer.root.findAllByType("button");
     expect(buttons).toHaveLength(1);
-    expect(buttons[0].props["aria-label"]).toBe("Revoke Fabro CLI");
+    expect(buttons[0].props["aria-label"]).toBe("Revoke CLI session");
   });
 
   test("clicking revoke calls the delete endpoint and refreshes the sessions query", async () => {
