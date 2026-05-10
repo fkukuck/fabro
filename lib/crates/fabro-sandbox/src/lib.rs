@@ -11,6 +11,8 @@ pub mod read_guard;
 #[cfg(any(feature = "docker", feature = "daytona", test))]
 pub mod redact;
 
+pub mod details;
+
 pub mod reconnect;
 
 pub mod sandbox_provider;
@@ -32,6 +34,7 @@ pub mod daytona;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+pub use details::sandbox_details;
 #[cfg(feature = "docker")]
 pub use docker::{DockerSandbox, DockerSandboxOptions};
 pub use error::{Error, Result, default_redacted_output_tail, display_for_log};

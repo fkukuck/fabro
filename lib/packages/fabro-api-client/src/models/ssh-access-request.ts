@@ -15,11 +15,11 @@
 
 
 /**
- * Request body for creating SSH access for a sandbox-backed run.
+ * Request body for creating sandbox access for a sandbox-backed run.
  */
 export interface SshAccessRequest {
     /**
-     * Time-to-live for the SSH command in minutes.
+     * Time-to-live for time-limited access commands in minutes. Ignored by providers whose commands are not time-limited.
      */
     'ttl_minutes': number;
 }

@@ -14,8 +14,16 @@
 
 
 
-export interface DeleteRunSandbox {
-    'provider': string;
-    'identifier': string;
-}
+/**
+ * Optional provider-specific model speed tier used for cost estimates.
+ */
+
+export const BillingSpeed = {
+    STANDARD: 'standard',
+    FAST: 'fast'
+} as const;
+
+export type BillingSpeed = typeof BillingSpeed[keyof typeof BillingSpeed];
+
+
 

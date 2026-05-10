@@ -15,6 +15,12 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
+import type { BilledTokenCounts } from './billed-token-counts';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { BillingModelRef } from './billing-model-ref';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { CommandTermination } from './command-termination';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -60,6 +66,8 @@ export interface StageProjection {
      * Wall-clock duration of the stage\'s latest terminal attempt, if known.
      */
     'duration_ms'?: number | null;
+    'usage': BilledTokenCounts;
+    'model'?: BillingModelRef | null;
     'state'?: StageState | null;
 }
 

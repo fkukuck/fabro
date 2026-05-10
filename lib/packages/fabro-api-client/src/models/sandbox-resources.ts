@@ -15,16 +15,20 @@
 
 
 /**
- * Compute resources allocated to a sandbox.
+ * Resource configuration for a sandbox. Fields are nullable when the provider does not surface a value or no limit is configured.
  */
 export interface SandboxResources {
     /**
-     * Number of CPU cores.
+     * Configured CPU cores. Null when unavailable.
      */
-    'cpu': number;
+    'cpu_cores'?: number;
     /**
-     * Memory in GB.
+     * Memory limit in bytes. Null when unavailable or unlimited.
      */
-    'memory': number;
+    'memory_bytes'?: number;
+    /**
+     * Disk size in bytes. Null when unavailable.
+     */
+    'disk_bytes'?: number;
 }
 

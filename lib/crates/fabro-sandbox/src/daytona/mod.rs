@@ -400,6 +400,12 @@ impl DaytonaSandbox {
         })
     }
 
+    /// Read-only access to the SDK sandbox once initialized. Returns `None`
+    /// before `initialize()` or `reconnect()` has populated the cell.
+    pub fn sandbox_handle(&self) -> Option<&daytona_sdk::Sandbox> {
+        self.sandbox.get()
+    }
+
     pub(crate) fn daytona_id(&self) -> crate::Result<&str> {
         Ok(&self.sandbox()?.id)
     }

@@ -14,8 +14,17 @@
 
 
 
-export interface DeleteRunSandbox {
-    'provider': string;
-    'identifier': string;
+/**
+ * Lifecycle timestamps for a sandbox. Fields are nullable when the provider does not surface a value.
+ */
+export interface SandboxTimestamps {
+    /**
+     * When the sandbox was created.
+     */
+    'created_at'?: string;
+    /**
+     * Most recent activity timestamp reported by the provider.
+     */
+    'last_activity_at'?: string;
 }
 

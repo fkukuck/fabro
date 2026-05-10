@@ -15,20 +15,19 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
-import type { SandboxResources } from './sandbox-resources';
+import type { BillingSpeed } from './billing-speed';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { Provider } from './provider';
 
 /**
- * Sandbox environment summary used for the runs board.
+ * Provider-qualified billing model identity used for cost estimates.
  */
-export interface RunSandbox {
-    /**
-     * Sandbox identifier.
-     */
-    'id'?: string | null;
-    /**
-     * Path where the run executed inside the sandbox.
-     */
-    'working_directory'?: string | null;
-    'resources'?: SandboxResources;
+export interface BillingModelRef {
+    'provider': Provider;
+    'model_id': string;
+    'speed'?: BillingSpeed | null;
 }
+
+
 

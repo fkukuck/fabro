@@ -38,6 +38,8 @@ models/auth-method.ts
 models/auth-session-user.ts
 models/billed-token-counts.ts
 models/billing-by-model.ts
+models/billing-model-ref.ts
+models/billing-speed.ts
 models/billing-stage-ref.ts
 models/blocked-reason.ts
 models/board-column-definition.ts
@@ -282,9 +284,12 @@ models/run-status.ts
 models/run-summary.ts
 models/run-superseded-by-props.ts
 models/run-timings.ts
+models/sandbox-details.ts
 models/sandbox-file-entry.ts
 models/sandbox-file-list-response.ts
 models/sandbox-resources.ts
+models/sandbox-state.ts
+models/sandbox-timestamps.ts
 models/save-query-request.ts
 models/saved-query.ts
 models/secret-list-response.ts

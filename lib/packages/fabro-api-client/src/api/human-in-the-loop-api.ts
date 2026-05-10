@@ -30,6 +30,8 @@ import type { PreviewUrlRequest } from '../models';
 // @ts-ignore
 import type { PreviewUrlResponse } from '../models';
 // @ts-ignore
+import type { SandboxDetails } from '../models';
+// @ts-ignore
 import type { SandboxFileListResponse } from '../models';
 // @ts-ignore
 import type { SshAccessRequest } from '../models';
@@ -45,8 +47,8 @@ import type { SubmitAnswerRequest } from '../models';
 export const HumanInTheLoopApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * Creates a time-limited SSH command for the run\'s sandbox environment.
-         * @summary SSH Access
+         * Creates a command for connecting to the run\'s sandbox environment. Daytona runs return a time-limited SSH command; Docker runs return a local docker exec command.
+         * @summary Sandbox Access Command
          * @param {string} id Unique run identifier (ULID).
          * @param {SshAccessRequest} sshAccessRequest 
          * @param {*} [options] Override http request option.
@@ -376,6 +378,46 @@ export const HumanInTheLoopApiAxiosParamCreator = function (configuration?: Conf
             };
         },
         /**
+         * Returns provider-neutral details about the sandbox owned by this run, including identity, normalized state, image/snapshot, resources, labels, and timestamps.
+         * @summary Retrieve Run Sandbox Details
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveRunSandbox: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('retrieveRunSandbox', 'id', id)
+            const localVarPath = `/api/v1/runs/{id}/sandbox`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * Send a mid-run steering message to the live agent session(s) of a running run. Set `interrupt=true` to atomically interrupt the active API-mode agent round first, then deliver this message as the next user turn. Without `interrupt=true`, the message is appended to the steering queue and may buffer until the next API-mode agent session. 
          * @summary Steer Run
          * @param {string} id Unique run identifier (ULID).
@@ -479,8 +521,8 @@ export const HumanInTheLoopApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = HumanInTheLoopApiAxiosParamCreator(configuration)
     return {
         /**
-         * Creates a time-limited SSH command for the run\'s sandbox environment.
-         * @summary SSH Access
+         * Creates a command for connecting to the run\'s sandbox environment. Daytona runs return a time-limited SSH command; Docker runs return a local docker exec command.
+         * @summary Sandbox Access Command
          * @param {string} id Unique run identifier (ULID).
          * @param {SshAccessRequest} sshAccessRequest 
          * @param {*} [options] Override http request option.
@@ -579,6 +621,19 @@ export const HumanInTheLoopApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Returns provider-neutral details about the sandbox owned by this run, including identity, normalized state, image/snapshot, resources, labels, and timestamps.
+         * @summary Retrieve Run Sandbox Details
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async retrieveRunSandbox(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SandboxDetails>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveRunSandbox(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['HumanInTheLoopApi.retrieveRunSandbox']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Send a mid-run steering message to the live agent session(s) of a running run. Set `interrupt=true` to atomically interrupt the active API-mode agent round first, then deliver this message as the next user turn. Without `interrupt=true`, the message is appended to the steering queue and may buffer until the next API-mode agent session. 
          * @summary Steer Run
          * @param {string} id Unique run identifier (ULID).
@@ -617,8 +672,8 @@ export const HumanInTheLoopApiFactory = function (configuration?: Configuration,
     const localVarFp = HumanInTheLoopApiFp(configuration)
     return {
         /**
-         * Creates a time-limited SSH command for the run\'s sandbox environment.
-         * @summary SSH Access
+         * Creates a command for connecting to the run\'s sandbox environment. Daytona runs return a time-limited SSH command; Docker runs return a local docker exec command.
+         * @summary Sandbox Access Command
          * @param {string} id Unique run identifier (ULID).
          * @param {SshAccessRequest} sshAccessRequest 
          * @param {*} [options] Override http request option.
@@ -696,6 +751,16 @@ export const HumanInTheLoopApiFactory = function (configuration?: Configuration,
             return localVarFp.putSandboxFile(id, path, body, options).then((request) => request(axios, basePath));
         },
         /**
+         * Returns provider-neutral details about the sandbox owned by this run, including identity, normalized state, image/snapshot, resources, labels, and timestamps.
+         * @summary Retrieve Run Sandbox Details
+         * @param {string} id Unique run identifier (ULID).
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveRunSandbox(id: string, options?: RawAxiosRequestConfig): AxiosPromise<SandboxDetails> {
+            return localVarFp.retrieveRunSandbox(id, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Send a mid-run steering message to the live agent session(s) of a running run. Set `interrupt=true` to atomically interrupt the active API-mode agent round first, then deliver this message as the next user turn. Without `interrupt=true`, the message is appended to the steering queue and may buffer until the next API-mode agent session. 
          * @summary Steer Run
          * @param {string} id Unique run identifier (ULID).
@@ -726,8 +791,8 @@ export const HumanInTheLoopApiFactory = function (configuration?: Configuration,
  */
 export class HumanInTheLoopApi extends BaseAPI {
     /**
-     * Creates a time-limited SSH command for the run\'s sandbox environment.
-     * @summary SSH Access
+     * Creates a command for connecting to the run\'s sandbox environment. Daytona runs return a time-limited SSH command; Docker runs return a local docker exec command.
+     * @summary Sandbox Access Command
      * @param {string} id Unique run identifier (ULID).
      * @param {SshAccessRequest} sshAccessRequest 
      * @param {*} [options] Override http request option.
@@ -809,6 +874,17 @@ export class HumanInTheLoopApi extends BaseAPI {
      */
     public putSandboxFile(id: string, path: string, body: File, options?: RawAxiosRequestConfig) {
         return HumanInTheLoopApiFp(this.configuration).putSandboxFile(id, path, body, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Returns provider-neutral details about the sandbox owned by this run, including identity, normalized state, image/snapshot, resources, labels, and timestamps.
+     * @summary Retrieve Run Sandbox Details
+     * @param {string} id Unique run identifier (ULID).
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public retrieveRunSandbox(id: string, options?: RawAxiosRequestConfig) {
+        return HumanInTheLoopApiFp(this.configuration).retrieveRunSandbox(id, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

@@ -1125,11 +1125,15 @@ mod runs {
         }
     }
 
-    fn sandbox(id: &str, cpu: i64, memory: i64) -> RunSandbox {
+    fn sandbox(id: &str, cpu_cores: u32, memory_gib: u32) -> RunSandbox {
         RunSandbox {
             id:                Some(id.to_string()),
             working_directory: Some("/workspace".to_string()),
-            resources:         Some(SandboxResources { cpu, memory }),
+            resources:         Some(SandboxResources {
+                cpu_cores:    Some(f64::from(cpu_cores)),
+                memory_bytes: Some(u64::from(memory_gib) * 1024 * 1024 * 1024),
+                disk_bytes:   None,
+            }),
         }
     }
 

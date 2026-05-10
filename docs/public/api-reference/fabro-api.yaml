@@ -6892,24 +6892,8 @@ components:
           description: Whether the elapsed time exceeds the expected threshold.
           example: false
 
-    SandboxResources:
-      description: Compute resources allocated to a sandbox.
-      type: object
-      required:
-        - cpu
-        - memory
-      properties:
-        cpu:
-          type: integer
-          description: Number of CPU cores.
-          example: 4
-        memory:
-          type: integer
-          description: Memory in GB.
-          example: 8
-
     RunSandbox:
-      description: Sandbox environment for a run.
+      description: Sandbox environment summary used for the runs board.
       type: object
       properties:
         id:

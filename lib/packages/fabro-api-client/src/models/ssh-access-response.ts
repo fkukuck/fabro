@@ -15,11 +15,11 @@
 
 
 /**
- * Response containing an SSH command for the sandbox.
+ * Response containing a command for connecting to the sandbox.
  */
 export interface SshAccessResponse {
     /**
-     * SSH command to connect to the sandbox.
+     * Command to connect to the sandbox.
      */
     'command': string;
 }
