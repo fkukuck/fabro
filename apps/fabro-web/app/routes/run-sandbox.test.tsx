@@ -58,6 +58,12 @@ mock.module("@pierre/trees", () => ({ themeToTreeStyles: () => ({}) }));
 mock.module("@pierre/theme/pierre-dark", () => ({ default: {} }));
 mock.module("@pierre/diffs/react", () => ({
   File: () => <div data-test-id="pierre-file-stub" />,
+  Virtualizer: ({ children }: { children?: ReactNode }) => (
+    <div data-test-id="pierre-virtualizer-stub">{children}</div>
+  ),
+  WorkerPoolContextProvider: ({ children }: { children?: ReactNode }) => (
+    <div data-test-id="pierre-worker-pool-stub">{children}</div>
+  ),
 }));
 
 const { default: RunSandbox, formatBytesAsMemory, normalizeSandboxMode } =

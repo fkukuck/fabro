@@ -25,6 +25,9 @@ let filesState: FilesQueryState = makeEmptyFilesState();
 let lastFileArgs: { id: string | undefined; path: string | null | undefined } | null = null;
 let fileState: FileQueryState = makeEmptyFileState();
 let lastTreeOptions: CapturedTreeOptions | null = null;
+const pierreFileCalls: Array<{ file: { name: string; contents: string; cacheKey?: string } }> = [];
+const providerCalls: any[] = [];
+const virtualizerCalls: any[] = [];
 
 function makeEmptyFilesState(): FilesQueryState {
   return {
@@ -81,11 +84,22 @@ mock.module("@pierre/theme/pierre-dark", () => ({
 }));
 
 mock.module("@pierre/diffs/react", () => ({
-  File: (props: { file: { name: string; contents: string } }) => (
-    <div data-test-id="pierre-file" data-file-name={props.file.name}>
-      {props.file.contents}
-    </div>
-  ),
+  File: (props: { file: { name: string; contents: string; cacheKey?: string } }) => {
+    pierreFileCalls.push(props);
+    return (
+      <div data-test-id="pierre-file" data-file-name={props.file.name}>
+        {props.file.contents}
+      </div>
+    );
+  },
+  Virtualizer: (props: any) => {
+    virtualizerCalls.push(props);
+    return <div data-test-id="pierre-virtualizer">{props.children}</div>;
+  },
+  WorkerPoolContextProvider: (props: any) => {
+    providerCalls.push(props);
+    return <div data-test-id="pierre-worker-pool">{props.children}</div>;
+  },
 }));
 
 const filesystemPanelModule = await import("./filesystem-panel");
@@ -119,6 +133,9 @@ beforeEach(() => {
   lastFilesArgs = null;
   lastFileArgs = null;
   lastTreeOptions = null;
+  pierreFileCalls.length = 0;
+  providerCalls.length = 0;
+  virtualizerCalls.length = 0;
   filesState = makeEmptyFilesState();
   fileState = makeEmptyFileState();
 });
@@ -380,6 +397,38 @@ describe("FilesystemPanel render", () => {
             && node.props["data-file-name"] === "README.md",
     );
     expect(previews).toHaveLength(1);
+    expect(providerCalls).toHaveLength(1);
+    expect(virtualizerCalls).toHaveLength(1);
+    expect(pierreFileCalls[0].file.cacheKey).toContain(
+      "fabro-sandbox-file:run_1:/README.md:",
+    );
+  });
+
+  test("renders an empty text file without mounting Pierre File", () => {
+    filesState = {
+      ...makeEmptyFilesState(),
+      data: { data: [{ name: ".dockerenv", is_dir: false, size: 0 }] },
+    };
+    fileState = {
+      ...makeEmptyFileState(),
+      data: new TextEncoder().encode("").buffer as ArrayBuffer,
+    };
+    const renderer = renderPanel();
+    act(() => {
+      lastTreeOptions?.onSelectionChange?.([".dockerenv"]);
+    });
+    expect(lastFileArgs).toEqual({
+      id:   "run_1",
+      path: "/.dockerenv",
+    });
+    expect(findByTestId(renderer, "pierre-file")).toHaveLength(0);
+    const titles = renderer.root.findAll(
+      (node) =>
+        node.type === "p" &&
+        Array.isArray(node.children) &&
+        node.children.includes("Empty file"),
+    );
+    expect(titles).toHaveLength(1);
   });
 
   test("renders binary fallback when file contents contain a null byte", () => {

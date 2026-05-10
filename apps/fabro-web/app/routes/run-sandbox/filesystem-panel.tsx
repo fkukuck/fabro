@@ -15,17 +15,23 @@ import {
 import {
   FileTree,
   useFileTree,
-  useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles } from "@pierre/trees";
 import pierreDark from "@pierre/theme/pierre-dark";
-import { File } from "@pierre/diffs/react";
+import {
+  File,
+  Virtualizer,
+  WorkerPoolContextProvider,
+  type FileContents,
+} from "@pierre/diffs/react";
 import type { SandboxFileEntry } from "@qltysh/fabro-api-client";
 
 import { useSandboxFile, useSandboxFiles } from "../../lib/queries";
 import { ApiError } from "../../lib/api-client";
 import { EmptyState, ErrorState, LoadingState } from "../../components/state";
 import { SECONDARY_BUTTON_CLASS, Tooltip } from "../../components/ui";
+import { workerFactory } from "../../lib/pierre-diffs-worker";
+import { stringHash } from "../run-files/cache-keys";
 
 export const DEFAULT_DIR = "/";
 
@@ -34,6 +40,8 @@ export const DEFAULT_DIR = "/";
 // download-only state.
 export const TEXT_PREVIEW_BYTE_LIMIT = 256 * 1024;
 const BINARY_SAMPLE_BYTES = 8 * 1024;
+const pierrePoolOptions = { workerFactory };
+const pierreHighlighterOptions = { theme: "pierre-dark" };
 
 type TreeThemeStyle = CSSProperties & Record<`--${string}`, string | number>;
 
@@ -112,6 +120,18 @@ export function formatFileSize(bytes: number | undefined): string | null {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+}
+
+export function sandboxFileCacheKey({
+  runId,
+  path,
+  contents,
+}: {
+  runId: string;
+  path: string;
+  contents: string;
+}): string {
+  return `fabro-sandbox-file:${runId}:${path}:${stringHash(contents)}`;
 }
 
 interface BuiltTreeInputs {
@@ -486,8 +506,13 @@ function PreviewPane({
           </a>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <PreviewBody preview={preview} fileName={name} />
+      <div className="min-h-0 flex-1">
+        <PreviewBody
+          preview={preview}
+          runId={runId}
+          fileName={name}
+          filePath={filePath}
+        />
       </div>
     </div>
   );
@@ -495,10 +520,14 @@ function PreviewPane({
 
 function PreviewBody({
   preview,
+  runId,
   fileName,
+  filePath,
 }: {
   preview: PreviewState;
+  runId: string;
   fileName: string;
+  filePath: string;
 }) {
   if (preview.status === "loading") {
     return (
@@ -538,10 +567,39 @@ function PreviewBody({
       </div>
     );
   }
+  if ((preview.text ?? "").length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <EmptyState
+          title="Empty file"
+          description="This file has no contents."
+        />
+      </div>
+    );
+  }
+  const file: FileContents = {
+    name:     fileName,
+    contents: preview.text ?? "",
+    cacheKey: sandboxFileCacheKey({
+      runId,
+      path:     filePath,
+      contents: preview.text ?? "",
+    }),
+  };
   return (
-    <File
-      file={{ name: fileName, contents: preview.text ?? "" }}
-      options={{ theme: "pierre-dark", disableFileHeader: true }}
-    />
+    <WorkerPoolContextProvider
+      poolOptions={pierrePoolOptions}
+      highlighterOptions={pierreHighlighterOptions}
+    >
+      <Virtualizer
+        className="h-full min-h-0 overflow-auto"
+        contentClassName="min-w-0 pb-4"
+      >
+        <File
+          file={file}
+          options={{ theme: "pierre-dark", disableFileHeader: true }}
+        />
+      </Virtualizer>
+    </WorkerPoolContextProvider>
   );
 }
