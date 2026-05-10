@@ -18,6 +18,12 @@ use super::super::{
 const MAX_TERMINAL_CONTROL_BYTES: usize = 4096;
 const DEFAULT_VNC_NO_VNC_PORT: u16 = 6080;
 const DEFAULT_VNC_TTL_SECS: i32 = 3600;
+// Daytona's signed preview points at the noVNC service root, which serves a
+// directory listing. Force the iframe to the actual viewer page with
+// autoconnect+scale so the user lands on the desktop, not a file index.
+const VNC_VIEWER_PATH: &str = "/vnc.html";
+const VNC_VIEWER_AUTOCONNECT: (&str, &str) = ("autoconnect", "true");
+const VNC_VIEWER_RESIZE: (&str, &str) = ("resize", "scale");
 
 trait VncSandbox {
     fn start_computer_use(&self) -> BoxFuture<'_, fabro_sandbox::Result<()>>;
@@ -452,12 +458,15 @@ async fn build_vnc_preview_response(
     sandbox.start_computer_use().await.map_err(|err| {
         ApiError::new(StatusCode::CONFLICT, err.display_with_causes()).into_response()
     })?;
-    let url = sandbox
+    let signed = sandbox
         .signed_preview_url(DEFAULT_VNC_NO_VNC_PORT, DEFAULT_VNC_TTL_SECS)
         .await
         .map_err(|err| {
             ApiError::new(StatusCode::CONFLICT, err.display_with_causes()).into_response()
         })?;
+    let url = vnc_viewer_url(&signed).map_err(|err| {
+        ApiError::new(StatusCode::CONFLICT, err.display_with_causes()).into_response()
+    })?;
     Ok(VncPreviewResponse {
         expires_in_secs: NonZeroU64::new(
             u64::try_from(DEFAULT_VNC_TTL_SECS).expect("default VNC TTL should fit in u64"),
@@ -468,6 +477,23 @@ async fn build_vnc_preview_response(
         provider: "daytona".to_string(),
         url,
     })
+}
+
+fn vnc_viewer_url(signed_url: &str) -> fabro_sandbox::Result<String> {
+    // Internal URL manipulation, not logging — `DisplaySafeUrl` is for
+    // logging/error boundaries. The signed URL may carry a credential, so
+    // the parse-failure message intentionally omits it.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "internal url manipulation; redaction handled by omitting the URL from error messages"
+    )]
+    let mut url = url::Url::parse(signed_url)
+        .map_err(|err| fabro_sandbox::Error::context("Failed to parse signed VNC URL", err))?;
+    url.set_path(VNC_VIEWER_PATH);
+    url.query_pairs_mut()
+        .append_pair(VNC_VIEWER_AUTOCONNECT.0, VNC_VIEWER_AUTOCONNECT.1)
+        .append_pair(VNC_VIEWER_RESIZE.0, VNC_VIEWER_RESIZE.1);
+    Ok(url.into())
 }
 
 async fn list_sandbox_files(
@@ -767,13 +793,42 @@ mod tests {
 
         let response = build_vnc_preview_response(&sandbox).await.unwrap();
 
-        assert_eq!(response.url, "https://preview.example.test/sandbox/6080");
+        assert_eq!(
+            response.url,
+            "https://preview.example.test/vnc.html?autoconnect=true&resize=scale"
+        );
         assert_eq!(response.provider, "daytona");
         assert_eq!(response.port.get(), u64::from(DEFAULT_VNC_NO_VNC_PORT));
         assert_eq!(
             response.expires_in_secs.get(),
             u64::try_from(DEFAULT_VNC_TTL_SECS).unwrap()
         );
+    }
+
+    #[test]
+    fn vnc_viewer_url_replaces_path_and_appends_viewer_query() {
+        let url = super::vnc_viewer_url("https://6080-preview.example.test/").expect("parse");
+        assert_eq!(
+            url,
+            "https://6080-preview.example.test/vnc.html?autoconnect=true&resize=scale"
+        );
+    }
+
+    #[test]
+    fn vnc_viewer_url_preserves_existing_query_params() {
+        // Daytona signed previews can carry tokens or other params; viewer
+        // params must be appended without dropping them.
+        let url =
+            super::vnc_viewer_url("https://6080-preview.example.test/?token=abc").expect("parse");
+        assert_eq!(
+            url,
+            "https://6080-preview.example.test/vnc.html?token=abc&autoconnect=true&resize=scale"
+        );
+    }
+
+    #[test]
+    fn vnc_viewer_url_returns_error_for_unparseable_input() {
+        assert!(super::vnc_viewer_url("not a url").is_err());
     }
 
     #[tokio::test]
