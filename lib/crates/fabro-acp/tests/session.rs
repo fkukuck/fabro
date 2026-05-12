@@ -8,9 +8,10 @@ use fabro_acp::{AcpError, AcpRunRequest, AcpRunResult, resolve_acp_command, run_
 use fabro_sandbox::test_support::MockSandbox;
 use fabro_sandbox::{LocalSandbox, Sandbox, shell_quote};
 use fabro_util::error::collect_chain;
-use tokio::fs::{metadata, read_to_string, write};
+use tokio::fs::{read_to_string, write};
 use tokio::process::Command;
-use tokio::time::{Instant, sleep};
+use tokio::sync::Notify;
+use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
 
 const ACP_TEST_TIMEOUT_MS: u64 = 30_000;
@@ -166,15 +167,15 @@ async fn runs_inside_sandbox_and_uses_requested_cwd() {
 async fn cancellation_sends_session_cancel_and_returns_cancelled() {
     let tempdir = tempfile::tempdir().expect("create tempdir");
     let cancel_path = tempdir.path().join("cancel.txt");
-    let prompt_path = tempdir.path().join("prompt.json");
     let tempdir_path = tempdir.path().to_path_buf();
     let cancel_path_for_task = cancel_path.clone();
-    let prompt_path_for_task = prompt_path.clone();
     let cancel_token = CancellationToken::new();
     let cancel_for_task = cancel_token.clone();
+    let prompt_started = Arc::new(Notify::new());
+    let prompt_started_for_task = prompt_started.clone();
 
     let task = tokio::spawn(async move {
-        run_fake_agent(
+        run_fake_agent_with_activity(
             &tempdir_path,
             HashMap::from([
                 ("ACP_MODE".to_string(), "cancel".to_string()),
@@ -182,18 +183,20 @@ async fn cancellation_sends_session_cancel_and_returns_cancelled() {
                     "ACP_CANCEL_RECORD".to_string(),
                     cancel_path_for_task.to_string_lossy().into_owned(),
                 ),
-                (
-                    "ACP_PROMPT_RECORD".to_string(),
-                    prompt_path_for_task.to_string_lossy().into_owned(),
-                ),
             ]),
             Some(ACP_TEST_TIMEOUT_MS),
             cancel_for_task,
+            Some(Arc::new(move || prompt_started_for_task.notify_one())),
         )
         .await
     });
 
-    wait_for_file(&prompt_path, Duration::from_secs(10)).await;
+    timeout(
+        Duration::from_millis(ACP_TEST_TIMEOUT_MS),
+        prompt_started.notified(),
+    )
+    .await
+    .expect("fake ACP agent should acknowledge session/prompt before cancellation");
     cancel_token.cancel();
     let err = task
         .await
@@ -390,6 +393,16 @@ async fn run_fake_agent(
     timeout_ms: Option<u64>,
     cancel_token: CancellationToken,
 ) -> Result<AcpRunResult, AcpError> {
+    run_fake_agent_with_activity(tempdir, env, timeout_ms, cancel_token, None).await
+}
+
+async fn run_fake_agent_with_activity(
+    tempdir: &Path,
+    env: HashMap<String, String>,
+    timeout_ms: Option<u64>,
+    cancel_token: CancellationToken,
+    on_activity: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<AcpRunResult, AcpError> {
     let script_path = tempdir.join("fake_acp_agent.py");
     write(&script_path, fake_acp_agent_script())
         .await
@@ -406,20 +419,9 @@ async fn run_fake_agent(
         env,
         sandbox,
         cancel_token,
-        on_activity: None,
+        on_activity,
     })
     .await
-}
-
-async fn wait_for_file(path: &Path, max_wait: Duration) {
-    let deadline = Instant::now() + max_wait;
-    while Instant::now() < deadline {
-        if metadata(path).await.is_ok() {
-            return;
-        }
-        sleep(Duration::from_millis(25)).await;
-    }
-    panic!("timed out waiting for {}", path.display());
 }
 
 async fn process_is_running(pid: &str) -> bool {

@@ -86,6 +86,17 @@ for line in sys.stdin:
             with open("hello.txt", "w", encoding="utf-8") as file:
                 file.write("hello from sandbox\n")
         if mode == "cancel":
+            send({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "waiting for cancellation"}
+                    }
+                }
+            })
             for cancel_line in sys.stdin:
                 cancel_message = json.loads(cancel_line)
                 if cancel_message.get("method") == "session/cancel":
