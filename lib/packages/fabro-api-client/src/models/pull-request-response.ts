@@ -15,18 +15,16 @@
 
 // May contain unused imports in some cases
 // @ts-ignore
-import type { SandboxNetworkPolicyMode } from './sandbox-network-policy-mode';
+import type { PullRequest } from './pull-request';
+// May contain unused imports in some cases
+// @ts-ignore
+import type { PullRequestMeta } from './pull-request-meta';
 
 /**
- * Public-network policy for one direction.
+ * Pull request link and optional live GitHub details for a run.
  */
-export interface SandboxNetworkPolicy {
-    'mode': SandboxNetworkPolicyMode;
-    /**
-     * CIDR entries when `mode` is `cidr_allow_list`; empty for other modes.
-     */
-    'cidrs': Array<string>;
+export interface PullRequestResponse {
+    'data': PullRequest;
+    'meta': PullRequestMeta;
 }
-
-
 

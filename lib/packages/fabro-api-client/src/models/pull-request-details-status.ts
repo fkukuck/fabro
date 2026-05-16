@@ -15,18 +15,15 @@
 
 
 /**
- * Provider-neutral public-network policy for one direction.
+ * Whether live GitHub pull request details are present.
  */
 
-export const SandboxNetworkPolicyMode = {
-    UNKNOWN: 'unknown',
-    OPEN: 'open',
-    BLOCKED: 'blocked',
-    CIDR_ALLOW_LIST: 'cidr_allow_list',
-    ESSENTIALS_ONLY: 'essentials_only'
+export const PullRequestDetailsStatus = {
+    AVAILABLE: 'available',
+    UNAVAILABLE: 'unavailable'
 } as const;
 
-export type SandboxNetworkPolicyMode = typeof SandboxNetworkPolicyMode[keyof typeof SandboxNetworkPolicyMode];
+export type PullRequestDetailsStatus = typeof PullRequestDetailsStatus[keyof typeof PullRequestDetailsStatus];
 
 
 

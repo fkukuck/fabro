@@ -13,20 +13,17 @@
  */
 
 
-// May contain unused imports in some cases
-// @ts-ignore
-import type { SandboxNetworkPolicyMode } from './sandbox-network-policy-mode';
 
 /**
- * Public-network policy for one direction.
+ * Minimal GitHub pull request link associated with a run.
  */
-export interface SandboxNetworkPolicy {
-    'mode': SandboxNetworkPolicyMode;
+export interface PullRequestLink {
+    'owner': string;
+    'repo': string;
+    'number': number;
     /**
-     * CIDR entries when `mode` is `cidr_allow_list`; empty for other modes.
+     * Computed GitHub web URL for the pull request.
      */
-    'cidrs': Array<string>;
+    'html_url': string;
 }
-
-
 

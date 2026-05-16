@@ -1,36 +1,30 @@
-#![allow(
-    clippy::absolute_paths,
-    reason = "This test module prefers explicit type paths over extra imports."
-)]
-
 use fabro_test::{fabro_snapshot, test_context};
 use httpmock::MockServer;
 
-use super::support::{mock_resolved_run, setup_seeded_completed_dry_run};
+use super::support::mock_resolved_run;
 use crate::support::unique_run_id;
 
 #[test]
 fn help() {
     let context = test_context!();
     let mut cmd = context.command();
-    cmd.args(["pr", "create", "--help"]);
+    cmd.args(["pr", "link", "--help"]);
     fabro_snapshot!(context.filters(), cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
-    Create a pull request from a completed run
+    Link or replace the GitHub pull request associated with a run
 
-    Usage: fabro pr create [OPTIONS] <RUN_ID>
+    Usage: fabro pr link [OPTIONS] <RUN_ID> <URL>
 
     Arguments:
       <RUN_ID>  Run ID or prefix
+      <URL>     GitHub pull request URL to associate with the run
 
     Options:
           --json              Output as JSON [env: FABRO_JSON=]
           --server <SERVER>   Fabro server target: http(s) URL or absolute Unix socket path [env: FABRO_SERVER=]
           --debug             Enable DEBUG-level logging (default is INFO) [env: FABRO_DEBUG=]
-          --model <MODEL>     LLM model for generating PR description
-      -f, --force             Create PR even if the run status is not succeeded/partially_succeeded
           --no-upgrade-check  Disable automatic upgrade check [env: FABRO_NO_UPGRADE_CHECK=true]
           --quiet             Suppress non-essential output [env: FABRO_QUIET=]
           --verbose           Enable verbose output [env: FABRO_VERBOSE=]
@@ -40,118 +34,91 @@ fn help() {
 }
 
 #[test]
-fn pr_create_nongit_run_reports_missing_repo_origin() {
-    let context = test_context!();
-    let run = setup_seeded_completed_dry_run(&context);
-
-    let mut cmd = context.command();
-    cmd.args(["pr", "create", &run.run_id]);
-
-    fabro_snapshot!(context.filters(), cmd, @"
-    success: false
-    exit_code: 1
-    ----- stdout -----
-    ----- stderr -----
-      × Run has no repo origin URL — pull request creation requires git metadata.
-    ");
-}
-
-#[test]
-fn pr_create_uses_server_endpoint_and_prints_url() {
+fn pr_link_uses_server_endpoint_and_prints_linked_record() {
     let context = test_context!();
     let server = MockServer::start();
     let run_id = unique_run_id();
 
     let resolve_mock = mock_resolved_run(&server, "nightly-build", &run_id);
-    let create_mock = server.mock(|when, then| {
-        when.method("POST")
+    let link_mock = server.mock(|when, then| {
+        when.method("PUT")
             .path(format!("/api/v1/runs/{run_id}/pull_request"))
             .header("content-type", "application/json")
             .json_body(serde_json::json!({
-                "force": false
+                "html_url": "https://github.com/acme/widgets/pull/42"
             }));
         then.status(200)
             .header("Content-Type", "application/json")
             .json_body(serde_json::json!({
-                "owner": "fabro-sh",
-                "repo": "fabro",
-                "number": 123,
-                "html_url": "https://github.com/fabro-sh/fabro/pull/123"
+                "owner": "acme",
+                "repo": "widgets",
+                "number": 42,
+                "html_url": "https://github.com/acme/widgets/pull/42"
             }));
     });
 
     let mut cmd = context.command();
     cmd.args([
         "pr",
-        "create",
+        "link",
         "--server",
         &server.base_url(),
         "nightly-build",
+        "https://github.com/acme/widgets/pull/42",
     ]);
 
     fabro_snapshot!(context.filters(), cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
-    https://github.com/fabro-sh/fabro/pull/123
+    Linked pull request: https://github.com/acme/widgets/pull/42 (github #42)
     ----- stderr -----
     ");
 
     resolve_mock.assert();
-    create_mock.assert();
+    link_mock.assert();
 }
 
 #[test]
-fn pr_create_passes_force_and_model_to_server() {
+fn pr_link_skips_resolve_endpoint_for_full_run_id() {
     let context = test_context!();
     let server = MockServer::start();
     let run_id = unique_run_id();
 
-    let resolve_mock = mock_resolved_run(&server, "nightly-build", &run_id);
-    let create_mock = server.mock(|when, then| {
-        when.method("POST")
+    let link_mock = server.mock(|when, then| {
+        when.method("PUT")
             .path(format!("/api/v1/runs/{run_id}/pull_request"))
             .header("content-type", "application/json")
             .json_body(serde_json::json!({
-                "force": true,
-                "model": "gpt-5.2"
+                "html_url": "https://github.com/acme/widgets/pull/42"
             }));
         then.status(200)
             .header("Content-Type", "application/json")
             .json_body(serde_json::json!({
-                "owner": "fabro-sh",
-                "repo": "fabro",
-                "number": 123,
-                "html_url": "https://github.com/fabro-sh/fabro/pull/123"
+                "owner": "acme",
+                "repo": "widgets",
+                "number": 42,
+                "html_url": "https://github.com/acme/widgets/pull/42"
             }));
     });
 
     let mut cmd = context.command();
     cmd.args([
         "pr",
-        "create",
-        "--json",
-        "--force",
-        "--model",
-        "gpt-5.2",
+        "link",
         "--server",
         &server.base_url(),
-        "nightly-build",
+        &run_id,
+        "https://github.com/acme/widgets/pull/42",
     ]);
 
-    fabro_snapshot!(context.filters(), cmd, @r#"
+    fabro_snapshot!(context.filters(), cmd, @"
     success: true
     exit_code: 0
     ----- stdout -----
-    {
-      "owner": "fabro-sh",
-      "repo": "fabro",
-      "number": 123,
-      "html_url": "https://github.com/fabro-sh/fabro/pull/123"
-    }
+    Linked pull request: https://github.com/acme/widgets/pull/42 (github #42)
     ----- stderr -----
-    "#);
+    ");
 
-    resolve_mock.assert();
-    create_mock.assert();
+    link_mock.assert();
 }
