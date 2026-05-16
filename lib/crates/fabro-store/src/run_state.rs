@@ -1000,9 +1000,7 @@ mod tests {
                         "output_tokens": output_tokens
                     }
                 },
-                "facts": {
-                    "provider": "open_ai"
-                }
+                "facts": { "algorithm": "openai" }
             },
             "total_usd_micros": input_tokens + output_tokens
         }))
@@ -2816,7 +2814,7 @@ mod tests {
                         "cache_write_tokens": 4
                     }
                 },
-                "facts": { "provider": "open_ai" }
+                "facts": { "algorithm": "openai" }
             },
             "total_usd_micros": 123
         }))

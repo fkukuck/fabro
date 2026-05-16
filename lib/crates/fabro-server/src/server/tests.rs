@@ -17,7 +17,7 @@ use fabro_interview::{
 };
 use fabro_llm::types::{Message as LlmMessage, Request as LlmRequest};
 use fabro_model::catalog::LlmCatalogSettings;
-use fabro_model::{Catalog, ModelRef, Provider, Speed};
+use fabro_model::{Catalog, ModelRef, ProviderId, Speed};
 use fabro_types::settings::ServerAuthMethod;
 use fabro_types::{
     AttrValue, AuthMethod, CommandTermination, FailureCategory, FailureDetail, Graph,
@@ -94,10 +94,7 @@ fn spa_fixture_root() -> PathBuf {
 }
 
 fn state_test_catalog() -> Arc<Catalog> {
-    Arc::new(
-        Catalog::from_builtin_with_overrides(&LlmCatalogSettings::default())
-            .expect("default catalog should build"),
-    )
+    Arc::new(Catalog::from_builtin().expect("default catalog should build"))
 }
 
 fn test_app_with_scheduler(state: Arc<AppState>) -> Router {
@@ -194,7 +191,7 @@ async fn mock_daytona_current_key<'a>(
 
 fn openai_api_key_credential(key: &str) -> AuthCredential {
     AuthCredential {
-        provider: Provider::OpenAi.id(),
+        provider: ProviderId::openai(),
         details:  AuthDetails::ApiKey {
             key: key.to_string(),
         },
@@ -1023,7 +1020,7 @@ async fn create_secret_stores_valid_credential_entries() {
     let state = test_app_state();
     let app = crate::test_support::build_test_router(Arc::clone(&state));
     let credential = fabro_auth::AuthCredential {
-        provider: Provider::OpenAi.id(),
+        provider: ProviderId::openai(),
         details:  fabro_auth::AuthDetails::CodexOAuth {
             tokens:     fabro_auth::OAuthTokens {
                 access_token:  "access".to_string(),
@@ -1286,7 +1283,7 @@ async fn llm_source_configured_providers_reads_openai_codex_from_vault() {
             .llm_source
             .configured_providers(catalog.as_ref())
             .await,
-        vec![Provider::OpenAi.id()]
+        vec![ProviderId::openai()]
     );
 }
 
@@ -2282,7 +2279,6 @@ context_window = 128000
 tools = true
 vision = false
 reasoning = false
-effort = false
 "#,
     )
     .expect("catalog fixture should parse");
@@ -2769,9 +2765,7 @@ fn test_billed_usage(
                     "output_tokens": output_tokens
                 }
             },
-            "facts": {
-                "provider": "open_ai"
-            }
+            "facts": { "algorithm": "openai" }
         },
         "total_usd_micros": input_tokens + output_tokens
     }))
@@ -4043,7 +4037,6 @@ context_window = 128000
 tools = true
 vision = false
 reasoning = false
-effort = false
 "#,
     )
     .expect("catalog fixture should parse");
@@ -8499,7 +8492,7 @@ async fn get_aggregate_billing_returns_provider_model_speed_identity() {
         agg.total_runs = 1;
         agg.by_model.insert(
             ModelRef {
-                provider: Provider::Anthropic.id(),
+                provider: ProviderId::anthropic(),
                 model_id: "claude-opus-4-6".to_string(),
                 speed:    None,
             },
@@ -8518,7 +8511,7 @@ async fn get_aggregate_billing_returns_provider_model_speed_identity() {
         );
         agg.by_model.insert(
             ModelRef {
-                provider: Provider::Anthropic.id(),
+                provider: ProviderId::anthropic(),
                 model_id: "claude-opus-4-6".to_string(),
                 speed:    Some(Speed::Fast),
             },
@@ -8585,7 +8578,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
         by_model:           vec![
             fabro_workflow::ProjectionBillingByModel {
                 model:   ModelRef {
-                    provider: Provider::OpenAi.id(),
+                    provider: ProviderId::openai(),
                     model_id: "gpt-5.4".to_string(),
                     speed:    None,
                 },
@@ -8602,7 +8595,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
             },
             fabro_workflow::ProjectionBillingByModel {
                 model:   ModelRef {
-                    provider: Provider::OpenAi.id(),
+                    provider: ProviderId::openai(),
                     model_id: "gpt-5.4".to_string(),
                     speed:    Some(Speed::Fast),
                 },
@@ -8629,7 +8622,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
     assert_eq!(accumulator.by_model.len(), 2);
     assert_eq!(
         accumulator.by_model[&ModelRef {
-            provider: Provider::OpenAi.id(),
+            provider: ProviderId::openai(),
             model_id: "gpt-5.4".to_string(),
             speed:    None,
         }]
@@ -8638,7 +8631,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
     );
     assert_eq!(
         accumulator.by_model[&ModelRef {
-            provider: Provider::OpenAi.id(),
+            provider: ProviderId::openai(),
             model_id: "gpt-5.4".to_string(),
             speed:    None,
         }]
@@ -8648,7 +8641,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
     );
     assert_eq!(
         accumulator.by_model[&ModelRef {
-            provider: Provider::OpenAi.id(),
+            provider: ProviderId::openai(),
             model_id: "gpt-5.4".to_string(),
             speed:    Some(Speed::Fast),
         }]
@@ -8657,7 +8650,7 @@ fn aggregate_billing_counts_projection_rollup_usage_visits() {
     );
     assert_eq!(
         accumulator.by_model[&ModelRef {
-            provider: Provider::OpenAi.id(),
+            provider: ProviderId::openai(),
             model_id: "gpt-5.4".to_string(),
             speed:    Some(Speed::Fast),
         }]
@@ -9607,7 +9600,6 @@ context_window = 128000
 tools = true
 vision = false
 reasoning = false
-effort = false
 "#,
     )
     .expect("catalog fixture should parse");
