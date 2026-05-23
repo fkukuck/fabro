@@ -640,6 +640,164 @@ function parsePageSize(raw: string | null): number {
   return (LIST_PAGE_SIZES as readonly number[]).includes(n) ? n : DEFAULT_LIST_PAGE_SIZE;
 }
 
+const RUNS_PREFERENCES_VERSION = 1;
+export const RUNS_PREFERENCES_STORAGE_KEY = "fabro:runs-preferences:v1";
+const RUNS_WORKSPACE_PARAM_KEYS = [
+  "view",
+  "search",
+  "repo",
+  "workflow",
+  "created",
+  "archived",
+  "sort",
+  "direction",
+  "size",
+  "hide",
+] as const;
+
+type RunsPreferencesStorage = Pick<Storage, "getItem" | "setItem">;
+
+interface RunsWorkspacePreferences {
+  version: typeof RUNS_PREFERENCES_VERSION;
+  view: ViewMode;
+  search: string;
+  repo: string;
+  workflow: string;
+  created: CreatedFilter;
+  archived: boolean;
+  sort: ListRunsSortEnum;
+  direction: ListRunsDirectionEnum;
+  size: number;
+  hide: string;
+}
+
+function defaultRunsWorkspacePreferences(): RunsWorkspacePreferences {
+  return {
+    version:   RUNS_PREFERENCES_VERSION,
+    view:      "columns",
+    search:    "",
+    repo:      "all",
+    workflow:  "all",
+    created:   "all",
+    archived:  false,
+    sort:      "created_at",
+    direction: "desc",
+    size:      DEFAULT_LIST_PAGE_SIZE,
+    hide:      "",
+  };
+}
+
+function runsPreferencesStorage(): RunsPreferencesStorage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function filterPreference(raw: string | null): string {
+  return raw == null || raw === "" ? "all" : raw;
+}
+
+function storageRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeStoredRunsWorkspacePreferences(value: unknown): RunsWorkspacePreferences {
+  const record = storageRecord(value);
+  if (record == null || record.version !== RUNS_PREFERENCES_VERSION) {
+    return defaultRunsWorkspacePreferences();
+  }
+
+  const hiddenColumns = parseHiddenColumns(stringValue(record.hide));
+  const size = record.size;
+
+  return {
+    version:   RUNS_PREFERENCES_VERSION,
+    view:      parseView(stringValue(record.view)),
+    search:    stringValue(record.search) ?? "",
+    repo:      filterPreference(stringValue(record.repo)),
+    workflow:  filterPreference(stringValue(record.workflow)),
+    created:   parseCreatedFilter(stringValue(record.created)),
+    archived:  record.archived === true || record.archived === "1",
+    sort:      parseSort(stringValue(record.sort)),
+    direction: parseDirection(stringValue(record.direction)),
+    size:      parsePageSize(typeof size === "number" || typeof size === "string" ? String(size) : null),
+    hide:      serializeHiddenColumns(hiddenColumns) ?? "",
+  };
+}
+
+function runsWorkspacePreferencesFromSearchParams(searchParams: URLSearchParams): RunsWorkspacePreferences {
+  return {
+    version:   RUNS_PREFERENCES_VERSION,
+    view:      parseView(searchParams.get("view")),
+    search:    searchParams.get("search") ?? "",
+    repo:      filterPreference(searchParams.get("repo")),
+    workflow:  filterPreference(searchParams.get("workflow")),
+    created:   parseCreatedFilter(searchParams.get("created")),
+    archived:  searchParams.get("archived") === "1",
+    sort:      parseSort(searchParams.get("sort")),
+    direction: parseDirection(searchParams.get("direction")),
+    size:      parsePageSize(searchParams.get("size")),
+    hide:      serializeHiddenColumns(parseHiddenColumns(searchParams.get("hide"))) ?? "",
+  };
+}
+
+function runsWorkspacePreferencesToSearchParams(preferences: RunsWorkspacePreferences): URLSearchParams {
+  const params = new URLSearchParams();
+  if (preferences.view === "list") params.set("view", "list");
+  if (preferences.search !== "") params.set("search", preferences.search);
+  if (preferences.repo !== "all") params.set("repo", preferences.repo);
+  if (preferences.workflow !== "all") params.set("workflow", preferences.workflow);
+  if (preferences.created !== "all") params.set("created", preferences.created);
+  if (preferences.archived) params.set("archived", "1");
+  if (preferences.sort !== "created_at") params.set("sort", preferences.sort);
+  if (preferences.direction === "asc") params.set("direction", "asc");
+  if (preferences.size !== DEFAULT_LIST_PAGE_SIZE) params.set("size", String(preferences.size));
+  if (preferences.hide !== "") params.set("hide", preferences.hide);
+  return params;
+}
+
+function hasRunsWorkspaceParams(searchParams: URLSearchParams): boolean {
+  return RUNS_WORKSPACE_PARAM_KEYS.some((key) => searchParams.has(key));
+}
+
+export function loadStoredRunsWorkspaceSearchParams(
+  storage: Pick<Storage, "getItem"> | null = runsPreferencesStorage(),
+): URLSearchParams {
+  if (storage == null) return new URLSearchParams();
+  try {
+    const raw = storage.getItem(RUNS_PREFERENCES_STORAGE_KEY);
+    if (raw == null) return new URLSearchParams();
+    return runsWorkspacePreferencesToSearchParams(
+      normalizeStoredRunsWorkspacePreferences(JSON.parse(raw)),
+    );
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+export function persistRunsWorkspaceSearchParams(
+  searchParams: URLSearchParams,
+  storage: Pick<Storage, "setItem"> | null = runsPreferencesStorage(),
+) {
+  if (storage == null) return;
+  try {
+    storage.setItem(
+      RUNS_PREFERENCES_STORAGE_KEY,
+      JSON.stringify(runsWorkspacePreferencesFromSearchParams(searchParams)),
+    );
+  } catch {
+    // localStorage persistence is best effort only.
+  }
+}
+
 const sortColumnLabels: Record<ListRunsSortEnum, string> = {
   created_at: "Created",
   updated_at: "Updated",
@@ -1587,6 +1745,7 @@ export default function Runs() {
           } else {
             next.set(key, value);
           }
+          persistRunsWorkspaceSearchParams(next);
           return next;
         },
         { replace: true },
@@ -1628,6 +1787,15 @@ export default function Runs() {
     },
     [sort, direction, updateParam],
   );
+
+  useEffect(() => {
+    if (hasRunsWorkspaceParams(searchParams)) return;
+
+    const storedParams = loadStoredRunsWorkspaceSearchParams();
+    if (storedParams.toString() === "") return;
+
+    setSearchParams(storedParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const boardRuns = useAllRuns({ includeArchived }, view === "columns");
   const listRunsPage = useRunsPage(
