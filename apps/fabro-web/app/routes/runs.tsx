@@ -992,15 +992,17 @@ function RunsListView({
           />
         </div>
       )}
-      <ListPager
-        page={page}
-        pageSize={pageSize}
-        pageCount={pageCount}
-        hasMore={hasMore}
-        disabled={isLoading}
-        onPageChange={onPageChange}
-        onPageSizeChange={onPageSizeChange}
-      />
+      {(total == null || total >= 25) && (
+        <ListPager
+          page={page}
+          pageSize={pageSize}
+          pageCount={pageCount}
+          hasMore={hasMore}
+          disabled={isLoading}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
+      )}
     </div>
   );
 }
