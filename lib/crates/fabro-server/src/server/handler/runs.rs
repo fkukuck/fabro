@@ -766,7 +766,7 @@ fn spawn_generated_title_task(task: GeneratedTitleTask) {
     });
 }
 
-fn run_provenance(headers: &HeaderMap, subject: &Principal) -> RunProvenance {
+pub(super) fn run_provenance(headers: &HeaderMap, subject: &Principal) -> RunProvenance {
     RunProvenance {
         server:  Some(RunServerProvenance {
             version: FABRO_VERSION.to_string(),

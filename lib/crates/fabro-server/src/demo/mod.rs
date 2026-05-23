@@ -1156,6 +1156,7 @@ mod runs {
             pull_request: None,
             current_question: None,
             superseded_by: None,
+            retried_from: None,
             links: RunLinks { web: None },
         }
     }
