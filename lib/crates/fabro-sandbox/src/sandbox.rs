@@ -61,7 +61,7 @@ pub enum GitSetupIntent {
 /// delegate_sandbox! {
 ///     MyDecorator => inner {
 ///         // Only provide methods with custom logic — the rest delegate automatically.
-///         async fn read_file(&self, path: &str, offset: Option<usize>, limit: Option<usize>) -> $crate::Result<String> {
+///         async fn read_file_bytes(&self, path: &str) -> $crate::Result<Vec<u8>> {
 ///             // custom logic...
 ///         }
 ///     }
@@ -232,6 +232,10 @@ macro_rules! delegate_sandbox {
 
             async fn get_preview_url(&self, port: u16) -> $crate::Result<Option<(String, std::collections::HashMap<String, String>)>> {
                 self.$field.get_preview_url(port).await
+            }
+
+            async fn read_file_bytes(&self, path: &str) -> $crate::Result<Vec<u8>> {
+                self.$field.read_file_bytes(path).await
             }
 
             async fn read_file(
@@ -805,12 +809,26 @@ pub struct GrepOptions {
 
 #[async_trait]
 pub trait Sandbox: Send + Sync {
+    async fn read_file_bytes(&self, path: &str) -> crate::Result<Vec<u8>>;
+
+    async fn read_file_text(&self, path: &str) -> crate::Result<String> {
+        String::from_utf8(self.read_file_bytes(path).await?)
+            .map_err(|err| crate::Error::context("File is not valid UTF-8", err))
+    }
+
     async fn read_file(
         &self,
         path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> crate::Result<String>;
+    ) -> crate::Result<String> {
+        Ok(format_lines_numbered(
+            &self.read_file_text(path).await?,
+            offset,
+            limit,
+        ))
+    }
+
     async fn write_file(&self, path: &str, content: &str) -> crate::Result<()>;
     async fn delete_file(&self, path: &str) -> crate::Result<()>;
     async fn file_exists(&self, path: &str) -> crate::Result<bool>;

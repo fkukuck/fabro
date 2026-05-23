@@ -282,6 +282,11 @@ impl Sandbox for WorktreeSandbox {
 
     // --- Delegated methods ---
 
+    async fn read_file_bytes(&self, path: &str) -> crate::Result<Vec<u8>> {
+        let resolved = self.resolve_path(path);
+        self.inner.read_file_bytes(&resolved).await
+    }
+
     async fn read_file(
         &self,
         path: &str,

@@ -170,18 +170,11 @@ pub fn make_edit_file_tool() -> RegisteredTool {
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
 
-                let numbered_content = ctx
+                let raw_content = ctx
                     .env
-                    .read_file(file_path, None, None)
+                    .read_file_text(file_path)
                     .await
                     .map_err(|e| e.display_with_causes())?;
-
-                // Strip line numbers: each line looks like "  1 | content" or " 10 | content"
-                let raw_lines: Vec<&str> = numbered_content
-                    .lines()
-                    .map(|line| line.find(" | ").map_or(line, |idx| &line[idx + 3..]))
-                    .collect();
-                let raw_content = raw_lines.join("\n");
 
                 let count = raw_content.matches(old_string).count();
                 if count == 0 {
@@ -699,10 +692,9 @@ mod tests {
     async fn read_file_returns_content() {
         let tool = make_read_file_tool();
         let mut files = HashMap::new();
-        files.insert("/test.txt".into(), "  1 | hello\n  2 | world".into());
+        files.insert("/test.txt".into(), "hello\nworld".into());
         let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
-            apply_read_offset_limit: true,
             ..Default::default()
         });
         let result = (tool.executor)(serde_json::json!({"file_path": "/test.txt"}), ToolContext {
@@ -715,20 +707,16 @@ mod tests {
             agent_event_emitter: None,
         })
         .await;
-        assert_eq!(result.unwrap(), "  1 | hello\n  2 | world");
+        assert_eq!(result.unwrap(), "1 | hello\n2 | world\n");
     }
 
     #[tokio::test]
     async fn read_file_with_offset_and_limit() {
         let tool = make_read_file_tool();
         let mut files = HashMap::new();
-        files.insert(
-            "/test.txt".into(),
-            "  1 | line1\n  2 | line2\n  3 | line3\n  4 | line4".into(),
-        );
+        files.insert("/test.txt".into(), "line1\nline2\nline3\nline4".into());
         let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
-            apply_read_offset_limit: true,
             ..Default::default()
         });
         let result = (tool.executor)(
@@ -744,7 +732,7 @@ mod tests {
             },
         )
         .await;
-        assert_eq!(result.unwrap(), "  2 | line2\n  3 | line3");
+        assert_eq!(result.unwrap(), "3 | line3\n4 | line4\n");
     }
 
     #[tokio::test]
@@ -776,7 +764,7 @@ mod tests {
     async fn edit_file_replaces_match() {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
-        files.insert("/f.txt".into(), "  1 | hello world".into());
+        files.insert("/f.txt".into(), "hello world".into());
         let env = Arc::new(MockSandbox {
             files,
             ..Default::default()
@@ -809,7 +797,7 @@ mod tests {
     async fn edit_file_not_found_error() {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
-        files.insert("/f.txt".into(), "  1 | hello world".into());
+        files.insert("/f.txt".into(), "hello world".into());
         let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
@@ -838,7 +826,7 @@ mod tests {
     async fn edit_file_not_unique_error() {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
-        files.insert("/f.txt".into(), "  1 | aa bb aa".into());
+        files.insert("/f.txt".into(), "aa bb aa".into());
         let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
             ..Default::default()
@@ -869,7 +857,7 @@ mod tests {
     async fn edit_file_replace_all() {
         let tool = make_edit_file_tool();
         let mut files = HashMap::new();
-        files.insert("/f.txt".into(), "  1 | aa bb aa".into());
+        files.insert("/f.txt".into(), "aa bb aa".into());
         let env = Arc::new(MockSandbox {
             files,
             ..Default::default()
@@ -897,6 +885,39 @@ mod tests {
         let written = env.written_files.lock().unwrap();
         assert_eq!(written.len(), 1);
         assert_eq!(written[0].1, "cc bb cc");
+    }
+
+    #[tokio::test]
+    async fn edit_file_preserves_literal_line_number_prefixes() {
+        let tool = make_edit_file_tool();
+        let mut files = HashMap::new();
+        files.insert("/f.txt".into(), "1 | keep this literal\nhello".into());
+        let env = Arc::new(MockSandbox {
+            files,
+            ..Default::default()
+        });
+        let env_clone: Arc<dyn Sandbox> = env.clone();
+        let result = (tool.executor)(
+            serde_json::json!({
+                "file_path": "/f.txt",
+                "old_string": "hello",
+                "new_string": "goodbye"
+            }),
+            ToolContext {
+                env:                 env_clone,
+                cancel:              CancellationToken::new(),
+                tool_env_provider:   None,
+                session_id:          None,
+                root_session_id:     None,
+                tool_call_id:        None,
+                agent_event_emitter: None,
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), "Successfully edited /f.txt");
+        let written = env.written_files.lock().unwrap();
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0].1, "1 | keep this literal\ngoodbye");
     }
 
     #[tokio::test]
@@ -1131,10 +1152,9 @@ mod tests {
     async fn read_file_does_not_resolve_failing_tool_env_provider() {
         let tool = make_read_file_tool();
         let mut files = HashMap::new();
-        files.insert("/test.txt".into(), "  1 | hello".into());
+        files.insert("/test.txt".into(), "hello".into());
         let env: Arc<dyn Sandbox> = Arc::new(MockSandbox {
             files,
-            apply_read_offset_limit: true,
             ..Default::default()
         });
 
@@ -1149,7 +1169,7 @@ mod tests {
         })
         .await;
 
-        assert_eq!(result.unwrap(), "  1 | hello");
+        assert_eq!(result.unwrap(), "1 | hello\n");
     }
 
     #[tokio::test]
