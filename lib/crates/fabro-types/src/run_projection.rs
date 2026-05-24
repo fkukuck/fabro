@@ -407,6 +407,8 @@ pub struct McpServerProjection {
     pub server_name: String,
     pub tool_count:  usize,
     pub status:      McpServerStatus,
+    /// True once any tool from this server has been invoked during the stage.
+    pub invoked:     bool,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

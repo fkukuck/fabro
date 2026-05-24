@@ -147,7 +147,8 @@ fn stage_projection_round_trips_representative_json() {
                             "original_name": "read_file"
                         }
                     ]
-                }
+                },
+                "invoked": true
             }
         ],
         "context_window": {
@@ -329,6 +330,7 @@ fn nested_agent_state_types_match_openapi_json_shape() {
         server_name: "filesystem".to_string(),
         tool_count:  1,
         status:      McpServerStatus::Ready { tools: vec![tool] },
+        invoked:     true,
     };
     let mcp_json = serde_json::to_value(&mcp_server).unwrap();
     assert_eq!(
@@ -344,7 +346,8 @@ fn nested_agent_state_types_match_openapi_json_shape() {
                         "original_name": "read_file"
                     }
                 ]
-            }
+            },
+            "invoked": true,
         })
     );
     let api_mcp: ApiMcpServerProjection = serde_json::from_value(mcp_json).unwrap();

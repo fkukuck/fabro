@@ -571,6 +571,7 @@ impl RunProjectionReducer for RunProjection {
                     status:      McpServerStatus::Ready {
                         tools: props.tools.clone(),
                     },
+                    invoked:     false,
                 });
             }
             EventBody::AgentMcpFailed(props) => {
@@ -584,7 +585,23 @@ impl RunProjectionReducer for RunProjection {
                     status:      McpServerStatus::Failed {
                         error: props.error.clone(),
                     },
+                    invoked:     false,
                 });
+            }
+            EventBody::AgentToolStarted(props) => {
+                let Some(stage) = stage_at_stored_or_visit(self, stored, props.visit, event.seq)
+                else {
+                    return Ok(());
+                };
+                if let Some(server) = mcp_server_from_tool_name(&props.tool_name) {
+                    if let Some(projection) = stage
+                        .mcp_servers
+                        .iter_mut()
+                        .find(|p| mcp_name_eq(&p.server_name, server))
+                    {
+                        projection.invoked = true;
+                    }
+                }
             }
             EventBody::AgentContextWindowSnapshot(props) => {
                 let Some(stage) = stage_at_stored_or_visit(self, stored, props.visit, event.seq)
@@ -662,16 +679,48 @@ fn subagent_mut<'a>(
         .find(|subagent| subagent.agent_id == agent_id)
 }
 
-fn upsert_mcp_server(stage: &mut StageProjection, server: McpServerProjection) {
+fn upsert_mcp_server(stage: &mut StageProjection, mut server: McpServerProjection) {
     if let Some(existing) = stage
         .mcp_servers
         .iter_mut()
         .find(|existing| existing.server_name == server.server_name)
     {
+        // Status/tool-count may flip (Ready → Failed across reconnects); keep
+        // the sticky `invoked` flag so a server still reads as "used" after
+        // its ready/failed state changes.
+        server.invoked = server.invoked || existing.invoked;
         *existing = server;
     } else {
         stage.mcp_servers.push(server);
     }
+}
+
+/// Extract the `<server>` segment from an `mcp__<server>__<tool>` qualified
+/// tool name. Returns `None` for non-MCP tools or malformed names.
+fn mcp_server_from_tool_name(tool_name: &str) -> Option<&str> {
+    let rest = tool_name.strip_prefix("mcp__")?;
+    let idx = rest.find("__")?;
+    let server = &rest[..idx];
+    (!server.is_empty()).then_some(server)
+}
+
+/// Match an MCP server projection name against a server segment parsed from a
+/// qualified tool name. Tool names use `fabro_mcp::qualified_tool_name`, which
+/// sanitizes non-alphanumeric characters in the server name; normalize the
+/// stored projection name the same way before comparing.
+fn mcp_name_eq(projection_name: &str, parsed_from_tool: &str) -> bool {
+    fn normalize(s: &str) -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+    normalize(projection_name) == parsed_from_tool
 }
 
 fn projection_from_created(event: &EventEnvelope) -> Result<RunProjection> {
@@ -1108,9 +1157,9 @@ mod tests {
         AgentSessionEndedProps, AgentSessionStartedProps, AgentSkillActivatedProps,
         AgentSkillActivationSource, AgentSkillSummary, AgentSkillsDiscoveredProps,
         AgentSubClosedProps, AgentSubCompletedProps, AgentSubFailedProps, AgentSubSpawnedProps,
-        CheckpointCompletedProps, InterviewCompletedProps, InterviewOption, InterviewStartedProps,
-        RunCompletedProps, RunControlEffectProps, StageCompletedProps, StageFailedProps,
-        StagePromptProps, StageRetryingProps, StageStartedProps,
+        AgentToolStartedProps, CheckpointCompletedProps, InterviewCompletedProps, InterviewOption,
+        InterviewStartedProps, RunCompletedProps, RunControlEffectProps, StageCompletedProps,
+        StageFailedProps, StagePromptProps, StageRetryingProps, StageStartedProps,
     };
     use fabro_types::{
         AgentBackend, BilledModelUsage, BilledTokenCounts, BlockedReason, Checkpoint,
@@ -4163,11 +4212,157 @@ mod tests {
                     original_name: "read_file".to_string(),
                 }],
             });
+            assert!(!stage.mcp_servers[0].invoked);
             assert_eq!(stage.mcp_servers[1].server_name, "github");
             assert_eq!(stage.mcp_servers[1].tool_count, 0);
             assert_eq!(stage.mcp_servers[1].status, McpServerStatus::Failed {
                 error: "missing token".to_string(),
             });
+            assert!(!stage.mcp_servers[1].invoked);
+        }
+
+        #[test]
+        fn agent_tool_started_marks_matching_mcp_server_as_invoked() {
+            let mut state = initialized_projection();
+            let stage_id = stage_id();
+
+            state
+                .apply_event(&test_stage_event(
+                    1,
+                    EventBody::AgentMcpReady(AgentMcpReadyProps {
+                        server_name: "filesystem".to_string(),
+                        tool_count:  1,
+                        tools:       vec![AgentMcpToolSummary {
+                            name:          "read_file".to_string(),
+                            original_name: "read_file".to_string(),
+                        }],
+                        visit:       1,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+            state
+                .apply_event(&test_stage_event(
+                    2,
+                    EventBody::AgentMcpReady(AgentMcpReadyProps {
+                        server_name: "other".to_string(),
+                        tool_count:  0,
+                        tools:       vec![],
+                        visit:       1,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+            // Native (non-MCP) tool call: should not touch any MCP server.
+            state
+                .apply_event(&test_stage_event(
+                    3,
+                    EventBody::AgentToolStarted(AgentToolStartedProps {
+                        tool_name:         "Bash".to_string(),
+                        tool_call_id:      "call_bash".to_string(),
+                        arguments:         serde_json::json!({}),
+                        visit:             1,
+                        tool_call:         None,
+                        turn_id:           None,
+                        parent_message_id: None,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+            // Qualified MCP tool call: flips matching server's `invoked`.
+            state
+                .apply_event(&test_stage_event(
+                    4,
+                    EventBody::AgentToolStarted(AgentToolStartedProps {
+                        tool_name:         "mcp__filesystem__read_file".to_string(),
+                        tool_call_id:      "call_fs".to_string(),
+                        arguments:         serde_json::json!({}),
+                        visit:             1,
+                        tool_call:         None,
+                        turn_id:           None,
+                        parent_message_id: None,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+
+            let stage = state.stage(&stage_id).unwrap();
+            let filesystem = stage
+                .mcp_servers
+                .iter()
+                .find(|s| s.server_name == "filesystem")
+                .unwrap();
+            assert!(filesystem.invoked, "filesystem should be marked invoked");
+            let other = stage
+                .mcp_servers
+                .iter()
+                .find(|s| s.server_name == "other")
+                .unwrap();
+            assert!(!other.invoked, "unused MCP server should stay un-invoked");
+        }
+
+        #[test]
+        fn mcp_invoked_flag_survives_status_reread() {
+            let mut state = initialized_projection();
+            let stage_id = stage_id();
+
+            state
+                .apply_event(&test_stage_event(
+                    1,
+                    EventBody::AgentMcpReady(AgentMcpReadyProps {
+                        server_name: "filesystem".to_string(),
+                        tool_count:  1,
+                        tools:       vec![AgentMcpToolSummary {
+                            name:          "read_file".to_string(),
+                            original_name: "read_file".to_string(),
+                        }],
+                        visit:       1,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+            state
+                .apply_event(&test_stage_event(
+                    2,
+                    EventBody::AgentToolStarted(AgentToolStartedProps {
+                        tool_name:         "mcp__filesystem__read_file".to_string(),
+                        tool_call_id:      "call_fs".to_string(),
+                        arguments:         serde_json::json!({}),
+                        visit:             1,
+                        tool_call:         None,
+                        turn_id:           None,
+                        parent_message_id: None,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+            // Server re-reports Ready (e.g. tool registry refresh): invoked
+            // must remain true, not get clobbered back to false.
+            state
+                .apply_event(&test_stage_event(
+                    3,
+                    EventBody::AgentMcpReady(AgentMcpReadyProps {
+                        server_name: "filesystem".to_string(),
+                        tool_count:  2,
+                        tools:       vec![
+                            AgentMcpToolSummary {
+                                name:          "read_file".to_string(),
+                                original_name: "read_file".to_string(),
+                            },
+                            AgentMcpToolSummary {
+                                name:          "stat".to_string(),
+                                original_name: "stat".to_string(),
+                            },
+                        ],
+                        visit:       1,
+                    }),
+                    stage_id.clone(),
+                ))
+                .unwrap();
+
+            let stage = state.stage(&stage_id).unwrap();
+            assert!(stage.mcp_servers[0].invoked);
+            assert_eq!(stage.mcp_servers[0].tool_count, 2);
         }
 
         #[test]

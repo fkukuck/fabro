@@ -24,4 +24,8 @@ export interface McpServerProjection {
     'server_name': string;
     'tool_count': number;
     'status': McpServerStatus;
+    /**
+     * True once the agent has invoked at least one tool from this server during the stage.
+     */
+    'invoked': boolean;
 }

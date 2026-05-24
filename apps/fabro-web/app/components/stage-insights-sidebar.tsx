@@ -79,20 +79,20 @@ export function StageInsightsSidebar({ stage, contextWindow }: StageInsightsSide
   return (
     <aside
       className={`${collapsed ? "w-12" : "w-60"} shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}
-      aria-label="Stage insights"
+      aria-label="Agent stage details"
     >
       <div className="flex h-7 items-center justify-between">
         {!collapsed && (
           <h3 className="px-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
-            Insights
+            Agent
           </h3>
         )}
         <button
           type="button"
           onClick={toggleCollapsed}
           aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand insights sidebar" : "Collapse insights sidebar"}
-          title={collapsed ? "Expand insights sidebar" : "Collapse insights sidebar"}
+          aria-label={collapsed ? "Expand agent sidebar" : "Collapse agent sidebar"}
+          title={collapsed ? "Expand agent sidebar" : "Collapse agent sidebar"}
           className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-overlay hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 ${collapsed ? "mx-auto" : "-mr-1"}`}
         >
           {collapsed ? (
@@ -134,7 +134,7 @@ export function StageInsightsSidebar({ stage, contextWindow }: StageInsightsSide
           title="MCPs"
           icon={ServerStackIcon}
           collapsed={collapsed}
-          count={mcpServers.length}
+          count={`${mcpServers.filter((s) => s.invoked).length}/${mcpServers.length}`}
           empty={mcpServers.length === 0}
           hideCountWhenCollapsed
         >
@@ -500,23 +500,32 @@ function McpSection({ servers }: { servers: McpServerProjection[] }) {
   if (servers.length === 0) return <p className="text-xs text-fg-muted">No MCP servers.</p>;
   return (
     <ul role="list" className="space-y-1">
-      {servers.map((server) => (
-        <li key={server.server_name} className="flex items-center gap-1.5">
-          {server.status.kind === "ready" ? (
-            <CheckCircleIcon className="size-3.5 shrink-0 text-mint" aria-label="Ready" />
-          ) : (
-            <XCircleIcon className="size-3.5 shrink-0 text-coral" aria-label="Failed" />
-          )}
-          <span className="min-w-0 flex-1 truncate text-xs text-fg-2">{server.server_name}</span>
-          {server.status.kind === "ready" ? (
-            <span className="font-mono text-[10px] tabular-nums text-fg-muted">
-              {`${server.tool_count} ${server.tool_count === 1 ? "tool" : "tools"}`}
-            </span>
-          ) : (
-            <span className="text-[10px] uppercase tracking-wider text-coral">Failed</span>
-          )}
-        </li>
-      ))}
+      {servers.map((server) => {
+        // Dim unused servers so the eye lands on the invoked ones first;
+        // failed servers stay coral regardless.
+        const nameClass = server.status.kind === "ready" && !server.invoked
+          ? "min-w-0 flex-1 truncate text-xs text-fg-muted"
+          : "min-w-0 flex-1 truncate text-xs text-fg-2";
+        return (
+          <li key={server.server_name} className="flex items-center gap-1.5">
+            {server.status.kind === "ready" ? (
+              <CheckCircleIcon className="size-3.5 shrink-0 text-mint" aria-label="Ready" />
+            ) : (
+              <XCircleIcon className="size-3.5 shrink-0 text-coral" aria-label="Failed" />
+            )}
+            <span className={nameClass}>{server.server_name}</span>
+            {server.status.kind === "ready" ? (
+              <span className="font-mono text-[10px] tabular-nums text-fg-muted">
+                {server.invoked
+                  ? "used"
+                  : `${server.tool_count} ${server.tool_count === 1 ? "tool" : "tools"}`}
+              </span>
+            ) : (
+              <span className="text-[10px] uppercase tracking-wider text-coral">Failed</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

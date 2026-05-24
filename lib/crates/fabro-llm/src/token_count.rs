@@ -7,10 +7,35 @@ use crate::types::{
     ToolResult, Warning,
 };
 
-const LOCAL_ESTIMATE_WARNING: &str = "local_token_estimate";
-const MEDIA_ESTIMATE_WARNING: &str = "media_token_estimate";
-const OPAQUE_CONTEXT_ESTIMATE_WARNING: &str = "opaque_context_estimate";
-const PROVIDER_OPTIONS_ESTIMATE_WARNING: &str = "provider_options_estimate";
+/// Warning code emitted when the entire request was tokenized locally
+/// (no provider-side count available).
+pub const LOCAL_ESTIMATE_WARNING: &str = "local_token_estimate";
+/// Warning code emitted when media (image/audio/document) tokens were
+/// estimated from byte counts rather than counted by the provider.
+pub const MEDIA_ESTIMATE_WARNING: &str = "media_token_estimate";
+/// Warning code emitted when an opaque `ContentPart::Other` block was
+/// estimated by JSON-stringifying it (e.g. OpenAI reasoning items).
+pub const OPAQUE_CONTEXT_ESTIMATE_WARNING: &str = "opaque_context_estimate";
+/// Warning code emitted when provider-specific request options were
+/// estimated by JSON-stringifying them.
+pub const PROVIDER_OPTIONS_ESTIMATE_WARNING: &str = "provider_options_estimate";
+
+/// True if a warning code is "local estimator noise" — the warning is only
+/// meaningful when the displayed total comes from the local estimator. When
+/// the total is provider-authoritative (e.g. scaled to `usage.input_tokens`),
+/// these warnings only describe imprecision in the per-category breakdown
+/// split, not in the total — and so they tend to alarm users about a number
+/// that's actually correct.
+#[must_use]
+pub fn is_local_estimator_warning(code: &str) -> bool {
+    matches!(
+        code,
+        LOCAL_ESTIMATE_WARNING
+            | MEDIA_ESTIMATE_WARNING
+            | OPAQUE_CONTEXT_ESTIMATE_WARNING
+            | PROVIDER_OPTIONS_ESTIMATE_WARNING
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,7 +85,7 @@ pub fn estimate_input_tokens(request: &Request, provider: impl Into<String>) -> 
 
     estimator.warn(
         LOCAL_ESTIMATE_WARNING,
-        "input token count is a local estimate",
+        "Provider didn't report a token count; total is approximate.",
     );
 
     InputTokenCount {
@@ -160,7 +185,7 @@ impl Estimator {
             tokens += estimate_json_tokens(provider_options);
             self.warn(
                 PROVIDER_OPTIONS_ESTIMATE_WARNING,
-                "provider options estimated from JSON",
+                "Provider options couldn't be precisely tokenized; total is approximate.",
             );
         }
         tokens
@@ -185,7 +210,7 @@ impl Estimator {
             ContentPart::Other { kind, data } => {
                 self.warn(
                     OPAQUE_CONTEXT_ESTIMATE_WARNING,
-                    "opaque provider context estimated from JSON",
+                    "Some content couldn't be precisely tokenized; total is approximate.",
                 );
                 estimate_text_tokens(kind) + estimate_json_tokens(data)
             }
@@ -199,7 +224,7 @@ impl Estimator {
             tokens += estimate_embedded_bytes(image_data.len());
             self.warn(
                 MEDIA_ESTIMATE_WARNING,
-                "media content estimated heuristically",
+                "Media content couldn't be precisely tokenized; total is approximate.",
             );
         }
         if let Some(media_type) = &result.image_media_type {
@@ -246,7 +271,7 @@ impl Estimator {
     fn estimate_media_common(&mut self, url: Option<&str>, media_type: Option<&str>) -> usize {
         self.warn(
             MEDIA_ESTIMATE_WARNING,
-            "media content estimated heuristically",
+            "Media content couldn't be precisely tokenized; total is approximate.",
         );
         url.map_or(0, estimate_text_tokens) + media_type.map_or(0, estimate_text_tokens)
     }

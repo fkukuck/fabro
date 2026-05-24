@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::Utc;
 use fabro_llm::token_count::{
     estimate_message_tokens, estimate_request_control_tokens, estimate_text_tokens,
-    estimate_tool_definition_tokens,
+    estimate_tool_definition_tokens, is_local_estimator_warning,
 };
 use fabro_llm::types::{Request, Role, Warning as LlmWarning};
 use fabro_types::{
@@ -48,13 +48,29 @@ pub(crate) fn build_local_snapshot(
     }
 
     builder.into_snapshot(SnapshotMeta {
-        provider: input.provider.to_string(),
-        model: input.model.to_string(),
+        provider:              input.provider.to_string(),
+        model:                 input.model.to_string(),
         context_window_tokens: u64::try_from(input.context_window_tokens).unwrap_or(u64::MAX),
-        count_method: StageContextWindowCountMethod::LocalEstimate,
-        staleness: StageContextWindowStaleness::Live,
-        warnings,
+        count_method:          StageContextWindowCountMethod::LocalEstimate,
+        staleness:             StageContextWindowStaleness::Live,
+        warnings:              dedupe_warnings_by_code(warnings),
     })
+}
+
+/// Collapse a snapshot's warning list to one entry per `code`, preserving
+/// insertion order. The per-message estimator already dedupes within a single
+/// message — but `build_local_snapshot` walks every message in the request, so
+/// the same opaque/media/etc. warning code accumulates one copy per turn that
+/// triggered it. The user only needs to be told once.
+#[must_use]
+fn dedupe_warnings_by_code(
+    warnings: Vec<StageContextWindowWarning>,
+) -> Vec<StageContextWindowWarning> {
+    let mut seen: HashSet<String> = HashSet::new();
+    warnings
+        .into_iter()
+        .filter(|w| seen.insert(w.code.clone()))
+        .collect()
 }
 
 #[must_use]
@@ -65,6 +81,19 @@ pub(crate) fn scaled_snapshot(
     warnings: Vec<StageContextWindowWarning>,
 ) -> StageContextWindowProjection {
     let breakdown = scale_breakdown(&local.breakdown, input_tokens, local.context_window_tokens);
+    // When the displayed total is provider-authoritative, drop warnings that
+    // are only about local-estimator imprecision — they describe the per-
+    // category split, not the total the user sees, and tend to alarm users
+    // about a number that's actually correct.
+    let warnings = if total_is_provider_authoritative(count_method) {
+        warnings
+            .into_iter()
+            .filter(|w| !is_local_estimator_warning(&w.code))
+            .collect()
+    } else {
+        warnings
+    };
+    let warnings = dedupe_warnings_by_code(warnings);
     StageContextWindowProjection {
         provider: local.provider.clone(),
         model: local.model.clone(),
@@ -78,6 +107,14 @@ pub(crate) fn scaled_snapshot(
         breakdown,
         warnings,
     }
+}
+
+const fn total_is_provider_authoritative(method: StageContextWindowCountMethod) -> bool {
+    matches!(
+        method,
+        StageContextWindowCountMethod::ProviderApiScaledBreakdown
+            | StageContextWindowCountMethod::ResponseUsageScaledBreakdown
+    )
 }
 
 #[must_use]
@@ -434,5 +471,119 @@ mod tests {
             scaled.breakdown.iter().map(|item| item.tokens).sum::<u64>(),
             101
         );
+    }
+
+    /// Build a minimal snapshot with one estimator-noise warning and one
+    /// semantic warning, used by the warning-suppression assertions below.
+    fn snapshot_for_warning_test() -> StageContextWindowProjection {
+        StageContextWindowProjection {
+            provider:              "test".to_string(),
+            model:                 "model-a".to_string(),
+            context_window_tokens: 1000,
+            input_tokens:          50,
+            usage_percent:         5.0,
+            count_method:          StageContextWindowCountMethod::LocalEstimate,
+            staleness:             StageContextWindowStaleness::Live,
+            generated_at:          Utc::now(),
+            event_seq:             None,
+            breakdown:             vec![StageContextWindowBreakdownItem {
+                category:      StageContextWindowCategory::Conversation,
+                tokens:        50,
+                usage_percent: 5.0,
+            }],
+            warnings:              Vec::new(),
+        }
+    }
+
+    fn warnings_in() -> Vec<StageContextWindowWarning> {
+        use fabro_llm::token_count::{MEDIA_ESTIMATE_WARNING, OPAQUE_CONTEXT_ESTIMATE_WARNING};
+        vec![
+            StageContextWindowWarning {
+                code:    OPAQUE_CONTEXT_ESTIMATE_WARNING.to_string(),
+                message: "noise".to_string(),
+            },
+            StageContextWindowWarning {
+                code:    MEDIA_ESTIMATE_WARNING.to_string(),
+                message: "noise".to_string(),
+            },
+            StageContextWindowWarning {
+                code:    "activated_skill_context_counted_as_conversation".to_string(),
+                message: "kept".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn scaled_snapshot_drops_estimator_noise_when_total_is_provider_authoritative() {
+        let local = snapshot_for_warning_test();
+        let scaled = scaled_snapshot(
+            &local,
+            100,
+            StageContextWindowCountMethod::ProviderApiScaledBreakdown,
+            warnings_in(),
+        );
+        let codes: Vec<_> = scaled.warnings.iter().map(|w| w.code.as_str()).collect();
+        assert_eq!(codes, vec![
+            "activated_skill_context_counted_as_conversation"
+        ]);
+    }
+
+    #[test]
+    fn scaled_snapshot_drops_estimator_noise_under_response_usage_scaling() {
+        let local = snapshot_for_warning_test();
+        let scaled = scaled_snapshot(
+            &local,
+            100,
+            StageContextWindowCountMethod::ResponseUsageScaledBreakdown,
+            warnings_in(),
+        );
+        let codes: Vec<_> = scaled.warnings.iter().map(|w| w.code.as_str()).collect();
+        assert_eq!(codes, vec![
+            "activated_skill_context_counted_as_conversation"
+        ]);
+    }
+
+    #[test]
+    fn scaled_snapshot_keeps_estimator_warnings_for_local_estimate() {
+        let local = snapshot_for_warning_test();
+        let scaled = scaled_snapshot(
+            &local,
+            100,
+            StageContextWindowCountMethod::LocalEstimate,
+            warnings_in(),
+        );
+        let codes: Vec<_> = scaled.warnings.iter().map(|w| w.code.as_str()).collect();
+        // When the total itself is locally estimated, the estimator-noise
+        // warnings remain meaningful and must surface.
+        assert_eq!(codes, vec![
+            "opaque_context_estimate",
+            "media_token_estimate",
+            "activated_skill_context_counted_as_conversation",
+        ]);
+    }
+
+    #[test]
+    fn scaled_snapshot_dedupes_repeated_warning_codes() {
+        use fabro_llm::token_count::OPAQUE_CONTEXT_ESTIMATE_WARNING;
+        let local = snapshot_for_warning_test();
+        // Simulate the real bug: build_local_snapshot walks N messages and
+        // adds the same `opaque_context_estimate` warning once per turn that
+        // had an opaque block, so a long conversation accumulates many copies.
+        let repeated: Vec<_> = (0..5)
+            .map(|i| StageContextWindowWarning {
+                code:    OPAQUE_CONTEXT_ESTIMATE_WARNING.to_string(),
+                message: format!("turn {i}"),
+            })
+            .collect();
+
+        let scaled = scaled_snapshot(
+            &local,
+            100,
+            StageContextWindowCountMethod::LocalEstimate,
+            repeated,
+        );
+
+        let codes: Vec<_> = scaled.warnings.iter().map(|w| w.code.as_str()).collect();
+        assert_eq!(codes, vec!["opaque_context_estimate"]);
     }
 }

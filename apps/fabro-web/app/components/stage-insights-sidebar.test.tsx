@@ -157,7 +157,7 @@ describe("StageInsightsSidebar", () => {
     expect(dom).toContain("Full access");
   });
 
-  test("renders mcp server count and tool count", () => {
+  test("renders mcp server used/total count, marks invoked servers as 'used'", () => {
     const dom = render(
       makeStage({
         mcp_servers: [
@@ -165,18 +165,30 @@ describe("StageInsightsSidebar", () => {
             server_name: "context7",
             tool_count:  12,
             status:      { kind: "ready", tools: [] },
+            invoked:     true,
+          },
+          {
+            server_name: "filesystem",
+            tool_count:  3,
+            status:      { kind: "ready", tools: [] },
+            invoked:     false,
           },
           {
             server_name: "atlassian",
             tool_count:  0,
             status:      { kind: "failed", error: "auth failed" },
+            invoked:     false,
           },
         ],
       }),
       null,
     );
+    // Used count badge in the section header (1 of 3 invoked).
+    expect(dom).toContain("1/3");
     expect(dom).toContain("context7");
-    expect(dom).toContain("12 tools");
+    expect(dom).toContain("used");
+    expect(dom).toContain("filesystem");
+    expect(dom).toContain("3 tools");
     expect(dom).toContain("atlassian");
     expect(dom).toContain("Failed");
   });
@@ -208,7 +220,7 @@ describe("StageInsightsSidebar", () => {
   test("renders empty-friendly content when stage projection is missing", () => {
     const dom = render(undefined, null);
     // sidebar still renders even with no data
-    expect(dom).toContain("Insights");
+    expect(dom).toContain("Agent");
     expect(dom).toContain("Unknown");
   });
 });
