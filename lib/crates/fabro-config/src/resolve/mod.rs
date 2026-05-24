@@ -54,7 +54,7 @@ pub(crate) fn default_interp(path: impl AsRef<std::path::Path>) -> InterpString 
 mod tests {
     use std::collections::HashMap;
 
-    use fabro_types::settings::run::{HookType, McpTransport, TlsMode};
+    use fabro_types::settings::run::{HookType, McpHttpProtocol, McpTransport, TlsMode};
 
     use crate::{SettingsLayer, WorkflowSettingsBuilder};
 
@@ -117,7 +117,7 @@ Authorization = "Bearer {{ env.HOOK_TOKEN }}"
         assert_eq!(
             mcps.get("http").map(|mcp| &mcp.transport),
             Some(&McpTransport::Http {
-                protocol: Default::default(),
+                protocol: McpHttpProtocol::default(),
                 url:      "https://mcp.example.com".to_string(),
                 headers:  HashMap::from([(
                     "Authorization".to_string(),
@@ -128,7 +128,7 @@ Authorization = "Bearer {{ env.HOOK_TOKEN }}"
         assert_eq!(
             mcps.get("sandbox").map(|mcp| &mcp.transport),
             Some(&McpTransport::Sandbox {
-                protocol: Default::default(),
+                protocol: McpHttpProtocol::default(),
                 command:  vec!["fabro-mcp".to_string(), "--sandbox".to_string()],
                 port:     3333,
                 env:      HashMap::from([(

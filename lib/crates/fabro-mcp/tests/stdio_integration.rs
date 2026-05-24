@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
@@ -12,7 +14,9 @@ use fabro_mcp::config::{McpHttpProtocol, McpServerSettings, McpTransport};
 use fabro_mcp::connection_manager::{McpConnectionManager, call_result_to_string};
 use futures::{StreamExt as _, stream};
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::net::TcpListener;
+use tokio::sync::{Mutex, mpsc};
+use tokio_stream::wrappers::ReceiverStream;
 
 fn test_server_config() -> McpServerSettings {
     let test_server = format!("{}/tests/test_mcp_server.py", env!("CARGO_MANIFEST_DIR"));
@@ -163,7 +167,7 @@ async fn connection_manager_stdio_roundtrip() {
 async fn sse_client_initialize_and_call_tool() {
     #[derive(Clone)]
     struct SseState {
-        messages: std::sync::Arc<tokio::sync::Mutex<HashMap<String, mpsc::Sender<String>>>>,
+        messages: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
     }
 
     async fn sse(State(state): State<SseState>) -> Response {
@@ -172,12 +176,8 @@ async fn sse_client_initialize_and_call_tool() {
         state.messages.lock().await.insert(session_id.clone(), tx);
         let endpoint = format!("event: endpoint\ndata: /sse?sessionId={session_id}\n\n");
         let body = Body::from_stream(
-            stream::once(async move {
-                Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(endpoint))
-            })
-            .chain(
-                tokio_stream::wrappers::ReceiverStream::new(rx)
-                    .map(|event| Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(event))),
+            stream::once(async move { Ok::<_, Infallible>(Bytes::from(endpoint)) }).chain(
+                ReceiverStream::new(rx).map(|event| Ok::<_, Infallible>(Bytes::from(event))),
             ),
         );
         Response::builder()
@@ -242,12 +242,12 @@ async fn sse_client_initialize_and_call_tool() {
     }
 
     let state = SseState {
-        messages: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        messages: Arc::new(Mutex::new(HashMap::new())),
     };
     let app = Router::new()
         .route("/sse", get(sse).post(post_sse))
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

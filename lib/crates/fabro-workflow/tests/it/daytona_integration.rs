@@ -2081,11 +2081,14 @@ async fn daytona_playwright_mcp_sandbox_transport() {
 
             let url = match protocol {
                 fabro_mcp::config::McpHttpProtocol::StreamableHttp => url,
-                fabro_mcp::config::McpHttpProtocol::Sse => fabro_http::Url::parse(&url)
-                    .unwrap()
-                    .join("sse")
-                    .unwrap()
-                    .to_string(),
+                fabro_mcp::config::McpHttpProtocol::Sse => {
+                    #[expect(
+                        clippy::disallowed_types,
+                        reason = "test-only preview URL path joining; not a logging boundary"
+                    )]
+                    let url = fabro_http::Url::parse(&url).unwrap().join("sse").unwrap();
+                    url.to_string()
+                }
             };
 
             fabro_mcp::config::McpServerSettings {

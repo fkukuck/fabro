@@ -102,11 +102,7 @@ impl McpClient {
                     }
                     McpHttpProtocol::Sse => {
                         let headers = headers_from_pairs(headers)?;
-                        PendingTransport::Sse(SseClientTransport::new(
-                            url.clone(),
-                            headers,
-                            http_client,
-                        )?)
+                        PendingTransport::Sse(SseClientTransport::new(url, headers, http_client)?)
                     }
                 }
             }

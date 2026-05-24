@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_types,
+    reason = "SSE transport needs URL parsing for internal request routing; error messages omit raw URLs"
+)]
+
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -19,13 +24,13 @@ pub(crate) struct SseClientTransport {
 
 impl SseClientTransport {
     pub(crate) fn new(
-        url: String,
+        url: &str,
         headers: HeaderMap,
         client: fabro_http::HttpClient,
     ) -> Result<Self> {
         let (endpoint_tx, endpoint_rx) = watch::channel(None);
         let (messages_tx, messages_rx) = mpsc::channel(64);
-        let sse_url = Url::parse(&url).with_context(|| format!("invalid SSE MCP URL '{url}'"))?;
+        let sse_url = Url::parse(url).context("invalid SSE MCP URL")?;
         let stream_client = client.clone();
 
         tokio::spawn(async move {
@@ -139,10 +144,10 @@ async fn handle_sse_event(
     match event.event.as_deref() {
         Some("endpoint") => {
             let endpoint = resolve_endpoint_url(sse_url, event.data.trim())
-                .with_context(|| format!("invalid SSE MCP endpoint '{}'", event.data))?;
+                .context("invalid SSE MCP endpoint")?;
             let _ = endpoint_tx.send(Some(endpoint.to_string()));
         }
-        None | Some("") | Some("message") => {
+        None | Some("" | "message") => {
             if event.data.trim().is_empty() {
                 return Ok(());
             }

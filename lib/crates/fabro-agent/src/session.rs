@@ -733,10 +733,17 @@ impl Session {
     fn sandbox_mcp_http_url(protocol: McpHttpProtocol, preview_url: &str) -> String {
         match protocol {
             McpHttpProtocol::StreamableHttp => preview_url.to_string(),
-            McpHttpProtocol::Sse => fabro_http::Url::parse(preview_url)
-                .ok()
-                .and_then(|url| url.join("sse").ok())
-                .map_or_else(|| preview_url.to_string(), |url| url.to_string()),
+            McpHttpProtocol::Sse => {
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "internal preview URL path joining; no raw URL is logged or included in errors"
+                )]
+                let url = fabro_http::Url::parse(preview_url)
+                    .ok()
+                    .and_then(|url| url.join("sse").ok());
+
+                url.map_or_else(|| preview_url.to_string(), |url| url.to_string())
+            }
         }
     }
 
