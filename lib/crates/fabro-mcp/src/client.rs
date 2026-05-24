@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow};
-use fabro_http::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::service::{RoleClient, RunningService, serve_client};
 use rmcp::transport::StreamableHttpClientTransport;
@@ -16,7 +15,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::client_handler::LoggingClientHandler;
 use crate::config::{McpHttpProtocol, McpServerSettings, McpTransport};
-use crate::sse_client::{SseClientTransport, headers_from_pairs};
+use crate::http_transport::headers_from_pairs;
+use crate::sse_client::SseClientTransport;
 
 enum ClientState {
     /// Transport created but handshake not yet performed.
@@ -78,17 +78,10 @@ impl McpClient {
                 url,
                 headers,
             } => {
+                let headers = headers_from_pairs(headers)?;
                 let mut builder = fabro_http::HttpClientBuilder::new();
                 if !headers.is_empty() {
-                    let mut header_map = HeaderMap::new();
-                    for (key, value) in headers {
-                        let name = HeaderName::from_bytes(key.as_bytes())
-                            .with_context(|| format!("invalid header name '{key}'"))?;
-                        let val = HeaderValue::from_str(value)
-                            .with_context(|| format!("invalid header value for '{key}'"))?;
-                        header_map.insert(name, val);
-                    }
-                    builder = builder.default_headers(header_map);
+                    builder = builder.default_headers(headers);
                 }
 
                 let http_client = builder.build()?;
@@ -101,8 +94,7 @@ impl McpClient {
                         PendingTransport::Http(transport)
                     }
                     McpHttpProtocol::Sse => {
-                        let headers = headers_from_pairs(headers)?;
-                        PendingTransport::Sse(SseClientTransport::new(url, headers, http_client)?)
+                        PendingTransport::Sse(SseClientTransport::new(url, http_client)?)
                     }
                 }
             }

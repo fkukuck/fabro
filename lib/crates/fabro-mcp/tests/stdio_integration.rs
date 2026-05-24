@@ -12,6 +12,7 @@ use axum::{Json, Router};
 use fabro_mcp::client::McpClient;
 use fabro_mcp::config::{McpHttpProtocol, McpServerSettings, McpTransport};
 use fabro_mcp::connection_manager::{McpConnectionManager, call_result_to_string};
+use fabro_mcp::http_transport::sandbox_mcp_http_url;
 use futures::{StreamExt as _, stream};
 use serde_json::Value;
 use tokio::net::TcpListener;
@@ -280,4 +281,134 @@ async fn sse_client_initialize_and_call_tool() {
         .await
         .unwrap();
     assert_eq!(call_result_to_string(&result).unwrap(), "hello from sse");
+}
+
+#[tokio::test]
+async fn sse_client_rejects_oversized_messages() {
+    #[derive(Clone)]
+    struct SseState {
+        messages: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
+    }
+
+    async fn sse(State(state): State<SseState>) -> Response {
+        let session_id = "oversized-session".to_string();
+        let (tx, rx) = mpsc::channel::<String>(16);
+        state.messages.lock().await.insert(session_id.clone(), tx);
+        let endpoint = format!("event: endpoint\ndata: /sse?sessionId={session_id}\n\n");
+        let body = Body::from_stream(
+            stream::once(async move { Ok::<_, Infallible>(Bytes::from(endpoint)) }).chain(
+                ReceiverStream::new(rx).map(|event| Ok::<_, Infallible>(Bytes::from(event))),
+            ),
+        );
+        Response::builder()
+            .header(header::CONTENT_TYPE, "text/event-stream")
+            .body(body)
+            .unwrap()
+    }
+
+    async fn post_sse(
+        State(state): State<SseState>,
+        Query(query): Query<HashMap<String, String>>,
+        Json(message): Json<Value>,
+    ) -> StatusCode {
+        let session_id = query.get("sessionId").expect("sessionId query").clone();
+        let sender = state
+            .messages
+            .lock()
+            .await
+            .get(&session_id)
+            .cloned()
+            .expect("active SSE stream");
+        let Some(id) = message.get("id").cloned() else {
+            return StatusCode::ACCEPTED;
+        };
+        let oversized_name = "x".repeat(1024 * 1024 + 1);
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": oversized_name, "version": "1.0.0"}
+            }
+        });
+        sender
+            .send(format!("data: {response}\n\n"))
+            .await
+            .expect("SSE stream should be open");
+        StatusCode::ACCEPTED
+    }
+
+    let state = SseState {
+        messages: Arc::new(Mutex::new(HashMap::new())),
+    };
+    let app = Router::new()
+        .route("/sse", get(sse).post(post_sse))
+        .with_state(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let config = McpServerSettings {
+        name:                 "test-sse".into(),
+        transport:            McpTransport::Http {
+            protocol: McpHttpProtocol::Sse,
+            url:      format!("http://{addr}/sse"),
+            headers:  HashMap::new(),
+        },
+        current_dir:          None,
+        clear_env:            false,
+        startup_timeout_secs: 2,
+        tool_timeout_secs:    30,
+    };
+    let client = McpClient::new(&config).unwrap();
+    let error = client
+        .initialize(config.startup_timeout())
+        .await
+        .expect_err("oversized SSE message should fail initialization");
+    let error = error.to_string();
+
+    assert!(
+        error.contains("connection closed"),
+        "unexpected error: {error}"
+    );
+    assert!(
+        !error.contains("xxxxxxxx"),
+        "oversized payload leaked: {error}"
+    );
+}
+
+#[test]
+fn sandbox_mcp_http_url_builds_sse_endpoint_under_preview_path() {
+    let url = sandbox_mcp_http_url(
+        McpHttpProtocol::Sse,
+        "https://preview.example.com/proxy/3100/",
+    )
+    .unwrap();
+
+    assert_eq!(url, "https://preview.example.com/proxy/3100/sse");
+}
+
+#[test]
+fn sandbox_mcp_http_url_leaves_streamable_http_preview_url_unchanged() {
+    let url = sandbox_mcp_http_url(
+        McpHttpProtocol::StreamableHttp,
+        "https://preview.example.com/proxy/3100/mcp",
+    )
+    .unwrap();
+
+    assert_eq!(url, "https://preview.example.com/proxy/3100/mcp");
+}
+
+#[test]
+fn sandbox_mcp_http_url_preserves_query_and_path_without_trailing_slash() {
+    let url = sandbox_mcp_http_url(
+        McpHttpProtocol::Sse,
+        "https://preview.example.com/proxy/3100?token=abc",
+    )
+    .unwrap();
+
+    assert_eq!(url, "https://preview.example.com/proxy/3100/sse?token=abc");
 }

@@ -14,8 +14,9 @@ use fabro_llm::types::{
     TokenCounts, ToolChoice,
 };
 use fabro_llm::{Error as LlmError, retry};
-use fabro_mcp::config::{McpHttpProtocol, McpServerSettings, McpTransport};
+use fabro_mcp::config::{McpServerSettings, McpTransport};
 use fabro_mcp::connection_manager::McpConnectionManager;
+use fabro_mcp::http_transport;
 use fabro_model::{AgentProfileKind, Catalog, ModelRef, Speed};
 use fabro_types::{
     PermissionLevel, Principal, SessionMessage, SessionRecord, StageContextWindowProjection,
@@ -690,7 +691,8 @@ impl Session {
                         .await?
                     {
                         Ok((url, headers)) => {
-                            let url = Self::sandbox_mcp_http_url(*protocol, &url);
+                            let url = http_transport::sandbox_mcp_http_url(*protocol, &url)
+                                .map_err(|err| Error::InvalidState(err.to_string()))?;
                             info!(
                                 server = %config.name,
                                 url = %url,
@@ -728,23 +730,6 @@ impl Session {
         }
 
         Ok(resolved)
-    }
-
-    fn sandbox_mcp_http_url(protocol: McpHttpProtocol, preview_url: &str) -> String {
-        match protocol {
-            McpHttpProtocol::StreamableHttp => preview_url.to_string(),
-            McpHttpProtocol::Sse => {
-                #[expect(
-                    clippy::disallowed_types,
-                    reason = "internal preview URL path joining; no raw URL is logged or included in errors"
-                )]
-                let url = fabro_http::Url::parse(preview_url)
-                    .ok()
-                    .and_then(|url| url.join("sse").ok());
-
-                url.map_or_else(|| preview_url.to_string(), |url| url.to_string())
-            }
-        }
     }
 
     /// Start an MCP server inside the sandbox and return (url, headers) for
