@@ -1,9 +1,24 @@
 import { StageState } from "@qltysh/fabro-api-client";
-import type { PaginatedRunStageList } from "@qltysh/fabro-api-client";
+import type {
+  PaginatedRunStageList,
+  StageHandler,
+  StageModelUsage,
+} from "@qltysh/fabro-api-client";
 
-import type { Stage } from "../components/stage-sidebar";
 import { isVisibleStage } from "../data/runs";
 import { formatDurationMs } from "./format";
+
+export interface Stage {
+  id: string;
+  name: string;
+  handler: StageHandler;
+  status: StageState;
+  duration: string;
+  nodeId: string;
+  visit: number;
+  startedAt: string | null;
+  providerUsed: StageModelUsage | null;
+}
 
 export const ACTIVE_STAGE_STATES: ReadonlySet<StageState> = new Set([
   StageState.RUNNING,

@@ -1,6 +1,6 @@
 import { type ComponentType, type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
-import type { StageHandler, StageModelUsage, StageState } from "@qltysh/fabro-api-client";
+import type { StageState } from "@qltysh/fabro-api-client";
 import {
   ArrowPathIcon,
   CheckCircleIcon,
@@ -19,20 +19,12 @@ import {
   PaperClipIcon,
 } from "@heroicons/react/24/outline";
 import { formatDurationSecs } from "../lib/format";
-import { ACTIVE_STAGE_STATES, formatStageLabel } from "../lib/stage-sidebar";
+import { ACTIVE_STAGE_STATES, formatStageLabel, type Stage } from "../lib/stage-sidebar";
 import { elapsedSecsSince, useTickingNow } from "../lib/time";
+import { HoverCard } from "./ui";
+import { StagePopover } from "./stage-popover";
 
-export interface Stage {
-  id: string;
-  name: string;
-  handler: StageHandler;
-  status: StageState;
-  duration: string;
-  nodeId: string;
-  visit: number;
-  startedAt: string | null;
-  providerUsed: StageModelUsage | null;
-}
+export type { Stage };
 
 export const statusConfig: Record<StageState, { icon: ComponentType<{ className?: string }>; color: string }> = {
   pending: { icon: PauseCircleIcon, color: "text-fg-muted" },
@@ -78,26 +70,38 @@ interface SidebarRowProps {
   collapsed: boolean;
   /** Spin the icon to signal an in-flight stage. */
   spin?: boolean;
+  /** Rich popover shown on hover/focus; supersedes the collapsed-mode title. */
+  popover?: ReactNode;
 }
 
 /** A single sidebar link. The icon stays visible when collapsed; the label
  * becomes screen-reader-only and a `title` tooltip stands in for sighted users. */
-function SidebarRow({ to, icon: Icon, iconClass, label, trailing, active, collapsed, spin }: SidebarRowProps) {
+function SidebarRow({ to, icon: Icon, iconClass, label, trailing, active, collapsed, spin, popover }: SidebarRowProps) {
+  const link = (
+    <Link
+      to={to}
+      title={popover || !collapsed ? undefined : label}
+      className={`flex items-center rounded-md py-1.5 text-sm transition-colors ${
+        collapsed ? "mx-1 justify-center" : "gap-2 px-2"
+      } ${active ? "bg-overlay text-fg" : "text-fg-3 hover:bg-overlay hover:text-fg"}`}
+    >
+      <Icon className={`size-4 shrink-0 ${iconClass} ${spin ? "animate-spin" : ""}`} />
+      <span className={collapsed ? "sr-only" : "flex-1 truncate"}>{label}</span>
+      {trailing != null && !collapsed && (
+        <span className="shrink-0 font-mono text-xs tabular-nums text-fg-muted">{trailing}</span>
+      )}
+    </Link>
+  );
+
   return (
     <li>
-      <Link
-        to={to}
-        title={collapsed ? label : undefined}
-        className={`flex items-center rounded-md py-1.5 text-sm transition-colors ${
-          collapsed ? "mx-1 justify-center" : "gap-2 px-2"
-        } ${active ? "bg-overlay text-fg" : "text-fg-3 hover:bg-overlay hover:text-fg"}`}
-      >
-        <Icon className={`size-4 shrink-0 ${iconClass} ${spin ? "animate-spin" : ""}`} />
-        <span className={collapsed ? "sr-only" : "flex-1 truncate"}>{label}</span>
-        {trailing != null && !collapsed && (
-          <span className="shrink-0 font-mono text-xs tabular-nums text-fg-muted">{trailing}</span>
-        )}
-      </Link>
+      {popover ? (
+        <HoverCard openDelay={200} className="block" content={popover}>
+          {link}
+        </HoverCard>
+      ) : (
+        link
+      )}
     </li>
   );
 }
@@ -211,6 +215,7 @@ export function StageSidebar({ stages, runId, selectedStageId, activeLink }: Sta
                     active={selectedStageId === stage.id}
                     collapsed={collapsed}
                     spin={ACTIVE_STAGE_STATES.has(stage.status)}
+                    popover={<StagePopover runId={runId} stage={stage} duration={stageDuration(stage)} />}
                   />
                 );
               })}
