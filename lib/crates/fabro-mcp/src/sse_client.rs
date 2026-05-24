@@ -5,7 +5,7 @@
 
 use std::future::Future;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use fabro_http::{Url, header};
 use futures::{StreamExt as _, TryStreamExt as _};
 use rmcp::RoleClient;
@@ -171,7 +171,11 @@ async fn handle_sse_event(
 }
 
 fn resolve_endpoint_url(sse_url: &Url, endpoint: &str) -> Result<Url> {
-    if endpoint.starts_with('/') {
+    if endpoint.starts_with("//") {
+        return Err(anyhow!("SSE MCP endpoint must not be protocol-relative"));
+    }
+
+    let resolved = if endpoint.starts_with('/') {
         let (path, query) = endpoint
             .split_once('?')
             .map_or((endpoint, None), |(path, query)| (path, Some(query)));
@@ -180,10 +184,16 @@ fn resolve_endpoint_url(sse_url: &Url, endpoint: &str) -> Result<Url> {
         let mut url = sse_url.clone();
         url.set_path(&format!("{prefix}{path}"));
         url.set_query(query);
-        return Ok(url);
+        url
+    } else {
+        sse_url.join(endpoint)?
+    };
+
+    if resolved.origin() != sse_url.origin() {
+        return Err(anyhow!("SSE MCP endpoint origin must match SSE URL origin"));
     }
 
-    sse_url.join(endpoint).map_err(Into::into)
+    Ok(resolved)
 }
 
 #[derive(Default)]
@@ -236,5 +246,74 @@ pub(crate) enum SseClientError {
 impl SseClientError {
     fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Source(anyhow::Error::new(error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sse_url() -> Url {
+        Url::parse("https://srv.example.com/sse").unwrap()
+    }
+
+    #[test]
+    fn accepts_relative_path_with_query() {
+        let resolved = resolve_endpoint_url(&sse_url(), "/messages?sessionId=abc").unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://srv.example.com/messages?sessionId=abc"
+        );
+    }
+
+    #[test]
+    fn accepts_same_origin_absolute_url() {
+        let resolved =
+            resolve_endpoint_url(&sse_url(), "https://srv.example.com/messages?s=1").unwrap();
+        assert_eq!(resolved.as_str(), "https://srv.example.com/messages?s=1");
+    }
+
+    #[test]
+    fn accepts_same_origin_default_port() {
+        let resolved =
+            resolve_endpoint_url(&sse_url(), "https://srv.example.com:443/messages").unwrap();
+        assert_eq!(resolved.origin(), sse_url().origin());
+    }
+
+    #[test]
+    fn rejects_cross_host_absolute_url() {
+        let err = resolve_endpoint_url(&sse_url(), "https://evil.example/steal").unwrap_err();
+        assert!(
+            err.to_string().contains("origin"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_scheme_downgrade() {
+        let err = resolve_endpoint_url(&sse_url(), "http://srv.example.com/messages").unwrap_err();
+        assert!(
+            err.to_string().contains("origin"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_port_mismatch() {
+        let err =
+            resolve_endpoint_url(&sse_url(), "https://srv.example.com:8443/messages").unwrap_err();
+        assert!(
+            err.to_string().contains("origin"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_protocol_relative_url() {
+        let err = resolve_endpoint_url(&sse_url(), "//evil.example/steal").unwrap_err();
+        assert!(
+            err.to_string().contains("protocol-relative"),
+            "unexpected error: {err}"
+        );
     }
 }
