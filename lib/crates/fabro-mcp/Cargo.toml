@@ -32,4 +32,6 @@ rmcp = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+axum.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio-stream.workspace = true

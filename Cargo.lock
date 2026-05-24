@@ -2099,6 +2099,7 @@ name = "fabro-mcp"
 version = "0.243.0-nightly.1"
 dependencies = [
  "anyhow",
+ "axum",
  "fabro-config",
  "fabro-http",
  "fabro-types",
@@ -2107,6 +2108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 

@@ -1,9 +1,18 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use axum::body::Body;
+use axum::extract::{Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::Response;
+use axum::routing::get;
+use axum::{Json, Router};
 use fabro_mcp::client::McpClient;
-use fabro_mcp::config::{McpServerSettings, McpTransport};
+use fabro_mcp::config::{McpHttpProtocol, McpServerSettings, McpTransport};
 use fabro_mcp::connection_manager::{McpConnectionManager, call_result_to_string};
+use futures::{StreamExt as _, stream};
+use serde_json::Value;
+use tokio::sync::mpsc;
 
 fn test_server_config() -> McpServerSettings {
     let test_server = format!("{}/tests/test_mcp_server.py", env!("CARGO_MANIFEST_DIR"));
@@ -148,4 +157,127 @@ async fn connection_manager_stdio_roundtrip() {
 
     let text = call_result_to_string(&result).unwrap();
     assert_eq!(text, "roundtrip");
+}
+
+#[tokio::test]
+async fn sse_client_initialize_and_call_tool() {
+    #[derive(Clone)]
+    struct SseState {
+        messages: std::sync::Arc<tokio::sync::Mutex<HashMap<String, mpsc::Sender<String>>>>,
+    }
+
+    async fn sse(State(state): State<SseState>) -> Response {
+        let session_id = "session-1".to_string();
+        let (tx, rx) = mpsc::channel::<String>(16);
+        state.messages.lock().await.insert(session_id.clone(), tx);
+        let endpoint = format!("event: endpoint\ndata: /sse?sessionId={session_id}\n\n");
+        let body = Body::from_stream(
+            stream::once(async move {
+                Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(endpoint))
+            })
+            .chain(
+                tokio_stream::wrappers::ReceiverStream::new(rx)
+                    .map(|event| Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(event))),
+            ),
+        );
+        Response::builder()
+            .header(header::CONTENT_TYPE, "text/event-stream")
+            .body(body)
+            .unwrap()
+    }
+
+    async fn post_sse(
+        State(state): State<SseState>,
+        Query(query): Query<HashMap<String, String>>,
+        headers: HeaderMap,
+        Json(message): Json<Value>,
+    ) -> StatusCode {
+        assert_eq!(
+            headers
+                .get("x-test-token")
+                .and_then(|value| value.to_str().ok()),
+            Some("secret")
+        );
+        let session_id = query.get("sessionId").expect("sessionId query").clone();
+        let sender = state
+            .messages
+            .lock()
+            .await
+            .get(&session_id)
+            .cloned()
+            .expect("active SSE stream");
+        let Some(id) = message.get("id").cloned() else {
+            return StatusCode::ACCEPTED;
+        };
+        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+        let result = match method {
+            "initialize" => serde_json::json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "legacy-sse-test", "version": "1.0.0"}
+            }),
+            "tools/list" => serde_json::json!({
+                "tools": [{
+                    "name": "echo",
+                    "description": "Echo back the message",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"]
+                    }
+                }]
+            }),
+            "tools/call" => serde_json::json!({
+                "content": [{"type": "text", "text": "hello from sse"}],
+                "isError": false
+            }),
+            _ => serde_json::json!({}),
+        };
+        let response = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result});
+        sender
+            .send(format!("data: {response}\n\n"))
+            .await
+            .expect("SSE stream should be open");
+        StatusCode::ACCEPTED
+    }
+
+    let state = SseState {
+        messages: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+    };
+    let app = Router::new()
+        .route("/sse", get(sse).post(post_sse))
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let config = McpServerSettings {
+        name:                 "test-sse".into(),
+        transport:            McpTransport::Http {
+            protocol: McpHttpProtocol::Sse,
+            url:      format!("http://{addr}/sse"),
+            headers:  HashMap::from([("x-test-token".to_string(), "secret".to_string())]),
+        },
+        current_dir:          None,
+        clear_env:            false,
+        startup_timeout_secs: 10,
+        tool_timeout_secs:    30,
+    };
+    let client = McpClient::new(&config).unwrap();
+    client.initialize(config.startup_timeout()).await.unwrap();
+
+    let tools = client.list_tools().await.unwrap();
+    assert_eq!(tools[0].0, "echo");
+
+    let result = client
+        .call_tool(
+            "echo",
+            serde_json::json!({"message": "hello"}),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    assert_eq!(call_result_to_string(&result).unwrap(), "hello from sse");
 }
