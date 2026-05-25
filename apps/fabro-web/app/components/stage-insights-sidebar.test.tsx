@@ -176,6 +176,7 @@ describe("StageInsightsSidebar", () => {
     // Tool description still appears as the row `title` tooltip.
     expect(dom).toContain("Apply a unified diff patch");
     expect(dom).toContain("Search file contents");
+    expect(dom).toContain("Used");
   });
 
   test("renders mcp server used/total count, marks invoked servers as 'used'", () => {
