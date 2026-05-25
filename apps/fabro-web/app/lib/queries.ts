@@ -76,6 +76,7 @@ export interface RunsListFilters {
 export interface RunsPageOptions extends RunsListFilters {
   limit?: number;
   offset?: number;
+  parentId?: string;
 }
 
 export function useAuthConfig() {
@@ -146,7 +147,7 @@ export function useRunsPage(opts: RunsPageOptions = {}, enabled = true) {
           opts.limit,
           opts.offset,
           opts.includeArchived ?? false,
-          undefined,
+          opts.parentId,
           opts.status,
           opts.sort,
           opts.direction,
