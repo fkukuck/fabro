@@ -5,6 +5,7 @@ import type { RunWithStatus } from "../../data/runs";
 import { formatRelativeTime } from "../../lib/format";
 import { InlineMarkdown } from "../inline-markdown";
 import { PullRequestChip } from "../pull-request-chip";
+import { RowActionsMenu } from "./row-actions-menu";
 import { SelectionCheckbox } from "./selection-checkbox";
 import type { ToggleableColumn } from "./toggleable-column";
 
@@ -181,6 +182,9 @@ export function RunTableRow({
           )}
         </td>
       )}
+      <td className="relative z-10 w-10 whitespace-nowrap px-3 py-2.5 text-right">
+        <RowActionsMenu run={run} />
+      </td>
     </tr>
   );
 }

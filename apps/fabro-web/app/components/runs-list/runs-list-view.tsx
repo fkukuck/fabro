@@ -156,6 +156,9 @@ export function RunsListView({
                 {show("pr") && (
                   <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-right font-medium">PR</th>
                 )}
+                <th scope="col" className="w-10 whitespace-nowrap px-3 py-2.5">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
