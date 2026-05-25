@@ -207,21 +207,6 @@ export function useSteerRun(runId: string | undefined) {
   );
 }
 
-export function useToggleDemoMode() {
-  const { mutate } = useSWRConfig();
-  return useSWRMutation(
-    queryKeys.demo.toggle(),
-    async (_key, { arg }: { arg: { enabled: boolean } }) => {
-      await apiData(() => authApi.toggleDemo(arg));
-    },
-    {
-      onSuccess: () => {
-        void mutate(queryKeys.auth.me());
-      },
-    },
-  );
-}
-
 export function useLoginDevToken() {
   return useSWRMutation(
     queryKeys.auth.loginDevToken(),

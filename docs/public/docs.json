@@ -175,7 +175,6 @@
             "icon": "code",
             "pages": [
               "api-reference/overview",
-              "api-reference/demo-mode",
               "api-reference/client-sdks"
             ]
           },

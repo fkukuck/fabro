@@ -30,9 +30,6 @@ export const queryKeys = {
     sessions: () => ["auth", "sessions"] as const,
     loginDevToken: () => ["auth", "login-dev-token"] as const,
   },
-  demo: {
-    toggle: () => ["demo", "toggle"] as const,
-  },
   system: {
     info: () => ["system", "info"] as const,
     resources: () => ["system", "resources"] as const,
