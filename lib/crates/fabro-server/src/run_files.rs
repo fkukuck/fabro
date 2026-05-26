@@ -777,39 +777,55 @@ async fn sandbox_git_stdout(
     Ok(res.stdout)
 }
 
-/// Build the degraded response from the stored terminal diff patch.
-/// When `conclusion.diff.patch` is `None`, returns the empty envelope (UI maps
-/// this to R4(c)). Keeps the same `FileDiff[]` shape as live responses, but
-/// leaves contents unavailable because the server only has a unified patch.
+/// Build the degraded response from a stored diff patch.
+/// Prefers the terminal conclusion patch when present, and falls back to the
+/// latest checkpoint patch for in-progress runs. When no patch is available,
+/// returns the empty envelope (UI maps this to R4(c)). Keeps the same
+/// `FileDiff[]` shape as live responses, but leaves contents unavailable
+/// because the server only has a unified patch.
 fn build_fallback_response(
     projection: &fabro_store::RunProjection,
     reason: RunFilesMetaDegradedReason,
     run_id: &RunId,
     start: Instant,
 ) -> PaginatedRunFileList {
-    let Some(patch) = projection
+    let stored_patch = projection
         .conclusion
         .as_ref()
-        .and_then(|conclusion| conclusion.diff.patch.as_deref())
-    else {
+        .and_then(|conclusion| {
+            conclusion.diff.patch.as_deref().map(|patch| StoredPatch {
+                patch,
+                to_sha: conclusion.final_git_commit_sha.as_deref(),
+                to_sha_committed_at: Some(conclusion.timestamp),
+            })
+        })
+        .or_else(|| {
+            projection.checkpoints.iter().rev().find_map(|checkpoint| {
+                checkpoint.diff.patch.as_deref().map(|patch| StoredPatch {
+                    patch,
+                    to_sha: checkpoint.checkpoint.git_commit_sha.as_deref(),
+                    to_sha_committed_at: checkpoint
+                        .checkpoint
+                        .git_commit_sha
+                        .as_ref()
+                        .map(|_| checkpoint.checkpoint.timestamp),
+                })
+            })
+        });
+    let Some(stored_patch) = stored_patch else {
         return empty_envelope(RunFilesMetaSource::FinalPatch, RunFilesMetaScope::Committed);
     };
 
-    let entries: Vec<String> = split_patch_sections(patch)
+    let entries: Vec<String> = split_patch_sections(stored_patch.patch)
         .into_iter()
         .map(|section| section.text.to_string())
         .collect();
 
-    let to_sha = projection
-        .conclusion
-        .as_ref()
-        .and_then(|c| c.final_git_commit_sha.clone())
-        .map(|s| to_sha_wrapper(&s));
-
-    // The patch was captured when the run ended; no live sandbox to query
-    // for strict commit time, so the conclusion timestamp is the closest
-    // proxy. The client renders this as "Captured Xm ago".
-    let to_sha_committed_at = projection.conclusion.as_ref().map(|c| c.timestamp);
+    // The patch was captured from durable run events; no live sandbox to query
+    // for strict commit time, so use the event timestamp as the closest proxy.
+    // The client renders this as "Captured Xm ago".
+    let to_sha = stored_patch.to_sha.map(to_sha_wrapper);
+    let to_sha_committed_at = stored_patch.to_sha_committed_at;
 
     build_patch_backed_response(
         &entries,
@@ -824,6 +840,12 @@ fn build_fallback_response(
         run_id,
         start,
     )
+}
+
+struct StoredPatch<'a> {
+    patch:               &'a str,
+    to_sha:              Option<&'a str>,
+    to_sha_committed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 struct PatchBackedResponseMeta {
@@ -2407,6 +2429,75 @@ index 1111111..2222222 160000
             Instant::now(),
         ))
         .expect("fallback response should serialize")
+    }
+
+    fn checkpoint_fallback_projection(patch: &str) -> fabro_store::RunProjection {
+        let mut projection = fallback_projection("");
+        projection.conclusion = None;
+        projection.checkpoints.push(fabro_types::CheckpointRecord {
+            seq:        1,
+            checkpoint: fabro_types::Checkpoint {
+                timestamp:                  chrono::Utc::now(),
+                current_node:               "agent".to_string(),
+                completed_nodes:            Vec::new(),
+                node_retries:               HashMap::new(),
+                context_values:             HashMap::new(),
+                node_outcomes:              HashMap::new(),
+                next_node_id:               None,
+                git_commit_sha:             Some(
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+                ),
+                loop_failure_signatures:    HashMap::new(),
+                restart_failure_signatures: HashMap::new(),
+                node_visits:                HashMap::new(),
+            },
+            diff:       fabro_types::RunDiff {
+                patch:   Some(patch.to_string()),
+                summary: None,
+            },
+        });
+        projection
+    }
+
+    #[test]
+    fn fallback_uses_latest_checkpoint_patch_when_run_has_not_concluded() {
+        let body = serde_json::to_value(build_fallback_response(
+            &checkpoint_fallback_projection(&simple_patch("src/live.ts")),
+            RunFilesMetaDegradedReason::SandboxGone,
+            &RunId::new(),
+            Instant::now(),
+        ))
+        .expect("fallback response should serialize");
+
+        assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"][0]["new_file"]["name"], "src/live.ts");
+        assert_eq!(body["meta"]["source"], "final_patch");
+        assert_eq!(body["meta"]["total_changed"], 1);
+    }
+
+    #[test]
+    fn fallback_uses_checkpoint_metadata_when_checkpoint_patch_is_selected() {
+        let mut projection = checkpoint_fallback_projection(&simple_patch("src/live.ts"));
+        projection.conclusion = fallback_projection("").conclusion;
+        if let Some(conclusion) = projection.conclusion.as_mut() {
+            conclusion.diff.patch = None;
+            conclusion.final_git_commit_sha =
+                Some("cccccccccccccccccccccccccccccccccccccccc".to_string());
+        }
+
+        let body = serde_json::to_value(build_fallback_response(
+            &projection,
+            RunFilesMetaDegradedReason::SandboxGone,
+            &RunId::new(),
+            Instant::now(),
+        ))
+        .expect("fallback response should serialize");
+
+        assert_eq!(body["data"][0]["new_file"]["name"], "src/live.ts");
+        assert_eq!(
+            body["meta"]["to_sha"],
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
     }
 
     fn sandbox_patch_response_json(entries: &[String]) -> serde_json::Value {
