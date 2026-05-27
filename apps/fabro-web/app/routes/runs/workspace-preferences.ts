@@ -1,8 +1,6 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
 } from "react";
 import { useSearchParams } from "react-router";
 import type { BoardColumn, ListRunsSortEnum } from "@qltysh/fabro-api-client";
@@ -32,6 +30,8 @@ export function useRunsWorkspacePreferences() {
     () => resolveRunsWorkspaceSearchParams(urlSearchParams),
     [urlSearchParams],
   );
+  const hydratedSearch =
+    searchParams === urlSearchParams ? null : `?${searchParams.toString()}`;
   const preferences = useMemo(
     () => runsWorkspacePreferencesFromSearchParams(searchParams),
     [searchParams],
@@ -103,15 +103,8 @@ export function useRunsWorkspacePreferences() {
     [updatePreferences],
   );
 
-  const hydratedFromStorage = useRef(false);
-  useEffect(() => {
-    if (hydratedFromStorage.current) return;
-    hydratedFromStorage.current = true;
-    if (searchParams === urlSearchParams) return;
-    setSearchParams(searchParams, { replace: true });
-  }, [searchParams, urlSearchParams, setSearchParams]);
-
   return {
+    hydratedSearch,
     query,
     repoFilter,
     workflowFilter,
