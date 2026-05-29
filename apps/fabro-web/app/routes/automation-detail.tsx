@@ -12,9 +12,11 @@ import {
 } from "@heroicons/react/24/outline";
 import type {
   Automation,
+  BoardColumn,
   ListRunsSortEnum,
 } from "@qltysh/fabro-api-client";
 
+import { toRunWithStatus } from "../data/runs";
 import { ApiError, apiData, automationsApi } from "../lib/api-client";
 import { useAutomation, useAutomationRuns } from "../lib/queries";
 import { queryKeys } from "../lib/query-keys";
@@ -22,14 +24,21 @@ import { useDataUpdatedAt } from "../hooks/use-data-updated-at";
 import { useTickingNow } from "../lib/time";
 import { formatRelativeTime } from "../lib/format";
 import { ColumnPickerButton } from "../components/runs-list/column-picker-button";
+import { FilterButton } from "../components/runs-list/filter-button";
 import {
+  STATUS_FILTER_OPTIONS,
+  createdCutoffMsFor,
+  createdFilterOptions,
   hiddenColumnsFromSearchParams,
+  parseCreatedFilter,
   parseDirection,
   parsePage,
   parsePageSize,
   parseSort,
+  parseStatusFilter,
 } from "../components/runs-list/preferences";
 import { RunsListView } from "../components/runs-list/runs-list-view";
+import { StatusFilterButton } from "../components/runs-list/status-filter-button";
 import {
   serializeHiddenColumns,
   type ToggleableColumn,
@@ -210,6 +219,13 @@ function AutomationRunsList({ automationId }: { automationId: string }) {
   const direction = parseDirection(urlSearchParams.get("direction"));
   const page = parsePage(urlSearchParams.get("page"));
   const pageSize = parsePageSize(urlSearchParams.get("size"));
+  const repoFilter = urlSearchParams.get("repo") || "all";
+  const createdFilter = parseCreatedFilter(urlSearchParams.get("created"));
+  const rawStatus = urlSearchParams.get("status");
+  const statusFilter = useMemo(
+    () => (rawStatus == null ? new Set<BoardColumn>() : parseStatusFilter(rawStatus)),
+    [rawStatus],
+  );
   const hiddenColumns = useMemo(
     () => hiddenColumnsFromSearchParams(urlSearchParams),
     [urlSearchParams],
@@ -251,6 +267,28 @@ function AutomationRunsList({ automationId }: { automationId: string }) {
       if (serialized) p.set("hide", serialized);
       else p.set("hide", "");
     });
+  const setRepoFilter = (value: string) =>
+    updateParams((p) => {
+      if (value && value !== "all") p.set("repo", value);
+      else p.delete("repo");
+      p.delete("page");
+    });
+  const setCreatedFilter = (value: ReturnType<typeof parseCreatedFilter>) =>
+    updateParams((p) => {
+      if (value !== "all") p.set("created", value);
+      else p.delete("created");
+      p.delete("page");
+    });
+  const setStatusFilter = (next: Set<BoardColumn>) =>
+    updateParams((p) => {
+      const trivial = next.size === 0 || next.size === STATUS_FILTER_OPTIONS.length;
+      if (trivial) {
+        p.delete("status");
+      } else {
+        p.set("status", STATUS_FILTER_OPTIONS.filter((c) => next.has(c)).join(","));
+      }
+      p.delete("page");
+    });
   const onSortClick = (key: ListRunsSortEnum) =>
     updateParams((p) => {
       if (sort === key) {
@@ -266,6 +304,15 @@ function AutomationRunsList({ automationId }: { automationId: string }) {
     limit:  pageSize,
     offset: (page - 1) * pageSize,
   });
+
+  const allRepos = useMemo(() => {
+    const repos = new Set<string>();
+    for (const run of runsQuery.data?.data ?? []) {
+      repos.add(toRunWithStatus(run).repo);
+    }
+    return Array.from(repos).sort();
+  }, [runsQuery.data]);
+  const createdCutoffMs = createdCutoffMsFor(createdFilter);
 
   const now = useTickingNow(true, 15_000);
   const updatedAt = useDataUpdatedAt(runsQuery.data);
@@ -302,6 +349,25 @@ function AutomationRunsList({ automationId }: { automationId: string }) {
             className="w-full rounded-md border border-line bg-panel/80 py-2 pl-9 pr-3 text-sm text-fg-2 placeholder-fg-muted outline-none transition-colors focus:border-focus focus:ring-0"
           />
         </div>
+
+        <StatusFilterButton value={statusFilter} onChange={setStatusFilter} />
+        <FilterButton
+          label="Time"
+          value={createdFilter}
+          allValue="all"
+          options={createdFilterOptions}
+          onChange={setCreatedFilter}
+        />
+        <FilterButton
+          label="Repo"
+          value={repoFilter}
+          allValue="all"
+          options={[
+            { value: "all", label: "All repos" },
+            ...allRepos.map((repo) => ({ value: repo, label: repo })),
+          ]}
+          onChange={setRepoFilter}
+        />
 
         <div className="ml-auto flex items-center gap-3">
           {updatedAt != null ? (
@@ -344,9 +410,10 @@ function AutomationRunsList({ automationId }: { automationId: string }) {
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
         query={lowerQuery}
-        repoFilter="all"
+        repoFilter={repoFilter}
         workflowFilter="all"
-        createdCutoffMs={null}
+        statusFilter={statusFilter}
+        createdCutoffMs={createdCutoffMs}
       />
     </div>
   );
