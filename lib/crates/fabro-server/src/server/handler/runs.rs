@@ -599,7 +599,7 @@ async fn create_run(
         Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
     };
     let explicit_title_supplied = req.title.is_some();
-    Box::pin(create_run_from_manifest(
+    match Box::pin(create_run_from_manifest(
         state,
         CreateRunFromManifestRequest {
             manifest: req,
@@ -613,6 +613,13 @@ async fn create_run(
         },
     ))
     .await
+    {
+        Ok(CreatedRunFromManifest { run_id, summary }) => {
+            debug_assert_eq!(summary.id, run_id);
+            (StatusCode::CREATED, Json(summary)).into_response()
+        }
+        Err(err) => err.into_response(),
+    }
 }
 
 pub(crate) struct CreateRunFromManifestRequest {
@@ -626,10 +633,15 @@ pub(crate) struct CreateRunFromManifestRequest {
     pub(crate) source_context:           Option<RunSourceContext>,
 }
 
+pub(crate) struct CreatedRunFromManifest {
+    pub(crate) run_id:  RunId,
+    pub(crate) summary: fabro_types::Run,
+}
+
 pub(crate) async fn create_run_from_manifest(
     state: Arc<AppState>,
     request: CreateRunFromManifestRequest,
-) -> Response {
+) -> Result<CreatedRunFromManifest, ApiError> {
     let CreateRunFromManifestRequest {
         manifest,
         submitted_manifest_bytes,
@@ -648,11 +660,12 @@ pub(crate) async fn create_run_from_manifest(
         &manifest,
     ) {
         Ok(prepared) => prepared,
-        Err(err) => return ApiError::bad_request(err.to_string()).into_response(),
+        Err(err) => return Err(ApiError::bad_request(err.to_string())),
     };
     if let Err(err) = substitute_run_variables(&state, &mut prepared.settings).await {
-        return ApiError::bad_request(format!("Run config variable interpolation failed: {err}"))
-            .into_response();
+        return Err(ApiError::bad_request(format!(
+            "Run config variable interpolation failed: {err}"
+        )));
     }
     let run_id = explicit_run_id
         .or(prepared.run_id)
@@ -661,14 +674,14 @@ pub(crate) async fn create_run_from_manifest(
     if let Some(error) =
         run_manifest::sandbox_provider_policy_error(&state.server_settings(), provider)
     {
-        return ApiError::bad_request(error).into_response();
+        return Err(ApiError::bad_request(error));
     }
     if let Some(parent_id) = prepared.parent_id {
         if parent_id == run_id {
-            return ApiError::bad_request("A run cannot be its own parent.").into_response();
+            return Err(ApiError::bad_request("A run cannot be its own parent."));
         }
         if let Err(err) = validate_parent_link(&state, run_id, parent_id).await {
-            return err.into_response();
+            return Err(err);
         }
     }
     info!(run_id = %run_id, "Run created");
@@ -704,11 +717,10 @@ pub(crate) async fn create_run_from_manifest(
     let storage_root = match resolve_interp_string(&state.server_settings().server.storage.root) {
         Ok(path) => PathBuf::from(path),
         Err(err) => {
-            return ApiError::new(
+            return Err(ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to resolve server storage root: {err}"),
-            )
-            .into_response();
+            ));
         }
     };
     let created = match Box::pin(operations::create(
@@ -721,14 +733,13 @@ pub(crate) async fn create_run_from_manifest(
     {
         Ok(created) => created,
         Err(WorkflowError::ValidationFailed { .. } | WorkflowError::Parse(_)) => {
-            return ApiError::bad_request("Validation failed").into_response();
+            return Err(ApiError::bad_request("Validation failed"));
         }
         Err(err) => {
-            return ApiError::new(
+            return Err(ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to persist run state: {err}"),
-            )
-            .into_response();
+            ));
         }
     };
     let created_at = created.run_id.created_at();
@@ -738,10 +749,12 @@ pub(crate) async fn create_run_from_manifest(
         .await
     {
         Ok(Some(summary)) => summary,
-        Ok(None) => return ApiError::not_found("Run not found.").into_response(),
+        Ok(None) => return Err(ApiError::not_found("Run not found.")),
         Err(err) => {
-            return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-                .into_response();
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err.to_string(),
+            ));
         }
     };
     let deterministic_title = summary.title.clone();
@@ -784,11 +797,10 @@ pub(crate) async fn create_run_from_manifest(
         }
     }
 
-    (
-        StatusCode::CREATED,
-        Json(state.decorate_run_summary(summary).await),
-    )
-        .into_response()
+    Ok(CreatedRunFromManifest {
+        run_id:  created.run_id,
+        summary: state.decorate_run_summary(summary).await,
+    })
 }
 
 struct GeneratedTitleTask {

@@ -3708,7 +3708,7 @@ async fn create_run_from_manifest_helper_persists_without_automation_metadata() 
     let submitted_manifest_bytes = serde_json::to_vec(&manifest).unwrap();
     let run_id = RunId::new();
 
-    let response = Box::pin(handler::runs::create_run_from_manifest(
+    let created = Box::pin(handler::runs::create_run_from_manifest(
         Arc::clone(&state),
         handler::runs::CreateRunFromManifestRequest {
             manifest,
@@ -3723,11 +3723,12 @@ async fn create_run_from_manifest_helper_persists_without_automation_metadata() 
             source_context: None,
         },
     ))
-    .await;
+    .await
+    .expect("helper should return a typed created run");
 
-    let body = response_json!(response, StatusCode::CREATED).await;
-    assert_eq!(body["id"], run_id.to_string());
-    assert!(body["automation"].is_null());
+    assert_eq!(created.run_id, run_id);
+    assert_eq!(created.summary.id, run_id);
+    assert!(created.summary.automation.is_none());
     let summary = state
         .store
         .get_cached_summary(&run_id, Utc::now())
@@ -3749,7 +3750,7 @@ async fn create_run_from_manifest_helper_persists_automation_metadata() {
         trigger_id: Some("schedule".to_string()),
     };
 
-    let response = Box::pin(handler::runs::create_run_from_manifest(
+    let created = Box::pin(handler::runs::create_run_from_manifest(
         Arc::clone(&state),
         handler::runs::CreateRunFromManifestRequest {
             manifest,
@@ -3764,17 +3765,27 @@ async fn create_run_from_manifest_helper_persists_automation_metadata() {
             source_context: None,
         },
     ))
-    .await;
+    .await
+    .expect("helper should return a typed created run");
 
-    let body = response_json!(response, StatusCode::CREATED).await;
-    assert_eq!(body["automation"]["id"], automation.id);
+    assert_eq!(created.run_id, run_id);
     assert_eq!(
-        body["automation"]["name"],
-        automation.name.as_deref().unwrap()
+        created.summary.automation.as_ref().unwrap().id,
+        automation.id
     );
     assert_eq!(
-        body["automation"]["trigger_id"],
-        automation.trigger_id.as_deref().unwrap()
+        created.summary.automation.as_ref().unwrap().name.as_deref(),
+        automation.name.as_deref()
+    );
+    assert_eq!(
+        created
+            .summary
+            .automation
+            .as_ref()
+            .unwrap()
+            .trigger_id
+            .as_deref(),
+        automation.trigger_id.as_deref()
     );
     let summary = state
         .store

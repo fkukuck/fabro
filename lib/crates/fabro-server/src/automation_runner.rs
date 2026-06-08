@@ -27,13 +27,8 @@ pub(crate) struct FireAutomationRunInput {
 }
 
 pub(crate) struct FiredAutomationRun {
-    pub(crate) created:      CreatedRunFromManifest,
+    pub(crate) created:      runs::CreatedRunFromManifest,
     pub(crate) start_result: Result<(), ApiError>,
-}
-
-pub(crate) struct CreatedRunFromManifest {
-    pub(crate) run_id:  RunId,
-    pub(crate) summary: fabro_types::Run,
 }
 
 #[derive(Debug)]
@@ -86,7 +81,7 @@ pub(crate) async fn fire_automation_run(
         trigger_id: Some(trigger_id.to_string()),
     };
 
-    let response = Box::pin(runs::create_run_from_manifest(
+    let created = Box::pin(runs::create_run_from_manifest(
         Arc::clone(&state),
         runs::CreateRunFromManifestRequest {
             manifest: materialized.manifest,
@@ -99,31 +94,8 @@ pub(crate) async fn fire_automation_run(
             source_context,
         },
     ))
-    .await;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(FireAutomationRunError::Create(ApiError::new(
-            status,
-            "failed to create automation run",
-        )));
-    }
-    let summary = state
-        .store_ref()
-        .get_cached_summary(&run_id, chrono::Utc::now())
-        .await
-        .map_err(|err| {
-            FireAutomationRunError::Create(ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                err.to_string(),
-            ))
-        })?
-        .ok_or_else(|| {
-            FireAutomationRunError::Create(ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "created automation run summary missing",
-            ))
-        })?;
-    let created = CreatedRunFromManifest { run_id, summary };
+    .await
+    .map_err(FireAutomationRunError::Create)?;
 
     #[cfg(any(test, feature = "test-support"))]
     let start_result = if let Some(start_override) = state.automation_run_start_override.as_ref() {
