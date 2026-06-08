@@ -11,8 +11,14 @@ import {
   shouldRefreshBoardForEvent,
 } from "./runs";
 import { summarizeBatchLifecycleAction } from "../components/runs-list/batch-lifecycle";
+import { mapRunListItem } from "../data/runs";
 
-function boardRun(id: string, column: BoardColumn, questionText?: string): Run {
+function boardRun(
+  id: string,
+  column: BoardColumn,
+  questionText?: string,
+  overrides: Partial<Run> = {},
+): Run {
   const status =
     column === "blocked"
       ? { kind: "blocked" as const, blocked_reason: "human_input_required" as const }
@@ -49,6 +55,7 @@ function boardRun(id: string, column: BoardColumn, questionText?: string): Run {
     sandbox:          null,
     models:           [],
     source_directory: null,
+    source_context:   null,
     timestamps:       {
       created_at:     "2026-04-19T12:00:00Z",
       started_at:     null,
@@ -63,6 +70,7 @@ function boardRun(id: string, column: BoardColumn, questionText?: string): Run {
     superseded_by:    null,
     retried_from:     null,
     links:            { web: null },
+    ...overrides,
   };
 }
 
@@ -81,6 +89,22 @@ describe("runs route board mapping", () => {
     expect(columns.find((column) => column.id === "running")?.items.map((item) => item.id)).toContain("paused-run");
     expect(columns.find((column) => column.id === "blocked")?.items.map((item) => item.id)).toContain("blocked-run");
     expect(columns.find((column) => column.id === "blocked")?.items[0]?.question).toBe("Older unresolved question?");
+  });
+
+  test("maps GitHub issue source context into run list links", () => {
+    const item = mapRunListItem(boardRun("issue-run", "running", undefined, {
+      source_context: {
+        type:         "github_issue",
+        repository:   "qltysh/fabro",
+        issue_number: 42,
+        issue_title:  "Fix flaky CI",
+        issue_url:    "https://github.com/qltysh/fabro/issues/42",
+      },
+    }));
+
+    expect(item.sourceIssueNumber).toBe(42);
+    expect(item.sourceIssueTitle).toBe("Fix flaky CI");
+    expect(item.sourceIssueUrl).toBe("https://github.com/qltysh/fabro/issues/42");
   });
 
   test("renders an archived column when includeArchived is true", () => {

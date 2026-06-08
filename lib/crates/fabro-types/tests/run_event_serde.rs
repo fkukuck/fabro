@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use fabro_types::graph::Graph;
-use fabro_types::run::{DirtyStatus, ForkSourceRef, GitContext, PreRunPushOutcome};
+use fabro_types::run::{
+    DirtyStatus, ForkSourceRef, GitContext, GithubIssueRunSource, PreRunPushOutcome,
+    RunSourceContext,
+};
 use fabro_types::run_event::run::{RunCreatedProps, RunParentLinkedProps, RunParentUnlinkedProps};
 use fabro_types::run_event::{RunSessionTurnFailedCode, RunSessionTurnFailedProps};
 use fabro_types::settings::InterpString;
@@ -31,6 +34,12 @@ fn run_created_props_round_trip_templated_settings() {
             name:       Some("Nightly".to_string()),
             trigger_id: Some("schedule_1".to_string()),
         }),
+        source_context:   Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   "owner/repo".to_string(),
+            issue_number: 42,
+            issue_title:  "Fix bug".to_string(),
+            issue_url:    "https://github.com/owner/repo/issues/42".to_string(),
+        })),
         db_prefix:        Some("run_".to_string()),
         provenance:       None,
         manifest_blob:    None,
@@ -69,6 +78,14 @@ fn run_created_props_round_trip_templated_settings() {
     assert_eq!(json["parent_id"], fixtures::RUN_2.to_string());
     assert_eq!(json["automation"]["id"], "nightly");
     assert_eq!(json["automation"]["trigger_id"], "schedule_1");
+    assert_eq!(json["source_context"]["type"], "github_issue");
+    assert_eq!(json["source_context"]["repository"], "owner/repo");
+    assert_eq!(json["source_context"]["issue_number"], 42);
+    assert_eq!(json["source_context"]["issue_title"], "Fix bug");
+    assert_eq!(
+        json["source_context"]["issue_url"],
+        "https://github.com/owner/repo/issues/42"
+    );
 
     let round_trip: RunCreatedProps =
         serde_json::from_value(json.clone()).expect("props should deserialize");
@@ -96,6 +113,7 @@ fn run_created_props_omits_web_url_when_absent() {
         source_directory: None,
         workflow_slug:    None,
         automation:       None,
+        source_context:   None,
         db_prefix:        None,
         provenance:       None,
         manifest_blob:    None,
@@ -141,6 +159,7 @@ fn run_created_props_defaults_additive_fields_for_legacy_events() {
         serde_json::from_value(json).expect("legacy props should deserialize");
     assert_eq!(props.retried_from, None);
     assert_eq!(props.automation, None);
+    assert_eq!(props.source_context, None);
 }
 
 #[test]

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use fabro_types::graph::Graph;
-use fabro_types::run::{DirtyStatus, ForkSourceRef, GitContext, PreRunPushOutcome, RunSpec};
+use fabro_types::run::{
+    DirtyStatus, ForkSourceRef, GitContext, GithubIssueRunSource, PreRunPushOutcome,
+    RunSourceContext, RunSpec,
+};
 use fabro_types::settings::InterpString;
 use fabro_types::settings::run::RunGoal;
 use fabro_types::{AutomationRef, WorkflowSettings, fixtures};
@@ -25,6 +28,12 @@ fn run_spec_round_trips_templated_settings() {
             name:       Some("Nightly".to_string()),
             trigger_id: Some("schedule_1".to_string()),
         }),
+        source_context:   Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   "owner/repo".to_string(),
+            issue_number: 42,
+            issue_title:  "Fix bug".to_string(),
+            issue_url:    "https://github.com/owner/repo/issues/42".to_string(),
+        })),
         source_directory: Some("/Users/client/project".to_string()),
         labels:           HashMap::from([("team".to_string(), "platform".to_string())]),
         provenance:       None,
@@ -61,6 +70,14 @@ fn run_spec_round_trips_templated_settings() {
     assert_eq!(json["fork_source_ref"]["checkpoint_sha"], "def456");
     assert_eq!(json["automation"]["id"], "nightly");
     assert_eq!(json["automation"]["trigger_id"], "schedule_1");
+    assert_eq!(json["source_context"]["type"], "github_issue");
+    assert_eq!(json["source_context"]["repository"], "owner/repo");
+    assert_eq!(json["source_context"]["issue_number"], 42);
+    assert_eq!(json["source_context"]["issue_title"], "Fix bug");
+    assert_eq!(
+        json["source_context"]["issue_url"],
+        "https://github.com/owner/repo/issues/42"
+    );
     let round_trip: RunSpec =
         serde_json::from_value(json.clone()).expect("record should deserialize");
 
@@ -86,4 +103,5 @@ fn run_spec_defaults_automation_for_legacy_specs() {
     let record: RunSpec = serde_json::from_value(json).expect("legacy spec should deserialize");
 
     assert_eq!(record.automation, None);
+    assert_eq!(record.source_context, None);
 }

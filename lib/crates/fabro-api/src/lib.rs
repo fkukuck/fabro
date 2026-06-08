@@ -17,6 +17,7 @@ pub mod types {
     pub use fabro_automation::{
         Automation, AutomationDraft as CreateAutomationRequest,
         AutomationReplace as ReplaceAutomationRequest, AutomationTarget, AutomationTrigger,
+        GithubIssueTrigger as AutomationGithubIssueTrigger,
     };
     pub use fabro_environment::Environment;
     pub use fabro_model::{
@@ -54,19 +55,19 @@ pub mod types {
         RunEvent, RunEventDetailContentKind, RunEventDetailResponse, RunFailure,
         RunPairStatusResponse, RunProjection, RunProvenance, RunRunnableSource, RunSandbox,
         RunSandboxFailure, RunSandboxInstance, RunSandboxKind, RunSandboxPlan, RunSandboxRuntime,
-        RunServerProvenance, RunSize, SandboxDetails, SandboxInfo, SandboxListMeta,
-        SandboxListResponse, SandboxNetwork, SandboxNetworkPolicy, SandboxNetworkPolicyMode,
-        SandboxProviderKind, SandboxProviderLookupError, SandboxResources, SandboxService,
-        SandboxServiceListResponse, SandboxState, SandboxTimestamps, SecretMetadata, SecretType,
-        ServerSettings, SessionDetail, SessionId, SessionMessage, SessionRecord, SessionStatus,
-        SessionSummary, SessionTurn, SkillsProjection, StageCompletion, StageContextWindow,
-        StageContextWindowBreakdownItem, StageContextWindowCategory, StageContextWindowCountMethod,
-        StageContextWindowProjection, StageContextWindowStaleness,
-        StageContextWindowUnavailableReason, StageContextWindowWarning, StageHandler,
-        StageModelUsage, StageOutcome, StageProjection, StageState, SubAgentProjection,
-        SubAgentStatus, SystemActorKind, SystemIntegrationStatus, SystemIntegrationsResponse,
-        TodoListProjection, TurnId, UpdateVariableRequest, UserPrincipal, Variable,
-        VariableListResponse, WorkflowSettings,
+        RunServerProvenance, RunSize, RunSourceContext, SandboxDetails, SandboxInfo,
+        SandboxListMeta, SandboxListResponse, SandboxNetwork, SandboxNetworkPolicy,
+        SandboxNetworkPolicyMode, SandboxProviderKind, SandboxProviderLookupError,
+        SandboxResources, SandboxService, SandboxServiceListResponse, SandboxState,
+        SandboxTimestamps, SecretMetadata, SecretType, ServerSettings, SessionDetail, SessionId,
+        SessionMessage, SessionRecord, SessionStatus, SessionSummary, SessionTurn,
+        SkillsProjection, StageCompletion, StageContextWindow, StageContextWindowBreakdownItem,
+        StageContextWindowCategory, StageContextWindowCountMethod, StageContextWindowProjection,
+        StageContextWindowStaleness, StageContextWindowUnavailableReason,
+        StageContextWindowWarning, StageHandler, StageModelUsage, StageOutcome, StageProjection,
+        StageState, SubAgentProjection, SubAgentStatus, SystemActorKind, SystemIntegrationStatus,
+        SystemIntegrationsResponse, TodoListProjection, TurnId, UpdateVariableRequest,
+        UserPrincipal, Variable, VariableListResponse, WorkflowSettings,
     };
 
     pub use crate::generated::types::*;

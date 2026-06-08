@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use anyhow::Context as _;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use fabro_api::types::RunManifest;
+use fabro_api::types::{ManifestArgs, RunManifest};
 use fabro_automation::{AutomationId, AutomationTarget};
 use fabro_config::{EnvironmentLayer, MergeMap};
 use fabro_manifest::ManifestBuildInput;
@@ -22,13 +23,15 @@ const GIT_WORKTREE_ADD_TIMEOUT: Duration = Duration::from_secs(30);
 const GIT_WORKTREE_PRUNE_TIMEOUT: Duration = Duration::from_secs(10);
 const GIT_REV_PARSE_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AutomationRunMaterializeInput {
     pub automation_id:      AutomationId,
     pub target:             AutomationTarget,
     pub run_id:             RunId,
     pub user_settings_path: PathBuf,
     pub temp_root:          PathBuf,
+    pub input_overrides:    HashMap<String, toml::Value>,
+    pub title_override:     Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -601,17 +604,25 @@ fn build_manifest_from_checkout(
         checked_out_sha,
         environment_defaults,
     } = args;
-    let built = fabro_manifest::build_run_manifest(ManifestBuildInput {
+    let manifest_input = ManifestBuildInput {
         workflow: input.target.workflow.as_str().into(),
         cwd: checkout_dir,
         run_id: Some(input.run_id),
         user_settings_path: Some(input.user_settings_path),
         environment_defaults,
+        input_overrides: input.input_overrides.clone(),
         ..ManifestBuildInput::default()
-    })
-    .map_err(|err| manifest_build_error(&err))?;
+    };
+    let submitted_input_overrides = manifest_input.input_overrides.clone();
+    let built = fabro_manifest::build_run_manifest(manifest_input)
+        .map_err(|err| manifest_build_error(&err))?;
 
     let mut manifest = built.manifest;
+    if let Some(title) = input.title_override.clone() {
+        manifest.title = Some(title.try_into().map_err(|err| {
+            AutomationRunMaterializeError::Manifest(format!("invalid automation run title: {err}"))
+        })?);
+    }
     manifest.git = Some(GitContext {
         origin_url:   github_metadata_url(&repo),
         branch:       input.target.ref_selector,
@@ -619,6 +630,12 @@ fn build_manifest_from_checkout(
         dirty:        DirtyStatus::Clean,
         push_outcome: PreRunPushOutcome::NotAttempted,
     });
+    if !submitted_input_overrides.is_empty() {
+        manifest.args = Some(ManifestArgs {
+            input: input_overrides_as_args(&submitted_input_overrides),
+            ..ManifestArgs::default()
+        });
+    }
     let submitted_manifest_bytes = serde_json::to_vec(&manifest)
         .with_context(|| {
             format!(
@@ -631,6 +648,22 @@ fn build_manifest_from_checkout(
         manifest,
         submitted_manifest_bytes,
     })
+}
+
+fn input_overrides_as_args(input_overrides: &HashMap<String, toml::Value>) -> Vec<String> {
+    let mut args = input_overrides
+        .iter()
+        .map(|(key, value)| format!("{key}={}", input_override_arg_value(value)))
+        .collect::<Vec<_>>();
+    args.sort();
+    args
+}
+
+fn input_override_arg_value(value: &toml::Value) -> String {
+    match value {
+        toml::Value::String(value) => value.clone(),
+        value => value.to_string(),
+    }
 }
 
 fn manifest_build_error(error: &anyhow::Error) -> AutomationRunMaterializeError {
@@ -917,6 +950,8 @@ mod tests {
                 run_id,
                 user_settings_path: user_settings_path.clone(),
                 temp_root: temp.path().to_path_buf(),
+                input_overrides: HashMap::new(),
+                title_override: None,
             },
             checkout_dir: checkout.clone(),
             repo,

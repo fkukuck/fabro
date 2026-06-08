@@ -137,6 +137,17 @@ export function RunTableRow({
               </PullRequestChip>
             </span>
           )}
+          {!run.pullRequestUrl && run.sourceIssueUrl && run.sourceIssueNumber != null && (
+            <a
+              href={run.sourceIssueUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={run.sourceIssueTitle}
+              className="relative z-10 font-mono text-xs text-fg-muted hover:text-fg"
+            >
+              #{run.sourceIssueNumber}
+            </a>
+          )}
         </td>
       )}
       <td className="relative z-10 w-10 whitespace-nowrap px-3 py-2.5 text-right">

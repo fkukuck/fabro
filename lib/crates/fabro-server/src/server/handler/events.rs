@@ -569,6 +569,7 @@ mod stage_events_tests {
             source_directory: None,
             workflow_slug:    None,
             automation:       None,
+            source_context:   None,
             db_prefix:        None,
             provenance:       None,
             manifest_blob:    None,

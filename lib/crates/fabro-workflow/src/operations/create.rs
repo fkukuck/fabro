@@ -13,7 +13,8 @@ use fabro_graphviz::graph::{AttrValue, Graph};
 use fabro_model::{Catalog, ProviderId};
 use fabro_store::Database;
 use fabro_types::{
-    AutomationRef, ForkSourceRef, GitContext, ManifestPath, RunId, RunProvenance, WorkflowSettings,
+    AutomationRef, ForkSourceRef, GitContext, ManifestPath, RunId, RunProvenance, RunSourceContext,
+    WorkflowSettings,
 };
 use fabro_util::json::normalize_json_value;
 use tokio::task::spawn_blocking;
@@ -42,6 +43,7 @@ pub struct CreateRunInput {
     pub run_id: Option<RunId>,
     pub title: Option<String>,
     pub automation: Option<AutomationRef>,
+    pub source_context: Option<RunSourceContext>,
     pub git: Option<GitContext>,
     pub fork_source_ref: Option<ForkSourceRef>,
     pub parent_id: Option<RunId>,
@@ -70,6 +72,7 @@ struct PersistCreateOptions {
     labels:               HashMap<String, String>,
     source_directory:     Option<String>,
     automation:           Option<AutomationRef>,
+    source_context:       Option<RunSourceContext>,
     git:                  Option<GitContext>,
     fork_source_ref:      Option<ForkSourceRef>,
     provenance:           Option<RunProvenance>,
@@ -105,6 +108,7 @@ pub async fn create(
         run_id,
         title,
         automation,
+        source_context,
         git,
         fork_source_ref,
         parent_id,
@@ -136,6 +140,7 @@ pub async fn create(
         .dot_path
         .as_ref()
         .map(|path| path.display().to_string());
+    let event_source_context = source_context.clone();
     let persisted = spawn_blocking(move || {
         create_from_source(
             &raw_source,
@@ -148,6 +153,7 @@ pub async fn create(
                 labels,
                 source_directory,
                 automation,
+                source_context,
                 git,
                 fork_source_ref,
                 provenance,
@@ -174,6 +180,7 @@ pub async fn create(
         submitted_manifest_bytes.as_deref(),
         accepted_definition.as_ref(),
         title,
+        event_source_context,
         parent_id,
         web_url,
     )
@@ -195,6 +202,7 @@ async fn persist_created_run(
     submitted_manifest_bytes: Option<&[u8]>,
     accepted_definition: Option<&RunDefinition>,
     explicit_title: Option<String>,
+    source_context: Option<RunSourceContext>,
     parent_id: Option<RunId>,
     web_url: Option<String>,
 ) -> Result<(), Error> {
@@ -245,6 +253,7 @@ async fn persist_created_run(
             source_directory: record.source_directory.clone(),
             workflow_slug: record.workflow_slug.clone(),
             automation: record.automation.clone(),
+            source_context: source_context.or_else(|| record.source_context.clone()),
             db_prefix: None,
             provenance: record.provenance.clone(),
             manifest_blob,
@@ -362,6 +371,7 @@ fn persist_validated(
         labels,
         source_directory,
         automation,
+        source_context,
         git,
         fork_source_ref,
         provenance,
@@ -386,6 +396,7 @@ fn persist_validated(
         graph_source: Some(validated.source().to_string()),
         workflow_slug,
         automation,
+        source_context,
         source_directory,
         labels,
         provenance,
@@ -1112,6 +1123,7 @@ mod tests {
                 run_id: None,
                 title: None,
                 automation: None,
+                source_context: None,
                 git: None,
                 fork_source_ref: None,
                 parent_id: None,
@@ -1174,6 +1186,7 @@ mod tests {
                 run_id: Some(fixtures::RUN_1),
                 title: None,
                 automation: None,
+                source_context: None,
                 git: Some(fabro_types::GitContext {
                     origin_url:   String::new(),
                     branch:       "main".to_string(),
@@ -1292,6 +1305,7 @@ mod tests {
                 run_id: Some(fixtures::RUN_2),
                 title: None,
                 automation: None,
+                source_context: None,
                 git: None,
                 fork_source_ref: None,
                 parent_id: None,
@@ -1332,6 +1346,7 @@ mod tests {
                 run_id: Some(fixtures::RUN_2),
                 title: None,
                 automation: None,
+                source_context: None,
                 git: Some(fabro_types::GitContext {
                     origin_url:   "https://github.com/acme/widgets".to_string(),
                     branch:       String::new(),
@@ -1411,6 +1426,7 @@ mod tests {
                 run_id: Some(fixtures::RUN_3),
                 title: None,
                 automation: Some(automation.clone()),
+                source_context: None,
                 git: None,
                 fork_source_ref: None,
                 parent_id: None,
@@ -1464,6 +1480,7 @@ mod tests {
                 run_id: Some(fixtures::RUN_64),
                 title: None,
                 automation: None,
+                source_context: None,
                 git: None,
                 fork_source_ref: None,
                 parent_id: None,

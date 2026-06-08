@@ -22,9 +22,9 @@ use fabro_llm::client::Client as LlmClient;
 use fabro_types::settings::ResolveEnvError;
 use fabro_types::{
     AutomationRef, Principal, RunClientProvenance, RunId, RunProvenance, RunServerProvenance,
-    StageContextWindow, StageContextWindowStaleness, StageContextWindowUnavailableReason,
-    StageHandler, StageModelUsage, StageProjection, SystemActorKind, WorkflowSettings,
-    parse_blob_ref,
+    RunSourceContext, StageContextWindow, StageContextWindowStaleness,
+    StageContextWindowUnavailableReason, StageHandler, StageModelUsage, StageProjection,
+    SystemActorKind, WorkflowSettings, parse_blob_ref,
 };
 use fabro_util::version::FABRO_VERSION;
 use fabro_workflow::command_log::{command_log_path, read_json_string_blob, read_log_slice};
@@ -609,6 +609,7 @@ async fn create_run(
             actor,
             headers,
             automation: None,
+            source_context: None,
         },
     ))
     .await
@@ -622,6 +623,7 @@ pub(crate) struct CreateRunFromManifestRequest {
     pub(crate) actor:                    Principal,
     pub(crate) headers:                  HeaderMap,
     pub(crate) automation:               Option<AutomationRef>,
+    pub(crate) source_context:           Option<RunSourceContext>,
 }
 
 pub(crate) async fn create_run_from_manifest(
@@ -636,6 +638,7 @@ pub(crate) async fn create_run_from_manifest(
         actor,
         headers,
         automation,
+        source_context,
     } = request;
     let manifest_run_defaults = state.manifest_run_defaults();
     let manifest_environment_defaults = state.environment_store().catalog_layer();
@@ -696,6 +699,7 @@ pub(crate) async fn create_run_from_manifest(
     create_input.provenance = Some(run_provenance(&headers, &actor));
     create_input.submitted_manifest_bytes = Some(submitted_manifest_bytes);
     create_input.automation = automation;
+    create_input.source_context = source_context;
 
     let storage_root = match resolve_interp_string(&state.server_settings().server.storage.root) {
         Ok(path) => PathBuf::from(path),

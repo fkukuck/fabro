@@ -1,12 +1,17 @@
 use std::any::{TypeId, type_name};
 
-use fabro_api::types::RunProjection as ApiRunProjection;
-use fabro_types::{Graph, RunProjection, RunSpec, WorkflowSettings};
+use fabro_api::types::{
+    RunProjection as ApiRunProjection, RunSourceContext as ApiRunSourceContext,
+};
+use fabro_types::{
+    GithubIssueRunSource, Graph, RunProjection, RunSourceContext, RunSpec, WorkflowSettings,
+};
 use serde_json::json;
 
 #[test]
 fn run_projection_reuses_canonical_type() {
     assert_same_type::<ApiRunProjection, RunProjection>();
+    assert_same_type::<ApiRunSourceContext, RunSourceContext>();
 }
 
 #[test]
@@ -135,6 +140,12 @@ fn run_spec_json() -> serde_json::Value {
         graph_source:     Some("digraph test {}".to_string()),
         workflow_slug:    None,
         automation:       None,
+        source_context:   Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   "owner/repo".to_string(),
+            issue_number: 42,
+            issue_title:  "Fix bug".to_string(),
+            issue_url:    "https://github.com/owner/repo/issues/42".to_string(),
+        })),
         source_directory: None,
         labels:           std::collections::HashMap::new(),
         provenance:       None,

@@ -1698,6 +1698,7 @@ mod tests {
             graph_source: None,
             workflow_slug: None,
             automation: None,
+            source_context: None,
             source_directory: None,
             labels: HashMap::default(),
             provenance: None,

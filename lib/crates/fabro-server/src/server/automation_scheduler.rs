@@ -2,18 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
 use croner::errors::CronError;
 use fabro_automation::{
     Automation, AutomationId, AutomationRevision, AutomationTriggerId, parse_schedule_expression,
 };
-use fabro_types::{AutomationRef, Principal, RunId, SystemActorKind};
+use fabro_types::{Principal, SystemActorKind};
 use tokio::time::sleep;
 use tracing::{Instrument, info, info_span, warn};
 
-use super::{AppState, handler};
-use crate::automation_materializer::AutomationRunMaterializeInput;
+use super::AppState;
+use crate::automation_runner::{FireAutomationRunInput, fire_automation_run};
 
 const AUTOMATION_SCHEDULER_MAX_SLEEP: Duration = Duration::from_secs(30);
 
@@ -216,70 +215,34 @@ async fn fire_scheduled_automation_run(
     trigger_id: AutomationTriggerId,
     due_at: DateTime<Utc>,
 ) {
-    let automation_id = automation.id.clone();
-    let run_id = RunId::new();
-    let materialized = match state
-        .materialize_automation_run(AutomationRunMaterializeInput {
-            automation_id: automation_id.clone(),
-            target: automation.target.clone(),
-            run_id,
-            user_settings_path: state.active_config_path().to_path_buf(),
-            temp_root: state.automation_temp_root(),
-        })
-        .await
+    let actor = Principal::System {
+        system_kind: SystemActorKind::Engine,
+    };
+    let fired = match fire_automation_run(Arc::clone(&state), FireAutomationRunInput {
+        automation,
+        trigger_id,
+        actor: actor.clone(),
+        headers: axum::http::HeaderMap::new(),
+        input_overrides: HashMap::new(),
+        title_override: None,
+        source_context: None,
+    })
+    .await
     {
-        Ok(materialized) => materialized,
+        Ok(fired) => fired,
         Err(err) => {
             warn!(
                 due_at = %due_at,
-                error = %err,
-                "Failed to materialize scheduled automation run",
+                error = ?err,
+                "Failed to create scheduled automation run",
             );
             return;
         }
     };
 
-    let explicit_title_supplied = materialized.manifest.title.is_some();
-    let actor = Principal::System {
-        system_kind: SystemActorKind::Engine,
-    };
-    let automation_ref = AutomationRef {
-        id:         automation_id.to_string(),
-        name:       Some(automation.name.clone()),
-        trigger_id: Some(trigger_id.to_string()),
-    };
-    // `create_run_from_manifest` produces a large future; box it to keep our
-    // stack frame small (matches handler/automations.rs).
-    let response = Box::pin(handler::runs::create_run_from_manifest(
-        Arc::clone(&state),
-        handler::runs::CreateRunFromManifestRequest {
-            manifest: materialized.manifest,
-            submitted_manifest_bytes: materialized.submitted_manifest_bytes,
-            explicit_run_id: Some(run_id),
-            explicit_title_supplied,
-            actor: actor.clone(),
-            headers: HeaderMap::new(),
-            automation: Some(automation_ref),
-        },
-    ))
-    .await;
-
-    let status = response.status();
-    if !status.is_success() {
+    if let Err(err) = fired.start_result {
         warn!(
-            run_id = %run_id,
-            due_at = %due_at,
-            status = %status,
-            "Failed to create scheduled automation run",
-        );
-        return;
-    }
-
-    if let Err(err) =
-        handler::lifecycle::queue_run_start(state.as_ref(), run_id, false, actor).await
-    {
-        warn!(
-            run_id = %run_id,
+            run_id = %fired.created.run_id,
             due_at = %due_at,
             status = %err.status(),
             code = err.code().unwrap_or(""),
@@ -289,7 +252,7 @@ async fn fire_scheduled_automation_run(
     }
 
     info!(
-        run_id = %run_id,
+        run_id = %fired.created.run_id,
         due_at = %due_at,
         "Scheduled automation run queued",
     );

@@ -35,6 +35,9 @@ export interface RunItem {
   resources?: string;
   actionDisabled?: boolean;
   comments?: number;
+  sourceIssueNumber?: number;
+  sourceIssueTitle?: string;
+  sourceIssueUrl?: string;
   question?: string;
   pendingApproval?: boolean;
   sandboxId?: string;
@@ -115,6 +118,15 @@ export function mapRunListItem(item: Run): RunItem {
     lastEventAt: item.timestamps.last_event_at ?? undefined,
     additions: item.diff?.additions,
     deletions: item.diff?.deletions,
+    sourceIssueNumber: item.source_context?.type === "github_issue"
+      ? item.source_context.issue_number
+      : undefined,
+    sourceIssueTitle: item.source_context?.type === "github_issue"
+      ? item.source_context.issue_title
+      : undefined,
+    sourceIssueUrl: item.source_context?.type === "github_issue"
+      ? item.source_context.issue_url
+      : undefined,
     size: item.size,
   };
 }

@@ -28,6 +28,10 @@ pub fn parse_schedule_expression(expression: &str) -> Result<Cron, CronError> {
     SCHEDULE_CRON_PARSER.parse(expression)
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Automation {
@@ -102,6 +106,16 @@ impl Automation {
             })
     }
 
+    /// Iterate the enabled GitHub issue triggers.
+    pub fn enabled_github_issue_triggers(&self) -> impl Iterator<Item = &GithubIssueTrigger> {
+        self.triggers
+            .iter()
+            .filter_map(move |trigger| match trigger {
+                AutomationTrigger::GithubIssue(trigger) if trigger.enabled => Some(trigger),
+                _ => None,
+            })
+    }
+
     fn from_persisted(
         id: AutomationId,
         revision: AutomationRevision,
@@ -142,6 +156,7 @@ pub struct AutomationTarget {
 pub enum AutomationTrigger {
     Api(ApiTrigger),
     Schedule(ScheduleTrigger),
+    GithubIssue(GithubIssueTrigger),
 }
 
 impl AutomationTrigger {
@@ -150,6 +165,7 @@ impl AutomationTrigger {
         match self {
             Self::Api(trigger) => &trigger.id,
             Self::Schedule(trigger) => &trigger.id,
+            Self::GithubIssue(trigger) => &trigger.id,
         }
     }
 
@@ -158,6 +174,7 @@ impl AutomationTrigger {
         match self {
             Self::Api(trigger) => trigger.enabled,
             Self::Schedule(trigger) => trigger.enabled,
+            Self::GithubIssue(trigger) => trigger.enabled,
         }
     }
 }
@@ -175,6 +192,18 @@ pub struct ScheduleTrigger {
     pub id:         AutomationTriggerId,
     pub enabled:    bool,
     pub expression: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GithubIssueTrigger {
+    pub id:            AutomationTriggerId,
+    pub enabled:       bool,
+    pub trigger_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_label:   Option<String>,
+    #[serde(default = "default_true")]
+    pub comment:       bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -395,6 +424,7 @@ fn validate_triggers(triggers: &[AutomationTrigger]) -> Result<(), AutomationVal
                     }
                 })?;
             }
+            AutomationTrigger::GithubIssue(_) => {}
         }
     }
 
@@ -405,7 +435,7 @@ fn validate_triggers(triggers: &[AutomationTrigger]) -> Result<(), AutomationVal
 mod tests {
     use crate::{
         ApiTrigger, Automation, AutomationId, AutomationReplace, AutomationTarget,
-        AutomationTrigger, AutomationTriggerId, ScheduleTrigger,
+        AutomationTrigger, AutomationTriggerId, GithubIssueTrigger, ScheduleTrigger,
     };
 
     fn target() -> AutomationTarget {
@@ -513,6 +543,46 @@ enabled = true
             .collect::<Vec<_>>();
 
         assert_eq!(trigger_ids, vec!["nightly"]);
+    }
+
+    #[test]
+    fn github_issue_trigger_round_trips() {
+        let trigger = AutomationTrigger::GithubIssue(GithubIssueTrigger {
+            id:            AutomationTriggerId::new("github-issue").unwrap(),
+            enabled:       true,
+            trigger_label: "fabro".to_string(),
+            issue_label:   Some("Bug".to_string()),
+            comment:       true,
+        });
+
+        let value = toml::Value::try_from(&trigger).unwrap();
+        let parsed: AutomationTrigger = value.try_into().unwrap();
+
+        assert_eq!(parsed, trigger);
+    }
+
+    #[test]
+    fn github_issue_trigger_defaults_comment_to_true() {
+        let parsed: AutomationTrigger = toml::from_str(
+            r#"
+            type = "github_issue"
+            id = "github-issue"
+            enabled = true
+            trigger_label = "fabro"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            parsed,
+            AutomationTrigger::GithubIssue(GithubIssueTrigger {
+                id:            AutomationTriggerId::new("github-issue").unwrap(),
+                enabled:       true,
+                trigger_label: "fabro".to_string(),
+                issue_label:   None,
+                comment:       true,
+            })
+        );
     }
 
     #[test]

@@ -30,6 +30,7 @@ use ulid::Ulid;
 use crate::auth;
 use crate::automation_materializer::AutomationRunMaterializer;
 pub use crate::automation_materializer::TestAutomationRunMaterializer;
+use crate::automation_runner::AutomationRunStartOverride;
 use crate::jwt_auth::{AuthMode, ConfiguredAuth};
 #[cfg(test)]
 use crate::principal_middleware::{AuthContextSlot, RequestAuthContext};
@@ -74,6 +75,8 @@ pub struct TestAppStateBuilder {
     env_lookup:                EnvLookup,
     llm_catalog_settings:      LlmCatalogSettings,
     automation_materializer:   Option<Arc<dyn AutomationRunMaterializer>>,
+    automation_run_start:      Option<AutomationRunStartOverride>,
+    github_api_base_url:       Option<String>,
     #[cfg(test)]
     worker_runtime:            Option<Arc<dyn WorkerRuntime>>,
 }
@@ -95,6 +98,8 @@ impl Default for TestAppStateBuilder {
             env_lookup:                  default_env_lookup(),
             llm_catalog_settings:        LlmCatalogSettings::default(),
             automation_materializer:     None,
+            automation_run_start:        None,
+            github_api_base_url:         None,
             #[cfg(test)]
             worker_runtime:              None,
         }
@@ -155,6 +160,22 @@ impl TestAppStateBuilder {
 
     pub fn automation_materializer(mut self, materializer: TestAutomationRunMaterializer) -> Self {
         self.automation_materializer = Some(materializer.into_materializer());
+        self
+    }
+
+    pub fn automation_run_start_error(mut self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.automation_run_start = Some(Arc::new(move |_| {
+            Err(crate::error::ApiError::new(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                message.clone(),
+            ))
+        }));
+        self
+    }
+
+    pub fn github_api_base_url(mut self, github_api_base_url: impl Into<String>) -> Self {
+        self.github_api_base_url = Some(github_api_base_url.into());
         self
     }
 
@@ -252,7 +273,7 @@ impl TestAppStateBuilder {
             preloaded_vault: None,
             server_secrets: load_test_server_secrets(server_env_path, self.server_secret_env),
             env_lookup: self.env_lookup,
-            github_api_base_url: None,
+            github_api_base_url: self.github_api_base_url,
             active_config_path,
             http_client: Some(
                 fabro_http::test_http_client().expect("test HTTP client should build"),
@@ -264,6 +285,7 @@ impl TestAppStateBuilder {
             #[cfg(test)]
             worker_runtime: self.worker_runtime,
             automation_materializer_override: self.automation_materializer,
+            automation_run_start_override: self.automation_run_start,
         })
     }
 }

@@ -10,7 +10,10 @@ use std::sync::{Arc as StdArc, Mutex as StdMutex};
 use axum::body::Body;
 use axum::http::{Method, Request, header};
 use chrono::{Duration as ChronoDuration, Utc};
-use fabro_automation::{AutomationId, AutomationTarget};
+use fabro_automation::{
+    AutomationDraft, AutomationId, AutomationTarget, AutomationTrigger, AutomationTriggerId,
+    GithubIssueTrigger,
+};
 use fabro_config::bind::Bind;
 use fabro_config::{
     EnvironmentLayer, MergeMap, RunLayer, ServerSettingsBuilder, WorkflowSettingsBuilder,
@@ -24,12 +27,12 @@ use fabro_model::catalog::LlmCatalogSettings;
 use fabro_model::{Catalog, ModelRef, ProviderId, ReasoningEffort, Speed};
 use fabro_types::settings::ServerAuthMethod;
 use fabro_types::{
-    AgentBackend, AttrValue, AuthMethod, CommandTermination, FailureCategory, FailureDetail, Graph,
-    InterviewQuestionRecord, Node, Outcome, QuestionType, RunBlobId, RunId, RunSpec,
-    SandboxProviderKind, StageContextWindowBreakdownItem, StageContextWindowCategory,
-    StageContextWindowCountMethod, StageContextWindowProjection, StageContextWindowStaleness,
-    StageContextWindowWarning, StageModelUsage, StageTiming, SuccessReason, SystemActorKind,
-    WorkflowSettings, fixtures,
+    AgentBackend, AttrValue, AuthMethod, CommandTermination, FailureCategory, FailureDetail,
+    GithubIssueRunSource, Graph, InterviewQuestionRecord, Node, Outcome, QuestionType, RunBlobId,
+    RunId, RunSourceContext, RunSpec, SandboxProviderKind, StageContextWindowBreakdownItem,
+    StageContextWindowCategory, StageContextWindowCountMethod, StageContextWindowProjection,
+    StageContextWindowStaleness, StageContextWindowWarning, StageModelUsage, StageTiming,
+    SuccessReason, SystemActorKind, WorkflowSettings, fixtures,
 };
 use fabro_util::check_report::CheckStatus;
 use fabro_workflow::records::CheckpointExt;
@@ -1452,6 +1455,310 @@ async fn github_webhook_accepts_valid_signature_with_wrong_bearer_token() {
     assert_status!(response, StatusCode::OK).await;
 }
 
+fn github_issue_labeled_body(label: &str, labels: &[&str]) -> Vec<u8> {
+    github_issue_body("labeled", label, labels, false)
+}
+
+fn github_issue_unlabeled_body(label: &str, labels: &[&str]) -> Vec<u8> {
+    github_issue_body("unlabeled", label, labels, false)
+}
+
+fn github_pull_request_issue_labeled_body() -> Vec<u8> {
+    github_issue_body("labeled", "fabro", &["Bug", "fabro"], true)
+}
+
+fn github_issue_body(action: &str, label: &str, labels: &[&str], pull_request: bool) -> Vec<u8> {
+    let mut issue = json!({
+        "number": 123,
+        "title": "Fix login redirect",
+        "body": "Users loop back to /login.",
+        "html_url": "https://github.com/owner/repo/issues/123",
+        "user": { "login": "bob" },
+        "labels": labels.iter().map(|label| json!({ "name": label })).collect::<Vec<_>>(),
+    });
+    if pull_request {
+        issue["pull_request"] =
+            json!({ "url": "https://api.github.com/repos/owner/repo/pulls/123" });
+        issue["html_url"] = json!("https://github.com/owner/repo/pull/123");
+    }
+    json!({
+        "action": action,
+        "label": { "name": label },
+        "issue": issue,
+        "repository": {
+            "full_name": "owner/repo",
+            "default_branch": "main",
+            "html_url": "https://github.com/owner/repo"
+        },
+        "sender": { "login": "bob" }
+    })
+    .to_string()
+    .into_bytes()
+}
+
+async fn handle_issue_webhook_direct(state: &Arc<AppState>, delivery_id: &str, body: &[u8]) {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "x-github-event",
+        axum::http::HeaderValue::from_static("issues"),
+    );
+    headers.insert(
+        "x-github-delivery",
+        axum::http::HeaderValue::from_str(delivery_id).unwrap(),
+    );
+    crate::github_issue_automation_trigger::handle_github_issue_webhook(
+        Arc::clone(state),
+        headers,
+        delivery_id.to_string(),
+        body,
+    )
+    .await;
+}
+
+fn minimal_run_manifest() -> fabro_api::types::RunManifest {
+    serde_json::from_value(json!({
+        "version": 1,
+        "cwd": "/tmp",
+        "target": { "identifier": "workflow.fabro", "path": "workflow.fabro" },
+        "workflows": { "workflow.fabro": { "source": MINIMAL_DOT, "files": {} } },
+    }))
+    .unwrap()
+}
+
+fn test_state_with_successful_automation_materializer()
+-> (Arc<AppState>, TestAutomationRunMaterializer) {
+    let manifest = minimal_run_manifest();
+    let submitted_manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let materializer = TestAutomationRunMaterializer::succeed(manifest, submitted_manifest_bytes);
+    let state = TestAppStateBuilder::new()
+        .automation_materializer(materializer.clone())
+        .build();
+    (state, materializer)
+}
+
+fn test_state_with_automation_materializer_and_github_token(
+    materializer: TestAutomationRunMaterializer,
+    github_api_base_url: impl Into<String>,
+    start_error: Option<&str>,
+) -> Arc<AppState> {
+    let settings = ServerSettingsBuilder::from_toml(
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.web]
+enabled = true
+url = "http://127.0.0.1:32276"
+
+[server.integrations.github]
+strategy = "token"
+"#,
+    )
+    .unwrap();
+    let mut builder = TestAppStateBuilder::new()
+        .runtime_settings(settings, RunLayer::default())
+        .github_api_base_url(github_api_base_url)
+        .automation_materializer(materializer);
+    if let Some(start_error) = start_error {
+        builder = builder.automation_run_start_error(start_error);
+    }
+    let state = builder.build();
+    state
+        .vault
+        .try_write()
+        .unwrap()
+        .set("GITHUB_TOKEN", "ghu_test", SecretType::Token, None)
+        .unwrap();
+    state
+}
+
+fn github_issue_trigger(id: &str, issue_label: Option<&str>) -> AutomationTrigger {
+    AutomationTrigger::GithubIssue(GithubIssueTrigger {
+        id:            AutomationTriggerId::new(id).unwrap(),
+        enabled:       true,
+        trigger_label: "fabro".to_string(),
+        issue_label:   issue_label.map(str::to_string),
+        comment:       false,
+    })
+}
+
+fn github_issue_trigger_with_comment(id: &str, issue_label: Option<&str>) -> AutomationTrigger {
+    AutomationTrigger::GithubIssue(GithubIssueTrigger {
+        id:            AutomationTriggerId::new(id).unwrap(),
+        enabled:       true,
+        trigger_label: "fabro".to_string(),
+        issue_label:   issue_label.map(str::to_string),
+        comment:       true,
+    })
+}
+
+async fn create_github_issue_automation(
+    state: &AppState,
+    id: &str,
+    name: &str,
+    repository: &str,
+    triggers: Vec<AutomationTrigger>,
+) {
+    state
+        .automation_store()
+        .create(AutomationDraft {
+            id: AutomationId::new(id).unwrap(),
+            name: name.to_string(),
+            description: None,
+            target: AutomationTarget {
+                repository:   repository.to_string(),
+                ref_selector: "main".to_string(),
+                workflow:     "workflow.fabro".to_string(),
+            },
+            triggers,
+        })
+        .await
+        .unwrap();
+}
+
+async fn github_issue_automation_runs(state: &AppState) -> Vec<fabro_types::Run> {
+    state
+        .store_ref()
+        .runs()
+        .list(&fabro_store::ListRunsQuery::default())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn github_issue_labeled_webhook_starts_matching_automation() {
+    let (state, materializer) = test_state_with_successful_automation_materializer();
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger("bug", Some("Bug")),
+    ])
+    .await;
+
+    handle_issue_webhook_direct(
+        &state,
+        "delivery-issue-success",
+        &github_issue_labeled_body("fabro", &["Bug", "fabro"]),
+    )
+    .await;
+
+    let runs = github_issue_automation_runs(&state).await;
+    assert_eq!(runs.len(), 1);
+    let captured = materializer.captured_inputs();
+    assert_eq!(
+        captured[0].title_override.as_deref(),
+        Some("Fix login redirect")
+    );
+    assert_eq!(
+        captured[0].input_overrides.get("github_issue_title"),
+        Some(&toml::Value::String("Fix login redirect".to_string()))
+    );
+    assert_eq!(
+        captured[0].input_overrides.get("github_issue_url"),
+        Some(&toml::Value::String(
+            "https://github.com/owner/repo/issues/123".to_string()
+        ))
+    );
+    assert_eq!(runs[0].automation.as_ref().unwrap().id, "issue-bug");
+    assert_eq!(
+        runs[0].automation.as_ref().unwrap().trigger_id.as_deref(),
+        Some("bug")
+    );
+    assert_eq!(
+        runs[0].source_context,
+        Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   "owner/repo".to_string(),
+            issue_number: 123,
+            issue_title:  "Fix login redirect".to_string(),
+            issue_url:    "https://github.com/owner/repo/issues/123".to_string(),
+        }))
+    );
+}
+
+#[tokio::test]
+async fn github_issue_labeled_webhook_ignores_pull_requests() {
+    let (state, _) = test_state_with_successful_automation_materializer();
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger("bug", Some("Bug")),
+    ])
+    .await;
+
+    handle_issue_webhook_direct(
+        &state,
+        "delivery-issue-pr",
+        &github_pull_request_issue_labeled_body(),
+    )
+    .await;
+
+    assert!(github_issue_automation_runs(&state).await.is_empty());
+}
+
+#[tokio::test]
+async fn github_issue_labeled_webhook_dedupes_open_issue_cycle() {
+    let (state, _) = test_state_with_successful_automation_materializer();
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger("bug", Some("Bug")),
+    ])
+    .await;
+    let body = github_issue_labeled_body("fabro", &["Bug", "fabro"]);
+
+    handle_issue_webhook_direct(&state, "delivery-issue-open-1", &body).await;
+    handle_issue_webhook_direct(&state, "delivery-issue-open-2", &body).await;
+
+    assert_eq!(github_issue_automation_runs(&state).await.len(), 1);
+}
+
+#[tokio::test]
+async fn github_issue_unlabeled_webhook_closes_issue_cycle() {
+    let (state, _) = test_state_with_successful_automation_materializer();
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger("bug", Some("Bug")),
+    ])
+    .await;
+    let labeled = github_issue_labeled_body("fabro", &["Bug", "fabro"]);
+    let unlabeled = github_issue_unlabeled_body("fabro", &["Bug"]);
+
+    handle_issue_webhook_direct(&state, "delivery-issue-open-1", &labeled).await;
+    handle_issue_webhook_direct(&state, "delivery-issue-close", &unlabeled).await;
+    handle_issue_webhook_direct(&state, "delivery-issue-open-2", &labeled).await;
+
+    assert_eq!(github_issue_automation_runs(&state).await.len(), 2);
+}
+
+#[tokio::test]
+async fn github_issue_start_failure_posts_failure_comment() {
+    let github = MockServer::start();
+    let manifest = minimal_run_manifest();
+    let submitted_manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let state = test_state_with_automation_materializer_and_github_token(
+        TestAutomationRunMaterializer::succeed(manifest, submitted_manifest_bytes),
+        github.base_url(),
+        Some("/tmp/secret start failure should not leak"),
+    );
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger_with_comment("bug", Some("Bug")),
+    ])
+    .await;
+    let comment_mock = github.mock(|when, then| {
+        when.method(POST)
+            .path("/repos/owner/repo/issues/123/comments")
+            .header("authorization", "Bearer ghu_test")
+            .body_includes("Fabro could not start automation Implement bug: run start failed");
+        then.status(201)
+            .header("content-type", "application/json")
+            .json_body(json!({ "id": 3 }));
+    });
+
+    handle_issue_webhook_direct(
+        &state,
+        "delivery-issue-start-failure-comment",
+        &github_issue_labeled_body("fabro", &["Bug", "fabro"]),
+    )
+    .await;
+
+    wait_for_mock_hits(&comment_mock, 1).await;
+}
+
 #[tokio::test]
 async fn create_secret_stores_valid_oauth_entries() {
     let state = test_app_state();
@@ -1972,6 +2279,7 @@ fn slack_app_state_with_settings_and_secret_sources(
         worker_control_bus: None,
         worker_runtime: None,
         automation_materializer_override: None,
+        automation_run_start_override: None,
     })
     .expect("slack test app state should build")
 }
@@ -2106,6 +2414,7 @@ fn slack_service_respects_disabled_server_config_even_with_vault_tokens() {
         worker_control_bus: None,
         worker_runtime: None,
         automation_materializer_override: None,
+        automation_run_start_override: None,
     })
     .expect("slack disabled test app state should build");
 
@@ -2467,6 +2776,7 @@ methods = ["dev-token"]
         worker_control_bus: None,
         worker_runtime: None,
         automation_materializer_override: None,
+        automation_run_start_override: None,
     }) else {
         panic!("build_app_state should require SESSION_SECRET")
     };
@@ -2597,6 +2907,7 @@ fn build_test_app_state_with_vault_path(vault_path: &Path) -> anyhow::Result<Arc
         worker_control_bus: None,
         worker_runtime: None,
         automation_materializer_override: None,
+        automation_run_start_override: None,
     })
 }
 
@@ -3409,6 +3720,7 @@ async fn create_run_from_manifest_helper_persists_without_automation_metadata() 
             },
             headers: HeaderMap::new(),
             automation: None,
+            source_context: None,
         },
     ))
     .await;
@@ -3449,6 +3761,7 @@ async fn create_run_from_manifest_helper_persists_automation_metadata() {
             },
             headers: HeaderMap::new(),
             automation: Some(automation.clone()),
+            source_context: None,
         },
     ))
     .await;
@@ -3499,6 +3812,8 @@ async fn fake_automation_materializer_injection_captures_input_and_returns_manif
             run_id,
             user_settings_path: user_settings_path.clone(),
             temp_root: temp_root.clone(),
+            input_overrides: std::collections::HashMap::new(),
+            title_override: None,
         })
         .await
         .expect("fake materializer should succeed");
@@ -4021,6 +4336,7 @@ async fn append_default_run_created(run_store: &fabro_store::RunDatabase, run_id
         source_directory: None,
         workflow_slug: None,
         automation: None,
+        source_context: None,
         db_prefix: None,
         provenance: None,
         manifest_blob: None,
@@ -4075,6 +4391,7 @@ async fn create_slack_notification_run(
         source_directory: None,
         workflow_slug: workflow_slug.map(str::to_string),
         automation: None,
+        source_context: None,
         db_prefix: None,
         provenance: None,
         manifest_blob: None,
@@ -5082,6 +5399,7 @@ async fn list_run_stages_distinguishes_visits() {
             source_directory: None,
             workflow_slug: Some("test".to_string()),
             automation: None,
+            source_context: None,
             db_prefix: None,
             provenance: None,
             manifest_blob: None,
@@ -5950,6 +6268,7 @@ fn create_github_token_app_state_with_env_lookup_and_llm_catalog_settings(
         worker_control_bus: None,
         worker_runtime: None,
         automation_materializer_override: None,
+        automation_run_start_override: None,
     };
     let state = build_app_state(config).expect("test app state should build");
     if let Some(token) = token {
@@ -6137,6 +6456,7 @@ async fn create_completed_run_ready_for_pull_request(
         graph_source: None,
         workflow_slug: Some("test".to_string()),
         automation: None,
+        source_context: None,
         source_directory: Some("/tmp/project".to_string()),
         git: git.clone(),
         labels: HashMap::new(),
@@ -6159,6 +6479,7 @@ async fn create_completed_run_ready_for_pull_request(
             source_directory: run_spec.source_directory.clone(),
             workflow_slug: run_spec.workflow_slug.clone(),
             automation: None,
+            source_context: None,
             db_prefix: None,
             provenance: run_spec.provenance.clone(),
             manifest_blob: None,
@@ -12309,6 +12630,7 @@ async fn create_preserved_local_sandbox_run(state: &Arc<AppState>, run_id: RunId
             source_directory: Some("/tmp/fabro-run".to_string()),
             workflow_slug: Some("test".to_string()),
             automation: None,
+            source_context: None,
             db_prefix: None,
             provenance: None,
             manifest_blob: None,
@@ -13061,6 +13383,7 @@ async fn delete_run_retry_after_missing_provider_resource_removes_metadata() {
             source_directory: Some("/tmp/fabro-run".to_string()),
             workflow_slug: Some("test".to_string()),
             automation: None,
+            source_context: None,
             db_prefix: None,
             provenance: None,
             manifest_blob: None,

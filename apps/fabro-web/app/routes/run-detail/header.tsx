@@ -94,6 +94,9 @@ export function RunDetailHeader({
   const sizeChip = (
     <SizeChip size={summary.size} totalUsdMicros={summary.billing?.total_usd_micros} />
   );
+  const sourceIssue = summary.source_context?.type === "github_issue"
+    ? summary.source_context
+    : null;
 
   return (
     <>
@@ -197,6 +200,18 @@ export function RunDetailHeader({
               <span className="font-mono">#{run.number}</span>
             </a>
           </HoverCard>
+        )}
+
+        {sourceIssue && (
+          <a
+            href={sourceIssue.issue_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={sourceIssue.issue_title}
+            className={SECONDARY_BUTTON_CLASS}
+          >
+            <span className="font-mono">Issue #{sourceIssue.issue_number}</span>
+          </a>
         )}
 
         {actions.approval.visible && (

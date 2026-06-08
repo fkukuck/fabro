@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::HeaderMap;
@@ -6,15 +7,14 @@ use chrono::Utc;
 use fabro_automation::{
     Automation, AutomationDraft, AutomationId, AutomationReplace, AutomationStoreError,
 };
-use fabro_types::{AutomationRef, RunId};
 use serde::Serialize;
 
 use super::super::{
     ApiError, AppState, IntoResponse, Json, PaginationParams, Path, RequiredUser, Response, Router,
     State, StatusCode, get, paginate_items,
 };
-use super::{json_with_etag_response, lifecycle, parse_required_if_match, runs};
-use crate::automation_materializer::AutomationRunMaterializeInput;
+use super::{json_with_etag_response, parse_required_if_match};
+use crate::automation_runner::{FireAutomationRunInput, fire_automation_run};
 use crate::principal_middleware::RequiredRunToolActor;
 
 #[derive(Serialize)]
@@ -136,61 +136,30 @@ async fn create_automation_run(
         )
         .into_response();
     };
-    let api_trigger_id = api_trigger.id.to_string();
-
-    let run_id = RunId::new();
-    let materialized = match state
-        .materialize_automation_run(AutomationRunMaterializeInput {
-            automation_id: automation.id.clone(),
-            target: automation.target.clone(),
-            run_id,
-            user_settings_path: state.active_config_path().to_path_buf(),
-            temp_root: state.automation_temp_root(),
-        })
-        .await
+    let fired = match fire_automation_run(Arc::clone(&state), FireAutomationRunInput {
+        automation: automation.clone(),
+        trigger_id: api_trigger.id.clone(),
+        actor,
+        headers,
+        input_overrides: HashMap::new(),
+        title_override: None,
+        source_context: None,
+    })
+    .await
     {
-        Ok(materialized) => materialized,
-        Err(err) => {
-            return ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, err.to_string())
-                .into_response();
-        }
+        Ok(fired) => fired,
+        Err(err) => return err.into_api_error().into_response(),
     };
-    let explicit_title_supplied = materialized.manifest.title.is_some();
-    let automation_ref = AutomationRef {
-        id:         automation.id.to_string(),
-        name:       Some(automation.name.clone()),
-        trigger_id: Some(api_trigger_id),
-    };
-
-    let response = Box::pin(runs::create_run_from_manifest(
-        Arc::clone(&state),
-        runs::CreateRunFromManifestRequest {
-            manifest: materialized.manifest,
-            submitted_manifest_bytes: materialized.submitted_manifest_bytes,
-            explicit_run_id: Some(run_id),
-            explicit_title_supplied,
-            actor: actor.clone(),
-            headers,
-            automation: Some(automation_ref),
-        },
-    ))
-    .await;
-
-    // An automation's API trigger should both create and start the run; otherwise
-    // the run sits in `Submitted` forever because the scheduler only claims
-    // `Runnable`. Mirror what the UI does for a manual create-then-start flow.
-    if response.status().is_success() {
-        if let Err(err) = lifecycle::queue_run_start(state.as_ref(), run_id, false, actor).await {
-            tracing::warn!(
-                %run_id,
-                automation_id = %automation.id,
-                error = ?err,
-                "Created automation run but failed to start it",
-            );
-        }
+    if let Err(err) = fired.start_result {
+        tracing::warn!(
+            run_id = %fired.created.run_id,
+            automation_id = %automation.id,
+            error = ?err,
+            "Created automation run but failed to start it",
+        );
     }
 
-    response
+    (StatusCode::CREATED, Json(fired.created.summary)).into_response()
 }
 
 async fn create_automation(

@@ -7,7 +7,7 @@ import type {
   WorkflowSettings,
 } from "@qltysh/fabro-api-client";
 
-import { findApiTrigger, findScheduleTrigger } from "../lib/automation";
+import { findApiTrigger, findGithubIssueTrigger, findScheduleTrigger } from "../lib/automation";
 import { Panel, Row } from "./settings-panel";
 import { INPUT_CLASS } from "./ui";
 import { sandboxRuntime } from "../lib/run-sandbox-lifecycle";
@@ -22,6 +22,10 @@ export interface AutomationFormValues {
   manualEnabled: boolean;
   scheduleEnabled: boolean;
   cron: string;
+  githubIssueEnabled: boolean;
+  githubIssueTriggerLabel: string;
+  githubIssueIssueLabel: string;
+  githubIssueComment: boolean;
 }
 
 export const EMPTY_AUTOMATION_FORM: AutomationFormValues = {
@@ -34,6 +38,10 @@ export const EMPTY_AUTOMATION_FORM: AutomationFormValues = {
   manualEnabled:   true,
   scheduleEnabled: false,
   cron:            "0 9 * * 1-5",
+  githubIssueEnabled: false,
+  githubIssueTriggerLabel: "fabro",
+  githubIssueIssueLabel: "",
+  githubIssueComment: true,
 };
 
 const CRON_PRESETS: ReadonlyArray<{ label: string; value: string }> = [
@@ -46,6 +54,7 @@ const CRON_PRESETS: ReadonlyArray<{ label: string; value: string }> = [
 export function automationToFormValues(automation: Automation): AutomationFormValues {
   const apiTrigger = findApiTrigger(automation);
   const scheduleTrigger = findScheduleTrigger(automation);
+  const githubIssueTrigger = findGithubIssueTrigger(automation);
   return {
     id:              automation.id,
     name:            automation.name,
@@ -56,6 +65,10 @@ export function automationToFormValues(automation: Automation): AutomationFormVa
     manualEnabled:   apiTrigger?.enabled ?? false,
     scheduleEnabled: scheduleTrigger?.enabled ?? false,
     cron:            scheduleTrigger?.expression ?? "0 9 * * 1-5",
+    githubIssueEnabled: githubIssueTrigger?.enabled ?? false,
+    githubIssueTriggerLabel: githubIssueTrigger?.trigger_label ?? "fabro",
+    githubIssueIssueLabel: githubIssueTrigger?.issue_label ?? "",
+    githubIssueComment: githubIssueTrigger?.comment ?? true,
   };
 }
 
@@ -103,6 +116,17 @@ export function triggersFromFormValues(values: AutomationFormValues): Automation
       expression: values.cron.trim(),
     });
   }
+  if (values.githubIssueEnabled) {
+    const issueLabel = values.githubIssueIssueLabel.trim();
+    triggers.push({
+      id:            "github-issue",
+      type:          "github_issue",
+      enabled:       true,
+      trigger_label: values.githubIssueTriggerLabel.trim(),
+      issue_label:   issueLabel === "" ? null : issueLabel,
+      comment:       values.githubIssueComment,
+    });
+  }
   return triggers;
 }
 
@@ -112,7 +136,8 @@ export function isFormValid(values: AutomationFormValues): boolean {
     values.name.trim() !== "" &&
     values.repository.trim() !== "" &&
     values.ref.trim() !== "" &&
-    values.workflow.trim() !== ""
+    values.workflow.trim() !== "" &&
+    (!values.githubIssueEnabled || values.githubIssueTriggerLabel.trim() !== "")
   );
 }
 
@@ -375,6 +400,48 @@ export function AutomationFormFields({
               </div>
             </div>
           </Row>
+        ) : null}
+        <Row title="GitHub issue label" help="Start runs when a matching label is added to a GitHub issue.">
+          <ToggleSwitch
+            checked={values.githubIssueEnabled}
+            onChange={(githubIssueEnabled) => patch({ githubIssueEnabled })}
+            label="Enable GitHub issue label trigger"
+          />
+        </Row>
+        {values.githubIssueEnabled ? (
+          <>
+            <Row title={<Label required>Trigger label</Label>} help="The label that starts this automation when applied.">
+              <input
+                type="text"
+                name="github_issue_trigger_label"
+                aria-label="GitHub trigger label"
+                value={values.githubIssueTriggerLabel}
+                onChange={(e) => patch({ githubIssueTriggerLabel: e.target.value })}
+                placeholder="fabro"
+                autoComplete="off"
+                className={INPUT_CLASS}
+              />
+            </Row>
+            <Row title={<Label optional>Issue label</Label>} help="Optional extra label to pass into the workflow inputs.">
+              <input
+                type="text"
+                name="github_issue_issue_label"
+                aria-label="GitHub issue label"
+                value={values.githubIssueIssueLabel}
+                onChange={(e) => patch({ githubIssueIssueLabel: e.target.value })}
+                placeholder="Bug"
+                autoComplete="off"
+                className={INPUT_CLASS}
+              />
+            </Row>
+            <Row title="Comment on issue" help="Post a comment when Fabro starts or cannot start the run.">
+              <ToggleSwitch
+                checked={values.githubIssueComment}
+                onChange={(githubIssueComment) => patch({ githubIssueComment })}
+                label="Post GitHub issue comments"
+              />
+            </Row>
+          </>
         ) : null}
       </Panel>
     </>

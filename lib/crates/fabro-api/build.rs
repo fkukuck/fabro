@@ -468,6 +468,7 @@ fn main() {
         ("ModelFeatures", "fabro_model::ModelFeatures", &[]),
         ("ModelCosts", "fabro_model::ModelCosts", &[]),
         ("ModelTestMode", "fabro_model::ModelTestMode", &[]),
+        ("RunSourceContext", "fabro_types::RunSourceContext", &[]),
         ("RunProjection", "fabro_types::RunProjection", &[]),
         ("RunEvent", "fabro_types::RunEvent", &[]),
         ("PairId", "fabro_types::PairId", &[]),
@@ -623,6 +624,11 @@ fn main() {
         (
             "AutomationTrigger",
             "fabro_automation::AutomationTrigger",
+            &[],
+        ),
+        (
+            "AutomationGithubIssueTrigger",
+            "fabro_automation::GithubIssueTrigger",
             &[],
         ),
         (

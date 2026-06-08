@@ -24,6 +24,9 @@ import type { AutomationRef } from './automation-ref';
 import type { DiffSummary } from './diff-summary';
 // May contain unused imports in some cases
 // @ts-ignore
+import type { GithubIssueRunSource } from './github-issue-run-source';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { Principal } from './principal';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -82,6 +85,7 @@ export interface Run {
     'goal': string;
     'workflow': WorkflowRef;
     'automation': AutomationRef | null;
+    'source_context'?: GithubIssueRunSource | null;
     'repository': RepositoryRef | null;
     'created_by': Principal | null;
     'origin': RunOrigin;

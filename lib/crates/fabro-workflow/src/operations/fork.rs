@@ -162,6 +162,7 @@ async fn persist_forked_run(
         source_directory: spec.source_directory.clone(),
         workflow_slug:    spec.workflow_slug.clone(),
         automation:       spec.automation.clone(),
+        source_context:   spec.source_context.clone(),
         db_prefix:        None,
         provenance:       spec.provenance.clone(),
         manifest_blob:    spec.manifest_blob,

@@ -143,6 +143,8 @@ use crate::automation_materializer::{
     AutomationRunMaterializeError, AutomationRunMaterializeInput, AutomationRunMaterialized,
     AutomationRunMaterializer, GitRepoCache, ProductionAutomationRunMaterializer,
 };
+#[cfg(any(test, feature = "test-support"))]
+use crate::automation_runner::AutomationRunStartOverride;
 use crate::canonical_origin::resolve_canonical_origin;
 use crate::error::ApiError;
 use crate::github_webhooks::{
@@ -169,7 +171,7 @@ use crate::{
 };
 
 mod automation_scheduler;
-mod handler;
+pub(crate) mod handler;
 mod resource_sampler;
 mod session_runtime;
 
@@ -1068,6 +1070,8 @@ pub struct AppState {
     environment_store: Arc<EnvironmentStore>,
     #[cfg(any(test, feature = "test-support"))]
     automation_materializer_override: Option<Arc<dyn AutomationRunMaterializer>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) automation_run_start_override: Option<AutomationRunStartOverride>,
     worker_tokens: WorkerTokenKeys,
     started_at: Instant,
     resource_sampler: resource_sampler::ResourceSampler,
@@ -1251,6 +1255,8 @@ pub(crate) struct AppStateConfig {
     pub(crate) worker_runtime: Option<Arc<dyn WorkerRuntime>>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) automation_materializer_override: Option<Arc<dyn AutomationRunMaterializer>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) automation_run_start_override: Option<AutomationRunStartOverride>,
 }
 
 #[derive(Clone)]
@@ -1782,7 +1788,7 @@ pub fn build_router_with_options(
     }
     let real_router = real_router
         .layer(axum::Extension(github_endpoints))
-        .with_state(state);
+        .with_state(Arc::clone(&state));
 
     let dispatch = service_fn(move |req: axum_extract::Request| {
         let demo = demo_router.clone();
@@ -1840,7 +1846,7 @@ pub fn build_router_with_options(
     let mut router = app_router;
     if let Some(secret) = webhook_secret {
         let secret: Arc<[u8]> = Arc::from(secret.into_bytes().into_boxed_slice());
-        router = github_webhook_routes(secret).merge(router);
+        router = github_webhook_routes(Arc::clone(&state), secret).merge(router);
     }
 
     router
@@ -1949,14 +1955,20 @@ async fn http_log_middleware(mut req: axum_extract::Request, next: Next) -> Resp
     response
 }
 
-fn github_webhook_routes(secret: Arc<[u8]>) -> Router {
+#[derive(Clone)]
+struct GithubWebhookRouteState {
+    secret:    Arc<[u8]>,
+    app_state: Arc<AppState>,
+}
+
+fn github_webhook_routes(app_state: Arc<AppState>, secret: Arc<[u8]>) -> Router {
     Router::new()
         .route(WEBHOOK_ROUTE, post(github_webhook))
-        .with_state(secret)
+        .with_state(GithubWebhookRouteState { secret, app_state })
 }
 
 async fn github_webhook(
-    State(secret): State<Arc<[u8]>>,
+    State(route_state): State<GithubWebhookRouteState>,
     RequestAuth(auth_slot): RequestAuth,
     headers: HeaderMap,
     body: Bytes,
@@ -1964,7 +1976,8 @@ async fn github_webhook(
     let delivery_id = headers
         .get("x-github-delivery")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("unknown");
+        .unwrap_or("unknown")
+        .to_string();
 
     let Some(signature) = headers
         .get("x-hub-signature-256")
@@ -1975,7 +1988,7 @@ async fn github_webhook(
         return StatusCode::UNAUTHORIZED;
     };
 
-    if !verify_signature(&secret, &body, signature) {
+    if !verify_signature(&route_state.secret, &body, signature) {
         auth_slot.replace(RequestAuthContext::invalid());
         warn!(delivery = %delivery_id, "Webhook HMAC signature mismatch");
         return StatusCode::UNAUTHORIZED;
@@ -1983,7 +1996,7 @@ async fn github_webhook(
 
     auth_slot.replace(RequestAuthContext::authenticated(
         Principal::Webhook {
-            delivery_id: delivery_id.to_string(),
+            delivery_id: delivery_id.clone(),
         },
         None,
     ));
@@ -2009,6 +2022,14 @@ async fn github_webhook(
             "Webhook received"
         );
     }
+
+    crate::github_issue_automation_trigger::handle_github_issue_webhook(
+        Arc::clone(&route_state.app_state),
+        headers,
+        delivery_id,
+        &body,
+    )
+    .await;
 
     StatusCode::OK
 }
@@ -2310,6 +2331,8 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         worker_runtime,
         #[cfg(any(test, feature = "test-support"))]
         automation_materializer_override,
+        #[cfg(any(test, feature = "test-support"))]
+        automation_run_start_override,
     } = config;
 
     let automation_dir = automation_dir_for_active_config(&active_config_path);
@@ -2440,6 +2463,8 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
         environment_store,
         #[cfg(any(test, feature = "test-support"))]
         automation_materializer_override,
+        #[cfg(any(test, feature = "test-support"))]
+        automation_run_start_override,
         worker_tokens,
         started_at: Instant::now(),
         resource_sampler: resource_sampler::ResourceSampler::new(),

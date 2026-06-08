@@ -26,6 +26,22 @@ mock.module("@headlessui/react", () => ({
     createElement("div", props, children),
   DialogTitle: ({ children, ...props }: any) =>
     createElement("h2", props, children),
+  Menu: ({ children, ...props }: any) =>
+    createElement("div", props, children),
+  MenuButton: ({ children, ...props }: any) =>
+    createElement("button", { ...props, type: "button" }, children),
+  MenuItem: ({ children, ...props }: any) =>
+    createElement("div", props, typeof children === "function" ? children({ focus: false }) : children),
+  MenuItems: ({ children, ...props }: any) =>
+    createElement("div", props, children),
+  Listbox: ({ children, ...props }: any) =>
+    createElement("div", props, children),
+  ListboxButton: ({ children, ...props }: any) =>
+    createElement("button", { ...props, type: "button" }, children),
+  ListboxOption: ({ children, ...props }: any) =>
+    createElement("div", props, typeof children === "function" ? children({ selected: false }) : children),
+  ListboxOptions: ({ children, ...props }: any) =>
+    createElement("div", props, children),
   Switch: ({ checked, onChange, children, ...props }: any) =>
     createElement(
       "button",
@@ -57,6 +73,10 @@ mock.module("../lib/queries", () => ({
       isLoading: false,
     };
   },
+  useAllRuns: () => ({ data: null, error: null, isLoading: false }),
+  useAuthConfig: () => ({ data: null, error: null, isLoading: false }),
+  useRunsPage: () => ({ data: null, error: null, isLoading: false }),
+  useSystemInfo: () => ({ data: null, error: null, isLoading: false }),
 }));
 
 mock.module("../lib/api-client", () => ({
@@ -89,9 +109,16 @@ mock.module("../lib/api-client", () => ({
     const response = await call();
     return response.data;
   },
+  apiResponse: async function apiResponse<T>(
+    call: () => Promise<T>,
+  ): Promise<T> {
+    return await call();
+  },
+  requestSignalOptions: () => undefined,
   automationsApi: {
     createAutomation: createAutomationMock,
   },
+  runsApi: {},
 }));
 
 mock.module("swr", () => ({
@@ -223,6 +250,25 @@ function switchChecked(renderer: TestRenderer.ReactTestRenderer, label: string) 
   return props["aria-checked"] ?? props.checked;
 }
 
+function changeField(
+  renderer: TestRenderer.ReactTestRenderer,
+  label: string,
+  value: string,
+) {
+  renderer.root.findByProps({ "aria-label": label }).props.onChange({
+    target: { value },
+  });
+}
+
+function clickSwitch(renderer: TestRenderer.ReactTestRenderer, label: string) {
+  const props = renderer.root.findByProps({ "aria-label": label }).props;
+  if (typeof props.onClick === "function") {
+    props.onClick();
+  } else {
+    props.onChange(!switchChecked(renderer, label));
+  }
+}
+
 function textFromNode(
   node: ReturnType<TestRenderer.ReactTestRenderer["toJSON"]>,
 ): string {
@@ -296,5 +342,43 @@ describe("AutomationsNew", () => {
     expect(fieldValue(renderer, "Repository")).toBe("");
     expect(fieldValue(renderer, "Default branch")).toBe("main");
     expect(fieldValue(renderer, "Workflow slug")).toBe("");
+  });
+
+  test("creates automation with GitHub issue trigger", async () => {
+    const { renderer } = await renderAutomationsNew("/automations/new");
+
+    await act(async () => changeField(renderer, "Automation name", "Issue Intake"));
+    await act(async () => changeField(renderer, "Repository", "qltysh/fabro"));
+    await act(async () => changeField(renderer, "Workflow slug", "issue_intake"));
+    await act(async () => clickSwitch(renderer, "Enable GitHub issue label trigger"));
+    await act(async () => changeField(renderer, "GitHub trigger label", "fabro"));
+    await act(async () => changeField(renderer, "GitHub issue label", "Bug"));
+
+    await act(async () => {
+      await renderer.root.findByType("form").props.onSubmit({
+        preventDefault() {},
+      });
+    });
+
+    expect(createAutomationMock).toHaveBeenCalledTimes(1);
+    expect(createAutomationMock.mock.calls[0]?.[0]).toMatchObject({
+      id:      "issue-intake",
+      target:  {
+        repository: "qltysh/fabro",
+        ref:        "main",
+        workflow:   "issue_intake",
+      },
+      triggers: [
+        { id: "manual", type: "api", enabled: true },
+        {
+          id:            "github-issue",
+          type:          "github_issue",
+          enabled:       true,
+          trigger_label: "fabro",
+          issue_label:   "Bug",
+          comment:       true,
+        },
+      ],
+    });
   });
 });

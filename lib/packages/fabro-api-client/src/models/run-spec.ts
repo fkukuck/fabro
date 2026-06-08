@@ -24,6 +24,9 @@ import type { ForkSourceRef } from './fork-source-ref';
 import type { GitContext } from './git-context';
 // May contain unused imports in some cases
 // @ts-ignore
+import type { GithubIssueRunSource } from './github-issue-run-source';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { RunProvenance } from './run-provenance';
 // May contain unused imports in some cases
 // @ts-ignore
@@ -39,6 +42,7 @@ export interface RunSpec {
     'graph_source'?: string | null;
     'workflow_slug'?: string | null;
     'automation'?: AutomationRef | null;
+    'source_context'?: GithubIssueRunSource | null;
     'source_directory'?: string | null;
     'labels'?: { [key: string]: string; };
     'provenance'?: RunProvenance | null;

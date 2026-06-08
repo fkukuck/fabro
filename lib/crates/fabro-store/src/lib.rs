@@ -27,8 +27,11 @@ pub use run_sessions::{
 pub use run_state::RunProjectionReducer;
 pub use serializable_projection::SerializableProjection;
 pub use slate::{
-    AuthCode, AuthCodeStore, Blob, BlobStore, CachedRunProjection, ConsumeOutcome, Database,
-    RefreshToken, RefreshTokenStore, RunCatalogIndex, RunDatabase, Runs, UnreadableRun,
+    AuthCode, AuthCodeStore, AutomationEventSource, AutomationTriggerKind,
+    AutomationTriggerRunContext, AutomationTriggerRunRecord, AutomationTriggerRunStatus,
+    AutomationTriggerRunStore, Blob, BlobStore, CachedRunProjection, ConsumeOutcome, Database,
+    GithubIssueTriggerCycleKey, RefreshToken, RefreshTokenStore, RunCatalogIndex, RunDatabase,
+    Runs, TriggerStartDecision, UnreadableRun,
 };
 pub use types::EventPayload;
 

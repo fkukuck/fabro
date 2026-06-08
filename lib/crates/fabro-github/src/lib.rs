@@ -626,6 +626,35 @@ pub async fn create_installation_access_token_for_pr(
     .await
 }
 
+/// Create a GitHub issue comment with an installation or PAT bearer token.
+pub async fn create_issue_comment(
+    client: &impl HttpClient,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    issue_number: u64,
+    body: &str,
+    base_url: &str,
+) -> anyhow::Result<()> {
+    let url = format!("{base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments");
+    let auth = format!("Bearer {token}");
+    let body = serde_json::json!({ "body": body });
+    let resp = client
+        .request(HttpMethod::Post, &url, &github_headers(&auth), Some(&body))
+        .await
+        .with_context(|| {
+            format!("failed to create issue comment on {owner}/{repo}#{issue_number}")
+        })?;
+
+    match resp.status {
+        200 | 201 => Ok(()),
+        status => bail!(
+            "Unexpected status {status} creating issue comment on {owner}/{repo}#{issue_number}: {}",
+            resp.text()
+        ),
+    }
+}
+
 /// Result of a successful pull request creation.
 pub struct CreatedPullRequest {
     pub html_url: String,
@@ -1708,6 +1737,32 @@ mod tests {
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn create_issue_comment_posts_body() {
+        let body = "Fabro started run https://fabro.example/runs/01";
+        let mock = MockHttpClient::new()
+            .on(
+                HttpMethod::Post,
+                "/repos/owner/repo/issues/123/comments",
+                201,
+                r#"{}"#,
+            )
+            .with_req_header("Authorization", "Bearer test-token")
+            .with_req_body(&serde_json::json!({ "body": body }).to_string());
+
+        create_issue_comment(
+            &mock,
+            "test-token",
+            "owner",
+            "repo",
+            123,
+            body,
+            "https://api.github.test",
+        )
+        .await
+        .unwrap();
     }
 
     // -----------------------------------------------------------------------

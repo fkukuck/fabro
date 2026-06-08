@@ -206,6 +206,7 @@ pub(crate) fn create_run_input(
         run_id: prepared.run_id,
         title: prepared.title,
         automation: None,
+        source_context: None,
         git: prepared.git,
         fork_source_ref: None,
         parent_id: prepared.parent_id,

@@ -9,10 +9,10 @@ use fabro_api::types::{
 };
 use fabro_types::status::{RunStatus, SuccessReason};
 use fabro_types::{
-    AskFabro, AskFabroUnavailableReason, AutomationRef, DiffSummary, PullRequestLink,
-    RepositoryProvider, RepositoryRef, Run, RunApproval, RunApprovalState, RunBillingSummary,
-    RunId, RunLifecycle, RunLinks, RunOrigin, RunRunnableSource, RunSize, RunTimestamps, RunTiming,
-    WorkflowRef, fixtures,
+    AskFabro, AskFabroUnavailableReason, AutomationRef, DiffSummary, GithubIssueRunSource,
+    PullRequestLink, RepositoryProvider, RepositoryRef, Run, RunApproval, RunApprovalState,
+    RunBillingSummary, RunId, RunLifecycle, RunLinks, RunOrigin, RunRunnableSource, RunSize,
+    RunSourceContext, RunTimestamps, RunTiming, WorkflowRef, fixtures,
 };
 use serde_json::json;
 
@@ -83,6 +83,12 @@ fn run_summary_json_matches_openapi_shape() {
             name:       Some("Nightly".to_string()),
             trigger_id: Some("schedule_1".to_string()),
         }),
+        source_context:   Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   "owner/repo".to_string(),
+            issue_number: 42,
+            issue_title:  "Fix bug".to_string(),
+            issue_url:    "https://github.com/owner/repo/issues/42".to_string(),
+        })),
         repository:       Some(RepositoryRef {
             name:       "fabro".to_string(),
             origin_url: None,
@@ -155,6 +161,13 @@ fn run_summary_json_matches_openapi_shape() {
                 "id": "nightly",
                 "name": "Nightly",
                 "trigger_id": "schedule_1"
+            },
+            "source_context": {
+                "type": "github_issue",
+                "repository": "owner/repo",
+                "issue_number": 42,
+                "issue_title": "Fix bug",
+                "issue_url": "https://github.com/owner/repo/issues/42"
             },
             "repository": {
                 "name": "fabro",
@@ -277,6 +290,7 @@ fn run_summary_deserializes_when_optional_fields_are_absent() {
     assert_eq!(summary.title, "ship it");
     assert_eq!(summary.labels, HashMap::new());
     assert_eq!(summary.source_directory, None);
+    assert_eq!(summary.source_context, None);
     assert_eq!(
         summary.repository,
         Some(RepositoryRef {

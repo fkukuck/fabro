@@ -1,5 +1,6 @@
 mod auth_codes;
 mod auth_tokens;
+mod automation_trigger_runs;
 mod blob_store;
 mod projection_cache;
 mod run_catalog_index;
@@ -12,6 +13,11 @@ use std::time::Duration;
 
 pub use auth_codes::{AuthCode, AuthCodeStore};
 pub use auth_tokens::{ConsumeOutcome, RefreshToken, RefreshTokenStore};
+pub use automation_trigger_runs::{
+    AutomationEventSource, AutomationTriggerKind, AutomationTriggerRunContext,
+    AutomationTriggerRunRecord, AutomationTriggerRunStatus, AutomationTriggerRunStore,
+    GithubIssueTriggerCycleKey,
+};
 pub use blob_store::{Blob, BlobStore};
 use chrono::{DateTime, Utc};
 use fabro_types::{Run, RunId, SessionId};
@@ -34,6 +40,13 @@ pub struct UnreadableRun {
     pub error:      String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TriggerStartDecision {
+    Start { trigger_cycle: u64 },
+    AlreadyOpen { run_id: Option<RunId> },
+    DuplicateDelivery,
+}
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct SessionRunIndexEntry {
     run_id: RunId,
@@ -51,6 +64,7 @@ pub struct Database {
     catalog_index: Arc<OnceCell<Arc<RunCatalogIndex>>>,
     auth_codes: Arc<OnceCell<Arc<AuthCodeStore>>>,
     refresh_tokens: Arc<OnceCell<Arc<RefreshTokenStore>>>,
+    automation_trigger_runs: Arc<OnceCell<Arc<AutomationTriggerRunStore>>>,
     projection_cache: Arc<RunProjectionCache>,
     projection_cache_warmed: Arc<OnceCell<()>>,
 }
@@ -83,6 +97,7 @@ impl Database {
             catalog_index: Arc::new(OnceCell::new()),
             auth_codes: Arc::new(OnceCell::new()),
             refresh_tokens: Arc::new(OnceCell::new()),
+            automation_trigger_runs: Arc::new(OnceCell::new()),
             projection_cache: Arc::new(RunProjectionCache::default()),
             projection_cache_warmed: Arc::new(OnceCell::new()),
         }
@@ -198,6 +213,14 @@ impl Database {
             return Err(Error::RunNotFound(run_id.to_string()));
         }
         RunDatabase::open_reader(*run_id, db, Arc::clone(&self.projection_cache)).await
+    }
+
+    pub async fn automation_trigger_runs(&self) -> Result<Arc<AutomationTriggerRunStore>> {
+        Ok(self
+            .automation_trigger_runs
+            .get_or_init(|| async { Arc::new(AutomationTriggerRunStore { db: self.clone() }) })
+            .await
+            .clone())
     }
 
     pub async fn list_runs(&self, query: &ListRunsQuery, now: DateTime<Utc>) -> Result<Vec<Run>> {
@@ -540,6 +563,7 @@ mod tests {
             graph_source: None,
             workflow_slug: Some("night-sky".to_string()),
             automation: None,
+            source_context: None,
             source_directory: Some(format!("/tmp/{label}")),
             labels: std::collections::HashMap::from([("team".to_string(), "infra".to_string())]),
             provenance: None,

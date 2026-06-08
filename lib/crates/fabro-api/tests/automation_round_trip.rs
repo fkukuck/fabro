@@ -1,11 +1,12 @@
 use fabro_api::types::{
-    Automation as ApiAutomation, AutomationTarget as ApiAutomationTarget,
-    AutomationTrigger as ApiAutomationTrigger,
+    Automation as ApiAutomation, AutomationGithubIssueTrigger as ApiAutomationGithubIssueTrigger,
+    AutomationTarget as ApiAutomationTarget, AutomationTrigger as ApiAutomationTrigger,
     CreateAutomationRequest as ApiCreateAutomationRequest,
     ReplaceAutomationRequest as ApiReplaceAutomationRequest,
 };
 use fabro_automation::{
     Automation, AutomationDraft, AutomationReplace, AutomationTarget, AutomationTrigger,
+    AutomationTriggerId, GithubIssueTrigger,
 };
 use serde_json::json;
 
@@ -16,6 +17,7 @@ use serde_json::json;
 const _: fn(ApiAutomation) -> Automation = |value| value;
 const _: fn(ApiAutomationTarget) -> AutomationTarget = |value| value;
 const _: fn(ApiAutomationTrigger) -> AutomationTrigger = |value| value;
+const _: fn(ApiAutomationGithubIssueTrigger) -> GithubIssueTrigger = |value| value;
 const _: fn(ApiCreateAutomationRequest) -> AutomationDraft = |value| value;
 const _: fn(ApiReplaceAutomationRequest) -> AutomationReplace = |value| value;
 
@@ -42,11 +44,24 @@ fn automation_response_round_trips_public_json_shape() {
                 "type": "schedule",
                 "enabled": true,
                 "expression": "0 3 * * *"
+            },
+            {
+                "id": "github-issue",
+                "type": "github_issue",
+                "enabled": true,
+                "trigger_label": "fabro",
+                "issue_label": "Bug",
+                "comment": true
             }
         ]
     });
 
     let api: ApiAutomation = serde_json::from_value(value.clone()).unwrap();
+    assert!(matches!(
+        &api.triggers[2],
+        AutomationTrigger::GithubIssue(GithubIssueTrigger { id, .. })
+            if id == &AutomationTriggerId::new("github-issue").unwrap()
+    ));
     assert_eq!(serde_json::to_value(api).unwrap(), value);
 }
 

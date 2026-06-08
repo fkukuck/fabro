@@ -174,6 +174,7 @@ async fn initialized(
         source_directory: Some(sandbox.working_directory().to_string()),
         workflow_slug:    run_options.workflow_slug.clone(),
         automation:       None,
+        source_context:   None,
         db_prefix:        None,
         provenance:       None,
         manifest_blob:    None,

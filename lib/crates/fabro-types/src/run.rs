@@ -78,6 +78,20 @@ pub struct ForkSourceRef {
     pub checkpoint_sha: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RunSourceContext {
+    GithubIssue(GithubIssueRunSource),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubIssueRunSource {
+    pub repository:   String,
+    pub issue_number: u64,
+    pub issue_title:  String,
+    pub issue_url:    String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunSpec {
     pub run_id:           RunId,
@@ -89,6 +103,8 @@ pub struct RunSpec {
     pub workflow_slug:    Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub automation:       Option<AutomationRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_context:   Option<RunSourceContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_directory: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

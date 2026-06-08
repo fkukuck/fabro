@@ -6177,11 +6177,13 @@ components:
       oneOf:
         - $ref: "#/components/schemas/AutomationApiTrigger"
         - $ref: "#/components/schemas/AutomationScheduleTrigger"
+        - $ref: "#/components/schemas/AutomationGithubIssueTrigger"
       discriminator:
         propertyName: type
         mapping:
           api: "#/components/schemas/AutomationApiTrigger"
           schedule: "#/components/schemas/AutomationScheduleTrigger"
+          github_issue: "#/components/schemas/AutomationGithubIssueTrigger"
 
     AutomationApiTrigger:
       description: Trigger that allows callers to create runs through the automation API.
@@ -6227,6 +6229,39 @@ components:
           type: string
           description: Five-field cron expression evaluated in UTC.
           example: "0 3 * * *"
+
+    AutomationGithubIssueTrigger:
+      description: GitHub issue label trigger. Fires on issues.labeled and resets on issues.unlabeled for the trigger label.
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - enabled
+        - trigger_label
+      properties:
+        id:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9_-]{0,62}$"
+          example: bug
+        type:
+          type: string
+          enum: [github_issue]
+        enabled:
+          type: boolean
+          example: true
+        trigger_label:
+          type: string
+          minLength: 1
+          example: fabro
+        issue_label:
+          type: ["string", "null"]
+          minLength: 1
+          example: Bug
+        comment:
+          type: boolean
+          default: true
+          example: true
 
     CreateAutomationRequest:
       description: Request body for creating an automation.
@@ -10266,6 +10301,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AutomationRef"
             - type: "null"
+        source_context:
+          oneOf:
+            - $ref: "#/components/schemas/RunSourceContext"
+            - type: "null"
         source_directory:
           type: ["string", "null"]
         labels:
@@ -10582,6 +10621,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AutomationRef"
             - type: "null"
+        source_context:
+          oneOf:
+            - $ref: "#/components/schemas/RunSourceContext"
+            - type: "null"
         repository:
           oneOf:
             - $ref: "#/components/schemas/RepositoryRef"
@@ -10695,6 +10738,44 @@ components:
           type: ["string", "null"]
         trigger_id:
           type: ["string", "null"]
+
+    RunSourceContext:
+      description: External source object that caused or anchors a run.
+      oneOf:
+        - $ref: "#/components/schemas/GithubIssueRunSource"
+      discriminator:
+        propertyName: type
+        mapping:
+          github_issue: "#/components/schemas/GithubIssueRunSource"
+
+    GithubIssueRunSource:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - repository
+        - issue_number
+        - issue_title
+        - issue_url
+      properties:
+        type:
+          type: string
+          enum: [github_issue]
+        repository:
+          type: string
+          example: owner/repo
+        issue_number:
+          type: integer
+          format: uint64
+          minimum: 0
+          example: 123
+        issue_title:
+          type: string
+          example: Fix production bug
+        issue_url:
+          type: string
+          format: uri
+          example: https://github.com/owner/repo/issues/123
 
     RunOrigin:
       type: object

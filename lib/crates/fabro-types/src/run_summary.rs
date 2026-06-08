@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     DiffSummary, InterviewQuestionRecord, Principal, PullRequestLink, RepositoryRef,
-    RunControlAction, RunId, RunSandbox, RunStatus, RunTiming,
+    RunControlAction, RunId, RunSandbox, RunSourceContext, RunStatus, RunTiming,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +50,8 @@ pub struct Run {
     pub workflow:         WorkflowRef,
     #[serde(default)]
     pub automation:       Option<AutomationRef>,
+    #[serde(default)]
+    pub source_context:   Option<RunSourceContext>,
     #[serde(default)]
     pub repository:       Option<RepositoryRef>,
     #[serde(default)]

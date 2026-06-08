@@ -12,6 +12,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+fabro-automation = { path = "../fabro-automation" }
 fabro-types = { path = "../fabro-types" }
 fabro-util = { path = "../fabro-util" }
 hex.workspace = true

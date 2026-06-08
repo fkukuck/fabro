@@ -57,6 +57,7 @@ models/auth-session-user.ts
 models/auth-session.ts
 models/auth-sessions-response.ts
 models/automation-api-trigger.ts
+models/automation-github-issue-trigger.ts
 models/automation-list-meta.ts
 models/automation-list-response.ts
 models/automation-ref.ts
@@ -153,6 +154,7 @@ models/git-author-settings.ts
 models/git-context.ts
 models/github-integration-settings.ts
 models/github-integration-strategy.ts
+models/github-issue-run-source.ts
 models/health-response.ts
 models/history-entry.ts
 models/hook-definition.ts

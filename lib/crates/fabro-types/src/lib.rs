@@ -93,8 +93,8 @@ pub use pull_request::{
 };
 pub use repository::{RepositoryProvider, RepositoryRef};
 pub use run::{
-    DirtyStatus, ForkSourceRef, GitContext, PreRunPushOutcome, RunClientProvenance, RunProvenance,
-    RunServerProvenance, RunSpec,
+    DirtyStatus, ForkSourceRef, GitContext, GithubIssueRunSource, PreRunPushOutcome,
+    RunClientProvenance, RunProvenance, RunServerProvenance, RunSourceContext, RunSpec,
 };
 pub use run_blob_id::RunBlobId;
 pub use run_event::{

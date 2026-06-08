@@ -14,6 +14,7 @@ pub mod auth;
     reason = "Automation materializer test hooks and helpers are only referenced by selected targets."
 )]
 mod automation_materializer;
+mod automation_runner;
 mod canonical_host;
 mod canonical_origin;
 pub mod csp;
@@ -25,6 +26,8 @@ pub mod csp;
 mod demo;
 pub mod diagnostics;
 pub mod error;
+mod github_issue_automation_trigger;
+mod github_issue_events;
 pub mod github_webhooks;
 pub mod install;
 pub mod jwt_auth;

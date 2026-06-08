@@ -1167,6 +1167,7 @@ mod runs {
                 edge_count: 0,
             },
             automation: None,
+            source_context: None,
             repository: Some(RepositoryRef::from_origin_and_source(
                 repo_origin_url,
                 source_directory.as_deref(),
