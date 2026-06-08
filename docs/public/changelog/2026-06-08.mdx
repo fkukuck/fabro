@@ -1,0 +1,34 @@
+---
+title: "GitHub issue intake"
+date: "2026-06-08"
+---
+
+## GitHub issues can start automations
+
+GitHub issues can now be used as the intake queue for Fabro automations. Add a `github_issue` trigger to an automation, then apply the configured label to an issue to create and start a run with the issue title, body, author, URL, repository, default branch, trigger label, and delivery ID available as workflow inputs.
+
+```json
+{
+  "type": "github_issue",
+  "id": "from-github-issue",
+  "enabled": true,
+  "trigger_label": "fabro",
+  "issue_label": "Bug",
+  "comment": true
+}
+```
+
+Fabro links the run back to its source issue and can post a comment when the run starts or cannot start. Duplicate webhook deliveries are ignored, and a labeled issue only starts one run until the trigger label is removed and added again.
+
+## More
+
+<Accordion title="API">
+- Added `github_issue` automation triggers to automation create, replace, retrieve, and list responses
+- Run summaries now include `source_context` for runs created from GitHub issues
+- `POST /api/v1/automations/{id}/runs` now returns the created run summary
+</Accordion>
+
+<Accordion title="Improvements">
+- Added the GitHub issue trigger controls to the New Automation form
+- GitHub issue webhooks are acknowledged promptly while matching automations continue in the background
+</Accordion>

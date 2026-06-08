@@ -32,6 +32,7 @@ The rest of this page describes the `app` strategy, which is required for browse
 | **Checkpoint pushing** | After each workflow stage, Fabro pushes the run branch and metadata branch back to origin from inside the sandbox |
 | **Auto-PR** | When `[run.pull_request] enabled = true` in the [run config](/execution/run-configuration#runpull_request), Fabro opens a PR from the agent's working branch after a successful run |
 | **Auto-merge** | When `[run.pull_request] auto_merge = true`, Fabro enables GitHub's auto-merge on created PRs so they merge automatically once required checks pass |
+| **Issue intake** | [GitHub issue intake](/integrations/github-issue-intake) starts automations when a matching label is added to an issue |
 | **Sandbox GITHUB_TOKEN** | When `[run.integrations.github.permissions]` are declared at any layer (workflow, project, or user settings), Fabro mints a scoped Installation Access Token and injects it as `GITHUB_TOKEN` in the sandbox |
 
 ## Setup
@@ -52,14 +53,16 @@ fabro install
 
 When you choose the GitHub App strategy, the CLI opens GitHub with a pre-filled [App Manifest](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest) containing:
 
-   | Permission | Level | Purpose |
-   |---|---|---|
-   | Contents | Write | Clone repos, push run branches and checkpoints |
-   | Metadata | Read | Look up repository installation status |
-   | Pull requests | Write | Create and update PRs from workflows |
-   | Checks | Write | Report workflow status on commits |
-   | Issues | Write | Create issues from workflows |
-   | Emails | Read | Read verified email for OAuth login |
+| Permission | Level | Purpose |
+|---|---|---|
+| Contents | Write | Clone repos, push run branches and checkpoints |
+| Metadata | Read | Look up repository installation status |
+| Pull requests | Write | Create and update PRs from workflows |
+| Checks | Write | Report workflow status on commits |
+| Issues | Write | Create issues from workflows |
+| Emails | Read | Read verified email for OAuth login |
+
+The manifest grants Issues permission but does not subscribe to webhook events by default. Enable the **Issues** event in the GitHub App settings before using [GitHub issue intake](/integrations/github-issue-intake).
 
 The installer:
 
