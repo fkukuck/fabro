@@ -1627,6 +1627,20 @@ async fn github_issue_automation_runs(state: &AppState) -> Vec<fabro_types::Run>
         .unwrap()
 }
 
+async fn wait_for_github_issue_automation_runs(
+    state: &AppState,
+    expected: usize,
+) -> Vec<fabro_types::Run> {
+    for _ in 0..50 {
+        let runs = github_issue_automation_runs(state).await;
+        if runs.len() >= expected {
+            return runs;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("GitHub issue automation runs did not reach {expected}");
+}
+
 #[tokio::test]
 async fn github_issue_labeled_webhook_starts_matching_automation() {
     let (state, materializer) = test_state_with_successful_automation_materializer();
@@ -1642,7 +1656,7 @@ async fn github_issue_labeled_webhook_starts_matching_automation() {
     )
     .await;
 
-    let runs = github_issue_automation_runs(&state).await;
+    let runs = wait_for_github_issue_automation_runs(&state, 1).await;
     assert_eq!(runs.len(), 1);
     let captured = materializer.captured_inputs();
     assert_eq!(
@@ -1676,6 +1690,33 @@ async fn github_issue_labeled_webhook_starts_matching_automation() {
 }
 
 #[tokio::test]
+async fn github_issue_labeled_webhook_acknowledges_before_materialization_finishes() {
+    let manifest = minimal_run_manifest();
+    let submitted_manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let materializer = TestAutomationRunMaterializer::succeed_after(
+        manifest,
+        submitted_manifest_bytes,
+        std::time::Duration::from_secs(5),
+    );
+    let state = TestAppStateBuilder::new()
+        .automation_materializer(materializer.clone())
+        .build();
+    create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
+        github_issue_trigger("bug", Some("Bug")),
+    ])
+    .await;
+    let body = github_issue_labeled_body("fabro", &["Bug", "fabro"]);
+
+    tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        handle_issue_webhook_direct(&state, "delivery-issue-slow", &body),
+    )
+    .await
+    .expect("webhook should acknowledge before slow materialization finishes");
+    wait_for_captured_automation_inputs(&materializer, 1).await;
+}
+
+#[tokio::test]
 async fn github_issue_labeled_webhook_ignores_pull_requests() {
     let (state, _) = test_state_with_successful_automation_materializer();
     create_github_issue_automation(&state, "issue-bug", "Implement bug", "owner/repo", vec![
@@ -1705,7 +1746,7 @@ async fn github_issue_labeled_webhook_dedupes_open_issue_cycle() {
     handle_issue_webhook_direct(&state, "delivery-issue-open-1", &body).await;
     handle_issue_webhook_direct(&state, "delivery-issue-open-2", &body).await;
 
-    assert_eq!(github_issue_automation_runs(&state).await.len(), 1);
+    wait_for_github_issue_automation_runs(&state, 1).await;
 }
 
 #[tokio::test]
@@ -1722,7 +1763,7 @@ async fn github_issue_unlabeled_webhook_closes_issue_cycle() {
     handle_issue_webhook_direct(&state, "delivery-issue-close", &unlabeled).await;
     handle_issue_webhook_direct(&state, "delivery-issue-open-2", &labeled).await;
 
-    assert_eq!(github_issue_automation_runs(&state).await.len(), 2);
+    wait_for_github_issue_automation_runs(&state, 2).await;
 }
 
 #[tokio::test]
@@ -3880,6 +3921,19 @@ async fn wait_for_run_title(state: &AppState, run_id: RunId, expected: &str) {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     panic!("run {run_id} title did not become {expected:?}");
+}
+
+async fn wait_for_captured_automation_inputs(
+    materializer: &TestAutomationRunMaterializer,
+    expected: usize,
+) {
+    for _ in 0..50 {
+        if materializer.captured_inputs().len() >= expected {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("captured automation inputs did not reach {expected}");
 }
 
 async fn wait_for_mock_hits(mock: &httpmock::Mock<'_>, expected: usize) {

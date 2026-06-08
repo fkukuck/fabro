@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GithubIssueWebhookEvent {
     pub(crate) action:     String,
     pub(crate) issue:      GithubIssue,
@@ -8,7 +8,7 @@ pub(crate) struct GithubIssueWebhookEvent {
     pub(crate) repository: GithubRepository,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GithubIssue {
     pub(crate) number:       u64,
     pub(crate) title:        String,
@@ -20,18 +20,18 @@ pub(crate) struct GithubIssue {
     pub(crate) pull_request: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GithubLabel {
     pub(crate) name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GithubRepository {
     pub(crate) full_name:      String,
     pub(crate) default_branch: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GithubSender {
     pub(crate) login: String,
 }

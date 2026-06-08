@@ -59,18 +59,6 @@ async fn handle_labeled(
     event: GithubIssueWebhookEvent,
 ) {
     let matches = matching_github_issue_triggers(&state.automation_store().list().await, &event);
-    let needs_comment = matches.iter().any(|(_, trigger)| trigger.comment);
-    let comment_token = if needs_comment {
-        match github_token(&state, &event).await {
-            Ok(token) => Some(token),
-            Err(err) => {
-                warn!(error = %err, delivery_id, "Failed to resolve GitHub issue automation comment token");
-                None
-            }
-        }
-    } else {
-        None
-    };
 
     for (automation, trigger) in matches {
         let key = cycle_key(&automation, &trigger, &event);
@@ -89,94 +77,125 @@ async fn handle_labeled(
             continue;
         };
 
-        let inputs = event.run_inputs(&trigger.trigger_label, &delivery_id);
-        let fired = fire_automation_run(Arc::clone(&state), FireAutomationRunInput {
-            automation:      automation.clone(),
-            trigger_id:      trigger.id.clone(),
-            actor:           Principal::Webhook {
-                delivery_id: delivery_id.clone(),
-            },
-            headers:         headers.clone(),
-            input_overrides: issue_inputs_to_toml(&inputs),
-            title_override:  Some(event.issue.title.clone()),
-            source_context:  Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
-                repository:   event.repository.full_name.clone(),
-                issue_number: event.issue.number,
-                issue_title:  event.issue.title.clone(),
-                issue_url:    event.issue.html_url.clone(),
-            })),
-        })
-        .await;
+        tokio::spawn(fire_labeled_automation(
+            Arc::clone(&state),
+            headers.clone(),
+            delivery_id.clone(),
+            automation,
+            trigger,
+            event.clone(),
+            trigger_event_id,
+        ));
+    }
+}
 
-        match fired {
-            Ok(fired) => {
-                let run_id = Some(fired.created.run_id);
-                if fired.start_result.is_ok() {
-                    record_trigger_run(
-                        &state,
-                        &automation,
-                        &trigger,
-                        &event,
-                        &trigger_event_id,
-                        run_id,
-                        AutomationTriggerRunStatus::Started,
-                    )
-                    .await;
-                    if trigger.comment {
-                        post_success_comment(
-                            &state,
-                            comment_token.as_deref(),
-                            &event,
-                            &automation.name,
-                            run_id.unwrap(),
-                            fired.created.summary.links.web.as_deref(),
-                        )
-                        .await;
-                    }
-                } else {
-                    record_trigger_run(
-                        &state,
-                        &automation,
-                        &trigger,
-                        &event,
-                        &trigger_event_id,
-                        run_id,
-                        AutomationTriggerRunStatus::FailedToStart,
-                    )
-                    .await;
-                    if trigger.comment {
-                        post_failure_comment(
-                            &state,
-                            comment_token.as_deref(),
-                            &event,
-                            failure_comment(&automation.name, "run start failed"),
-                        )
-                        .await;
-                    }
-                }
-            }
+async fn fire_labeled_automation(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    delivery_id: String,
+    automation: Automation,
+    trigger: GithubIssueTrigger,
+    event: GithubIssueWebhookEvent,
+    trigger_event_id: String,
+) {
+    let comment_token = if trigger.comment {
+        match github_token(&state, &event).await {
+            Ok(token) => Some(token),
             Err(err) => {
-                warn!(error = ?err, delivery_id, "Failed to create GitHub issue automation run");
+                warn!(error = %err, delivery_id, "Failed to resolve GitHub issue automation comment token");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let inputs = event.run_inputs(&trigger.trigger_label, &delivery_id);
+    let fired = fire_automation_run(Arc::clone(&state), FireAutomationRunInput {
+        automation: automation.clone(),
+        trigger_id: trigger.id.clone(),
+        actor: Principal::Webhook {
+            delivery_id: delivery_id.clone(),
+        },
+        headers,
+        input_overrides: issue_inputs_to_toml(&inputs),
+        title_override: Some(event.issue.title.clone()),
+        source_context: Some(RunSourceContext::GithubIssue(GithubIssueRunSource {
+            repository:   event.repository.full_name.clone(),
+            issue_number: event.issue.number,
+            issue_title:  event.issue.title.clone(),
+            issue_url:    event.issue.html_url.clone(),
+        })),
+    })
+    .await;
+
+    match fired {
+        Ok(fired) => {
+            let run_id = Some(fired.created.run_id);
+            if fired.start_result.is_ok() {
                 record_trigger_run(
                     &state,
                     &automation,
                     &trigger,
                     &event,
                     &trigger_event_id,
-                    None,
+                    run_id,
+                    AutomationTriggerRunStatus::Started,
+                )
+                .await;
+                if trigger.comment {
+                    post_success_comment(
+                        &state,
+                        comment_token.as_deref(),
+                        &event,
+                        &automation.name,
+                        run_id.unwrap(),
+                        fired.created.summary.links.web.as_deref(),
+                    )
+                    .await;
+                }
+            } else {
+                record_trigger_run(
+                    &state,
+                    &automation,
+                    &trigger,
+                    &event,
+                    &trigger_event_id,
+                    run_id,
                     AutomationTriggerRunStatus::FailedToStart,
                 )
                 .await;
                 if trigger.comment {
-                    let reason = fire_automation_run_failure_reason(&err);
                     post_failure_comment(
                         &state,
                         comment_token.as_deref(),
                         &event,
-                        failure_comment(&automation.name, reason),
+                        failure_comment(&automation.name, "run start failed"),
                     )
                     .await;
                 }
+            }
+        }
+        Err(err) => {
+            warn!(error = ?err, delivery_id, "Failed to create GitHub issue automation run");
+            record_trigger_run(
+                &state,
+                &automation,
+                &trigger,
+                &event,
+                &trigger_event_id,
+                None,
+                AutomationTriggerRunStatus::FailedToStart,
+            )
+            .await;
+            if trigger.comment {
+                let reason = fire_automation_run_failure_reason(&err);
+                post_failure_comment(
+                    &state,
+                    comment_token.as_deref(),
+                    &event,
+                    failure_comment(&automation.name, reason),
+                )
+                .await;
             }
         }
     }

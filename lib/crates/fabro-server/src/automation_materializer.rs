@@ -688,6 +688,7 @@ pub struct TestAutomationRunMaterializer {
 struct TestAutomationRunMaterializerState {
     captured_inputs: Vec<AutomationRunMaterializeInput>,
     response:        Result<AutomationRunMaterialized, AutomationRunMaterializeError>,
+    delay:           Option<std::time::Duration>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -697,6 +698,20 @@ impl TestAutomationRunMaterializer {
             manifest,
             submitted_manifest_bytes,
         }))
+    }
+
+    pub fn succeed_after(
+        manifest: RunManifest,
+        submitted_manifest_bytes: Vec<u8>,
+        delay: std::time::Duration,
+    ) -> Self {
+        let materializer = Self::succeed(manifest, submitted_manifest_bytes);
+        materializer
+            .inner
+            .lock()
+            .expect("test automation materializer lock poisoned")
+            .delay = Some(delay);
+        materializer
     }
 
     pub fn fail_invalid_target(message: impl Into<String>) -> Self {
@@ -710,6 +725,7 @@ impl TestAutomationRunMaterializer {
             inner: std::sync::Arc::new(std::sync::Mutex::new(TestAutomationRunMaterializerState {
                 captured_inputs: Vec::new(),
                 response,
+                delay: None,
             })),
         }
     }
@@ -734,12 +750,18 @@ impl AutomationRunMaterializer for TestAutomationRunMaterializer {
         &self,
         input: AutomationRunMaterializeInput,
     ) -> Result<AutomationRunMaterialized, AutomationRunMaterializeError> {
-        let mut guard = self
-            .inner
-            .lock()
-            .expect("test automation materializer lock poisoned");
-        guard.captured_inputs.push(input);
-        guard.response.clone()
+        let (response, delay) = {
+            let mut guard = self
+                .inner
+                .lock()
+                .expect("test automation materializer lock poisoned");
+            guard.captured_inputs.push(input);
+            (guard.response.clone(), guard.delay)
+        };
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
+        response
     }
 }
 
