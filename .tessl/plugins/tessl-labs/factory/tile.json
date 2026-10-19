@@ -1,0 +1,17 @@
+{
+  "name": "tessl-labs/factory",
+  "version": "0.3.1",
+  "summary": "Skills that Tessl factory loops run: implement a Linear or GitHub issue as a pull request, and shepherd that pull request through review and checks.",
+  "skills": {
+    "implement-linear": {
+      "path": "skills/implement-linear/SKILL.md"
+    },
+    "implement-github-issue": {
+      "path": "skills/implement-github-issue/SKILL.md"
+    },
+    "shepherd": {
+      "path": "skills/shepherd/SKILL.md"
+    }
+  },
+  "private": false
+}

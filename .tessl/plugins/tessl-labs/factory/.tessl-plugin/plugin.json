@@ -1,0 +1,10 @@
+{
+  "name": "tessl-labs/factory",
+  "version": "0.3.1",
+  "description": "Skills that Tessl factory loops run: implement a Linear or GitHub issue as a pull request, and shepherd that pull request through review and checks.",
+  "skills": [
+    "skills/implement-linear",
+    "skills/implement-github-issue",
+    "skills/shepherd"
+  ]
+}
