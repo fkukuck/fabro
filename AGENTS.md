@@ -328,3 +328,7 @@ Never run `cargo insta accept` without first checking what's pending — it acce
 - `#[e2e_test(twin, live("VAR"))]` — dual-mode test that runs against twin-openai or real API. `#[e2e_test(twin)]` for twin-only tests (e.g., scripted failures). `#[e2e_test(live("VAR"))]` for live-only tests requiring secrets. `#[e2e_test()]` for sandbox tests with no API deps. Behavior is controlled by `FABRO_TEST_MODE` (`live`, `strict`; default is `twin`), and `cargo nextest run --profile e2e ...` implies `strict`. Use `fabro_test::e2e_openai!()` in twin/dual-mode tests to get `(base_url, api_key)`.
 - Local test HTTP clients must use `.no_proxy()`. Prefer shared helpers like `fabro_test::test_http_client()` or crate-local equivalents instead of `reqwest::Client::new()`, bare `Client::builder().build()`, or `reqwest::get(...)`.
 - This is not cosmetic: macOS proxy discovery adds hidden startup overhead to repeated localhost reqwest clients and can surface as misleading nextest timeouts.
+
+# Agent Rules <!-- tessl-managed -->
+
+@.tessl/RULES.md follow the [instructions](.tessl/RULES.md)

@@ -1,0 +1,13 @@
+{
+  "name": "fabro",
+  "mode": "vendored",
+  "dependencies": {
+    "tessl-labs/factory-setup": {
+      "version": "0.6.1"
+    }
+  },
+  "agents": [
+    "claude-code",
+    "codex"
+  ]
+}
