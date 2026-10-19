@@ -14,16 +14,19 @@ at_least() {
     }'
 }
 
-step 'Check native Rust build prerequisites (no sudo or system package installs)'
-for tool in curl git tar cc c++ make cmake pkg-config; do
+step 'Check bootstrap tools (no sudo or system package installs)'
+for tool in curl git tar; do
     command -v "$tool" >/dev/null 2>&1 ||
-        fail "Missing $tool. The cloud runner must supply native build prerequisites for this Rust workspace."
+        fail "Missing bootstrap tool $tool."
 done
 
 step 'Make installed tools available to subsequent agent processes'
 task_bin="$HOME/.local/bin"
 mkdir -p "$task_bin"
 export PATH="$task_bin:$HOME/.cargo/bin:$PATH"
+
+step 'Ensure native build tools from prebuilt packages when missing'
+bash .tessl/setup-native-tools.sh
 
 step 'Ensure Rust is managed by rustup'
 if ! command -v rustup >/dev/null 2>&1; then
