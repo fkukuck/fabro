@@ -1,5 +1,5 @@
 {
-  "name": "fabro",
+  "name": "fabro/fabro",
   "mode": "vendored",
   "dependencies": {
     "tessl-labs/factory-setup": {
