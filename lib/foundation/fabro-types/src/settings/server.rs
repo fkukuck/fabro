@@ -117,8 +117,8 @@ pub struct ServerSandboxSettings {
 /// Per-provider policy keyed by provider kind.
 ///
 /// The resolver always materializes the bundled kinds (`local`, `docker`,
-/// `daytona`). Any other key names a sandbox-driver plugin executable and
-/// carries its launch settings.
+/// `daytona`, `aca`). Any other key names a sandbox-driver plugin executable
+/// and carries its launch settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ServerSandboxProvidersSettings {

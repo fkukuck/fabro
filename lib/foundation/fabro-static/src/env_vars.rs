@@ -152,6 +152,8 @@ impl EnvVars {
     pub const AWS_SECRET_ACCESS_KEY: &'static str = "AWS_SECRET_ACCESS_KEY";
     pub const AWS_SESSION_TOKEN: &'static str = "AWS_SESSION_TOKEN";
     pub const AWS_WEB_IDENTITY_TOKEN_FILE: &'static str = "AWS_WEB_IDENTITY_TOKEN_FILE";
+    /// The Azure Container Apps Sandboxes connection, as JSON in the vault.
+    pub const ACA_CONNECTION: &'static str = "ACA_CONNECTION";
     pub const DAYTONA_API_KEY: &'static str = "DAYTONA_API_KEY";
     pub const DAYTONA_API_URL: &'static str = "DAYTONA_API_URL";
     pub const DAYTONA_ORGANIZATION_ID: &'static str = "DAYTONA_ORGANIZATION_ID";
@@ -308,6 +310,7 @@ mod tests {
             EnvVars::AWS_SECRET_ACCESS_KEY,
             EnvVars::AWS_SESSION_TOKEN,
             EnvVars::AWS_WEB_IDENTITY_TOKEN_FILE,
+            EnvVars::ACA_CONNECTION,
             EnvVars::DAYTONA_API_KEY,
             EnvVars::DAYTONA_API_URL,
             EnvVars::DAYTONA_ORGANIZATION_ID,

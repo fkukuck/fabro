@@ -672,6 +672,24 @@ fn environment_capability_warnings(resolved_run: &RunNamespace) -> Vec<String> {
                 warnings.push("daytona provider ignores cwd".to_string());
             }
         }
+        Some(BundledProvider::Aca) => {
+            if environment.cwd.is_some() {
+                warnings.push("aca provider ignores cwd".to_string());
+            }
+            if !environment.labels.is_empty() {
+                warnings.push("aca provider ignores labels".to_string());
+            }
+            if environment.lifecycle.auto_stop.is_some() {
+                warnings.push("aca provider ignores lifecycle.auto_stop".to_string());
+            }
+            if environment.image.dockerfile.is_some() {
+                warnings.push(
+                    "aca provider ignores image.dockerfile; name a prepared disk image in \
+                     image.docker"
+                        .to_string(),
+                );
+            }
+        }
         None => {
             if environment.cwd.is_some() {
                 warnings.push(format!("{} provider ignores cwd", environment.provider));
@@ -876,10 +894,64 @@ async fn run_sandbox_check(
     let health = sandbox_access::provider_health(sandbox_provider, access)
         .await
         .map_err(|err| format!("{err:#}"));
-    let check = sandbox_health_check(sandbox_provider, health);
+    let mut check = sandbox_health_check(sandbox_provider, health);
+    if check.status == CheckStatus::Pass && *sandbox_provider == SandboxProviderKind::ACA {
+        check = aca_readiness_check(check, resolved_run, access).await;
+    }
     let passed = check.status == CheckStatus::Pass;
     checks.push(check);
     passed
+}
+
+/// ACA's part of the sandbox check: the environment's image is approved
+/// and ready, and its resources fit a sandbox. Reads only.
+async fn aca_readiness_check(
+    mut check: CheckResult,
+    resolved_run: &RunNamespace,
+    access: &ProviderAccess,
+) -> CheckResult {
+    let environment = &resolved_run.environment;
+    let image = environment.image.docker.as_deref();
+    let mut resources = sandbox_driver::Resources::default();
+    resources.cpu_cores = environment
+        .resources
+        .cpu
+        .map(|cpu| u32::try_from(cpu).unwrap_or(0));
+    resources.memory_mb = environment
+        .resources
+        .memory
+        .map(|size| size.as_bytes().div_ceil(1024 * 1024));
+    resources.disk_mb = environment
+        .resources
+        .disk
+        .map(|size| size.as_bytes().div_ceil(1024 * 1024));
+    match sandbox_access::aca_readiness(access, image, &resources).await {
+        Ok(report) if report.problems.is_empty() => {
+            if let Some(image) = report.image {
+                check
+                    .details
+                    .push(CheckDetail::new(format!("Image: {image}")));
+            }
+            if let Some(location) = report.location {
+                check
+                    .details
+                    .push(CheckDetail::new(format!("Location: {location}")));
+            }
+            check
+        }
+        Ok(report) => CheckResult {
+            status: CheckStatus::Error,
+            summary: "failed".into(),
+            remediation: Some(report.problems.join("; ")),
+            ..check
+        },
+        Err(err) => CheckResult {
+            status: CheckStatus::Error,
+            summary: "failed".into(),
+            remediation: Some(format!("{err:#}")),
+            ..check
+        },
+    }
 }
 
 /// The preflight check for a provider's health report: a connection

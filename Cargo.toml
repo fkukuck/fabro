@@ -194,3 +194,11 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.regex-syntax]
 opt-level = 2
+
+# Petri's sandbox router and Fabro frontend, vendored with the patch that
+# routes the `aca` provider (Azure Container Apps Sandboxes). Every other
+# Petri crate still comes from the pinned git source. See
+# vendor/petri/README.md before moving Petri forward.
+[patch."https://github.com/lithoscomputer/petri.git"]
+petri-executor-sandbox = { path = "vendor/petri/executor-sandbox" }
+petri-frontend-fabro = { path = "vendor/petri/frontend-fabro" }

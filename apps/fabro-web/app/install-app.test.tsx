@@ -752,6 +752,147 @@ describe("InstallApp", () => {
     }
   });
 
+  test("tests and saves an Azure Container Apps connection", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const originalConsoleError = console.error;
+    console.error = ((...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith("react-test-renderer is deprecated")
+      ) {
+        return;
+      }
+      originalConsoleError(...args);
+    }) as typeof console.error;
+    try {
+      const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+      const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({ input, init });
+        if (String(input) === "/install/session" && fetchCalls.length === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "object_store"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                object_store: { provider: "local" },
+                sandbox: null,
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        if (
+          String(input) === "/install/sandbox/test"
+          || String(input) === "/install/sandbox"
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ ok: true }), {
+              status: String(input).endsWith("/test") ? 200 : 204,
+            }),
+          );
+        }
+        if (String(input) === "/install/session") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                completed_steps: ["server", "object_store", "sandbox"],
+                llm: null,
+                server: { canonical_url: "https://fabro.example.com" },
+                object_store: { provider: "local" },
+                sandbox: { provider: "aca", api_key_saved: true, aca: { sandbox_group: "group-1" } },
+                github: null,
+                prefill: INSTALL_PREFILL,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
+      useInstallFetchMock(fetchMock as typeof fetch);
+
+      const testWindow = createTestWindow("https://fabro.example.com/install/sandbox");
+      testWindow.sessionStorage.setItem("fabro-install-token", "test-install-token");
+      (globalThis as { window?: unknown }).window = testWindow;
+
+      let renderer: TestRenderer.ReactTestRenderer | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/install/sandbox"]}>
+            <Routes>
+              <Route path="/install/*" element={<InstallApp />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Choose the sandbox runtime");
+      });
+
+      const acaButton = findOptionButton(renderer!, "Azure Container Apps");
+      await act(async () => {
+        acaButton.props.onClick();
+      });
+
+      for (const [name, value] of [
+        ["aca_tenantId", "tenant-1"],
+        ["aca_clientId", "client-1"],
+        ["aca_subscriptionId", "sub-1"],
+        ["aca_resourceGroup", "rg-1"],
+        ["aca_sandboxGroup", "group-1"],
+        ["aca_client_secret", "azure-secret"],
+      ] as const) {
+        const input = renderer!.root.findByProps({ name });
+        await act(async () => {
+          input.props.onChange({ target: { value } });
+        });
+      }
+
+      const form = renderer!.root.findByType("form");
+      await act(async () => {
+        form.props.onSubmit({ preventDefault() {} });
+      });
+
+      await waitFor(() => {
+        expect(renderTreeText(renderer!.toJSON())).toContain("Add your LLM credentials");
+      });
+      const calls = fetchCalls.map((call) => String(call.input));
+      const testIdx = calls.indexOf("/install/sandbox/test");
+      const putIdx = calls.indexOf("/install/sandbox");
+      expect(testIdx).toBeGreaterThanOrEqual(0);
+      expect(putIdx).toBeGreaterThan(testIdx);
+      const sandboxTestCall = fetchCalls[testIdx];
+      expect(JSON.parse(String(sandboxTestCall?.init?.body))).toEqual({
+        provider:    "aca",
+        allow_local: true,
+        aca:         {
+          tenant_id:       "tenant-1",
+          client_id:       "client-1",
+          client_secret:   "azure-secret",
+          subscription_id: "sub-1",
+          resource_group:  "rg-1",
+          sandbox_group:   "group-1",
+        },
+      });
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   test("blocks Daytona save when the API key is missing", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const originalConsoleError = console.error;

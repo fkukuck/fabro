@@ -6,8 +6,14 @@ import type { Environment, ServerSandboxProviderSettings } from "@qltysh/fabro-a
 export const LOCAL_PROVIDER = "local";
 export const DOCKER_PROVIDER = "docker";
 export const DAYTONA_PROVIDER = "daytona";
+export const ACA_PROVIDER = "aca";
 
-export const BUNDLED_PROVIDERS = [LOCAL_PROVIDER, DOCKER_PROVIDER, DAYTONA_PROVIDER] as const;
+export const BUNDLED_PROVIDERS = [
+  LOCAL_PROVIDER,
+  DOCKER_PROVIDER,
+  DAYTONA_PROVIDER,
+  ACA_PROVIDER,
+] as const;
 
 export type ProviderSettingsMap = { [kind: string]: ServerSandboxProviderSettings };
 
@@ -42,5 +48,6 @@ export function compareProviderKinds(left: string, right: string): number {
 }
 
 export function providerLabel(provider: string): string {
+  if (provider === ACA_PROVIDER) return "Azure Container Apps";
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }

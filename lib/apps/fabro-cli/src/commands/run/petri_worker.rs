@@ -84,7 +84,7 @@ use fabro_petri::hooks::{HooksSpec, RunPublisher};
 use fabro_petri::interview::{Approval, FabroInterviewer};
 use fabro_petri::petri::OwnerId;
 use fabro_petri::platform_records::{HttpPlatformRecords, PlatformRecords};
-use fabro_petri::providers::{DaytonaCredentials, SandboxProviderConfig};
+use fabro_petri::providers::{AcaCredentials, DaytonaCredentials, SandboxProviderConfig};
 use fabro_petri::runtime::{self, RuntimeSpec};
 use fabro_petri::secrets::VaultSecrets;
 use fabro_petri::source::RunSource;
@@ -676,9 +676,10 @@ async fn runtime_spec(
         DaytonaCredentials::from_api_key(key.to_owned(), crate::process_env_var)
             .with_http_client(fabro_http::http_client().ok())
     });
+    let aca = aca_credentials(&*vault.read().await);
     Ok(RuntimeSpec {
         stage_credentials: None,
-        sandbox: SandboxProviderConfig::from_lookup(daytona, crate::process_env_var),
+        sandbox: SandboxProviderConfig::from_lookup(daytona, crate::process_env_var).with_aca(aca),
         settings_toml: None,
         mcp_catalog_toml: None,
         model_client,
@@ -686,4 +687,18 @@ async fn runtime_spec(
         fabro_home,
         run_tools,
     })
+}
+
+/// The saved ACA connection from the vault. A connection that no longer
+/// parses is left out with a warning, so a run on another provider is
+/// unaffected and an ACA run fails at acquire with the setup hint.
+fn aca_credentials(vault: &Vault) -> Option<AcaCredentials> {
+    let text = vault.get(EnvVars::ACA_CONNECTION)?;
+    match AcaCredentials::from_vault_json(text) {
+        Ok(credentials) => Some(credentials.with_http_client(fabro_http::http_client().ok())),
+        Err(err) => {
+            warn!(error = %err, "the saved ACA connection is not readable; ACA runs are unavailable");
+            None
+        }
+    }
 }

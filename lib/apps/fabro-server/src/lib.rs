@@ -8,6 +8,7 @@
     )
 )]
 
+mod aca_connection;
 pub mod auth;
 #[allow(
     dead_code,

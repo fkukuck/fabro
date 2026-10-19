@@ -1,3 +1,4 @@
+mod aca_connection;
 mod auth_sessions;
 mod automations;
 mod cli_auth_token;

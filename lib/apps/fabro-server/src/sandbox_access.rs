@@ -20,7 +20,8 @@
 //!
 //! Credentials arrive explicitly. Nothing here reads the process
 //! environment for a secret: the Daytona key comes from the vault through
-//! [`DaytonaCredentials`]. The Docker client resolves its endpoint from the
+//! [`DaytonaCredentials`], and the ACA connection through
+//! [`AcaCredentials`]. The Docker client resolves its endpoint from the
 //! same variables Fabro forwards to its worker (`DOCKER_HOST` and
 //! its TLS companions), so the server and the run's containers meet on one
 //! daemon.
@@ -33,7 +34,8 @@ use std::time::Duration;
 use anyhow::Context as _;
 use fabro_config::Storage;
 use fabro_petri::providers;
-pub(crate) use fabro_petri::providers::DaytonaCredentials;
+pub(crate) use fabro_petri::providers::{AcaCredentials, DaytonaCredentials};
+use fabro_static::EnvVars;
 use fabro_types::settings::run::RunEnvironmentSettings;
 use fabro_types::settings::server::{
     SandboxPluginSettings, ServerSandboxProviderSettings, ServerSandboxProvidersSettings,
@@ -42,6 +44,7 @@ use fabro_types::{
     BundledProvider, RunId, RunSandboxInstance, SandboxInfo, SandboxListMeta, SandboxListResponse,
     SandboxProviderKind, SandboxProviderLookupError,
 };
+use fabro_vault::SecretStore;
 use futures_util::future::join_all;
 use sandbox_driver::{
     Error as DriverError, HealthStatus, OwnedProvider, Ownership, ProviderHealth, ProviderKind,
@@ -74,6 +77,8 @@ pub(crate) const DAYTONA_CREDENTIAL_PROBE_TIMEOUT: Duration = Duration::from_sec
 pub(crate) struct ProviderAccess {
     pub(crate) providers:    ServerSandboxProvidersSettings,
     pub(crate) daytona:      Option<DaytonaCredentials>,
+    /// The saved ACA connection from the vault.
+    pub(crate) aca:          Option<AcaCredentials>,
     /// The server's storage root. `None` where no run's host sandbox is
     /// reached (the doctor's probes, the startup inventory): a host
     /// record is then designated by path without its registry record.
@@ -122,6 +127,8 @@ pub(crate) enum ConnectError {
         "Daytona sandboxes require DAYTONA_API_KEY in the vault; run `fabro secret set DAYTONA_API_KEY`"
     )]
     MissingDaytonaCredentials,
+    #[error("ACA sandboxes need an Azure connection; set one up under Settings > Sandboxes")]
+    MissingAcaConnection,
     #[error("sandbox provider `{kind}` is not a valid sandbox-driver kind")]
     InvalidKind {
         kind:   SandboxProviderKind,
@@ -177,6 +184,13 @@ pub(crate) async fn connect_provider(
                 .await
                 .map_err(driver)?
         }
+        Some(BundledProvider::Aca) => {
+            let credentials = access
+                .aca
+                .as_ref()
+                .ok_or(ConnectError::MissingAcaConnection)?;
+            providers::connect_aca(credentials).map_err(driver)?
+        }
         None => {
             let plugin = settings
                 .plugin
@@ -214,6 +228,21 @@ fn plugin_config(kind: ProviderKind, settings: &SandboxPluginSettings) -> Plugin
             .collect::<BTreeMap<_, _>>(),
         inherit_env: settings.inherit_env.clone(),
     }
+}
+
+/// The ACA connection saved in the vault, `None` when none is saved. A
+/// saved value that no longer parses is an error, so it is reported rather
+/// than read as "not connected".
+pub(crate) async fn saved_aca_credentials(
+    vault: &SecretStore,
+    http: Option<fabro_http::HttpClient>,
+) -> anyhow::Result<Option<AcaCredentials>> {
+    let Some(entry) = vault.get(EnvVars::ACA_CONNECTION).await? else {
+        return Ok(None);
+    };
+    let credentials = AcaCredentials::from_vault_json(&entry.value)
+        .context("the saved ACA connection is not readable; save it again in Settings")?;
+    Ok(Some(credentials.with_http_client(http)))
 }
 
 /// Fabro's ownership of a run's sandboxes: the `petri.run` label Petri
@@ -432,6 +461,51 @@ pub(crate) async fn provider_health(
         .with_context(|| format!("{kind} health check failed"))
 }
 
+/// The ACA provider for `access`'s saved connection, typed, for the
+/// checks only ACA has.
+pub(crate) fn aca_provider(
+    access: &ProviderAccess,
+) -> Result<fabro_sandbox_aca::AcaProvider, ConnectError> {
+    let credentials = access
+        .aca
+        .as_ref()
+        .ok_or(ConnectError::MissingAcaConnection)?;
+    let http = match credentials_http(credentials) {
+        Some(http) => http,
+        None => fabro_http::http_client().map_err(|err| ConnectError::Driver {
+            kind:   SandboxProviderKind::ACA,
+            source: DriverError::Transport(sandbox_driver::TransportError::with_source(
+                "building the HTTP client for Azure",
+                err,
+            )),
+        })?,
+    };
+    Ok(fabro_sandbox_aca::connect(
+        credentials.connection(),
+        credentials.endpoints().clone(),
+        http,
+    ))
+}
+
+fn credentials_http(credentials: &AcaCredentials) -> Option<fabro_http::HttpClient> {
+    credentials.http_client().cloned()
+}
+
+/// Whether a run on `image` with `resources` can start on ACA: the
+/// group, the image's readiness, the administrator's allow-list and the
+/// allocation. Reads only; no sandbox is created and nothing is billed.
+pub(crate) async fn aca_readiness(
+    access: &ProviderAccess,
+    image: Option<&str>,
+    resources: &sandbox_driver::Resources,
+) -> anyhow::Result<fabro_sandbox_aca::ReadinessReport> {
+    let provider = aca_provider(access)?;
+    provider
+        .check_ready(image, resources)
+        .await
+        .context("ACA readiness check failed")
+}
+
 /// Whether the Docker daemon answers, for `fabro doctor`.
 pub(crate) async fn check_docker_daemon() -> anyhow::Result<()> {
     let health = provider_health(&SandboxProviderKind::DOCKER, &ProviderAccess::default()).await?;
@@ -515,6 +589,7 @@ pub(crate) async fn check_daytona_api_key(
     let access = ProviderAccess {
         providers:    ServerSandboxProvidersSettings::default(),
         daytona:      Some(credentials.clone()),
+        aca:          None,
         storage_root: None,
     };
     let probe = async {
@@ -580,6 +655,16 @@ enum Connection {
     Connected(Arc<dyn SandboxProvider>),
     /// Connected through [`connect_provider`] on first use.
     Lazy(Box<LazyConnection>),
+    /// Connected per call from the connection saved in the vault now, so a
+    /// connection saved, replaced or removed in Settings takes effect
+    /// without a restart. Nothing to list while none is saved.
+    Vault(Box<VaultConnection>),
+}
+
+struct VaultConnection {
+    access: ProviderAccess,
+    vault:  Arc<SecretStore>,
+    http:   Option<fabro_http::HttpClient>,
 }
 
 struct LazyConnection {
@@ -620,6 +705,25 @@ impl SandboxInventory {
             Connection::Lazy(Box::new(LazyConnection {
                 access,
                 provider: OnceCell::new(),
+            })),
+        )
+    }
+
+    /// A provider whose credentials are read from `vault` on every call.
+    #[must_use]
+    pub(crate) fn with_vault_connection(
+        self,
+        kind: SandboxProviderKind,
+        access: ProviderAccess,
+        vault: Arc<SecretStore>,
+        http: Option<fabro_http::HttpClient>,
+    ) -> Self {
+        self.with_entry(
+            kind,
+            Connection::Vault(Box::new(VaultConnection {
+                access,
+                vault,
+                http,
             })),
         )
     }
@@ -702,11 +806,11 @@ impl SandboxInventory {
 impl InventoryEntry {
     /// The provider, connected on first use; `None` when the kind has
     /// nothing to list.
-    async fn provider(&self) -> anyhow::Result<Option<&Arc<dyn SandboxProvider>>> {
+    async fn provider(&self) -> anyhow::Result<Option<Arc<dyn SandboxProvider>>> {
         match &self.connection {
             Connection::HostDirectories => Ok(None),
             #[cfg(test)]
-            Connection::Connected(provider) => Ok(Some(provider)),
+            Connection::Connected(provider) => Ok(Some(Arc::clone(provider))),
             Connection::Lazy(lazy) => lazy
                 .provider
                 .get_or_try_init(|| async {
@@ -715,7 +819,21 @@ impl InventoryEntry {
                         .with_context(|| format!("Failed to connect to the {} provider", self.kind))
                 })
                 .await
-                .map(Some),
+                .map(|provider| Some(Arc::clone(provider))),
+            Connection::Vault(vault) => {
+                let Some(credentials) = saved_aca_credentials(&vault.vault, vault.http.clone())
+                    .await
+                    .with_context(|| format!("Failed to read the {} connection", self.kind))?
+                else {
+                    return Ok(None);
+                };
+                let mut access = vault.access.clone();
+                access.aca = Some(credentials);
+                connect_provider(&self.kind, &access)
+                    .await
+                    .with_context(|| format!("Failed to connect to the {} provider", self.kind))
+                    .map(Some)
+            }
         }
     }
 
@@ -891,6 +1009,7 @@ mod tests {
         ProviderAccess {
             providers,
             daytona: None,
+            aca: None,
             storage_root: None,
         }
     }
@@ -1063,6 +1182,7 @@ mod tests {
         let access = ProviderAccess {
             providers,
             daytona: None,
+            aca: None,
             storage_root: None,
         };
         let error = connect_provider(&SandboxProviderKind::DOCKER, &access)

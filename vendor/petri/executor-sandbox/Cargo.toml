@@ -1,0 +1,35 @@
+# Vendored from lithoscomputer/petri (crates/core/executor-sandbox) at
+# 56ec3849ca693974ff778aa5ad4f9f9410d47d29 and patched into Fabro's build
+# with `[patch]` in the workspace Cargo.toml. See vendor/petri/README.md.
+[package]
+name = "petri-executor-sandbox"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+description = "Petri executor over the sandbox-driver provider family"
+publish = false
+
+[lib]
+name = "executor_sandbox"
+doctest = false
+
+[dependencies]
+executor = { package = "petri-executor", git = "https://github.com/lithoscomputer/petri.git", branch = "main" }
+ir = { package = "petri-ir", git = "https://github.com/lithoscomputer/petri.git", branch = "main" }
+sandbox-driver = { git = "https://github.com/lithoscomputer/sandbox-driver.git", branch = "main" }
+sandbox-driver-protocol = { git = "https://github.com/lithoscomputer/sandbox-driver.git", branch = "main" }
+sandbox-driver-docker-config = { git = "https://github.com/lithoscomputer/sandbox-driver.git", branch = "main" }
+sandbox-driver-daytona-config = { git = "https://github.com/lithoscomputer/sandbox-driver.git", branch = "main" }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+sha2 = "0.10"
+smol_str = { version = "0.3", features = ["serde"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "signal", "sync", "time", "io-util", "fs"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+
+[build-dependencies]
+sha2 = "0.10"

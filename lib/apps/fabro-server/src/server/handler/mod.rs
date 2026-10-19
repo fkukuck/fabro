@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::{ApiError, AppState, IntoResponse, Json, Response, StatusCode, demo};
 
+mod aca;
 mod artifacts;
 pub(in crate::server) mod automations;
 mod completions;
@@ -213,6 +214,7 @@ pub(super) fn real_routes() -> Router<Arc<AppState>> {
         .merge(environments::routes())
         .merge(sandbox::routes())
         .merge(sandboxes::routes())
+        .merge(aca::routes())
         .merge(lifecycle::routes())
         .merge(lineage::routes())
         .merge(steer::routes())

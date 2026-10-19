@@ -490,7 +490,12 @@ pub(crate) async fn execute(state: Arc<AppState>, run_id: RunId) {
         &state,
         &eligible,
         dry_run,
-        state.sandbox_provider_config(vault.get(EnvVars::DAYTONA_API_KEY).map(str::to_owned)),
+        state
+            .sandbox_provider_config(vault.get(EnvVars::DAYTONA_API_KEY).map(str::to_owned))
+            .with_aca(state.aca_credentials().await.unwrap_or_else(|err| {
+                warn!(error = %err, "the saved ACA connection is unavailable to this run");
+                None
+            })),
     );
     let request = RunRequest {
         run_id: run_id.to_string(),

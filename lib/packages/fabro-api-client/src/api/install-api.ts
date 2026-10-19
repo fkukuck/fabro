@@ -478,7 +478,7 @@ export const InstallApiAxiosParamCreator = function (configuration?: Configurati
             };
         },
         /**
-         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For ACA, runs the read-only Azure connection test (no sandbox is created). For Docker, returns ok without further checks. Requires the one-time install token.
          * @summary Validate install sandbox configuration
          * @param {InstallSandboxInput} installSandboxInput
          * @param {*} [options] Override http request option.
@@ -677,7 +677,7 @@ export const InstallApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For ACA, runs the read-only Azure connection test (no sandbox is created). For Docker, returns ok without further checks. Requires the one-time install token.
          * @summary Validate install sandbox configuration
          * @param {InstallSandboxInput} installSandboxInput
          * @param {*} [options] Override http request option.
@@ -818,7 +818,7 @@ export const InstallApiFactory = function (configuration?: Configuration, basePa
             return localVarFp.testInstallObjectStore(installObjectStoreInput, options).then((request) => request(axios, basePath));
         },
         /**
-         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+         * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For ACA, runs the read-only Azure connection test (no sandbox is created). For Docker, returns ok without further checks. Requires the one-time install token.
          * @summary Validate install sandbox configuration
          * @param {InstallSandboxInput} installSandboxInput
          * @param {*} [options] Override http request option.
@@ -966,7 +966,7 @@ export class InstallApi extends BaseAPI {
     }
 
     /**
-     * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+     * Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For ACA, runs the read-only Azure connection test (no sandbox is created). For Docker, returns ok without further checks. Requires the one-time install token.
      * @summary Validate install sandbox configuration
      * @param {InstallSandboxInput} installSandboxInput
      * @param {*} [options] Override http request option.

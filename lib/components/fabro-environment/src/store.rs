@@ -83,6 +83,22 @@ preserve = false
 stop_on_terminal = true
 "#;
 
+/// ACA boots a prepared disk image: `azure-dev` ships Docker, so container
+/// workloads run inside it.
+const ACA_DEFAULT_ENVIRONMENT_TOML: &str = r#"provider = "aca"
+
+[image]
+docker = "azure-dev"
+
+[resources]
+cpu = 2
+memory = "4GB"
+
+[lifecycle]
+preserve = false
+stop_on_terminal = true
+"#;
+
 #[derive(Debug)]
 pub struct EnvironmentStore {
     pool:      DbPool,
@@ -609,6 +625,7 @@ pub async fn seed_default_environment(
     let content = match provider.bundled() {
         Some(BundledProvider::Docker) => DEFAULT_ENVIRONMENT_TOML,
         Some(BundledProvider::Daytona) => DAYTONA_DEFAULT_ENVIRONMENT_TOML,
+        Some(BundledProvider::Aca) => ACA_DEFAULT_ENVIRONMENT_TOML,
         Some(BundledProvider::Local) => LOCAL_ENVIRONMENT_TOML,
         None => {
             return Err(EnvironmentValidationError::InvalidSettings {

@@ -22,6 +22,12 @@ import { DUMMY_BASE_URL, assertParamExists, setApiKeyToObject, setBasicAuthToObj
 // @ts-ignore
 import { BASE_PATH, COLLECTION_FORMATS, type RequestArgs, BaseAPI, RequiredError, operationServerMap } from '../base';
 // @ts-ignore
+import type { AcaConnectionInput } from '../models';
+// @ts-ignore
+import type { AcaConnectionSummary } from '../models';
+// @ts-ignore
+import type { AcaConnectionTestResult } from '../models';
+// @ts-ignore
 import type { ErrorResponse } from '../models';
 // @ts-ignore
 import type { SandboxInfo } from '../models';
@@ -33,6 +39,41 @@ import type { SandboxListResponse } from '../models';
 export const SandboxesApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
+         * Removes the saved Azure connection. Existing ACA sandboxes are not deleted; new ACA runs fail until a connection is saved again. Repeating it is harmless.
+         * @summary Disconnect Azure
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteAcaConnection: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/v1/sandbox-providers/aca/connection`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * Lists Fabro-managed sandboxes directly from configured sandbox providers.
          * @summary List Sandboxes
          * @param {*} [options] Override http request option.
@@ -40,6 +81,42 @@ export const SandboxesApiAxiosParamCreator = function (configuration?: Configura
          */
         listSandboxes: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/v1/sandboxes`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Returns the saved Azure Container Apps Sandboxes connection with the client secret redacted, or `connected = false` when none is saved.
+         * @summary Retrieve the Azure connection
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveAcaConnection: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/v1/sandbox-providers/aca/connection`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
             let baseOptions;
@@ -108,6 +185,86 @@ export const SandboxesApiAxiosParamCreator = function (configuration?: Configura
                 options: localVarRequestOptions,
             };
         },
+        /**
+         * Tests the Azure connection and saves it in the server\'s vault when the test passes. An omitted `client_secret` keeps the saved one, so other fields can be changed without re-entering it. The saved secret is never returned and never reaches a run\'s environment.
+         * @summary Save the Azure connection
+         * @param {AcaConnectionInput} acaConnectionInput
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        saveAcaConnection: async (acaConnectionInput: AcaConnectionInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'acaConnectionInput' is not null or undefined
+            assertParamExists('saveAcaConnection', 'acaConnectionInput', acaConnectionInput)
+            const localVarPath = `/api/v1/sandbox-providers/aca/connection`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(acaConnectionInput, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Checks a connection without saving it, or the saved connection when the body is empty. Reads only; creates no sandbox and incurs no sandbox running cost. Reports whether the credential is accepted, the sandbox group is ready, the default image is available, and what to fix otherwise.
+         * @summary Test an Azure connection
+         * @param {AcaConnectionInput} [acaConnectionInput]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        testAcaConnection: async (acaConnectionInput?: AcaConnectionInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/v1/sandbox-providers/aca/connection/test`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            // authentication SessionCookie required
+
+            // authentication BearerAuth required
+            // http bearer authentication required
+            await setBearerAuthToObject(localVarHeaderParameter, configuration)
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(acaConnectionInput, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
     }
 };
 
@@ -118,6 +275,18 @@ export const SandboxesApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = SandboxesApiAxiosParamCreator(configuration)
     return {
         /**
+         * Removes the saved Azure connection. Existing ACA sandboxes are not deleted; new ACA runs fail until a connection is saved again. Repeating it is harmless.
+         * @summary Disconnect Azure
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async deleteAcaConnection(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteAcaConnection(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SandboxesApi.deleteAcaConnection']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Lists Fabro-managed sandboxes directly from configured sandbox providers.
          * @summary List Sandboxes
          * @param {*} [options] Override http request option.
@@ -127,6 +296,18 @@ export const SandboxesApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.listSandboxes(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SandboxesApi.listSandboxes']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Returns the saved Azure Container Apps Sandboxes connection with the client secret redacted, or `connected = false` when none is saved.
+         * @summary Retrieve the Azure connection
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async retrieveAcaConnection(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<AcaConnectionSummary>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.retrieveAcaConnection(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SandboxesApi.retrieveAcaConnection']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -142,6 +323,32 @@ export const SandboxesApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['SandboxesApi.retrieveSandbox']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
+        /**
+         * Tests the Azure connection and saves it in the server\'s vault when the test passes. An omitted `client_secret` keeps the saved one, so other fields can be changed without re-entering it. The saved secret is never returned and never reaches a run\'s environment.
+         * @summary Save the Azure connection
+         * @param {AcaConnectionInput} acaConnectionInput
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async saveAcaConnection(acaConnectionInput: AcaConnectionInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<AcaConnectionSummary>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.saveAcaConnection(acaConnectionInput, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SandboxesApi.saveAcaConnection']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Checks a connection without saving it, or the saved connection when the body is empty. Reads only; creates no sandbox and incurs no sandbox running cost. Reports whether the credential is accepted, the sandbox group is ready, the default image is available, and what to fix otherwise.
+         * @summary Test an Azure connection
+         * @param {AcaConnectionInput} [acaConnectionInput]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async testAcaConnection(acaConnectionInput?: AcaConnectionInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<AcaConnectionTestResult>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.testAcaConnection(acaConnectionInput, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SandboxesApi.testAcaConnection']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
     }
 };
 
@@ -152,6 +359,15 @@ export const SandboxesApiFactory = function (configuration?: Configuration, base
     const localVarFp = SandboxesApiFp(configuration)
     return {
         /**
+         * Removes the saved Azure connection. Existing ACA sandboxes are not deleted; new ACA runs fail until a connection is saved again. Repeating it is harmless.
+         * @summary Disconnect Azure
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteAcaConnection(options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.deleteAcaConnection(options).then((request) => request(axios, basePath));
+        },
+        /**
          * Lists Fabro-managed sandboxes directly from configured sandbox providers.
          * @summary List Sandboxes
          * @param {*} [options] Override http request option.
@@ -159,6 +375,15 @@ export const SandboxesApiFactory = function (configuration?: Configuration, base
          */
         listSandboxes(options?: RawAxiosRequestConfig): AxiosPromise<SandboxListResponse> {
             return localVarFp.listSandboxes(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Returns the saved Azure Container Apps Sandboxes connection with the client secret redacted, or `connected = false` when none is saved.
+         * @summary Retrieve the Azure connection
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        retrieveAcaConnection(options?: RawAxiosRequestConfig): AxiosPromise<AcaConnectionSummary> {
+            return localVarFp.retrieveAcaConnection(options).then((request) => request(axios, basePath));
         },
         /**
          * Retrieves a Fabro-managed sandbox by provider-native id by searching all configured sandbox providers.
@@ -170,6 +395,26 @@ export const SandboxesApiFactory = function (configuration?: Configuration, base
         retrieveSandbox(id: string, options?: RawAxiosRequestConfig): AxiosPromise<SandboxInfo> {
             return localVarFp.retrieveSandbox(id, options).then((request) => request(axios, basePath));
         },
+        /**
+         * Tests the Azure connection and saves it in the server\'s vault when the test passes. An omitted `client_secret` keeps the saved one, so other fields can be changed without re-entering it. The saved secret is never returned and never reaches a run\'s environment.
+         * @summary Save the Azure connection
+         * @param {AcaConnectionInput} acaConnectionInput
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        saveAcaConnection(acaConnectionInput: AcaConnectionInput, options?: RawAxiosRequestConfig): AxiosPromise<AcaConnectionSummary> {
+            return localVarFp.saveAcaConnection(acaConnectionInput, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Checks a connection without saving it, or the saved connection when the body is empty. Reads only; creates no sandbox and incurs no sandbox running cost. Reports whether the credential is accepted, the sandbox group is ready, the default image is available, and what to fix otherwise.
+         * @summary Test an Azure connection
+         * @param {AcaConnectionInput} [acaConnectionInput]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        testAcaConnection(acaConnectionInput?: AcaConnectionInput, options?: RawAxiosRequestConfig): AxiosPromise<AcaConnectionTestResult> {
+            return localVarFp.testAcaConnection(acaConnectionInput, options).then((request) => request(axios, basePath));
+        },
     };
 };
 
@@ -177,6 +422,16 @@ export const SandboxesApiFactory = function (configuration?: Configuration, base
  * SandboxesApi - object-oriented interface
  */
 export class SandboxesApi extends BaseAPI {
+    /**
+     * Removes the saved Azure connection. Existing ACA sandboxes are not deleted; new ACA runs fail until a connection is saved again. Repeating it is harmless.
+     * @summary Disconnect Azure
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public deleteAcaConnection(options?: RawAxiosRequestConfig) {
+        return SandboxesApiFp(this.configuration).deleteAcaConnection(options).then((request) => request(this.axios, this.basePath));
+    }
+
     /**
      * Lists Fabro-managed sandboxes directly from configured sandbox providers.
      * @summary List Sandboxes
@@ -188,6 +443,16 @@ export class SandboxesApi extends BaseAPI {
     }
 
     /**
+     * Returns the saved Azure Container Apps Sandboxes connection with the client secret redacted, or `connected = false` when none is saved.
+     * @summary Retrieve the Azure connection
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public retrieveAcaConnection(options?: RawAxiosRequestConfig) {
+        return SandboxesApiFp(this.configuration).retrieveAcaConnection(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
      * Retrieves a Fabro-managed sandbox by provider-native id by searching all configured sandbox providers.
      * @summary Retrieve Sandbox
      * @param {string} id
@@ -196,5 +461,27 @@ export class SandboxesApi extends BaseAPI {
      */
     public retrieveSandbox(id: string, options?: RawAxiosRequestConfig) {
         return SandboxesApiFp(this.configuration).retrieveSandbox(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Tests the Azure connection and saves it in the server\'s vault when the test passes. An omitted `client_secret` keeps the saved one, so other fields can be changed without re-entering it. The saved secret is never returned and never reaches a run\'s environment.
+     * @summary Save the Azure connection
+     * @param {AcaConnectionInput} acaConnectionInput
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public saveAcaConnection(acaConnectionInput: AcaConnectionInput, options?: RawAxiosRequestConfig) {
+        return SandboxesApiFp(this.configuration).saveAcaConnection(acaConnectionInput, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Checks a connection without saving it, or the saved connection when the body is empty. Reads only; creates no sandbox and incurs no sandbox running cost. Reports whether the credential is accepted, the sandbox group is ready, the default image is available, and what to fix otherwise.
+     * @summary Test an Azure connection
+     * @param {AcaConnectionInput} [acaConnectionInput]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public testAcaConnection(acaConnectionInput?: AcaConnectionInput, options?: RawAxiosRequestConfig) {
+        return SandboxesApiFp(this.configuration).testAcaConnection(acaConnectionInput, options).then((request) => request(this.axios, this.basePath));
     }
 }

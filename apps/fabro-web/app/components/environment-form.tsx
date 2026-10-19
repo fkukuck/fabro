@@ -284,7 +284,7 @@ export function EnvironmentFormFields({
         {values.imageSource === "image" ? (
           <Row
             title={<Label required>Image reference</Label>}
-            help="Docker image or Daytona snapshot name (e.g. fabro-v11)."
+            help="Docker image, Daytona snapshot name (e.g. fabro-v11), or an approved Azure Container Apps disk image (e.g. azure-dev)."
           >
             <input
               type="text"

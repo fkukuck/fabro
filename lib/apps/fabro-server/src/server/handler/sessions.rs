@@ -731,7 +731,7 @@ async fn build_agent(
     let access = state
         .provider_access()
         .await
-        .map_err(|err| AskFabroBuildError::Agent(anyhow::Error::new(err)))?;
+        .map_err(AskFabroBuildError::Agent)?;
     let handle = sandbox_access::attach_running_run_sandbox(&access, sandbox_instance, run_id)
         .await
         .map_err(AskFabroBuildError::SandboxUnavailable)?;

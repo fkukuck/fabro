@@ -210,20 +210,20 @@ Install seeds a `default` environment into SQLite. It is a normal persisted envi
 
 ## Provider mappings
 
-| Environment field | Local | Docker | Daytona |
-|---|---|---|---|
-| `image.docker` | Ignored | Docker image | Snapshot base image; Fabro computes the snapshot name |
-| `image.dockerfile` | Ignored | Warning; ignored | Snapshot Dockerfile; Fabro computes the snapshot name |
-| `resources.cpu` | Warning; ignored | `cpu_quota = cpu * 100000` | Snapshot CPU |
-| `resources.memory` | Warning; ignored | Container memory limit | Snapshot memory |
-| `resources.disk` | Warning; ignored | Warning; ignored | Snapshot disk |
-| `network.mode = "allow_all"` | Host network | Docker default bridge | Daytona allow-all |
-| `network.mode = "block"` | Error | Docker `none` network | Daytona block |
-| `network.mode = "cidr_allow_list"` | Error | Error | Daytona CIDR allow-list |
-| `labels` | Warning; ignored | Warning; ignored | Daytona labels |
-| `lifecycle.auto_stop` | Warning; ignored | Warning; ignored | Daytona auto-stop |
-| `env` | Process environment overlay | Container environment | Sandbox environment |
-| `cwd` | Does not override the managed run workspace | Warning; ignored | Warning; ignored |
+| Environment field | Local | Docker | Daytona | ACA |
+|---|---|---|---|---|
+| `image.docker` | Ignored | Docker image | Snapshot base image; Fabro computes the snapshot name | ACA disk image (public or private), checked against the approved list |
+| `image.dockerfile` | Ignored | Warning; ignored | Snapshot Dockerfile; Fabro computes the snapshot name | Warning; ignored |
+| `resources.cpu` | Warning; ignored | `cpu_quota = cpu * 100000` | Snapshot CPU | Sandbox CPU (at most 16) |
+| `resources.memory` | Warning; ignored | Container memory limit | Snapshot memory | Sandbox memory (at most 32 GiB) |
+| `resources.disk` | Warning; ignored | Warning; ignored | Snapshot disk | Sandbox disk (at most 320 GiB) |
+| `network.mode = "allow_all"` | Host network | Docker default bridge | Daytona allow-all | ACA open egress |
+| `network.mode = "block"` | Error | Docker `none` network | Daytona block | ACA egress denied |
+| `network.mode = "cidr_allow_list"` | Error | Error | Daytona CIDR allow-list | Error |
+| `labels` | Warning; ignored | Warning; ignored | Daytona labels | Warning; ignored |
+| `lifecycle.auto_stop` | Warning; ignored | Warning; ignored | Daytona auto-stop | Warning; ignored |
+| `env` | Process environment overlay | Container environment | Sandbox environment | Sandbox environment |
+| `cwd` | Does not override the managed run workspace | Warning; ignored | Warning; ignored | Warning; ignored |
 
 ## Local
 
@@ -296,3 +296,22 @@ auto_stop = "30m"
 mode = "cidr_allow_list"
 allow = ["208.80.154.232/32", "10.0.0.0/8"]
 ```
+
+## Azure Container Apps
+
+`aca` runs tools in an [Azure Container Apps](/integrations/azure-container-apps) sandbox, a microVM booted from a prepared disk image. `image.docker` names the disk image; without one, the sandbox uses the default image from the Azure connection (`azure-dev`, which includes Docker). The image must be on the administrator's approved list when one is set.
+
+```toml title="workflow.toml"
+[environments.azure]
+provider = "aca"
+
+[environments.azure.image]
+docker = "azure-dev"
+
+[environments.azure.resources]
+cpu = 2
+memory = "4GB"
+```
+
+ACA supports `allow_all` and `block` networking; a CIDR allow-list is rejected when the environment is saved. Set up the Azure connection under **Settings > Sandboxes** first.
+

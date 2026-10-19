@@ -17,6 +17,7 @@ import {
   RunInternalsApi,
   RunOutputsApi,
   RunsApi,
+  SandboxesApi,
   SecretsApi,
   SessionsApi,
   SettingsApi,
@@ -124,6 +125,11 @@ export const runOutputsApi = new RunOutputsApi(
   generatedAxios,
 );
 export const runsApi = new RunsApi(
+  generatedApiConfiguration,
+  "",
+  generatedAxios,
+);
+export const sandboxesApi = new SandboxesApi(
   generatedApiConfiguration,
   "",
   generatedAxios,

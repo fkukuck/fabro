@@ -102,6 +102,7 @@ export const queryKeys = {
   },
   settings: {
     server: () => ["settings", "server"] as const,
+    acaConnection: () => ["settings", "aca-connection"] as const,
   },
   providers: {
     list: () => ["providers", "list"] as const,

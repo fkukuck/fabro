@@ -13,19 +13,24 @@
  */
 
 
+// May contain unused imports in some cases
+// @ts-ignore
+import type { AcaConnectionInput } from './aca-connection-input';
 
 /**
- * Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker. `allow_local` enables the local sandbox provider alongside the selected runtime; it defaults to true when omitted.
+ * Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored otherwise. `aca` is the Azure connection, required for `aca`; it is tested and saved like the Settings connection. `allow_local` enables the local sandbox provider alongside the selected runtime; it defaults to true when omitted.
  */
 export interface InstallSandboxInput {
     'provider': InstallSandboxInputProviderEnum;
     'api_key'?: string;
+    'aca'?: AcaConnectionInput;
     'allow_local'?: boolean;
 }
 
 export const InstallSandboxInputProviderEnum = {
     DOCKER: 'docker',
-    DAYTONA: 'daytona'
+    DAYTONA: 'daytona',
+    ACA: 'aca'
 } as const;
 
 export type InstallSandboxInputProviderEnum = typeof InstallSandboxInputProviderEnum[keyof typeof InstallSandboxInputProviderEnum];

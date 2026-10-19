@@ -302,7 +302,7 @@ paths:
       operationId: testInstallSandbox
       tags: [Install]
       summary: Validate install sandbox configuration
-      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For Docker, returns ok without further checks. Requires the one-time install token.
+      description: Validates the browser-install sandbox-provider selection without persisting it. For Daytona, performs a cheap authenticated call against the Daytona SDK to verify the API key. For ACA, runs the read-only Azure connection test (no sandbox is created). For Docker, returns ok without further checks. Requires the one-time install token.
       security: []
       requestBody:
         required: true
@@ -4066,6 +4066,84 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/sandbox-providers/aca/connection:
+    get:
+      operationId: retrieveAcaConnection
+      tags: [Sandboxes]
+      summary: Retrieve the Azure connection
+      description: Returns the saved Azure Container Apps Sandboxes connection with the client secret redacted, or `connected = false` when none is saved.
+      responses:
+        "200":
+          description: The saved connection, redacted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcaConnectionSummary"
+    put:
+      operationId: saveAcaConnection
+      tags: [Sandboxes]
+      summary: Save the Azure connection
+      description: Tests the Azure connection and saves it in the server's vault when the test passes. An omitted `client_secret` keeps the saved one, so other fields can be changed without re-entering it. The saved secret is never returned and never reaches a run's environment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcaConnectionInput"
+      responses:
+        "200":
+          description: The connection was tested and saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcaConnectionSummary"
+        "422":
+          description: The connection is incomplete or did not pass its test; nothing was saved
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAcaConnection
+      tags: [Sandboxes]
+      summary: Disconnect Azure
+      description: Removes the saved Azure connection. Existing ACA sandboxes are not deleted; new ACA runs fail until a connection is saved again. Repeating it is harmless.
+      responses:
+        "204":
+          description: The connection is removed
+
+  /api/v1/sandbox-providers/aca/connection/test:
+    post:
+      operationId: testAcaConnection
+      tags: [Sandboxes]
+      summary: Test an Azure connection
+      description: Checks a connection without saving it, or the saved connection when the body is empty. Reads only; creates no sandbox and incurs no sandbox running cost. Reports whether the credential is accepted, the sandbox group is ready, the default image is available, and what to fix otherwise.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcaConnectionInput"
+      responses:
+        "200":
+          description: The test ran; `ready` says whether ACA runs can start
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcaConnectionTestResult"
+        "422":
+          description: The connection is incomplete
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/v1/sandboxes:
     get:
       operationId: listSandboxes
@@ -6792,16 +6870,18 @@ components:
           example: true
 
     InstallSandboxInput:
-      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored for Docker. `allow_local` enables the local sandbox provider alongside the selected runtime; it defaults to true when omitted.
+      description: Sandbox provider selected during browser install. `api_key` is required for Daytona and ignored otherwise. `aca` is the Azure connection, required for `aca`; it is tested and saved like the Settings connection. `allow_local` enables the local sandbox provider alongside the selected runtime; it defaults to true when omitted.
       type: object
       required:
         - provider
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, aca]
         api_key:
           type: string
+        aca:
+          $ref: "#/components/schemas/AcaConnectionInput"
         allow_local:
           type: boolean
 
@@ -6813,9 +6893,25 @@ components:
       properties:
         provider:
           type: string
-          enum: [docker, daytona]
+          enum: [docker, daytona, aca]
         api_key_saved:
           type: boolean
+        aca:
+          description: The Azure connection's non-secret fields, for `aca`.
+          type: object
+          properties:
+            tenant_id:
+              type: string
+            client_id:
+              type: string
+            subscription_id:
+              type: string
+            resource_group:
+              type: string
+            sandbox_group:
+              type: string
+            location:
+              type: string
         allow_local:
           type: boolean
 
@@ -15180,6 +15276,135 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SandboxProviderLookupError"
+
+    AcaConnectionInput:
+      description: An Azure Container Apps Sandboxes connection as entered in Settings. Every field but `client_secret` is required to save; an omitted `client_secret` keeps the saved one.
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          description: The Microsoft Entra tenant (directory) id.
+        client_id:
+          type: string
+          description: The service principal's application (client) id.
+        client_secret:
+          type: string
+          description: The service principal's client secret. Write-only.
+        subscription_id:
+          type: string
+        resource_group:
+          type: string
+        sandbox_group:
+          type: string
+          description: The name of the ACA sandbox group.
+        location:
+          type: string
+          description: The sandbox group's Azure region. Read from the group when omitted.
+        allowed_images:
+          type: array
+          items:
+            type: string
+          description: Disk images runs may use. Empty allows every image the group can see.
+        default_image:
+          type: string
+          description: The image a run gets when its environment names none. Defaults to `azure-dev`.
+        retention_hours:
+          type: integer
+          minimum: 1
+          maximum: 24
+          description: How long a stopped, retained sandbox lives before Azure deletes it. Capped at 24 hours, the default.
+
+    AcaConnectionSummary:
+      description: The saved Azure connection, without its client secret.
+      type: object
+      required:
+        - connected
+        - client_secret_saved
+        - allowed_images
+        - retention_hours
+      properties:
+        connected:
+          type: boolean
+        tenant_id:
+          type: string
+        client_id:
+          type: string
+        client_secret_saved:
+          type: boolean
+        subscription_id:
+          type: string
+        resource_group:
+          type: string
+        sandbox_group:
+          type: string
+        location:
+          type: string
+        allowed_images:
+          type: array
+          items:
+            type: string
+        default_image:
+          type: string
+        retention_hours:
+          type: integer
+        enabled:
+          type: boolean
+          description: Whether `server.sandbox.providers.aca.enabled` allows ACA runs.
+        updated_at:
+          type: string
+          format: date-time
+
+    AcaConnectionTestResult:
+      description: The outcome of testing an Azure connection.
+      type: object
+      required:
+        - ready
+        - problems
+        - images
+      properties:
+        ready:
+          type: boolean
+          description: Whether ACA runs can start with this connection.
+        message:
+          type: string
+          description: What to fix, when `ready` is false.
+        problems:
+          type: array
+          items:
+            type: string
+        location:
+          type: string
+        image:
+          type: string
+          description: The image a run with no image of its own would use.
+        images:
+          type: array
+          description: Disk images the sandbox group can create sandboxes from.
+          items:
+            $ref: "#/components/schemas/AcaImage"
+        required_roles:
+          type: array
+          items:
+            type: string
+
+    AcaImage:
+      description: A disk image an ACA sandbox group can create sandboxes from.
+      type: object
+      required:
+        - name
+        - public
+        - ready
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+        public:
+          type: boolean
+        ready:
+          type: boolean
+        state:
+          type: string
 
     SandboxListResponse:
       description: Non-paginated provider-backed sandbox inventory response.

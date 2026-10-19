@@ -1,0 +1,27 @@
+# Vendored from lithoscomputer/petri (crates/fabro/frontend) at
+# 56ec3849ca693974ff778aa5ad4f9f9410d47d29 and patched into Fabro's build
+# with `[patch]` in the workspace Cargo.toml. See vendor/petri/README.md.
+[package]
+name = "petri-frontend-fabro"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+description = "The Fabro frontend: Fabro's settings layers around the Attractor language."
+publish = false
+
+[lib]
+# The package is `petri-frontend-fabro`; the crate is `frontend_fabro`, so code reads `frontend_fabro::…`.
+name = "frontend_fabro"
+doctest = false
+
+[dependencies]
+ir = { package = "petri-ir", git = "https://github.com/lithoscomputer/petri.git", branch = "main" }
+frontend = { package = "petri-frontend", git = "https://github.com/lithoscomputer/petri.git", branch = "main" }
+frontend-attractor = { package = "petri-frontend-attractor", git = "https://github.com/lithoscomputer/petri.git", branch = "main" }
+regex = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+shlex = "1"
+smol_str = { version = "0.3", features = ["serde"] }
+toml = "0.9"

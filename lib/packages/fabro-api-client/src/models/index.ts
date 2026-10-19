@@ -1,3 +1,7 @@
+export * from './aca-connection-input';
+export * from './aca-connection-summary';
+export * from './aca-connection-test-result';
+export * from './aca-image';
 export * from './agent-error-data';
 export * from './agent-error-kind';
 export * from './agent-event-props';
@@ -170,6 +174,7 @@ export * from './install-object-store-validation-response';
 export * from './install-prefill';
 export * from './install-sandbox-input';
 export * from './install-sandbox-summary';
+export * from './install-sandbox-summary-aca';
 export * from './install-sandbox-validation-response';
 export * from './install-server-config-input';
 export * from './install-session-response';

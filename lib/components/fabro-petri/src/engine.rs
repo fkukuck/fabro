@@ -76,7 +76,7 @@ use petri_runtime::driver::lifecycle::ExecutionHooks;
 pub use petri_runtime::executor::Retention;
 use petri_runtime::executor::SecretProvider;
 use petri_runtime::{DaytonaResources, LostSandbox, RunOptions, Runtime, SandboxBackend};
-use sandbox_driver::NetworkPolicy;
+use sandbox_driver::{NetworkPolicy, Resources};
 use tokio::fs;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
@@ -115,7 +115,8 @@ pub struct RunRequest {
     pub runtime:     RuntimeSpec,
     /// The sandbox provider Fabro resolved for the run's environment.
     pub provider:    SandboxProviderKind,
-    /// Resolved environment resources for the Daytona runner snapshot.
+    /// Resolved environment resources for the Daytona runner snapshot or
+    /// the ACA sandbox.
     pub resources:   EnvironmentResourcesSettings,
     /// Resolved run policy, applied to every sandbox at execution.
     pub network:     EnvironmentNetworkSettings,
@@ -172,7 +173,7 @@ pub enum RunError {
     ModelHeaders(#[source] LlmError),
     #[error("the run's sandbox provider `{provider}` is not one Petri serves")]
     UnsupportedProvider { provider: SandboxProviderKind },
-    #[error("the Daytona CPU allocation must be a non-negative integer: {cpu}")]
+    #[error("the sandbox CPU allocation must be a non-negative integer: {cpu}")]
     InvalidCpu { cpu: i32 },
     #[error("the run's record could not be opened")]
     Open(#[source] petri_store::StoreError),
@@ -268,6 +269,9 @@ pub async fn run(mut request: RunRequest) -> Result<RunOutcome, RunError> {
     }
     if backend == SandboxBackend::Daytona {
         options.sandbox.daytona_resources = daytona_resources(&request.resources)?;
+    }
+    if backend == SandboxBackend::Aca {
+        options.sandbox.aca_resources = aca_resources(&request.resources)?;
     }
     // A normal resume requires its original sandbox to survive.
     options.sandbox.lost_sandbox = LostSandbox::Refuse;
@@ -529,6 +533,19 @@ fn daytona_resources(
     })
 }
 
+/// Fabro's configured allocation for an ACA sandbox; unset fields leave
+/// the sandbox group's default.
+fn aca_resources(settings: &EnvironmentResourcesSettings) -> Result<Resources, RunError> {
+    let mut resources = Resources::default();
+    resources.cpu_cores = settings
+        .cpu
+        .map(|cpu| u32::try_from(cpu).map_err(|_| RunError::InvalidCpu { cpu }))
+        .transpose()?;
+    resources.memory_mb = settings.memory.map(mebibytes);
+    resources.disk_mb = settings.disk.map(mebibytes);
+    Ok(resources)
+}
+
 fn mebibytes(size: Size) -> u64 {
     size.as_bytes().div_ceil(1024 * 1024)
 }
@@ -542,6 +559,8 @@ pub(crate) fn backend(provider: &SandboxProviderKind) -> Option<SandboxBackend> 
         Some(SandboxBackend::Docker)
     } else if *provider == SandboxProviderKind::DAYTONA {
         Some(SandboxBackend::Daytona)
+    } else if *provider == SandboxProviderKind::ACA {
+        Some(SandboxBackend::Aca)
     } else {
         None
     }

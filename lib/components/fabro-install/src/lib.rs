@@ -94,6 +94,7 @@ pub enum InstallObjectStoreSelection {
 pub enum InstallSandboxSelection {
     Docker,
     Daytona,
+    Aca,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -485,6 +486,7 @@ fn write_sandbox_provider_policy(
             BundledProvider::Local => allow_local,
             BundledProvider::Docker => selection == InstallSandboxSelection::Docker,
             BundledProvider::Daytona => selection == InstallSandboxSelection::Daytona,
+            BundledProvider::Aca => selection == InstallSandboxSelection::Aca,
         };
         let entry = ensure_table(providers, &provider.to_string())?;
         entry.insert("enabled".to_string(), toml::Value::Boolean(enabled));

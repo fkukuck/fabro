@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import useSWR, { type SWRConfiguration } from "swr";
 import type {
+  AcaConnectionSummary,
   ApiQuestion,
   AuthConfigResponse,
   AuthMeResponse,
@@ -60,6 +61,7 @@ import {
   runInternalsApi,
   runOutputsApi,
   runsApi,
+  sandboxesApi,
   secretsApi,
   settingsApi,
   systemApi,
@@ -531,6 +533,13 @@ export function useServerSettings() {
     queryKeys.settings.server(),
     () => apiData(() => settingsApi.retrieveServerSettings()),
     immutableOptions,
+  );
+}
+
+export function useAcaConnection() {
+  return useSWR<AcaConnectionSummary>(
+    queryKeys.settings.acaConnection(),
+    () => apiData(() => sandboxesApi.retrieveAcaConnection()),
   );
 }
 

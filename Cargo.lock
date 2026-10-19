@@ -2533,6 +2533,7 @@ dependencies = [
  "fabro-llm",
  "fabro-macros",
  "fabro-petri",
+ "fabro-sandbox-aca",
  "fabro-static",
  "fabro-store",
  "fabro-test",
@@ -2599,6 +2600,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "fabro-sandbox-aca"
+version = "0.389.0-nightly.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "fabro-http",
+ "futures",
+ "httpmock",
+ "percent-encoding",
+ "reqwest 0.13.4",
+ "sandbox-driver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "fabro-server"
 version = "0.389.0-nightly.0"
 dependencies = [
@@ -2634,6 +2658,7 @@ dependencies = [
  "fabro-petri",
  "fabro-proc",
  "fabro-redact",
+ "fabro-sandbox-aca",
  "fabro-slack",
  "fabro-spa",
  "fabro-static",
@@ -5281,7 +5306,6 @@ dependencies = [
 [[package]]
 name = "petri-executor-sandbox"
 version = "0.1.0"
-source = "git+https://github.com/lithoscomputer/petri.git?branch=main#56ec3849ca693974ff778aa5ad4f9f9410d47d29"
 dependencies = [
  "async-trait",
  "petri-executor",
@@ -5334,7 +5358,6 @@ dependencies = [
 [[package]]
 name = "petri-frontend-fabro"
 version = "0.1.0"
-source = "git+https://github.com/lithoscomputer/petri.git?branch=main#56ec3849ca693974ff778aa5ad4f9f9410d47d29"
 dependencies = [
  "petri-frontend",
  "petri-frontend-attractor",

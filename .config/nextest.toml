@@ -28,6 +28,12 @@ leak-timeout = "500ms"
     filter = "package(fabro-server)"
     slow-timeout = { period = "5s", terminate-after = 4 }
 
+    # The ACA driver's fake-Azure tests run real commands that sleep to
+    # prove streaming, cancellation and concurrency.
+    [[profile.default.overrides]]
+    filter = "package(fabro-sandbox-aca) & binary(fake_aca)"
+    slow-timeout = { period = "10s", terminate-after = 3 }
+
     [[profile.default.overrides]]
     filter = "package(fabro-workflow)"
     slow-timeout = { period = "2s", terminate-after = 3 }

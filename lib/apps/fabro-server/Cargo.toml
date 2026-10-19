@@ -43,6 +43,7 @@ fabro-llm = { path = "../../components/fabro-llm" }
 fabro-manifest = { path = "../../components/fabro-manifest" }
 fabro-mcp-store = { path = "../../components/fabro-mcp-store" }
 fabro-petri = { path = "../../components/fabro-petri" }
+fabro-sandbox-aca = { path = "../../components/fabro-sandbox-aca" }
 fabro-proc = { path = "../../foundation/fabro-proc" }
 fabro-template = { path = "../../foundation/fabro-template" }
 fabro-tool = { path = "../../components/fabro-tool" }

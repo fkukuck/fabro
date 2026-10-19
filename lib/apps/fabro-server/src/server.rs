@@ -147,8 +147,8 @@ use crate::principal_middleware::{
 use crate::request_id::{self, RequestId};
 use crate::run_files::{FilesInFlight, new_files_in_flight};
 use crate::sandbox_access::{
-    self, DAYTONA_CREDENTIAL_PROBE_TIMEOUT, DaytonaCredentials, DaytonaKeyCheck, ProviderAccess,
-    SandboxInventory,
+    self, AcaCredentials, DAYTONA_CREDENTIAL_PROBE_TIMEOUT, DaytonaCredentials, DaytonaKeyCheck,
+    ProviderAccess, SandboxInventory,
 };
 use crate::server_secrets::ServerSecrets;
 use crate::spawn_env::apply_render_graph_env;
@@ -1577,31 +1577,43 @@ impl AppState {
         )
     }
 
+    /// The saved ACA connection, with the server's HTTP client; `None` when
+    /// none is saved.
+    pub(crate) async fn aca_credentials(&self) -> anyhow::Result<Option<AcaCredentials>> {
+        sandbox_access::saved_aca_credentials(&self.stores.vault, self.http_client().ok()).await
+    }
+
     /// [`Self::sandbox_provider_config`] for a server-side prune of
-    /// `provider`'s sandboxes, with the Daytona key read from the vault only
-    /// when `provider` is Daytona.
+    /// `provider`'s sandboxes, with the Daytona key or the ACA connection
+    /// read from the vault only when `provider` needs it.
     pub(crate) async fn load_sandbox_provider_config(
         &self,
         provider: &SandboxProviderKind,
-    ) -> Result<SandboxProviderConfig, SecretStoreError> {
+    ) -> anyhow::Result<SandboxProviderConfig> {
         let daytona_api_key = if *provider == SandboxProviderKind::DAYTONA {
             self.vault_secret(EnvVars::DAYTONA_API_KEY).await?
         } else {
             None
         };
-        Ok(self.sandbox_provider_config(daytona_api_key))
+        let aca = if *provider == SandboxProviderKind::ACA {
+            self.aca_credentials().await?
+        } else {
+            None
+        };
+        Ok(self.sandbox_provider_config(daytona_api_key).with_aca(aca))
     }
 
     /// Everything a reconnect needs to reach a run's provider: the server's
-    /// provider settings and the Daytona credentials from the vault (`None`
-    /// when no key is stored).
-    pub(crate) async fn provider_access(&self) -> Result<ProviderAccess, SecretStoreError> {
+    /// provider settings, the Daytona credentials and the ACA connection
+    /// from the vault (`None` when none is stored).
+    pub(crate) async fn provider_access(&self) -> anyhow::Result<ProviderAccess> {
         Ok(ProviderAccess {
             providers:    self.server_settings().server.sandbox.providers.clone(),
             daytona:      self
                 .vault_secret(EnvVars::DAYTONA_API_KEY)
                 .await?
                 .map(|api_key| self.daytona_credentials(api_key)),
+            aca:          self.aca_credentials().await?,
             storage_root: Some(self.server_storage_dir()),
         })
     }
@@ -2445,14 +2457,16 @@ fn build_sandbox_inventory(
     daytona_api_key: Option<String>,
     env_lookup: &EnvLookup,
     http_client: Option<fabro_http::HttpClient>,
+    vault: &Arc<SecretStore>,
 ) -> SandboxInventory {
     let provider_settings = &server_settings.server.sandbox.providers;
     let access = ProviderAccess {
         providers:    provider_settings.clone(),
         daytona:      daytona_api_key.map(|api_key| {
             DaytonaCredentials::from_api_key(api_key, |name| env_lookup(name))
-                .with_http_client(http_client)
+                .with_http_client(http_client.clone())
         }),
+        aca:          None,
         // The inventory lists and looks up by id; no run's host directory is
         // reached through it.
         storage_root: None,
@@ -2464,6 +2478,16 @@ fn build_sandbox_inventory(
     }
     if provider_settings.is_enabled(&SandboxProviderKind::DOCKER) {
         inventory = inventory.with_lazy(SandboxProviderKind::DOCKER, access.clone());
+    }
+    // The ACA connection is saved and replaced from Settings while the
+    // server runs, so it is read from the vault on every call.
+    if provider_settings.is_enabled(&SandboxProviderKind::ACA) {
+        inventory = inventory.with_vault_connection(
+            SandboxProviderKind::ACA,
+            access.clone(),
+            Arc::clone(vault),
+            http_client,
+        );
     }
     if provider_settings.is_enabled(&SandboxProviderKind::DAYTONA) && access.daytona.is_some() {
         inventory = inventory.with_lazy(SandboxProviderKind::DAYTONA, access);
@@ -2609,6 +2633,7 @@ pub(crate) fn build_app_state(config: AppStateConfig) -> anyhow::Result<Arc<AppS
             daytona_api_key,
             &env_lookup,
             http_client.clone(),
+            &secret_store,
         )
     });
     let slack_service = {

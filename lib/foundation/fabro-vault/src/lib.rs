@@ -226,7 +226,7 @@ impl Vault {
     }
 
     fn validate_file_name(name: &str) -> Result<(), Error> {
-        if name == EnvVars::GITHUB_APP_PRIVATE_KEY {
+        if name == EnvVars::GITHUB_APP_PRIVATE_KEY || name == EnvVars::ACA_CONNECTION {
             return Ok(());
         }
 

@@ -10,7 +10,8 @@ use crate::settings::run::RunMode;
 
 /// Identity of a sandbox provider.
 ///
-/// Open by design: the bundled providers (`local`, `docker`, `daytona`) run
+/// Open by design: the bundled providers (`local`, `docker`, `daytona`,
+/// `aca`) run
 /// in-process, and any other kind names a sandbox-driver plugin executable
 /// configured under `server.sandbox.providers.<kind>`. Run records,
 /// inventory, and the API carry this type so a plugin sandbox persists and
@@ -35,6 +36,8 @@ pub enum BundledProvider {
     Docker,
     /// Run tools inside a Daytona cloud sandbox.
     Daytona,
+    /// Run tools inside an Azure Container Apps sandbox.
+    Aca,
 }
 
 impl BundledProvider {
@@ -44,6 +47,7 @@ impl BundledProvider {
             Self::Local => SandboxProviderKind::LOCAL,
             Self::Docker => SandboxProviderKind::DOCKER,
             Self::Daytona => SandboxProviderKind::DAYTONA,
+            Self::Aca => SandboxProviderKind::ACA,
         }
     }
 }
@@ -67,6 +71,7 @@ pub struct InvalidSandboxProviderKind {
 const MAX_KIND_LEN: usize = 64;
 
 impl SandboxProviderKind {
+    pub const ACA: Self = Self(Cow::Borrowed("aca"));
     pub const DAYTONA: Self = Self(Cow::Borrowed("daytona"));
     pub const DOCKER: Self = Self(Cow::Borrowed("docker"));
     pub const LOCAL: Self = Self(Cow::Borrowed("local"));
@@ -226,6 +231,10 @@ mod tests {
             SandboxProviderKind::DAYTONA
         );
         assert_eq!(
+            "aca".parse::<SandboxProviderKind>().unwrap(),
+            SandboxProviderKind::ACA
+        );
+        assert_eq!(
             "LOCAL".parse::<SandboxProviderKind>().unwrap(),
             SandboxProviderKind::LOCAL
         );
@@ -253,6 +262,7 @@ mod tests {
             BundledProvider::Local,
             BundledProvider::Docker,
             BundledProvider::Daytona,
+            BundledProvider::Aca,
         ] {
             let kind = SandboxProviderKind::from(bundled);
             assert_eq!(kind.bundled(), Some(bundled));

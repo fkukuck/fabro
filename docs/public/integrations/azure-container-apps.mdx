@@ -1,0 +1,129 @@
+---
+title: "Azure Container Apps Sandboxes"
+description: "Run Fabro workflows in Azure Container Apps sandboxes"
+---
+
+[Azure Container Apps Sandboxes](https://sandboxes.azure.com/docs/sandboxes/) (ACA) runs each Fabro run in its own microVM in an Azure sandbox group. The sandbox boots from a prepared disk image and has its own kernel, so agents can build and run containers inside it.
+
+The provider kind is `aca`. Fabro reaches the sandbox group with a Microsoft Entra service principal whose credentials you save once in **Settings > Sandboxes**.
+
+## What works
+
+| Feature | ACA |
+|---|---|
+| Commands | Live output, separate stdout and stderr, stdin (fixed and streamed), working directory, environment, exit codes, timeouts, concurrent commands |
+| Cancellation | A stop or timeout signals the command's whole process group, so child processes stop with it |
+| Files | Binary-safe read, write, upload and download over ACA's files API; listing, metadata, rename, search and permissions through the sandbox's shell |
+| Repository work | Checkout of the requested revision, empty workspaces, checkpoints and pushes, resume and fork |
+| Containers | The default `azure-dev` image ships Docker, so container and multi-service workloads run inside the sandbox |
+| Lifecycle | Stop, resume and reconnect to the same sandbox; retained sandboxes are deleted by Azure after their retention (at most 24 hours) |
+| Network | Outbound internet by default; `network.mode = "block"` denies egress. No application port is public |
+| Sandbox views | ACA sandboxes appear in the run's sandbox tab, Run Files, `fabro cp` and `GET /api/v1/sandboxes` |
+
+Not supported, and shown as unsupported rather than failing late: interactive terminals, SSH, preview URLs, remote desktops (VNC), sidecar `services`, Dockerfile builds (`image.dockerfile`), and CIDR allow-lists.
+
+## Prepare Azure
+
+You need an Azure subscription where ACA Sandboxes is available, and permission to create resources and role assignments in it.
+
+1. **Create a sandbox group.** In the [Azure portal](https://containerapps.azure.com) or with the `aca` CLI, create a sandbox group in a resource group and region of your choice. Note the subscription ID, resource group and sandbox group name.
+
+2. **Create a service principal.** Register an application in Microsoft Entra ID and add a client secret:
+
+   ```bash
+   az ad sp create-for-rbac --name fabro-aca --skip-assignment
+   ```
+
+   Note the `tenant` (tenant ID), `appId` (client ID) and `password` (client secret). Azure shows the secret only once.
+
+3. **Grant the two roles on the sandbox group**, and nothing broader:
+
+   ```bash
+   GROUP_ID=$(az resource show \
+     --resource-group <resource-group> \
+     --resource-type Microsoft.App/sandboxGroups \
+     --name <sandbox-group> --query id -o tsv)
+
+   az role assignment create --assignee <client-id> --role "Reader" --scope "$GROUP_ID"
+   az role assignment create --assignee <client-id> \
+     --role "Container Apps SandboxGroup Data Owner" --scope "$GROUP_ID"
+   ```
+
+   `Reader` lets Fabro read the group: its region and readiness. `Container Apps SandboxGroup Data Owner` lets it create, run commands in, stop, resume and delete the group's sandboxes. A new assignment can take a few minutes to apply; a test before then reports a 403.
+
+4. **Prepare an image** (optional). Fabro uses the public `azure-dev` image by default, which includes Docker and common development tools. To use your own, create a private disk image in the group from an OCI image and wait until its status is `Ready`.
+
+The service principal is used only by the Fabro server and its run workers. It is not the identity of the sandboxes, and sandboxes never receive it: Fabro creates them without a managed identity and without the administrator's Azure credentials.
+
+## Connect Fabro
+
+Open **Settings > Sandboxes** and fill in the **Azure Container Apps connection**: tenant ID, client ID, client secret, subscription ID, resource group and sandbox group. Optionally:
+
+- **Approved images**: the disk images runs may use. Leave empty to allow any image the group can see. Runs that name another image fail before anything is created.
+- **Default image**: the image a run gets when its environment names none (`azure-dev` when empty).
+- **Retention**: how long a stopped sandbox kept for inspection lives before Azure deletes it, from 1 to 24 hours (24 when empty).
+
+**Test connection** checks the credential, the group, the data-plane role and the default image, and says what to fix when something fails. It only reads from Azure: it creates no sandbox and costs nothing. **Save connection** runs the same test and saves only a connection that passes.
+
+The connection is stored in the server's vault as `ACA_CONNECTION`. The client secret is never shown again, never written to logs or settings files, and never reaches a run's environment or an agent's workspace. **Update credentials** replaces any field; leave the secret empty to keep the saved one. **Disconnect** removes the connection; existing sandboxes are left for their retention to delete. The connection survives restarts, and changes take effect without one.
+
+You can also choose Azure Container Apps in the install wizard; the remaining settings are then made in Settings.
+
+## Run on ACA
+
+Create an environment with the `aca` provider in **Settings > Environments**, or in TOML:
+
+```toml title="workflow.toml"
+[run.environment]
+id = "azure"
+
+[environments.azure]
+provider = "aca"
+
+[environments.azure.image]
+docker = "azure-dev"   # an ACA disk image, not a Docker image
+
+[environments.azure.resources]
+cpu = 2
+memory = "4GB"
+disk = "40GB"
+
+[environments.azure.network]
+mode = "allow_all"     # or "block"
+```
+
+`image.docker` names the ACA disk image (public by name, private by name or id). Resources must fit an ACA sandbox: at most 16 CPUs, 32 GiB of memory and 320 GiB of disk; ACA rounds a request up to its next size. Preflight checks the connection, the image's approval and readiness, and the resources before a run starts, without creating anything.
+
+Each run gets a fresh sandbox labelled with its run id (`petri.run`). Fabro reconnects, stops or deletes a sandbox only when that label names the run, and records the sandbox group in every lease, so a resume against another group or deployment refuses instead of touching the wrong sandbox.
+
+## Lifecycle and cost
+
+- A run's sandbox is created when the run starts and stopped when it ends, unless the environment says otherwise (`lifecycle.stop_on_terminal`). A stopped sandbox keeps its disk and memory and costs no compute; Azure deletes it after the retention.
+- Resuming a run starts the same sandbox again, with its files and running environment. A sandbox that is gone fails the resume with a clear error; Fabro does not silently start over.
+- Nothing is left running indefinitely. A failed start deletes the sandbox it created. Every sandbox is created with two Azure policies: it is suspended after 30 idle minutes (a running command counts as activity, because Fabro polls it), and it is deleted after its retention once stopped or suspended. A sandbox whose run crashed, whose cleanup was interrupted, or whose connection was disconnected is therefore suspended and then deleted by Azure on its own. A command sent to a suspended sandbox resumes it first.
+- Deleting a run and `fabro system prune` delete its sandboxes right away; deleting twice is harmless.
+- ACA bills running sandboxes by CPU and memory per second, and stopped sandboxes for their storage. A connection test and a preflight check cost nothing. See [ACA Sandboxes pricing](https://sandboxes.azure.com/docs/sandboxes/cost) and the [limits](https://sandboxes.azure.com/docs/sandboxes/limits): 500 concurrently active cores per organization and about 3,000 API requests per minute.
+
+## How commands run
+
+ACA's REST API runs a shell command to completion and returns its output. To give agents live output, stdin and real cancellation, Fabro starts each command detached under a small `sh` runner in its own directory under `/tmp/.fabro-aca/exec` inside the sandbox, and polls that directory for new output with read-only calls. The launch claims its directory atomically, so a launch retried after a dropped connection never runs a command twice; when Fabro cannot establish how a command ended (for example, the service stays unreachable for two minutes), it reports the outcome as unknown instead of guessing. Images therefore need a POSIX `sh`, `base64`, `tail`, `head`, `mkfifo` and `kill`, which every public ACA image has.
+
+## Disable ACA
+
+ACA is a bundled provider and is allowed by default; without a connection, ACA runs fail with a pointer to Settings and nothing else changes. To refuse ACA runs regardless of the connection:
+
+```toml title="settings.toml"
+[server.sandbox.providers.aca]
+enabled = false
+```
+
+## Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `Azure did not issue a token ... the client secret is wrong or has expired` | Create a new client secret for the app registration and save it under **Update credentials** |
+| `the service principal is not allowed to do this (HTTP 403)` | Assign `Container Apps SandboxGroup Data Owner` on the sandbox group, then wait a few minutes |
+| `the sandbox group ... was not found` | Check the subscription ID, resource group and sandbox group name, and that the service principal has `Reader` on the group |
+| `the image ... is not on the administrator's list of approved ACA images` | Use an approved image in the environment, or add it under **Approved images** |
+| `the image ... is not ready` | Wait for the private disk image to finish preparing |
+| `ACA sandboxes need an Azure connection` | Save a connection under **Settings > Sandboxes** |

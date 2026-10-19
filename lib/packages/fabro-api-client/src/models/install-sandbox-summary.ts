@@ -13,6 +13,9 @@
  */
 
 
+// May contain unused imports in some cases
+// @ts-ignore
+import type { InstallSandboxSummaryAca } from './install-sandbox-summary-aca';
 
 /**
  * Redacted summary of the sandbox provider selected during browser install.
@@ -20,12 +23,14 @@
 export interface InstallSandboxSummary {
     'provider': InstallSandboxSummaryProviderEnum;
     'api_key_saved'?: boolean;
+    'aca'?: InstallSandboxSummaryAca;
     'allow_local'?: boolean;
 }
 
 export const InstallSandboxSummaryProviderEnum = {
     DOCKER: 'docker',
-    DAYTONA: 'daytona'
+    DAYTONA: 'daytona',
+    ACA: 'aca'
 } as const;
 
 export type InstallSandboxSummaryProviderEnum = typeof InstallSandboxSummaryProviderEnum[keyof typeof InstallSandboxSummaryProviderEnum];

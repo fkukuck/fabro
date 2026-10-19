@@ -228,6 +228,14 @@ fn validate_provider_capabilities(
                 reason: "docker environments cannot enforce CIDR allow-list networking".to_string(),
             });
         }
+        Some(BundledProvider::Aca)
+            if environment.network.mode == EnvironmentNetworkMode::CidrAllowList =>
+        {
+            errors.push(ResolveError::Invalid {
+                path:   format!("{path}.network.mode"),
+                reason: "aca environments cannot enforce CIDR allow-list networking".to_string(),
+            });
+        }
         Some(BundledProvider::Daytona)
             if environment.image.docker.is_some() && environment.image.dockerfile.is_some() =>
         {

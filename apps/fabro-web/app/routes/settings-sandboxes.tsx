@@ -12,7 +12,9 @@ import {
   SettingsPageIntro,
 } from "../components/settings-panel";
 import { plural } from "../lib/plural";
+import { AcaConnectionPanel } from "../components/aca-connection-panel";
 import {
+  ACA_PROVIDER,
   DAYTONA_PROVIDER,
   DOCKER_PROVIDER,
   LOCAL_PROVIDER,
@@ -35,7 +37,7 @@ type SandboxProvider = {
 };
 
 const DESCRIPTION =
-  "Runtime environments where workflow stages execute. Configured via settings.toml.";
+  "Runtime environments where workflow stages execute. Providers are enabled or disabled in settings.toml; the Azure connection is set up here.";
 
 // Display copy for the providers linked into the server. Any other kind is a
 // sandbox-driver plugin configured under `server.sandbox.providers.<kind>`.
@@ -52,6 +54,10 @@ const BUNDLED_PROVIDER_COPY: Record<string, Omit<SandboxProvider, "id" | "enable
     name: "Daytona",
     description: "Run stages in cloud sandboxes managed by Daytona.",
     secretName: "DAYTONA_API_KEY",
+  },
+  [ACA_PROVIDER]: {
+    name: "Azure Container Apps",
+    description: "Run stages in Azure Container Apps sandboxes, connected below.",
   },
 };
 
@@ -70,6 +76,7 @@ export default function SettingsSandboxes() {
     <div className="space-y-6">
       <SettingsPageIntro description={DESCRIPTION} />
       {settings ? <ProvidersPanel settings={settings.server.sandbox.providers} /> : <PanelSkeleton />}
+      <AcaConnectionPanel />
     </div>
   );
 }

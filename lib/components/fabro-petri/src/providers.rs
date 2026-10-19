@@ -1,9 +1,10 @@
 //! Built-in sandbox providers shared by Petri execution and server access.
 //!
-//! Configuration is captured by the caller, with Daytona credentials from
-//! the vault. Factories connect lazily per run; a Host-only run needs neither
-//! Docker nor Daytona. Host registry ownership stays with Petri: server
-//! attach uses an observer instead of these factories.
+//! Configuration is captured by the caller, with Daytona credentials and
+//! the ACA connection from the vault. Factories connect lazily per run; a
+//! Host-only run needs neither Docker, Daytona nor Azure. Host registry
+//! ownership stays with Petri: server attach uses an observer instead of these
+//! factories.
 //!
 //! Every Petri runtime Fabro builds starts from [`standard_runtime`] or
 //! [`bare_runtime`], so none falls back to launching a provider plugin,
@@ -13,6 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use fabro_sandbox_aca::{AcaConnection, AcaEndpoints};
 use fabro_static::EnvVars;
 use petri_runtime::{
     InProcessProviders, ProviderContext, ProviderFactory, ProviderNetwork, Runtime, fingerprint,
@@ -91,14 +93,70 @@ impl std::fmt::Debug for DaytonaCredentials {
     }
 }
 
+/// The saved Azure Container Apps Sandboxes connection, with the shared
+/// HTTP client its calls take. `Debug` never prints the client secret.
+#[derive(Clone, Debug)]
+pub struct AcaCredentials {
+    connection: AcaConnection,
+    endpoints:  AcaEndpoints,
+    http:       Option<fabro_http::HttpClient>,
+}
+
+impl AcaCredentials {
+    #[must_use]
+    pub fn new(connection: AcaConnection) -> Self {
+        Self {
+            connection,
+            endpoints: AcaEndpoints::default(),
+            http: None,
+        }
+    }
+
+    /// Parses the `ACA_CONNECTION` vault secret.
+    pub fn from_vault_json(text: &str) -> Result<Self, serde_json::Error> {
+        AcaConnection::from_json(text).map(Self::new)
+    }
+
+    /// A shared HTTP client; tests pass a no-proxy client here.
+    #[must_use]
+    pub fn with_http_client(mut self, http: Option<fabro_http::HttpClient>) -> Self {
+        self.http = http;
+        self
+    }
+
+    /// Azure endpoints other than the public cloud's; tests point them at
+    /// a local server.
+    #[must_use]
+    pub fn with_endpoints(mut self, endpoints: AcaEndpoints) -> Self {
+        self.endpoints = endpoints;
+        self
+    }
+
+    #[must_use]
+    pub fn connection(&self) -> &AcaConnection {
+        &self.connection
+    }
+
+    #[must_use]
+    pub fn endpoints(&self) -> &AcaEndpoints {
+        &self.endpoints
+    }
+
+    #[must_use]
+    pub fn http_client(&self) -> Option<&fabro_http::HttpClient> {
+        self.http.as_ref()
+    }
+}
+
 /// The provider configuration supplied to a run or prune. Defaults are
-/// local Docker selection and no Daytona credentials; constructing this
-/// configuration never connects to a backend or requires a credential.
+/// local Docker selection and no Daytona or ACA credentials; constructing
+/// this configuration never connects to a backend or requires a credential.
 #[derive(Clone, Debug, Default)]
 pub struct SandboxProviderConfig {
     docker_host:         Option<String>,
     docker_host_address: Option<String>,
     daytona:             Option<DaytonaCredentials>,
+    aca:                 Option<AcaCredentials>,
 }
 
 impl SandboxProviderConfig {
@@ -123,7 +181,15 @@ impl SandboxProviderConfig {
             docker_host_address: lookup(EnvVars::PETRI_SANDBOX_DOCKER_HOST_ADDRESS)
                 .filter(|value| !value.trim().is_empty()),
             daytona,
+            aca: None,
         }
+    }
+
+    /// The same configuration with the saved ACA connection.
+    #[must_use]
+    pub fn with_aca(mut self, aca: Option<AcaCredentials>) -> Self {
+        self.aca = aca;
+        self
     }
 }
 
@@ -170,8 +236,30 @@ pub async fn connect_daytona(
     ))
 }
 
-/// One lazy factory per built-in kind. Missing Daytona credentials fail
-/// only when a Daytona scope is acquired, never for admission or a Host run.
+/// Connects the ACA provider for the saved connection. Nothing is sent
+/// until the provider is used.
+pub fn connect_aca(
+    credentials: &AcaCredentials,
+) -> sandbox_driver::Result<Arc<dyn SandboxProvider>> {
+    let http = match &credentials.http {
+        Some(http) => http.clone(),
+        None => fabro_http::http_client().map_err(|error| {
+            Error::Transport(sandbox_driver::TransportError::with_source(
+                "building the HTTP client for Azure",
+                error,
+            ))
+        })?,
+    };
+    Ok(Arc::new(fabro_sandbox_aca::connect(
+        &credentials.connection,
+        credentials.endpoints.clone(),
+        http,
+    )))
+}
+
+/// One lazy factory per built-in kind. Missing Daytona credentials or ACA
+/// connection fail only when such a scope is acquired, never for admission
+/// or a Host run.
 fn built_in_providers(config: &SandboxProviderConfig) -> InProcessProviders {
     InProcessProviders::new()
         .with(Arc::new(HostFactory))
@@ -180,6 +268,7 @@ fn built_in_providers(config: &SandboxProviderConfig) -> InProcessProviders {
             host_address: config.docker_host_address.clone(),
         }))
         .with(Arc::new(DaytonaFactory(config.daytona.clone())))
+        .with(Arc::new(AcaFactory(config.aca.clone())))
 }
 
 struct HostFactory;
@@ -286,6 +375,62 @@ impl ProviderFactory for DaytonaFactory {
     }
 }
 
+struct AcaFactory(Option<AcaCredentials>);
+
+impl AcaFactory {
+    /// `aca:<sandbox group resource id>`: a resume against another group
+    /// refuses its leases. The provider's health adds the id Azure reports.
+    fn seed(&self) -> String {
+        let group = self
+            .0
+            .as_ref()
+            .map(|credentials| {
+                credentials
+                    .connection
+                    .target
+                    .resource_id()
+                    .to_ascii_lowercase()
+            })
+            .unwrap_or_default();
+        format!("aca:{group}")
+    }
+}
+
+#[async_trait]
+impl ProviderFactory for AcaFactory {
+    fn kind(&self) -> &'static str {
+        fabro_sandbox_aca::KIND
+    }
+
+    fn fingerprint_seed(&self, _context: &ProviderContext) -> String {
+        self.seed()
+    }
+
+    fn region(&self) -> Option<&str> {
+        self.0
+            .as_ref()
+            .and_then(|credentials| credentials.connection.target.location.as_deref())
+    }
+
+    fn network(&self) -> ProviderNetwork {
+        ProviderNetwork::isolated()
+    }
+
+    async fn connect(
+        &self,
+        _context: &ProviderContext,
+    ) -> sandbox_driver::Result<Arc<dyn SandboxProvider>> {
+        let credentials = self.0.as_ref().ok_or_else(|| {
+            Error::Auth(AuthError::new(
+                ProviderKind::try_new(fabro_sandbox_aca::KIND)
+                    .expect("the built-in provider kind is valid"),
+                "ACA sandboxes need an Azure connection; set one up under Settings > Sandboxes",
+            ))
+        })?;
+        connect_aca(credentials)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +495,48 @@ mod tests {
         let rendered = format!("{config:?}");
         assert!(!rendered.contains(key));
         assert!(rendered.contains("org-1"));
+    }
+}
+
+#[cfg(test)]
+mod aca_tests {
+    use fabro_sandbox_aca::{AcaPolicy, AcaServicePrincipal, AcaTarget};
+
+    use super::*;
+
+    fn credentials() -> AcaCredentials {
+        AcaCredentials::new(AcaConnection {
+            target:     AcaTarget {
+                subscription_id: "Sub-1".into(),
+                resource_group:  "rg-1".into(),
+                sandbox_group:   "group-1".into(),
+                location:        Some("westus2".into()),
+            },
+            credential: AcaServicePrincipal {
+                tenant_id:     "tenant".into(),
+                client_id:     "client".into(),
+                client_secret: "aca-client-secret".into(),
+            },
+            policy:     AcaPolicy::default(),
+        })
+    }
+
+    #[test]
+    fn the_aca_fingerprint_names_the_sandbox_group() {
+        let factory = AcaFactory(Some(credentials()));
+        assert_eq!(
+            factory.seed(),
+            "aca:/subscriptions/sub-1/resourcegroups/rg-1/providers/microsoft.app/sandboxgroups/group-1"
+        );
+        assert_eq!(factory.region(), Some("westus2"));
+        assert_eq!(AcaFactory(None).seed(), "aca:");
+    }
+
+    #[test]
+    fn provider_configuration_never_prints_the_aca_secret() {
+        let config = SandboxProviderConfig::default().with_aca(Some(credentials()));
+        let rendered = format!("{config:?}");
+        assert!(!rendered.contains("aca-client-secret"), "{rendered}");
+        assert!(rendered.contains("group-1"));
     }
 }

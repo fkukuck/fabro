@@ -39,6 +39,12 @@ async fn create_secret(
         ))
         .into_response();
     }
+    if name == EnvVars::ACA_CONNECTION {
+        return ApiError::bad_request(format!(
+            "{name} is managed from Settings > Sandboxes; use the Azure connection form"
+        ))
+        .into_response();
+    }
     if secret_type == SecretType::Oauth {
         if let Err(err) = serde_json::from_str::<OAuthCredential>(&value) {
             return ApiError::bad_request(format!("invalid oauth credential JSON: {err}"))

@@ -108,6 +108,21 @@ type SandboxForm = {
   apiKey:   string;
   apiKeySaved: boolean;
   allowLocal:  boolean;
+  aca:         AcaInstallFields;
+};
+type AcaInstallFields = {
+  tenantId:       string;
+  clientId:       string;
+  subscriptionId: string;
+  resourceGroup:  string;
+  sandboxGroup:   string;
+};
+const EMPTY_ACA_FIELDS: AcaInstallFields = {
+  tenantId:       "",
+  clientId:       "",
+  subscriptionId: "",
+  resourceGroup:  "",
+  sandboxGroup:   "",
 };
 type RunStepSubmit = (args: {
   action:   () => Promise<void>;
@@ -1017,11 +1032,11 @@ function SandboxStep({
   return (
     <StepPanel
       title="Choose the sandbox runtime"
-      description="Workflows run inside this sandbox. Docker uses the host daemon; Daytona runs each sandbox in its cloud."
+      description="Workflows run inside this sandbox. Docker uses the host daemon; Daytona and Azure Container Apps run each sandbox in their cloud."
       error={saveError}
       submitting={submitting}
       submittingLabel={
-        sandboxForm.provider === "daytona" ? "Checking access..." : "Saving..."
+        sandboxForm.provider === "docker" ? "Saving..." : "Checking access..."
       }
       backHref="/install/object-store"
       onSubmit={async () => {
@@ -1037,11 +1052,21 @@ function SandboxStep({
             return;
           }
         }
+        if (sandboxForm.provider === "aca") {
+          const missing = missingAcaInstallFields(sandboxForm);
+          if (missing.length > 0) {
+            dispatchInstall({
+              type:    "saveErrorChanged",
+              message: `Enter the Azure ${missing.join(", ")} before continuing.`,
+            });
+            return;
+          }
+        }
 
         const payload = buildSandboxPayload(sandboxForm);
         await runStepSubmit({
           action: async () => {
-            if (sandboxForm.provider === "daytona") {
+            if (sandboxForm.provider !== "docker") {
               await testInstallSandbox(installToken, payload);
             }
             await putInstallSandbox(installToken, payload);
@@ -1088,7 +1113,12 @@ function SandboxStep({
           </span>
         </span>
       </label>
-      {sandboxForm.provider === "daytona" ? (
+      {sandboxForm.provider === "aca" ? (
+        <AcaInstallFieldsView
+          sandboxForm={sandboxForm}
+          dispatchInstall={dispatchInstall}
+        />
+      ) : sandboxForm.provider === "daytona" ? (
         <div className="space-y-5">
           <Field
             label="Daytona API key"
@@ -1124,6 +1154,90 @@ function SandboxStep({
         </p>
       )}
     </StepPanel>
+  );
+}
+
+const ACA_INSTALL_FIELDS: ReadonlyArray<{
+  key:   keyof AcaInstallFields;
+  label: string;
+  hint:  string;
+}> = [
+  { key: "tenantId",       label: "Tenant ID",       hint: "Microsoft Entra ID > Overview > Tenant ID." },
+  { key: "clientId",       label: "Client ID",       hint: "The app registration's Application (client) ID." },
+  { key: "subscriptionId", label: "Subscription ID", hint: "The subscription that holds the sandbox group." },
+  { key: "resourceGroup",  label: "Resource group",  hint: "The resource group that holds the sandbox group." },
+  { key: "sandboxGroup",   label: "Sandbox group",   hint: "The ACA sandbox group runs create sandboxes in." },
+];
+
+function missingAcaInstallFields(form: SandboxForm): string[] {
+  const missing = ACA_INSTALL_FIELDS.filter(({ key }) => form.aca[key].trim() === "").map(
+    ({ label }) => label.toLowerCase(),
+  );
+  if (!form.apiKeySaved && form.apiKey === "") missing.push("client secret");
+  return missing;
+}
+
+function AcaInstallFieldsView({
+  sandboxForm,
+  dispatchInstall,
+}: {
+  sandboxForm: SandboxForm;
+  dispatchInstall: (action: InstallAction) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <p className="rounded-lg bg-overlay px-4 py-3 text-sm/6 text-fg-3 outline-1 -outline-offset-1 outline-white/10">
+        Fabro reaches an Azure Container Apps sandbox group with a service principal. Give the
+        app registration the <span className="text-fg-2">Reader</span> and{" "}
+        <span className="text-fg-2">Container Apps SandboxGroup Data Owner</span> roles on the
+        sandbox group. Continuing tests the connection without creating a sandbox. Images,
+        retention and the rest are set later under Settings &gt; Sandboxes.
+      </p>
+      {ACA_INSTALL_FIELDS.map(({ key, label, hint }) => (
+        <Field key={key} label={label} hint={hint}>
+          <input
+            type="text"
+            name={`aca_${key}`}
+            aria-label={label}
+            value={sandboxForm.aca[key]}
+            onChange={(event) =>
+              dispatchInstall({
+                type:  "sandboxPatched",
+                patch: { aca: { ...sandboxForm.aca, [key]: event.target.value } },
+              })
+            }
+            className={`${INPUT_CLASS} font-mono`}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </Field>
+      ))}
+      <Field
+        label="Client secret"
+        hint={
+          sandboxForm.apiKeySaved
+            ? "A secret is already saved. Leave blank to keep using it."
+            : "Stored in the server's vault. It never reaches a run."
+        }
+      >
+        <input
+          type="password"
+          name="aca_client_secret"
+          aria-label="Client secret"
+          value={sandboxForm.apiKey}
+          onChange={(event) =>
+            dispatchInstall({
+              type:  "sandboxPatched",
+              patch: { apiKey: event.target.value },
+            })
+          }
+          className={`${INPUT_CLASS} font-mono`}
+          placeholder={sandboxForm.apiKeySaved ? "•••• (saved)" : ""}
+          autoComplete="new-password"
+          spellCheck={false}
+        />
+      </Field>
+    </div>
   );
 }
 
@@ -1904,6 +2018,11 @@ const SANDBOX_PROVIDER_OPTIONS: ReadonlyArray<CardOption<SandboxProvider>> = [
     title: "Daytona",
     body:  "Each run gets a managed Daytona cloud sandbox. Requires an API key.",
   },
+  {
+    id:    "aca",
+    title: "Azure Container Apps",
+    body:  "Each run gets an Azure Container Apps sandbox. Requires a service principal.",
+  },
 ];
 
 const GITHUB_OWNER_OPTIONS: ReadonlyArray<CardOption<GithubOwnerKind>> = [
@@ -2263,7 +2382,13 @@ function buildObjectStorePayload(form: ObjectStoreForm): InstallObjectStoreInput
 }
 
 function defaultSandboxForm(): SandboxForm {
-  return { provider: "docker", apiKey: "", apiKeySaved: false, allowLocal: true };
+  return {
+    provider:    "docker",
+    apiKey:      "",
+    apiKeySaved: false,
+    allowLocal:  true,
+    aca:         EMPTY_ACA_FIELDS,
+  };
 }
 
 function hydrateSandboxForm(
@@ -2278,16 +2403,37 @@ function hydrateSandboxForm(
     return { ...current, apiKeySaved: Boolean(summary.api_key_saved) };
   }
   return {
-    provider:    summary.provider === "daytona" ? "daytona" : "docker",
+    provider:    summary.provider,
     apiKey:      "",
     apiKeySaved: Boolean(summary.api_key_saved),
     allowLocal:  summary.allow_local ?? true,
+    aca:         {
+      tenantId:       summary.aca?.tenant_id ?? "",
+      clientId:       summary.aca?.client_id ?? "",
+      subscriptionId: summary.aca?.subscription_id ?? "",
+      resourceGroup:  summary.aca?.resource_group ?? "",
+      sandboxGroup:   summary.aca?.sandbox_group ?? "",
+    },
   };
 }
 
 function buildSandboxPayload(form: SandboxForm): InstallSandboxInput {
   if (form.provider === "docker") {
     return { provider: "docker", allow_local: form.allowLocal };
+  }
+  if (form.provider === "aca") {
+    return {
+      provider:    "aca",
+      allow_local: form.allowLocal,
+      aca:         {
+        tenant_id:       form.aca.tenantId.trim(),
+        client_id:       form.aca.clientId.trim(),
+        client_secret:   form.apiKey === "" ? undefined : form.apiKey,
+        subscription_id: form.aca.subscriptionId.trim(),
+        resource_group:  form.aca.resourceGroup.trim(),
+        sandbox_group:   form.aca.sandboxGroup.trim(),
+      },
+    };
   }
   const apiKey = form.apiKey.trim();
   const payload: InstallSandboxInput = {
@@ -2406,6 +2552,21 @@ function SandboxSummaryRows({
 }) {
   if (!sandbox) {
     return <SummaryRow label="Sandbox" value="Not configured" />;
+  }
+  if (sandbox.provider === "aca") {
+    return (
+      <>
+        <SummaryRow label="Sandbox" value="Azure Container Apps" />
+        <SummaryRow
+          label="Sandbox group"
+          value={sandbox.aca?.sandbox_group ?? "Not set"}
+        />
+        <SummaryRow
+          label="Client secret"
+          value={sandbox.api_key_saved ? "Saved" : "Not set"}
+        />
+      </>
+    );
   }
   if (sandbox.provider === "daytona") {
     return (

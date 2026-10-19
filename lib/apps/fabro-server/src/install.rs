@@ -26,6 +26,7 @@ use fabro_install::{
 };
 use fabro_llm::lithos_catalog::{Catalog, CatalogProvider};
 use fabro_llm::probe::{self, ApiKeyProbeError, ModelTestStatus};
+use fabro_sandbox_aca::AcaConnection;
 use fabro_static::EnvVars;
 use fabro_store::ArtifactStore;
 use fabro_types::settings::server::ObjectStoreSettings;
@@ -46,6 +47,7 @@ use tower::service_fn;
 use tracing::{error, info, warn};
 use zeroize::Zeroizing;
 
+use crate::aca_connection::{ConnectionInput, run_test as run_aca_test};
 use crate::error::ApiError;
 use crate::sandbox_access::{
     DAYTONA_CREDENTIAL_PROBE_TIMEOUT, DaytonaCredentials, DaytonaKeyCheck, check_daytona_api_key,
@@ -422,12 +424,15 @@ impl InstallObjectStoreState {
 enum InstallSandboxProvider {
     Docker,
     Daytona,
+    Aca,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct InstallSandboxInput {
     provider:    InstallSandboxProvider,
     api_key:     Option<String>,
+    /// The Azure connection, for `aca`.
+    aca:         Option<ConnectionInput>,
     allow_local: Option<bool>,
 }
 
@@ -435,6 +440,7 @@ struct InstallSandboxInput {
 enum InstallSandboxProviderState {
     Docker,
     Daytona { api_key: InstallSecret },
+    Aca { connection: Box<AcaConnection> },
 }
 
 #[derive(Clone, Debug)]
@@ -455,6 +461,19 @@ impl InstallSandboxState {
                 "api_key_saved": true,
                 "allow_local": self.allow_local,
             }),
+            InstallSandboxProviderState::Aca { connection } => serde_json::json!({
+                "provider": "aca",
+                "api_key_saved": true,
+                "allow_local": self.allow_local,
+                "aca": {
+                    "tenant_id": connection.credential.tenant_id,
+                    "client_id": connection.credential.client_id,
+                    "subscription_id": connection.target.subscription_id,
+                    "resource_group": connection.target.resource_group,
+                    "sandbox_group": connection.target.sandbox_group,
+                    "location": connection.target.location,
+                },
+            }),
         }
     }
 
@@ -462,6 +481,7 @@ impl InstallSandboxState {
         match &self.provider {
             InstallSandboxProviderState::Docker => InstallSandboxSelection::Docker,
             InstallSandboxProviderState::Daytona { .. } => InstallSandboxSelection::Daytona,
+            InstallSandboxProviderState::Aca { .. } => InstallSandboxSelection::Aca,
         }
     }
 
@@ -469,6 +489,7 @@ impl InstallSandboxState {
         match &self.provider {
             InstallSandboxProviderState::Docker => SandboxProviderKind::DOCKER,
             InstallSandboxProviderState::Daytona { .. } => SandboxProviderKind::DAYTONA,
+            InstallSandboxProviderState::Aca { .. } => SandboxProviderKind::ACA,
         }
     }
 }
@@ -966,9 +987,12 @@ async fn post_install_sandbox_test(
     }
     observe_operator(&state, &headers);
 
-    let api_key = {
+    let resolved = {
         let pending_install = lock_unpoisoned(&state.pending_install, "install session");
-        match resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input) {
+        resolve_install_sandbox_state(pending_install.sandbox.as_ref(), input)
+    };
+    let api_key = {
+        match resolved {
             Ok(InstallSandboxState {
                 provider: InstallSandboxProviderState::Docker,
                 ..
@@ -979,6 +1003,12 @@ async fn post_install_sandbox_test(
                 provider: InstallSandboxProviderState::Daytona { api_key },
                 ..
             }) => api_key.expose_secret().to_string(),
+            Ok(InstallSandboxState {
+                provider: InstallSandboxProviderState::Aca { connection },
+                ..
+            }) => {
+                return install_aca_test_response(&connection).await;
+            }
             Err(err) => return install_error_response(StatusCode::UNPROCESSABLE_ENTITY, err),
         }
     };
@@ -1000,6 +1030,19 @@ async fn post_install_sandbox_test(
             )
         }
     }
+}
+
+/// The install wizard's ACA test: the same read-only test Settings runs.
+async fn install_aca_test_response(connection: &AcaConnection) -> Response {
+    let result = run_aca_test(connection, fabro_http::http_client().ok()).await;
+    if result.ready {
+        return Json(serde_json::json!({ "ok": true })).into_response();
+    }
+    warn!("install ACA connection test failed");
+    install_error_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        result.message.unwrap_or_else(|| result.problems.join("; ")),
+    )
 }
 
 async fn check_install_daytona_api_key(
@@ -1071,6 +1114,20 @@ fn resolve_install_sandbox_state(
                 },
             };
             InstallSandboxProviderState::Daytona { api_key }
+        }
+        InstallSandboxProvider::Aca => {
+            let saved = match current.map(|state| &state.provider) {
+                Some(InstallSandboxProviderState::Aca { connection }) => Some(connection.as_ref()),
+                _ => None,
+            };
+            let connection = input
+                .aca
+                .unwrap_or_default()
+                .resolve(saved)
+                .map_err(|err| format!("the Azure connection is incomplete: {err}"))?;
+            InstallSandboxProviderState::Aca {
+                connection: Box::new(connection),
+            }
         }
     };
     Ok(InstallSandboxState {
@@ -1563,6 +1620,23 @@ async fn post_install_finish(
             description: None,
         });
     }
+    if let InstallSandboxProviderState::Aca { connection } = &sandbox.provider {
+        let value = match connection.to_json() {
+            Ok(value) => value,
+            Err(err) => {
+                return install_error_response(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+            }
+        };
+        // A file-type secret never joins a run's secret provider.
+        vault_secrets.push(SecretStoreWrite {
+            name: EnvVars::ACA_CONNECTION.to_string(),
+            value,
+            secret_type: VaultSecretType::File,
+            description: Some(
+                "Azure Container Apps Sandboxes connection, managed in Settings".to_string(),
+            ),
+        });
+    }
     for provider in llm.providers {
         let name = match provider_secret_name(&provider.provider) {
             Ok(name) => name,
@@ -1764,6 +1838,7 @@ async fn post_install_finish(
             if matches!(
                 sandbox.provider,
                 InstallSandboxProviderState::Daytona { .. }
+                    | InstallSandboxProviderState::Aca { .. }
             ) {
                 sandbox.provider = InstallSandboxProviderState::Docker;
             }

@@ -164,7 +164,8 @@ fn migrate_document(doc: &mut DocumentMut) -> std::result::Result<(), MigrationF
     {
         Some(BundledProvider::Daytona) => migrate_daytona(&sandbox, env, &mut unsupported),
         Some(BundledProvider::Docker) => migrate_docker(&sandbox, env, &mut unsupported),
-        Some(BundledProvider::Local) | None => {}
+        // Legacy settings predate ACA; nothing names it.
+        Some(BundledProvider::Local | BundledProvider::Aca) | None => {}
     }
 
     if !unsupported.is_empty() {

@@ -27,6 +27,10 @@ base.ts
 common.ts
 configuration.ts
 index.ts
+models/aca-connection-input.ts
+models/aca-connection-summary.ts
+models/aca-connection-test-result.ts
+models/aca-image.ts
 models/agent-error-data.ts
 models/agent-error-kind.ts
 models/agent-event-props.ts
@@ -199,6 +203,7 @@ models/install-object-store-summary.ts
 models/install-object-store-validation-response.ts
 models/install-prefill.ts
 models/install-sandbox-input.ts
+models/install-sandbox-summary-aca.ts
 models/install-sandbox-summary.ts
 models/install-sandbox-validation-response.ts
 models/install-server-config-input.ts
