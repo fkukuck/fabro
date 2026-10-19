@@ -1,22 +1,13 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Installed under the missing tool's name in ~/.local/bin. Run with the
-# compiler package's activation so headers, sysroot, and runtime libraries
-# work even when the caller has never activated the package environment.
+# Installed under the missing tool's name in ~/.local/bin. Current compiler
+# packages supply standalone executables, not CC/CXX activation variables.
 task_tool="${0##*/}"
-exec "$HOME/.local/bin/micromamba" --no-rc \
-    --root-prefix "$HOME/.local/share/fabro-mamba" \
-    run --prefix "$HOME/.local/share/fabro-native" \
-    bash -c '
-        task_tool="$1"
-        shift
-        case "$task_tool" in
-            cc) exec "${CC:?C compiler activation is missing}" \
-                "-L$CONDA_PREFIX/lib" "-Wl,-rpath,$CONDA_PREFIX/lib" "$@" ;;
-            c++) exec "${CXX:?C++ compiler activation is missing}" \
-                "-L$CONDA_PREFIX/lib" "-Wl,-rpath,$CONDA_PREFIX/lib" "$@" ;;
-            ar|ranlib) exec "$CONDA_PREFIX/bin/${CONDA_TOOLCHAIN_HOST:?Compiler activation is missing}-$task_tool" "$@" ;;
-            *) exec "$CONDA_PREFIX/bin/$task_tool" "$@" ;;
-        esac
-    ' fabro-native-tool "$task_tool" "$@"
+task_prefix="$HOME/.local/share/fabro-native"
+export PATH="$task_prefix/bin:$PATH"
+case "$task_tool" in
+    cc|c++) exec "$task_prefix/bin/$task_tool" \
+        "-L$task_prefix/lib" "-Wl,-rpath,$task_prefix/lib" "$@" ;;
+    *) exec "$task_prefix/bin/$task_tool" "$@" ;;
+esac
