@@ -78,8 +78,7 @@ fi
     --override-channels --channel conda-forge \
     c-compiler cxx-compiler binutils make cmake pkg-config perl unzip
 
-# Activation in this hook would disappear before the agent starts. Each
-# launcher activates the private tool environment for its own process instead.
+# Launchers remain on the agent's PATH after this setup process exits.
 cp .tessl/native-tool.sh "$task_bin/fabro-native-tool"
 chmod +x "$task_bin/fabro-native-tool"
 for task_tool in "${task_missing[@]}"; do
