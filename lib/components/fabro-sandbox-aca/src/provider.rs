@@ -43,6 +43,8 @@ pub fn aca_capabilities() -> Capabilities {
     caps.services.supported = true;
     caps.network.allow_all = true;
     caps.network.block_all = true;
+    // A private relay through the sandbox, for sandbox-hosted MCP servers.
+    caps.access.preview_urls = true;
     caps
 }
 

@@ -741,3 +741,47 @@ async fn sandboxes_suspend_when_idle_and_are_deleted_after_their_retention() {
         3600
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sandbox_port_is_reached_through_a_private_relay() {
+    let harness = harness().await;
+    let sandbox = harness.provider.create(&spec(), None).await.unwrap();
+    // A server "inside the sandbox": in the fake, the sandbox is this host.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buffer = vec![0; 4096];
+                let read = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let body = format!("{{\"echo\":{}}}", request.lines().count());
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+    });
+
+    let previews = sandbox.preview_urls().expect("ACA routes ports privately");
+    let route = previews.preview_url(port).await.unwrap();
+    assert!(route.url.starts_with("http://127.0.0.1:"), "{}", route.url);
+    let client = fabro_http::test_http_client().unwrap();
+    for _ in 0..2 {
+        let response = client
+            .post(format!("{}/mcp", route.url))
+            .body("{\"jsonrpc\":\"2.0\"}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: Value = response.json().await.unwrap();
+        assert!(body["echo"].as_u64().unwrap() > 1, "{body}");
+    }
+    previews.release_preview_url(port).await.unwrap();
+    previews.release_preview_url(port).await.unwrap();
+}

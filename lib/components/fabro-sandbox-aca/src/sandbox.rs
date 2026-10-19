@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use sandbox_driver::{
     Capabilities, Error, Exec, ExecFailure, ExecSpec, Filesystem, NetworkPolicy, PlatformInfo,
-    ProviderError, ResourceKind, Result, Sandbox, SandboxId, SandboxKind, SandboxState,
-    SandboxStatus,
+    PreviewUrls, ProviderError, ResourceKind, Result, Sandbox, SandboxId, SandboxKind,
+    SandboxState, SandboxStatus,
 };
 use tokio::time::sleep;
 
@@ -16,6 +16,7 @@ use crate::client::{AcaClient, Body, Replay, kind};
 use crate::exec::{AcaExec, sandbox_error};
 use crate::fs::AcaFs;
 use crate::models::{WireResources, WireSandbox, sandbox_state};
+use crate::ports::AcaPorts;
 
 /// How long a create, start or stop may take to settle.
 pub(crate) const SETTLE_TIMEOUT: Duration = Duration::from_mins(5);
@@ -28,6 +29,7 @@ pub(crate) struct AcaSandbox {
     working_directory: String,
     exec:              Arc<AcaExec>,
     fs:                AcaFs,
+    ports:             AcaPorts,
 }
 
 impl AcaSandbox {
@@ -47,6 +49,7 @@ impl AcaSandbox {
             id.as_str().to_owned(),
             Arc::clone(&exec) as Arc<dyn Exec>,
         );
+        let ports = AcaPorts::new(Arc::clone(&exec) as Arc<dyn Exec>);
         Self {
             id,
             client,
@@ -54,6 +57,7 @@ impl AcaSandbox {
             working_directory,
             exec,
             fs,
+            ports,
         }
     }
 
@@ -325,6 +329,10 @@ impl Sandbox for AcaSandbox {
 
     fn fs(&self) -> &dyn Filesystem {
         &self.fs
+    }
+
+    fn preview_urls(&self) -> Option<&dyn PreviewUrls> {
+        Some(&self.ports)
     }
 }
 

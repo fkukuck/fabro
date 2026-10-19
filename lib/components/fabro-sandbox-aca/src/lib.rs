@@ -9,9 +9,10 @@
 //! What ACA does not offer through its REST API, the provider builds in the
 //! sandbox or declares unsupported: streamed output, stdin and signals ride
 //! on detached commands ([`exec`]); search, git and services are derived
-//! from exec; PTY, SSH, preview URLs and remote desktops are absent from
-//! the capability set, so callers see them as unsupported rather than
-//! failing late.
+//! from exec; a sandbox port is reached through a private relay
+//! ([`ports`]), never public ingress; PTY, SSH and remote desktops are
+//! absent from the capability set, so callers see them as unsupported
+//! rather than failing late.
 
 // `sandbox_driver::Error` is the contract every provider returns.
 #![expect(
@@ -24,6 +25,7 @@ mod config;
 mod exec;
 mod fs;
 mod models;
+mod ports;
 mod provider;
 mod sandbox;
 
