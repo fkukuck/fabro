@@ -2753,6 +2753,122 @@ async fn daytona_install_finish_writes_settings_and_vault_secret() {
 }
 
 #[tokio::test]
+async fn aca_install_finish_saves_the_connection_and_seeds_an_aca_environment() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_path = temp_dir.path().join("settings.toml");
+    let app = build_install_router(InstallAppState::for_test_with_paths(
+        "test-install-token",
+        temp_dir.path(),
+        &config_path,
+    ));
+
+    put_install_server(&app, "test-install-token", "https://fabro.example.com").await;
+    put_install_object_store_local(&app, "test-install-token").await;
+    put_install_sandbox(
+        &app,
+        "test-install-token",
+        r#"{"provider":"aca","aca":{"tenant_id":"tenant-1","client_id":"client-1","client_secret":"aca-install-secret","subscription_id":"sub-1","resource_group":"rg-1","sandbox_group":"group-1"}}"#,
+    )
+    .await;
+
+    let session = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/install/session")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let session_body = response_json(session, StatusCode::OK, "GET /install/session").await;
+    assert_eq!(session_body["sandbox"]["provider"], "aca");
+    assert_eq!(session_body["sandbox"]["aca"]["sandbox_group"], "group-1");
+    assert!(
+        !session_body.to_string().contains("aca-install-secret"),
+        "the session must not echo the client secret"
+    );
+
+    put_install_llm(&app, "test-install-token").await;
+    put_install_github_token(&app, "test-install-token", "brynary").await;
+    let finish_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/install/finish")
+                .header("authorization", "Bearer test-install-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response_status(
+        finish_response,
+        StatusCode::ACCEPTED,
+        "POST /install/finish",
+    )
+    .await;
+
+    let settings = std::fs::read_to_string(&config_path).unwrap();
+    assert!(!settings.contains("aca-install-secret"));
+    let resolved = ServerSettingsBuilder::from_toml(&settings)
+        .expect("settings should resolve")
+        .server
+        .sandbox
+        .providers;
+    assert!(resolved.is_enabled(&SandboxProviderKind::ACA));
+    assert!(!resolved.is_enabled(&SandboxProviderKind::DOCKER));
+    assert!(!resolved.is_enabled(&SandboxProviderKind::DAYTONA));
+    let default_environment = seeded_default_environment(&temp_dir).await;
+    assert_eq!(default_environment.settings.provider.to_string(), "aca");
+    assert_eq!(
+        default_environment.settings.image.docker.as_deref(),
+        Some("azure-dev")
+    );
+
+    let vault = load_secret_snapshot(temp_dir.path()).await;
+    let saved = vault
+        .get("ACA_CONNECTION")
+        .expect("the connection is saved");
+    let saved: serde_json::Value = serde_json::from_str(saved).unwrap();
+    assert_eq!(saved["sandbox_group"], "group-1");
+    assert_eq!(saved["client_secret"], "aca-install-secret");
+    assert_eq!(
+        vault.get_entry("ACA_CONNECTION").unwrap().secret_type,
+        fabro_types::SecretType::File,
+        "a file-type secret never joins a run's secret provider"
+    );
+}
+
+#[tokio::test]
+async fn an_incomplete_aca_install_connection_is_rejected() {
+    let app = build_install_router(InstallAppState::for_test("test-install-token"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/install/sandbox")
+                .header("authorization", "Bearer test-install-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"provider":"aca","aca":{"tenant_id":"tenant-1"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = response_json(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "PUT /install/sandbox",
+    )
+    .await;
+    assert!(body.to_string().contains("sandbox_group"), "{body}");
+}
+
+#[tokio::test]
 async fn sandbox_daytona_test_endpoint_rejects_under_scoped_api_key() {
     let server = MockServer::start_async().await;
     let auth = mock_daytona_auth_probe(&server).await;

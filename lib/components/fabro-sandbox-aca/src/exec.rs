@@ -121,8 +121,11 @@ echo "$fabro_status" > "$D/status.tmp" && mv "$D/status.tmp" "$D/status"
 fn poll_script(dir: &str, out_offset: u64, err_offset: u64) -> String {
     format!(
         r#"D={dir}
-alive=0; pid=$(cat "$D/pid" 2>/dev/null); [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && alive=1
-[ -d "$D" ] || alive=gone
+pid=$(cat "$D/pid" 2>/dev/null)
+if [ ! -d "$D" ]; then alive=gone
+elif [ -z "$pid" ]; then alive=starting
+elif kill -0 "$pid" 2>/dev/null; then alive=1
+else alive=0; fi
 st=; [ -f "$D/status" ] && st=$(cat "$D/status")
 printf 'S %s\nA %s\n' "$st" "$alive"
 printf 'O '; tail -c +{out} "$D/out" 2>/dev/null | head -c {max} | base64 | tr -d '\n'; printf '\n'
@@ -164,7 +167,7 @@ fn parse_poll(text: &str) -> Result<PollState> {
             "S" => state.status = rest.trim().parse().ok(),
             "A" => {
                 state.alive = match rest.trim() {
-                    "1" => Alive::Yes,
+                    "1" | "starting" => Alive::Yes,
                     "0" => Alive::No,
                     "gone" => Alive::Gone,
                     _ => Alive::Unknown,
@@ -185,6 +188,12 @@ fn decode(text: &str) -> Result<Vec<u8>> {
             format!("command output arrived garbled: {error}"),
         ))
     })
+}
+
+/// Whether a KILL sent at `killed` may not have arrived: it has not ended
+/// the command within a few seconds. It is sent once more.
+fn kill_may_be_lost(killed: Instant) -> bool {
+    killed.elapsed() > Duration::from_secs(3)
 }
 
 /// An outcome that could not be established; cleanup is never confirmed.
@@ -474,6 +483,7 @@ impl AcaExec {
         let mut stderr = Stream::new(&controls, spec);
         let mut stop: Option<Termination> = None;
         let mut killed_at: Option<Instant> = None;
+        let mut kill_repeated = false;
         let mut interval = FIRST_POLL;
         let mut failing_since: Option<Instant> = None;
         let deadline = spec.timeout.map(|timeout| started + timeout);
@@ -537,22 +547,33 @@ impl AcaExec {
                     _ => std::future::pending().await,
                 }
             };
-            tokio::select! {
-                () = sleep(wait) => {}
+            let signal = tokio::select! {
+                () = sleep(wait) => None,
                 () = stop_signal(controls.term.as_ref()), if stop.is_none() => {
                     stop = Some(StopLevel::Term.termination());
-                    self.signal(&dir, "TERM").await?;
+                    Some("TERM")
                 }
                 () = stop_signal(controls.kill.as_ref()), if killed_at.is_none() => {
                     stop = Some(StopLevel::Kill.termination());
-                    self.signal(&dir, "KILL").await?;
                     killed_at = Some(Instant::now());
+                    Some("KILL")
                 }
                 () = timer => {
                     stop = Some(Termination::TimedOut);
-                    self.signal(&dir, "KILL").await?;
                     killed_at = Some(Instant::now());
+                    Some("KILL")
                 }
+            };
+            if let Some(signal) = signal {
+                // A signal that does not arrive is sent again with the next
+                // KILL; the poll below still reports how the command ended.
+                if let Err(error) = self.signal(&dir, signal).await {
+                    tracing::warn!(%error, signal, "signalling an ACA command failed");
+                }
+            }
+            if !kill_repeated && killed_at.is_some_and(kill_may_be_lost) {
+                kill_repeated = true;
+                let _ = self.signal(&dir, "KILL").await;
             }
 
             match self.poll(&dir, stdout.raw_offset, stderr.raw_offset).await {
@@ -740,6 +761,12 @@ mod tests {
         assert_eq!(state.status, None);
         assert_eq!(state.alive, Alive::Yes);
         assert!(state.stdout.is_empty());
+    }
+
+    #[test]
+    fn a_runner_that_has_not_written_its_pid_is_still_starting() {
+        let state = parse_poll("S \nA starting\nO \nE \n").unwrap();
+        assert_eq!(state.alive, Alive::Yes);
     }
 
     #[test]

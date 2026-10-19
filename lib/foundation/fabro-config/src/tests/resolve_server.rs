@@ -226,6 +226,26 @@ enabled = false
 }
 
 #[test]
+fn server_sandbox_lets_an_administrator_disable_aca() {
+    let settings = ServerSettingsBuilder::from_toml(
+        r#"
+_version = 1
+
+[server.auth]
+methods = ["dev-token"]
+
+[server.sandbox.providers.aca]
+enabled = false
+"#,
+    )
+    .expect("server settings should resolve");
+
+    let providers = settings.server.sandbox.providers;
+    assert!(!providers.is_enabled(&SandboxProviderKind::ACA));
+    assert!(providers.is_enabled(&SandboxProviderKind::DOCKER));
+}
+
+#[test]
 fn server_sandbox_accepts_plugin_providers_by_kind() {
     let settings = ServerSettingsBuilder::from_toml(
         r#"
@@ -265,7 +285,7 @@ E2B_API_URL = "https://api.e2b.example"
     );
     assert!(!plugin.dev);
     let enabled: Vec<_> = providers.enabled_kinds().map(ToString::to_string).collect();
-    assert_eq!(enabled, vec!["daytona", "docker", "e2b", "local"]);
+    assert_eq!(enabled, vec!["aca", "daytona", "docker", "e2b", "local"]);
     assert_eq!(providers.enabled_plugins().count(), 1);
 }
 
