@@ -6,6 +6,12 @@ task_prefix="$HOME/.local/share/fabro-native"
 task_mamba_root="$HOME/.local/share/fabro-mamba"
 export PATH="$task_bin:$PATH"
 
+# A preparation retry can reuse launchers from an earlier failed attempt.
+if [ -f "$task_bin/fabro-native-tool" ]; then
+    cp .tessl/native-tool.sh "$task_bin/fabro-native-tool"
+    chmod +x "$task_bin/fabro-native-tool"
+fi
+
 verify_tools() {
     printf '[factory setup] Verify C and C++ compilation, linking, and execution.\n'
     task_probe="$(mktemp -d)"
@@ -27,7 +33,9 @@ verify_tools() {
 
 task_missing=()
 for task_tool in cc c++ ar ranlib make cmake pkg-config perl unzip; do
-    if ! command -v "$task_tool" >/dev/null 2>&1; then
+    if ! command -v "$task_tool" >/dev/null 2>&1 ||
+       { [ "$task_bin/$task_tool" -ef "$task_bin/fabro-native-tool" ] &&
+         [ ! -f "$task_prefix/conda-meta/history" ]; }; then
         task_missing+=("$task_tool")
     fi
 done
@@ -63,8 +71,10 @@ task_operation='create'
 if [ -f "$task_prefix/conda-meta/history" ]; then
     task_operation='install'
 fi
-"$task_bin/micromamba" "$task_operation" --yes --no-rc \
-    --root-prefix "$task_mamba_root" --prefix "$task_prefix" \
+# Global options must precede the subcommand: run otherwise treats them
+# as command arguments and silently falls back to its default prefix.
+"$task_bin/micromamba" --no-rc --root-prefix "$task_mamba_root" \
+    "$task_operation" --yes --prefix "$task_prefix" \
     --override-channels --channel conda-forge \
     c-compiler cxx-compiler binutils make cmake pkg-config perl unzip
 

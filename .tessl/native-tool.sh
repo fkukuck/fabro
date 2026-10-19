@@ -5,9 +5,9 @@ set -eo pipefail
 # compiler package's activation so headers, sysroot, and runtime libraries
 # work even when the caller has never activated the package environment.
 task_tool="${0##*/}"
-exec "$HOME/.local/bin/micromamba" run --no-rc \
+exec "$HOME/.local/bin/micromamba" --no-rc \
     --root-prefix "$HOME/.local/share/fabro-mamba" \
-    --prefix "$HOME/.local/share/fabro-native" \
+    run --prefix "$HOME/.local/share/fabro-native" \
     bash -c '
         task_tool="$1"
         shift
