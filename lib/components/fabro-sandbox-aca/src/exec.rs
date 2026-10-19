@@ -37,9 +37,11 @@ use sandbox_driver::{
 };
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
+use tokio::time::{sleep, sleep_until};
 
 use crate::client::{AcaClient, Body, Replay, SendError, kind};
 use crate::models::WireShellResult;
+use crate::sandbox::resume;
 
 /// Where every command's directory lives inside the sandbox.
 pub(crate) const EXEC_ROOT: &str = "/tmp/.fabro-aca/exec";
@@ -52,7 +54,7 @@ const FIRST_POLL: Duration = Duration::from_millis(100);
 const MAX_POLL: Duration = Duration::from_secs(1);
 /// How long polling may keep failing before the outcome is reported as
 /// unknown.
-const POLL_FAILURE_BUDGET: Duration = Duration::from_secs(120);
+const POLL_FAILURE_BUDGET: Duration = Duration::from_mins(2);
 /// How long after a KILL the runner may take to disappear before the
 /// command is reported killed without a status.
 const KILL_SETTLE: Duration = Duration::from_secs(10);
@@ -309,10 +311,11 @@ impl AcaExec {
             "command": wrapped(script),
             "workingDirectory": "/",
         });
+        let path = self.sandbox_path("/executeShellCommand");
         let send = || {
             self.client.data_json::<WireShellResult>(
                 reqwest::Method::POST,
-                &self.sandbox_path("/executeShellCommand"),
+                &path,
                 &[],
                 Body::Json(body.clone()),
                 replay,
@@ -323,7 +326,7 @@ impl AcaExec {
             // resumed. The refused command never ran, so it is sent again.
             Err(error) if error.status() == Some(409) => {
                 tracing::debug!(sandbox = %self.sandbox_id, "resuming a suspended ACA sandbox");
-                crate::sandbox::resume(&self.client, &self.sandbox_id).await?;
+                resume(&self.client, &self.sandbox_id).await?;
                 send().await
             }
             other => other,
@@ -383,7 +386,7 @@ impl AcaExec {
                 Ok(text) => return parse_poll(&text),
                 Err(Error::Transport(error)) if attempts < 4 => {
                     tracing::debug!(%error, "retrying an ACA command launch");
-                    tokio::time::sleep(Duration::from_millis(500 * attempts)).await;
+                    sleep(Duration::from_millis(500 * attempts)).await;
                 }
                 Err(Error::Transport(_)) => {
                     return Err(incomplete(
@@ -506,14 +509,13 @@ impl AcaExec {
                 // stopped under it, or a KILL ended it.
                 if killed_at.is_some() {
                     break Ok(None);
-                } else {
-                    break Err(incomplete(
-                        format!("running `{}` in the ACA sandbox", spec.program),
-                        state.alive == Alive::Gone,
-                        false,
-                        true,
-                    ));
                 }
+                break Err(incomplete(
+                    format!("running `{}` in the ACA sandbox", spec.program),
+                    state.alive == Alive::Gone,
+                    false,
+                    true,
+                ));
             }
             if killed_at.is_some_and(|killed| killed.elapsed() > KILL_SETTLE) {
                 break Ok(None);
@@ -530,13 +532,13 @@ impl AcaExec {
             let timer = async {
                 match deadline {
                     Some(deadline) if stop.is_none() => {
-                        tokio::time::sleep_until(deadline.into()).await;
+                        sleep_until(deadline.into()).await;
                     }
                     _ => std::future::pending().await,
                 }
             };
             tokio::select! {
-                () = tokio::time::sleep(wait) => {}
+                () = sleep(wait) => {}
                 () = stop_signal(controls.term.as_ref()), if stop.is_none() => {
                     stop = Some(StopLevel::Term.termination());
                     self.signal(&dir, "TERM").await?;

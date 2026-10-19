@@ -7,16 +7,18 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use sandbox_driver::{
     Capabilities, Error, Exec, ExecFailure, ExecSpec, Filesystem, NetworkPolicy, PlatformInfo,
-    ResourceKind, Result, Sandbox, SandboxId, SandboxState, SandboxStatus,
+    ProviderError, ResourceKind, Result, Sandbox, SandboxId, SandboxKind, SandboxState,
+    SandboxStatus,
 };
+use tokio::time::sleep;
 
-use crate::client::{AcaClient, Body, Replay};
+use crate::client::{AcaClient, Body, Replay, kind};
 use crate::exec::{AcaExec, sandbox_error};
 use crate::fs::AcaFs;
-use crate::models::{WireSandbox, sandbox_state};
+use crate::models::{WireResources, WireSandbox, sandbox_state};
 
 /// How long a create, start or stop may take to settle.
-pub(crate) const SETTLE_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const SETTLE_TIMEOUT: Duration = Duration::from_mins(5);
 const SETTLE_POLL: Duration = Duration::from_secs(2);
 
 pub(crate) struct AcaSandbox {
@@ -159,8 +161,8 @@ pub(crate) async fn wait_for(
                 .and_then(|details| details.stopped_reason.as_deref())
                 == Some("Disabled")
             {
-                return Err(Error::Provider(sandbox_driver::ProviderError::new(
-                    crate::client::kind(),
+                return Err(Error::Provider(ProviderError::new(
+                    kind(),
                     format!(
                         "sandbox {id} is disabled in Azure and cannot be resumed until it is \
                          enabled again"
@@ -174,7 +176,7 @@ pub(crate) async fn wait_for(
                 elapsed:   started.elapsed(),
             });
         }
-        tokio::time::sleep(SETTLE_POLL).await;
+        sleep(SETTLE_POLL).await;
     }
 }
 
@@ -189,13 +191,10 @@ pub(crate) fn status_of(wire: &WireSandbox) -> Result<SandboxStatus> {
         .state_details
         .as_ref()
         .and_then(|details| details.stopped_reason.clone());
-    status.labels = wire.labels.clone();
-    status.region = wire.region.clone();
-    status.resources = wire
-        .resources
-        .as_ref()
-        .map(|resources| resources.to_driver());
-    status.sandbox_kind = Some(sandbox_driver::SandboxKind::VirtualMachine);
+    status.labels.clone_from(&wire.labels);
+    status.region.clone_from(&wire.region);
+    status.resources = wire.resources.as_ref().map(WireResources::to_driver);
+    status.sandbox_kind = Some(SandboxKind::VirtualMachine);
     status.image = wire
         .sources_ref
         .as_ref()
@@ -213,10 +212,7 @@ pub(crate) fn status_of(wire: &WireSandbox) -> Result<SandboxStatus> {
             }
         })
         .or(Some(NetworkPolicy::AllowAll));
-    status.created_at = wire
-        .created_at
-        .as_deref()
-        .and_then(|text| humantime_like(text));
+    status.created_at = wire.created_at.as_deref().and_then(humantime_like);
     Ok(status)
 }
 
@@ -289,7 +285,7 @@ impl Sandbox for AcaSandbox {
             .run(
                 &ExecSpec::new("uname")
                     .args(["-s", "-r", "-m"])
-                    .timeout(Duration::from_secs(60)),
+                    .timeout(Duration::from_mins(1)),
             )
             .await?;
         let text = result.stdout_lossy();
@@ -365,7 +361,7 @@ pub(crate) async fn delete_by_id(client: &AcaClient, id: &str) -> Result<()> {
                     elapsed:   started.elapsed(),
                 });
             }
-            Ok(_) => tokio::time::sleep(SETTLE_POLL).await,
+            Ok(_) => sleep(SETTLE_POLL).await,
         }
     }
 }

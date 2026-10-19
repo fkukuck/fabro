@@ -5,7 +5,13 @@
 //! temporary directory, so the exec runner, the poll protocol and the
 //! files API run for real.
 
-#![expect(clippy::unwrap_used, reason = "test setup")]
+#![allow(
+    clippy::absolute_paths,
+    clippy::format_push_string,
+    clippy::type_complexity,
+    clippy::unwrap_used,
+    reason = "A self-contained fake of Azure prefers inline paths and panics over pedantic style lints."
+)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

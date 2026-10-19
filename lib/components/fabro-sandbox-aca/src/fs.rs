@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use sandbox_driver::{
     DerivedFs, DirEntry, Error, Exec, FileMetadata, Filesystem, ResourceKind, Result,
 };
+use tokio::fs;
 
 use crate::client::{AcaClient, Body, Replay, SendError};
 
@@ -110,7 +111,7 @@ impl Filesystem for AcaFs {
     }
 
     async fn upload(&self, local: &Path, remote: &str) -> Result<()> {
-        let content = tokio::fs::read(local)
+        let content = fs::read(local)
             .await
             .map_err(|error| Error::io(format!("reading {}", local.display()), error))?;
         self.write(remote, &content).await
@@ -119,11 +120,11 @@ impl Filesystem for AcaFs {
     async fn download(&self, remote: &str, local: &Path) -> Result<()> {
         let content = self.read(remote).await?;
         if let Some(parent) = local.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|error| {
+            fs::create_dir_all(parent).await.map_err(|error| {
                 Error::io(format!("creating parent of {}", local.display()), error)
             })?;
         }
-        tokio::fs::write(local, content)
+        fs::write(local, content)
             .await
             .map_err(|error| Error::io(format!("writing {}", local.display()), error))
     }

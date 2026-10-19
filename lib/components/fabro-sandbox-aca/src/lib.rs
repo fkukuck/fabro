@@ -13,6 +13,12 @@
 //! the capability set, so callers see them as unsupported rather than
 //! failing late.
 
+// `sandbox_driver::Error` is the contract every provider returns.
+#![expect(
+    clippy::result_large_err,
+    reason = "sandbox-driver's typed error is the provider contract"
+)]
+
 mod client;
 mod config;
 mod exec;

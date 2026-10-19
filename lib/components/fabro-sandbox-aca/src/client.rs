@@ -18,18 +18,21 @@ use sandbox_driver::{
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell};
+use tokio::time::sleep;
 
-use crate::config::{API_VERSION, AcaEndpoints, AcaServicePrincipal, AcaTarget, DATA_PLANE_SCOPE};
+use crate::config::{
+    API_VERSION, AcaEndpoints, AcaServicePrincipal, AcaTarget, DATA_OWNER_ROLE, DATA_PLANE_SCOPE,
+};
 use crate::models::Page;
 
 /// How long before expiry a cached token is replaced.
-const TOKEN_REFRESH_MARGIN: Duration = Duration::from_secs(300);
+const TOKEN_REFRESH_MARGIN: Duration = Duration::from_mins(5);
 /// Attempts for a request that is safe to repeat.
 const MAX_ATTEMPTS: u32 = 5;
 const FIRST_BACKOFF: Duration = Duration::from_millis(500);
 const MAX_BACKOFF: Duration = Duration::from_secs(10);
 /// Per-request budget for ordinary calls; a command launch returns at once.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 /// A bound on list pages, so a looping link cannot spin forever.
 const MAX_PAGES: usize = 100;
 
@@ -167,9 +170,8 @@ impl HttpFailure {
                 kind(),
                 format!(
                     "the service principal is not allowed to do this (HTTP 403): {detail}. Assign \
-                     it the `{}` role on the sandbox group; a new assignment can take a few \
-                     minutes to apply",
-                    crate::config::DATA_OWNER_ROLE
+                     it the `{DATA_OWNER_ROLE}` role on the sandbox group; a new assignment can \
+                     take a few minutes to apply"
                 ),
             )),
             404 => Error::NotFound {
@@ -497,7 +499,7 @@ impl AcaClient {
             match retry_after {
                 Some(wait) if attempt < MAX_ATTEMPTS => {
                     tracing::debug!(attempt, url = %redact_query(url), "retrying ACA request");
-                    tokio::time::sleep(wait).await;
+                    sleep(wait).await;
                     backoff = (backoff * 2).min(MAX_BACKOFF);
                     attempt += 1;
                 }

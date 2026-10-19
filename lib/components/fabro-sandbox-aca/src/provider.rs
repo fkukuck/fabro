@@ -12,10 +12,10 @@ use sandbox_driver::{
 use serde_json::{Value, json};
 
 use crate::client::{AcaClient, Body, Replay, kind};
-use crate::config::{AcaPolicy, DATA_OWNER_ROLE, READER_ROLE};
+use crate::config::{AcaPolicy, DATA_OWNER_ROLE, MAX_RETENTION_SECS, READER_ROLE};
 use crate::exec::sandbox_error;
 use crate::models::{WireDiskImage, WireResources, WireSandbox};
-use crate::sandbox::{AcaSandbox, SETTLE_TIMEOUT, delete_by_id, status_of, wait_for};
+use crate::sandbox::{AcaSandbox, SETTLE_TIMEOUT, delete_by_id, fetch, status_of, wait_for};
 
 /// The workspace inside every sandbox.
 pub const WORKSPACE: &str = "/workspace";
@@ -103,7 +103,6 @@ impl AcaProvider {
             SandboxSource::Image { reference } if !reference.trim().is_empty() => {
                 Some(reference.trim().to_owned())
             }
-            SandboxSource::Image { .. } => None,
             SandboxSource::Snapshot { .. }
             | SandboxSource::Dockerfile { .. }
             | SandboxSource::HostDirectory => {
@@ -151,7 +150,7 @@ impl AcaProvider {
         let retention = config
             .delete_after_stop_secs
             .unwrap_or_else(|| self.policy.effective_retention_secs())
-            .min(crate::config::MAX_RETENTION_SECS);
+            .min(MAX_RETENTION_SECS);
         let suspend = match config
             .suspend_after_idle_secs
             .unwrap_or(DEFAULT_SUSPEND_AFTER_IDLE_SECS)
@@ -500,7 +499,7 @@ impl SandboxProvider for AcaProvider {
         _events: Option<EventContext>,
     ) -> Result<Arc<dyn Sandbox>> {
         // Proves the sandbox exists in this group before handing it out.
-        crate::sandbox::fetch(&self.client, id.as_str()).await?;
+        fetch(&self.client, id.as_str()).await?;
         Ok(self.handle(id.clone()))
     }
 
@@ -686,7 +685,7 @@ mod tests {
         assert_eq!(body["sourcesRef"]["diskImage"]["id"], "img-1");
         assert_eq!(
             body["lifecycle"]["autoDeletePolicy"]["deleteIntervalInSeconds"],
-            crate::config::MAX_RETENTION_SECS
+            MAX_RETENTION_SECS
         );
     }
 
