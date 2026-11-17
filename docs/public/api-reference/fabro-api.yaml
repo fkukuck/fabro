@@ -5597,6 +5597,82 @@ paths:
 
   # ── Secrets ──────────────────────────────────────────────────────────
 
+  /api/v1/integrations/azure:
+    get:
+      operationId: retrieveAzureConnection
+      tags: [Integrations]
+      summary: Retrieve the Azure connection
+      description: Returns the saved Azure Container Apps connection and execution environment. The client secret is never returned; `client_secret_set` reports whether one is saved.
+      responses:
+        "200":
+          description: The Azure connection, or `configured` false when none is saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AzureConnection"
+    put:
+      operationId: saveAzureConnection
+      tags: [Integrations]
+      summary: Save the Azure connection
+      description: Creates or replaces the Azure connection. Omit `client_secret` to keep the saved secret. The secret is stored server-side outside the workflow-visible vault, so runs cannot resolve it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureConnectionInput"
+      responses:
+        "200":
+          description: Connection saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AzureConnection"
+        "422":
+          description: The settings are incomplete or not allowed
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAzureConnection
+      tags: [Integrations]
+      summary: Disconnect Azure
+      description: Removes the saved Azure connection and its client secret.
+      responses:
+        "204":
+          description: Connection removed
+        "404":
+          description: No Azure connection is saved
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/integrations/azure/test:
+    post:
+      operationId: testAzureConnection
+      tags: [Integrations]
+      summary: Test an Azure connection
+      description: Checks the submitted settings against Azure with read-only requests, using the saved client secret when `client_secret` is omitted. Nothing is saved, no sandbox is created and nothing billable is started.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureConnectionInput"
+      responses:
+        "200":
+          description: The readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AzureReadinessReport"
   /api/v1/secrets:
     get:
       operationId: listSecrets
@@ -17030,6 +17106,102 @@ components:
           type: string
           description: Secret name or destination path for file secrets.
 
+    AzureConnectionSettings:
+      type: object
+      description: The non-secret settings of the Azure Container Apps connection.
+      required: [tenant_id, client_id, subscription_id, location, resource_group, sandbox_group, execution]
+      properties:
+        tenant_id:
+          type: string
+          description: Microsoft Entra tenant (directory) ID or domain.
+        client_id:
+          type: string
+          description: Application (client) ID of the app registration.
+        subscription_id:
+          type: string
+        location:
+          type: string
+          description: Azure region of the sandbox group, e.g. `westus2`.
+        resource_group:
+          type: string
+        sandbox_group:
+          type: string
+        execution:
+          $ref: "#/components/schemas/AcaExecutionSettings"
+    AcaExecutionSettings:
+      type: object
+      description: The ACA execution environment and the administrator's policy over it.
+      required: [enabled, image, allowed_images, cpu_millicores, memory_mib]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether ACA execution is allowed.
+        image:
+          type: string
+          description: Disk image sandboxes boot from.
+        allowed_images:
+          type: array
+          items:
+            type: string
+          description: Images an environment may choose. Empty allows any image.
+        cpu_millicores:
+          type: integer
+          format: uint32
+        memory_mib:
+          type: integer
+          format: uint32
+    AzureConnectionInput:
+      allOf:
+        - $ref: "#/components/schemas/AzureConnectionSettings"
+        - type: object
+          properties:
+            client_secret:
+              type: string
+              description: Client secret value. Omit or leave empty to keep the saved secret.
+    AzureConnection:
+      type: object
+      required: [configured, client_secret_set]
+      properties:
+        configured:
+          type: boolean
+        settings:
+          $ref: "#/components/schemas/AzureConnectionSettings"
+        client_secret_set:
+          type: boolean
+        secret_updated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AzureReadinessCheck:
+      type: object
+      required: [id, label, status, message]
+      properties:
+        id:
+          type: string
+          enum: [settings, credentials, sandbox_group, data_plane, image, resources]
+        label:
+          type: string
+        status:
+          type: string
+          enum: [passed, failed, skipped]
+        message:
+          type: string
+    AzureReadinessReport:
+      type: object
+      required: [ready, checks, checked_at]
+      properties:
+        ready:
+          type: boolean
+          description: True only when every check passed.
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AzureReadinessCheck"
+        checked_at:
+          type: string
+          format: date-time
     SecretMetadata:
       description: Metadata for a stored secret (value is never exposed).
       type: object
