@@ -1,0 +1,61 @@
+---
+title: "Azure Container Apps"
+description: "Connect an Azure Container Apps sandbox group from Settings and test it without starting a sandbox"
+---
+
+Fabro can hold a connection to an [Azure Container Apps (ACA) sandbox group](https://sandboxes.azure.com/docs/sandboxes/) so an administrator can prepare ACA sandboxes from **Settings > Sandboxes > Azure Container Apps**, without editing files or staying signed in on a terminal.
+
+<Note>
+This release covers the connection and the execution environment only. Running workflows in ACA sandboxes is not available yet; the Settings page says so and never reports a workflow as verified. Existing sandbox providers (Local, Docker, Daytona) are unaffected whether or not Azure is connected.
+</Note>
+
+## What must already exist
+
+- An Azure subscription and a resource group.
+- A sandbox group in that resource group, created at [sandboxes.azure.com](https://sandboxes.azure.com/sandbox-groups). Fabro does not create it.
+- Any custom disk image you want sandboxes to boot from, imported into the sandbox group. `ubuntu` is built in.
+- An app registration (service principal) in Microsoft Entra ID with a client secret:
+  1. Azure portal > **Microsoft Entra ID** > **App registrations** > **New registration**.
+  2. Copy the **Directory (tenant) ID** and **Application (client) ID** from the overview.
+  3. **Certificates & secrets** > **New client secret**. Copy the secret's **Value** (not its Secret ID) and note the expiry date.
+- Role assignments for the app registration on the sandbox group (**Access control (IAM)** > **Add role assignment**):
+  - **Reader**, so Fabro can read the sandbox group.
+  - **Container Apps SandboxGroup Data Owner**, so Fabro can use the group's data plane.
+
+## Costs
+
+Testing the connection only reads from Azure: it signs in, reads the sandbox group and lists disk images. It creates no sandbox and starts nothing billable. Once workflows run on ACA, Azure bills vCPU per core-second and memory per GiB-second while a sandbox runs, plus storage for custom images and snapshots. See [ACA sandbox costs](https://sandboxes.azure.com/docs/sandboxes/cost).
+
+## Set up the connection
+
+1. Open **Settings > Sandboxes** and choose **Set up** next to **Azure Container Apps**.
+2. Enter the tenant ID, client ID and client secret.
+3. Enter the subscription ID, the sandbox group's location (for example `westus2`), the resource group and the sandbox group.
+4. Choose the execution environment: the disk image and a sandbox size. Optionally list the **allowed images**; when the list is not empty, only those images can be chosen. Clear **Allow ACA execution** to keep the connection saved while ACA cannot be used for execution.
+5. Choose **Test connection**. Each check reports Passed, Failed (with what to fix) or Skipped (because an earlier check failed):
+
+   | Check | Proves |
+   |---|---|
+   | Connection details | Every required field is filled in, the image is allowed and the size is supported |
+   | Credentials | Microsoft Entra ID issues a token for the app registration; an invalid or expired secret is named as such |
+   | Sandbox group | The group exists, is provisioned, and is in the given location, and the app registration can read it |
+   | Sandbox permissions | The app registration can use the group's data plane |
+   | Image | The image exists in the group and has finished importing |
+   | Computing resources | The size is one ACA sandboxes support |
+
+6. Choose **Save**.
+
+To replace the client secret, type the new value and save; leave the field blank to keep the saved one. **Disconnect** removes the saved connection and secret from Fabro; nothing in Azure changes.
+
+## How the secret is kept
+
+The connection is stored in the Fabro server's database, in its own table, not in the secrets vault. Vault secrets can be referenced by workflows, so keeping the Azure secret out of the vault means workflows and agent sandboxes cannot read it. The API never returns the secret, only whether one is saved and when it last changed, and Fabro does not log it. The connection survives server restarts. Any signed-in user of the server can manage it, as with other server settings.
+
+## Verify after deployment
+
+1. Sign in to Fabro and open **Settings > Sandboxes > Azure Container Apps**. The status shows **Not configured**.
+2. Fill in the form and choose **Test connection**. Expect every check to pass. To see the failure messages, test once with a wrong client secret and once with a sandbox group name that does not exist.
+3. Save, restart the Fabro server, and reload the page. The details are still there and the client secret shows as saved.
+4. Change a detail (for example the size), leave the secret blank, save, and test again: the saved secret is reused.
+5. Check that no workflow can see the secret: **Settings > Secrets** lists no Azure entry.
+6. Choose **Disconnect** and confirm. The status returns to **Not configured**.

@@ -9,6 +9,7 @@ use super::{ApiError, AppState, IntoResponse, Json, Response, StatusCode, demo};
 
 mod artifacts;
 pub(in crate::server) mod automations;
+mod azure;
 mod completions;
 mod environments;
 pub(in crate::server) mod events;
@@ -222,6 +223,7 @@ pub(super) fn real_routes() -> Router<Arc<AppState>> {
         .merge(graph::run_routes())
         .merge(models::routes())
         .merge(secrets::routes())
+        .merge(azure::routes())
         .merge(variables::routes())
         .merge(worker_control::routes())
         .merge(workflow_versions::routes())

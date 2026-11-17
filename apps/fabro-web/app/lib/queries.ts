@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import useSWR, { type SWRConfiguration } from "swr";
+import { azureQueryKey, fetchAzureConnection, type AzureConnection } from "./azure";
 import type {
   ApiQuestion,
   AuthConfigResponse,
@@ -558,6 +559,10 @@ export function useModels(provider: string, query: string) {
       ),
     immutableOptions,
   );
+}
+
+export function useAzureConnection() {
+  return useSWR<AzureConnection>(azureQueryKey, fetchAzureConnection);
 }
 
 export function useSecrets() {

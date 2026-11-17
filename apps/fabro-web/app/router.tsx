@@ -37,6 +37,7 @@ import * as SettingsGeneral from "./routes/settings-general";
 import * as SettingsIntegrations from "./routes/settings-integrations";
 import * as SettingsModels from "./routes/settings-models";
 import * as SettingsSandboxes from "./routes/settings-sandboxes";
+import * as SettingsAzure from "./routes/settings-azure";
 import * as SettingsEnvironments from "./routes/settings-environments";
 import * as SettingsEnvironmentsNew from "./routes/settings-environments-new";
 import * as SettingsEnvironmentsEdit from "./routes/settings-environments-edit";
@@ -151,6 +152,7 @@ export const routes: RouteObject[] = [
               route("models", SettingsModels),
               route("integrations", SettingsIntegrations),
               route("sandboxes", SettingsSandboxes),
+              route("sandboxes/azure", SettingsAzure),
               route("security", SettingsSecurity),
               route("environments", SettingsEnvironments),
               route("environments/new", SettingsEnvironmentsNew),

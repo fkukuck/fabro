@@ -70,6 +70,7 @@ export default function SettingsSandboxes() {
     <div className="space-y-6">
       <SettingsPageIntro description={DESCRIPTION} />
       {settings ? <ProvidersPanel settings={settings.server.sandbox.providers} /> : <PanelSkeleton />}
+      <AzurePanel />
     </div>
   );
 }
@@ -137,6 +138,28 @@ function ProvidersPanel({ settings }: { settings: ProviderSettingsMap }) {
           {plural(disabled.length, "provider", "providers")}
         </button>
       ) : null}
+    </Panel>
+  );
+}
+
+function AzurePanel() {
+  return (
+    <Panel title="Connections">
+      <Row
+        title={
+          <span className="flex min-w-0 flex-col">
+            <span className="text-sm text-fg-2">Azure Container Apps</span>
+            <span className="text-xs/5 text-fg-3">
+              Connect an ACA sandbox group and choose its execution environment. Workflow execution
+              on ACA ships in a later release.
+            </span>
+          </span>
+        }
+      >
+        <Link to="/settings/sandboxes/azure" className="text-sm text-teal-500 hover:underline">
+          Set up →
+        </Link>
+      </Row>
     </Panel>
   );
 }

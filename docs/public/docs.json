@@ -94,6 +94,7 @@
             "pages": [
               "integrations/github",
               "integrations/daytona",
+              "integrations/azure-container-apps",
               "integrations/litellm",
               "integrations/bedrock",
               "integrations/deepseek",

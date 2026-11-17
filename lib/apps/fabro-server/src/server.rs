@@ -1449,7 +1449,9 @@ impl AppState {
         self.refresh_manifest_run_settings_from_catalogs();
     }
 
-    fn http_client(&self) -> Result<fabro_http::HttpClient, fabro_http::HttpClientBuildError> {
+    pub(crate) fn http_client(
+        &self,
+    ) -> Result<fabro_http::HttpClient, fabro_http::HttpClientBuildError> {
         match &self.http_client {
             Some(client) => Ok(client.clone()),
             None => fabro_http::http_client(),
