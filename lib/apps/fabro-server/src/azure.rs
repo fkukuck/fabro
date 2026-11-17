@@ -593,10 +593,7 @@ async fn token(
     let url = format!(
         "{}/{}/oauth2/v2.0/token",
         endpoints.authority.trim_end_matches('/'),
-        percent_encoding::utf8_percent_encode(
-            &settings.tenant_id,
-            percent_encoding::NON_ALPHANUMERIC
-        )
+        segment(&settings.tenant_id)
     );
     let form = [
         ("grant_type", "client_credentials"),
