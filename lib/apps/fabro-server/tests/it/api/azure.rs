@@ -11,8 +11,10 @@ fn json_request(method: Method, path: &str, body: &serde_json::Value) -> Request
         .method(method)
         .uri(api(path))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(body).unwrap()))
-        .unwrap()
+        .body(Body::from(
+            serde_json::to_string(body).expect("request body should serialize"),
+        ))
+        .expect("request should build")
 }
 
 fn empty_request(method: Method, path: &str) -> Request<Body> {
@@ -20,7 +22,7 @@ fn empty_request(method: Method, path: &str) -> Request<Body> {
         .method(method)
         .uri(api(path))
         .body(Body::empty())
-        .unwrap()
+        .expect("request should build")
 }
 
 fn connection(secret: Option<&str>) -> serde_json::Value {
@@ -53,7 +55,7 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
         .clone()
         .oneshot(empty_request(Method::GET, "/integrations/azure"))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(empty, StatusCode::OK, "GET azure").await;
     assert_eq!(body["configured"], false);
     assert_eq!(body["client_secret_set"], false);
@@ -66,7 +68,7 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
             &connection(None),
         ))
         .await
-        .unwrap();
+        .expect("request should route");
     response_status(
         no_secret,
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -82,7 +84,7 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
             &connection(Some(SECRET)),
         ))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(saved, StatusCode::OK, "PUT azure").await;
     assert_eq!(body["configured"], true);
     assert_eq!(body["client_secret_set"], true);
@@ -95,7 +97,7 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
         .clone()
         .oneshot(json_request(Method::PUT, "/integrations/azure", &edited))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(edited, StatusCode::OK, "PUT azure keeping secret").await;
     assert_eq!(body["settings"]["execution"]["enabled"], false);
     assert_eq!(body["client_secret_set"], true);
@@ -104,7 +106,7 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
         .clone()
         .oneshot(empty_request(Method::GET, "/integrations/azure"))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(read, StatusCode::OK, "GET azure").await;
     assert_eq!(body["settings"]["sandbox_group"], "fabro-sandboxes");
     assert!(!body.to_string().contains(SECRET));
@@ -113,14 +115,14 @@ async fn azure_connection_is_saved_edited_and_disconnected_without_exposing_the_
         .clone()
         .oneshot(empty_request(Method::DELETE, "/integrations/azure"))
         .await
-        .unwrap();
+        .expect("request should route");
     response_status(deleted, StatusCode::NO_CONTENT, "DELETE azure").await;
 
     let read = app
         .clone()
         .oneshot(empty_request(Method::GET, "/integrations/azure"))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(read, StatusCode::OK, "GET azure").await;
     assert_eq!(body["configured"], false);
 }
@@ -134,7 +136,7 @@ async fn azure_connection_rejects_an_image_outside_the_allowed_list() {
     let response = app
         .oneshot(json_request(Method::PUT, "/integrations/azure", &body))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(response, StatusCode::UNPROCESSABLE_ENTITY, "PUT azure").await;
     assert!(body.to_string().contains("allowed images"), "{body}");
 }
@@ -152,7 +154,7 @@ async fn azure_test_reports_missing_details_without_calling_azure() {
             &body,
         ))
         .await
-        .unwrap();
+        .expect("request should route");
     let body = response_json(response, StatusCode::OK, "POST azure test").await;
     assert_eq!(body["ready"], false);
     assert_eq!(body["checks"][0]["id"], "settings");
